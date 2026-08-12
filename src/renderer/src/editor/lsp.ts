@@ -54,10 +54,13 @@ class IpcTransport {
   private listener: ((message: unknown) => void) | undefined
   private unsubscribe: (() => void) | undefined
 
-  constructor(private language: string) {}
+  constructor(
+    private language: string,
+    private root: string | undefined
+  ) {}
 
   async connect(): Promise<boolean> {
-    const res = await window.ember.lspStart(this.language)
+    const res = await window.ember.lspStart(this.language, this.root)
     if (!res.ok) {
       this.state.value = { state: 'closed', error: new Error(res.error ?? 'no server') }
       return false
@@ -113,7 +116,7 @@ const SERVER_FOR: Record<string, string> = {
  * file of that language rather than at boot, so a terminal-only session never pays
  * for a language server.
  */
-export function ensureLanguageServer(language: string): Promise<boolean> {
+export function ensureLanguageServer(language: string, root?: string): Promise<boolean> {
   const target = SERVER_FOR[language]
   if (!target) return Promise.resolve(false)
 
@@ -121,7 +124,7 @@ export function ensureLanguageServer(language: string): Promise<boolean> {
   if (existing) return existing
 
   const attempt = (async (): Promise<boolean> => {
-    const transport = new IpcTransport(target)
+    const transport = new IpcTransport(target, root)
     if (!(await transport.connect())) return false
 
     const LspClient = (

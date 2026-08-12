@@ -125,7 +125,7 @@ function registerIpc(): void {
   ipcMain.handle('file:read', (_e, filePath: string) => files.read(filePath))
   ipcMain.handle('file:readDir', (_e, dirPath: string) => files.readDir(dirPath))
 
-  ipcMain.handle('lsp:start', (_e, language: string) => lsp.start(language))
+  ipcMain.handle('lsp:start', (_e, language: string, root?: string) => lsp.start(language, root))
   ipcMain.on('lsp:send', (_e, language: string, message: unknown) => lsp.post(language, message))
   ipcMain.handle('file:write', (_e, filePath: string, content: string) =>
     files.write(filePath, content)

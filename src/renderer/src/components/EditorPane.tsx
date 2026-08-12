@@ -40,7 +40,11 @@ export function EditorPane({ pane, active, onFocus }: Props): React.JSX.Element 
       (uri && monaco.editor.getModel(uri)) ||
       monaco.editor.createModel(pane.savedContent, pane.language, uri)
 
-    void ensureLanguageServer(pane.language)
+    // The tree root when there is one, else the file's own directory: a server that
+    // indexes a project needs somewhere to start.
+    const treeRoot = useStore.getState().treeRoot
+    const fileDir = pane.filePath?.replace(/[\/][^\/]*$/, '')
+    void ensureLanguageServer(pane.language, treeRoot ?? fileDir ?? undefined)
 
     const editor = monaco.editor.create(host.current, {
       model,

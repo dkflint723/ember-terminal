@@ -1,7 +1,8 @@
 import { app } from 'electron'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 type Send = (payload: unknown) => void
 
@@ -16,6 +17,8 @@ type Send = (payload: unknown) => void
 export class LspService {
   private servers = new Map<string, ChildProcessWithoutNullStreams>()
   private buffers = new Map<string, Buffer>()
+  /** Workspace root per language, injected into the handshake. See post(). */
+  private roots = new Map<string, string>()
 
   constructor(private send: Send) {}
 
@@ -43,7 +46,8 @@ export class LspService {
     return { exe: process.execPath, args: [entry, '--stdio'] }
   }
 
-  start(language: string): { ok: boolean; error?: string } {
+  start(language: string, root?: string): { ok: boolean; error?: string } {
+    if (root) this.roots.set(language, root)
     if (this.servers.has(language)) return { ok: true }
 
     const command = this.serverCommand(language)
@@ -111,16 +115,56 @@ export class LspService {
     this.buffers.set(language, buffer)
   }
 
+  /**
+   * Forward a message to the server, enriching the `initialize` handshake.
+   *
+   * Monaco's bundled LSP client builds `initialize` itself and offers no way to set
+   * a workspace root. Servers that analyse per-file (typescript-language-server) do
+   * not care; servers that index a project (pyright) return nothing at all without
+   * one. Since this transport already sits between client and server, the root is
+   * injected here rather than reimplementing the client to gain one parameter.
+   *
+   * Only absent fields are filled in, so anything the client does send still wins.
+   */
   post(language: string, message: unknown): void {
     const child = this.servers.get(language)
     if (!child) return
-    const body = Buffer.from(JSON.stringify(message), 'utf8')
+
+    let outgoing = message
+    const root = this.roots.get(language)
+    if (root && this.isInitialize(message)) {
+      const params = (message.params ?? {}) as Record<string, unknown>
+      const uri = pathToFileURL(root).href
+      outgoing = {
+        ...message,
+        params: {
+          ...params,
+          processId: params.processId ?? process.pid,
+          rootUri: params.rootUri ?? uri,
+          // Deprecated in the spec but still what some servers actually read.
+          rootPath: params.rootPath ?? root,
+          workspaceFolders: params.workspaceFolders ?? [{ uri, name: basename(root) }]
+        }
+      }
+    }
+
+    const body = Buffer.from(JSON.stringify(outgoing), 'utf8')
     try {
+      // Escapes, not real line breaks: the header must be CRLF-delimited, and a
+      // literal break here would emit LF on an LF checkout and be rejected.
       child.stdin.write(`Content-Length: ${body.length}\r\n\r\n`)
       child.stdin.write(body)
     } catch {
       // The server died between the check and the write; its exit handler cleans up.
     }
+  }
+
+  private isInitialize(message: unknown): message is { params?: unknown; method: string } {
+    return (
+      typeof message === 'object' &&
+      message !== null &&
+      (message as { method?: unknown }).method === 'initialize'
+    )
   }
 
   dispose(): void {
@@ -133,5 +177,6 @@ export class LspService {
     }
     this.servers.clear()
     this.buffers.clear()
+    this.roots.clear()
   }
 }
