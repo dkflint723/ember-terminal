@@ -21,7 +21,12 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
     "@lydell/node-pty": "1.2.0-beta.15",
-    "monaco-editor": "^0.56.0"
+    "bash-language-server": "^5.6.0",
+    "monaco-editor": "^0.56.0",
+    "pyright": "^1.1.412",
+    "typescript": "^5.9.3",
+    "typescript-language-server": "^5.3.0",
+    "yaml-language-server": "^1.24.0"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
@@ -35,18 +40,13 @@
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^6.0.0",
-    "bash-language-server": "^5.6.0",
     "electron": "^43.4.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "playwright-core": "^1.62.1",
-    "pyright": "^1.1.412",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "typescript": "^5.9.3",
-    "typescript-language-server": "^5.3.0",
     "vite": "^7.1.14",
-    "yaml-language-server": "^1.24.0",
     "zustand": "^5.0.8"
   },
   "build": {
@@ -57,10 +57,11 @@
     },
     "files": [
       "out/**/*",
-      "resources/**/*"
+      "resources/**/*",
+      "!node_modules/monaco-editor/**/*"
     ],
     "asarUnpack": [
-      "**/node_modules/@lydell/**"
+      "**/node_modules/**"
     ],
     "win": {
       "target": [

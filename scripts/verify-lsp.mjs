@@ -66,10 +66,14 @@ async function run(language) {
   const env = { ...process.env, EMBER_LSP_LOG: logPath }
   delete env.ELECTRON_RUN_AS_NODE
 
+  // EMBER_EXE points the same checks at a packaged build, where the servers are
+  // resolved out of the asar's unpacked sibling rather than the source tree. That
+  // path has its own ways to fail, so it is exercised rather than assumed.
+  const packaged = process.env.EMBER_EXE
   const app = await electron.launch({
-    executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
-    args: [APP_DIR, file],
-    cwd: APP_DIR,
+    executablePath: packaged ?? path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
+    args: packaged ? [file] : [APP_DIR, file],
+    cwd: packaged ? path.dirname(packaged) : APP_DIR,
     env,
     timeout: 60_000
   })
@@ -182,6 +186,8 @@ for (const language of languages) {
     failed++
     console.log(`${language}: FAIL (${summary})`)
     for (const f of failures) console.log(`    - ${f}`)
+    // The traffic is the only place these failures explain themselves.
+    for (const line of result.lines) console.log(`      ${line.slice(0, 300)}`)
   } else {
     console.log(`${language}: PASS (${summary})`)
   }

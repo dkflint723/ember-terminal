@@ -102,12 +102,24 @@ export class LspService {
    *
    * The stdio flag is per-server rather than assumed: `--stdio` is the common
    * spelling but not a universal one, and bash-language-server takes a `start`
-   * subcommand instead.
+   * subcommand instead. `initialization` supplies the server's own settings, which
+   * ride along in the handshake; it receives the app root because the only setting
+   * needed so far is a path into it.
    */
-  private static readonly SERVERS: Record<string, { entry: string[]; args: string[] }> = {
+  private static readonly SERVERS: Record<
+    string,
+    { entry: string[]; args: string[]; initialization?: (base: string) => Record<string, unknown> }
+  > = {
     typescript: {
       entry: ['node_modules', 'typescript-language-server', 'lib', 'cli.mjs'],
-      args: ['--stdio']
+      args: ['--stdio'],
+      // Left to itself the server hunts for `node_modules/typescript/lib/tsserver.js`
+      // by walking up from its working directory. That happens to succeed when the
+      // app runs from its own source tree and finds nothing once it is packaged, so
+      // the path is handed over rather than discovered.
+      initialization: (base) => ({
+        tsserver: { path: join(base, 'node_modules', 'typescript', 'lib', 'tsserver.js') }
+      })
     },
     python: {
       entry: ['node_modules', 'pyright', 'langserver.index.js'],
@@ -126,17 +138,34 @@ export class LspService {
   /**
    * A packaged app has no `node` on the path, but Electron's own binary runs as
    * Node when ELECTRON_RUN_AS_NODE is set — the standard way to host a Node child
-   * process from Electron. Both servers happen to be Node programs; a native
-   * server would need its own branch here.
+   * process from Electron. Every server here happens to be a Node program; a native
+   * one would need its own branch.
+   *
+   * Packaged, `app.getAppPath()` names the asar archive, and the servers are unpacked
+   * beside it. The main process could read either spelling — Electron patches `fs` to
+   * see through the archive — but the child cannot: it is Electron running as plain
+   * Node, and that mode does not carry the archive support with it. So the path is
+   * rewritten to the unpacked sibling, which is a real directory both ends agree on.
+   *
+   * The servers have to be unpacked rather than left in the archive regardless,
+   * because they read data files of their own from disk: pyright its typeshed stubs,
+   * bash-language-server its tree-sitter grammar.
    */
-  private serverCommand(language: string): { exe: string; args: string[] } | null {
+  private appBase(): string {
+    return app.getAppPath().replace(/app\.asar(?=[\\/]|$)/, 'app.asar.unpacked')
+  }
+
+  private serverCommand(language: string): { exe: string; args: string[]; cwd: string } | null {
     const server = LspService.SERVERS[language]
     if (!server) return null
 
-    const base = app.isPackaged ? process.resourcesPath : app.getAppPath()
+    const base = this.appBase()
     const entry = join(base, ...server.entry)
-    if (!existsSync(entry)) return null
-    return { exe: process.execPath, args: [entry, ...server.args] }
+    if (!existsSync(entry)) {
+      trace('-->', language, `no server binary at ${entry}`)
+      return null
+    }
+    return { exe: process.execPath, args: [entry, ...server.args], cwd: base }
   }
 
   start(language: string, root?: string): { ok: boolean; error?: string } {
@@ -151,6 +180,10 @@ export class LspService {
       child = spawn(command.exe, command.args, {
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
+        // Anchored to the app rather than inherited: a server that resolves anything
+        // by walking up from its working directory would otherwise get a different
+        // answer depending on where the user launched the app from.
+        cwd: command.cwd,
         env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
       })
     } catch (err) {
@@ -224,25 +257,39 @@ export class LspService {
    * one. Since this transport already sits between client and server, the root is
    * injected here rather than reimplementing the client to gain one parameter.
    *
+   * The same request also carries the server's own settings, which the client has no
+   * concept of at all — `initializationOptions` is where a server is told things like
+   * where its backing toolchain lives.
+   *
    * Only absent fields are filled in, so anything the client does send still wins.
    */
   post(language: string, message: unknown): void {
     if (!this.servers.has(language)) return
 
     let outgoing = message
-    const root = this.roots.get(language)
-    if (root && this.isInitialize(message)) {
+    if (this.isInitialize(message)) {
       const params = (message.params ?? {}) as Record<string, unknown>
-      const uri = pathToFileURL(root).href
+      const root = this.roots.get(language)
+      const workspace = root
+        ? (() => {
+            const uri = pathToFileURL(root).href
+            return {
+              rootUri: params.rootUri ?? uri,
+              // Deprecated in the spec but still what some servers actually read.
+              rootPath: params.rootPath ?? root,
+              workspaceFolders: params.workspaceFolders ?? [{ uri, name: basename(root) }]
+            }
+          })()
+        : {}
+
+      const settings = LspService.SERVERS[language]?.initialization?.(this.appBase())
       outgoing = {
         ...message,
         params: {
           ...params,
           processId: params.processId ?? process.pid,
-          rootUri: params.rootUri ?? uri,
-          // Deprecated in the spec but still what some servers actually read.
-          rootPath: params.rootPath ?? root,
-          workspaceFolders: params.workspaceFolders ?? [{ uri, name: basename(root) }]
+          ...workspace,
+          ...(settings ? { initializationOptions: params.initializationOptions ?? settings } : {})
         }
       }
     }
