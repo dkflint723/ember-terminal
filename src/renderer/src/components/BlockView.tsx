@@ -26,11 +26,25 @@ export const BlockView = memo(function BlockView({ block, onToggle, onRerun }: P
     void navigator.clipboard.writeText(text)
   }
 
+  const statusLabel =
+    block.status === 'running' ? 'running' : block.status === 'done' ? 'succeeded' : 'failed'
+
   return (
-    <div className={`block block--${block.status}`}>
+    <div
+      className={`block block--${block.status}`}
+      role="group"
+      aria-label={`${block.command || 'interactive command'} — ${statusLabel}`}
+    >
       <div className="block__head" onClick={onToggle}>
         <span className="block__chevron">{block.collapsed ? '▶' : '▼'}</span>
-        <span className={`block__status block__status--${block.status}`} />
+        {/*
+          Status carries a glyph as well as a colour. Colour alone is unreadable
+          for anyone with a colour vision deficiency, and no palette can fix that
+          — the shape has to differ too.
+        */}
+        <span className={`block__status block__status--${block.status}`} title={statusLabel}>
+          {block.status === 'running' ? '●' : block.status === 'done' ? '✓' : '✕'}
+        </span>
         <span className="block__cmd">{block.command || '(interactive)'}</span>
 
         <span className="block__actions">

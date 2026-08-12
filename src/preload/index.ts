@@ -16,6 +16,11 @@ import type {
  * crosses this bridge as plain data.
  */
 const api: EmberApi = {
+  listThemes: () => ipcRenderer.invoke('themes:list'),
+  getTheme: (id: string) => ipcRenderer.invoke('themes:get', id),
+  importTheme: () => ipcRenderer.invoke('themes:import'),
+  openThemeFolder: () => ipcRenderer.send('themes:openFolder'),
+
   spawn: (req: SpawnRequest) => ipcRenderer.invoke('pty:spawn', req),
   write: (paneId: string, data: string) => ipcRenderer.send('pty:write', paneId, data),
   resize: (paneId: string, cols: number, rows: number) =>

@@ -1,0 +1,63 @@
+// Red–Green Safe (Dark)
+//
+// For deuteranopia/deuteranomaly and protanopia — together the most common forms
+// of colour vision deficiency, and the ones a terminal punishes hardest, because
+// pass/fail and added/removed are conventionally encoded as green vs red.
+//
+// The ANSI slots use the Okabe–Ito qualitative palette, which is designed to stay
+// distinguishable under all common CVD types. The status colours deliberately move
+// off the green/red axis onto sky blue vs vermillion, which separates far more
+// strongly than any green/red pair can.
+{
+  "name": "Red–Green Safe (Dark)",
+  "type": "dark",
+  "colors": {
+    "editor.background": "#14161c",
+    "editor.foreground": "#e8eaed",
+    "terminal.background": "#14161c",
+    "terminal.foreground": "#e8eaed",
+    "terminalCursor.foreground": "#e69f00",
+    "terminal.selectionBackground": "#2b4a63",
+    "titleBar.activeBackground": "#1c1f27",
+    "editorWidget.background": "#22262f",
+    "list.hoverBackground": "#2c313c",
+    "panel.border": "#333947",
+    "input.border": "#455065",
+    "descriptionForeground": "#a8aeb9",
+    "disabledForeground": "#767d8a",
+    "focusBorder": "#e69f00",
+
+    // Status axis: blue for good, vermillion for bad — never green vs red.
+    "gitDecoration.addedResourceForeground": "#56b4e9",
+    "errorForeground": "#d55e00",
+    "textLink.foreground": "#56b4e9",
+
+    // Okabe–Ito, mapped onto the ANSI slots.
+    "terminal.ansiBlack": "#14161c",
+    "terminal.ansiRed": "#d55e00",
+    "terminal.ansiGreen": "#009e73",
+    "terminal.ansiYellow": "#f0e442",
+    "terminal.ansiBlue": "#0072b2",
+    "terminal.ansiMagenta": "#cc79a7",
+    "terminal.ansiCyan": "#56b4e9",
+    "terminal.ansiWhite": "#d3d7de",
+    "terminal.ansiBrightBlack": "#767d8a",
+    "terminal.ansiBrightRed": "#ef7d2b",
+    "terminal.ansiBrightGreen": "#1fc194",
+    "terminal.ansiBrightYellow": "#f7ee72",
+    "terminal.ansiBrightBlue": "#3596d6",
+    "terminal.ansiBrightMagenta": "#e096c2",
+    "terminal.ansiBrightCyan": "#87ccf2",
+    "terminal.ansiBrightWhite": "#ffffff"
+  },
+  "tokenColors": [
+    { "scope": "comment", "settings": { "foreground": "#767d8a", "fontStyle": "italic" } },
+    { "scope": "string", "settings": { "foreground": "#56b4e9" } },
+    { "scope": "constant.numeric", "settings": { "foreground": "#f0e442" } },
+    { "scope": "keyword", "settings": { "foreground": "#cc79a7" } },
+    { "scope": "keyword.operator", "settings": { "foreground": "#009e73" } },
+    { "scope": "entity.name.function", "settings": { "foreground": "#e69f00" } },
+    { "scope": "variable", "settings": { "foreground": "#e8eaed" } },
+    { "scope": "invalid", "settings": { "foreground": "#d55e00" } }
+  ]
+}

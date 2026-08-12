@@ -17,10 +17,11 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
   const toggleBlock = useStore((s) => s.toggleBlock)
   const fontFamily = useStore((s) => s.settings.fontFamily)
   const fontSize = useStore((s) => s.settings.fontSize)
+  const palette = useStore((s) => s.theme.terminal)
 
-  // The controller is created once per pane; later font changes go through
-  // setFont rather than recreating the terminal.
-  const controller = getController(pane.id, fontFamily, fontSize)
+  // The controller is created once per pane; later font and theme changes go
+  // through setFont/setPalette rather than recreating the terminal.
+  const controller = getController(pane.id, fontFamily, fontSize, palette)
   const raw = pane.mode === 'raw'
   const running = pane.blocks.at(-1)?.status === 'running'
 

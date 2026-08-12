@@ -1,5 +1,7 @@
 /** Types shared across main, preload, and renderer. */
 
+import type { ResolvedTheme, ThemeSummary } from './theme.js'
+
 export interface ShellProfile {
   id: string
   name: string
@@ -53,6 +55,8 @@ export interface Settings {
   fontFamily: string
   fontSize: number
   defaultProfileId: string | null
+  /** Id of a theme in the VS Code color-theme format; see shared/theme.ts. */
+  themeId: string
   /** Stored encrypted at rest via Electron safeStorage when available. */
   anthropicApiKey: string | null
   aiModel: string
@@ -62,12 +66,18 @@ export const DEFAULT_SETTINGS: Settings = {
   fontFamily: 'Cascadia Code, Cascadia Mono, Consolas, monospace',
   fontSize: 13,
   defaultProfileId: null,
+  themeId: 'ember-dark',
   anthropicApiKey: null,
   aiModel: 'claude-opus-5'
 }
 
 /** The API the preload script exposes on `window.ember`. */
 export interface EmberApi {
+  listThemes(): Promise<ThemeSummary[]>
+  /** Null when the id names a theme that has since been removed. */
+  getTheme(id: string): Promise<ResolvedTheme | null>
+  importTheme(): Promise<{ ok: boolean; id?: string; error?: string }>
+  openThemeFolder(): void
   spawn(req: SpawnRequest): Promise<{ ok: boolean; error?: string }>
   write(paneId: string, data: string): void
   resize(paneId: string, cols: number, rows: number): void

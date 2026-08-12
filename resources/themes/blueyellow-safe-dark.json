@@ -1,0 +1,58 @@
+// Blue–Yellow Safe (Dark)
+//
+// For tritanopia/tritanomaly, where blue and yellow collide — the opposite problem
+// to the red–green themes, so the fix is inverted. Blue vs yellow carries no
+// meaning here; the status axis is crimson vs teal, which stays separable under
+// tritanopia, and yellow is avoided as a signal colour entirely.
+{
+  "name": "Blue–Yellow Safe (Dark)",
+  "type": "dark",
+  "colors": {
+    "editor.background": "#121316",
+    "editor.foreground": "#e9e6e6",
+    "terminal.background": "#121316",
+    "terminal.foreground": "#e9e6e6",
+    "terminalCursor.foreground": "#e5486f",
+    "terminal.selectionBackground": "#154a4f",
+    "titleBar.activeBackground": "#1b1c20",
+    "editorWidget.background": "#222327",
+    "list.hoverBackground": "#2c2d33",
+    "panel.border": "#343539",
+    "input.border": "#4a4b52",
+    "descriptionForeground": "#adaaab",
+    "disabledForeground": "#7b7879",
+    "focusBorder": "#e5486f",
+
+    // Status axis: teal for good, crimson for bad — both survive tritanopia.
+    "gitDecoration.addedResourceForeground": "#00b3a4",
+    "errorForeground": "#e5486f",
+    "textLink.foreground": "#00b3a4",
+
+    "terminal.ansiBlack": "#121316",
+    "terminal.ansiRed": "#e5486f",
+    "terminal.ansiGreen": "#00b3a4",
+    "terminal.ansiYellow": "#c9847d",
+    "terminal.ansiBlue": "#7f8fa6",
+    "terminal.ansiMagenta": "#d264a8",
+    "terminal.ansiCyan": "#3fd0c9",
+    "terminal.ansiWhite": "#d5d2d2",
+    "terminal.ansiBrightBlack": "#7b7879",
+    "terminal.ansiBrightRed": "#ff6b8b",
+    "terminal.ansiBrightGreen": "#28ccbd",
+    "terminal.ansiBrightYellow": "#e0a09a",
+    "terminal.ansiBrightMagenta": "#e888c0",
+    "terminal.ansiBrightBlue": "#9aa8bd",
+    "terminal.ansiBrightCyan": "#6fe4de",
+    "terminal.ansiBrightWhite": "#ffffff"
+  },
+  "tokenColors": [
+    { "scope": "comment", "settings": { "foreground": "#7b7879", "fontStyle": "italic" } },
+    { "scope": "string", "settings": { "foreground": "#00b3a4" } },
+    { "scope": "constant.numeric", "settings": { "foreground": "#c9847d" } },
+    { "scope": "keyword", "settings": { "foreground": "#d264a8" } },
+    { "scope": "keyword.operator", "settings": { "foreground": "#3fd0c9" } },
+    { "scope": "entity.name.function", "settings": { "foreground": "#e5486f" } },
+    { "scope": "variable", "settings": { "foreground": "#e9e6e6" } },
+    { "scope": "invalid", "settings": { "foreground": "#ff6b8b" } }
+  ]
+}

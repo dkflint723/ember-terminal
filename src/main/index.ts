@@ -1,15 +1,17 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
 import { PtyManager } from './pty.js'
 import { detectProfiles } from './profiles.js'
 import { SettingsStore } from './settings.js'
+import { ThemeStore } from './themes.js'
 import { AiService } from './ai.js'
-import type { AiRequest, Settings, SpawnRequest } from '../shared/types.js'
+import { DEFAULT_SETTINGS, type AiRequest, type Settings, type SpawnRequest } from '../shared/types.js'
 
 const isDev = !app.isPackaged
 
 let mainWindow: BrowserWindow | null = null
 let settings: SettingsStore
+let themes: ThemeStore
 let ai: AiService
 let ptys: PtyManager
 
@@ -93,6 +95,28 @@ function registerIpc(): void {
 
   ipcMain.handle('ai:run', (_e, req: AiRequest) => ai.run(req))
 
+  ipcMain.handle('themes:list', () => themes.list())
+
+  ipcMain.handle('themes:get', (_e, id: string) => {
+    // Fall back to the default rather than leaving the UI unthemed if the saved
+    // theme has been deleted from disk.
+    themes.refresh()
+    return themes.load(id) ?? themes.load(DEFAULT_SETTINGS.themeId)
+  })
+
+  ipcMain.handle('themes:import', async () => {
+    if (!mainWindow) return { ok: false, error: 'No window.' }
+    const picked = await dialog.showOpenDialog(mainWindow, {
+      title: 'Import a VS Code theme',
+      filters: [{ name: 'VS Code theme', extensions: ['json'] }],
+      properties: ['openFile']
+    })
+    if (picked.canceled || picked.filePaths.length === 0) return { ok: false }
+    return themes.install(picked.filePaths[0])
+  })
+
+  ipcMain.on('themes:openFolder', () => void shell.openPath(themes.userDir()))
+
   ipcMain.handle('settings:get', () => settings.get())
   ipcMain.handle('settings:set', (_e, patch: Partial<Settings>) => settings.set(patch))
 
@@ -118,6 +142,7 @@ if (!app.requestSingleInstanceLock()) {
 
   void app.whenReady().then(() => {
     settings = new SettingsStore()
+    themes = new ThemeStore()
     ai = new AiService(settings)
     ptys = new PtyManager(
       (paneId, data) => sendToRenderer('pty:data', { paneId, data }),

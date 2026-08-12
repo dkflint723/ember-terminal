@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { DEFAULT_SETTINGS, type Settings, type ShellProfile } from '@shared/types'
+import type { ResolvedTheme, ThemeSummary } from '@shared/theme'
+import { DEFAULT_THEME } from '../terminal/theme'
 
 /** One command and everything it printed — the unit the UI is built around. */
 export interface Block {
@@ -68,10 +70,14 @@ interface Store {
   panes: Record<string, Pane>
   profiles: ShellProfile[]
   settings: Settings
+  theme: ResolvedTheme
+  themes: ThemeSummary[]
   settingsOpen: boolean
 
   setProfiles(p: ShellProfile[]): void
   applySettings(s: Settings): void
+  setThemes(list: ThemeSummary[]): void
+  setTheme(theme: ResolvedTheme): void
   toggleSettings(open?: boolean): void
 
   newTab(profileId: string, cwd?: string): string
@@ -196,10 +202,14 @@ export const useStore = create<Store>((set, get) => ({
   panes: {},
   profiles: [],
   settings: DEFAULT_SETTINGS,
+  theme: DEFAULT_THEME,
+  themes: [],
   settingsOpen: false,
 
   setProfiles: (profiles) => set({ profiles }),
   applySettings: (settings) => set({ settings }),
+  setThemes: (themes) => set({ themes }),
+  setTheme: (theme) => set({ theme }),
   toggleSettings: (open) => set((s) => ({ settingsOpen: open ?? !s.settingsOpen })),
 
   newTab: (profileId, cwd) => {

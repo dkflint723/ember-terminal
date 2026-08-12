@@ -1,32 +1,30 @@
 import type { ITheme } from '@xterm/xterm'
+import { resolveTheme, type ResolvedTheme, type TerminalPalette } from '@shared/theme'
 
 /**
- * Deliberately close to the Windows Terminal "One Half Dark"/Campbell family so
- * the app reads as a native terminal rather than a themed toy.
+ * Resolving an empty theme file yields the built-in dark defaults, so the app has
+ * something correct to paint with before the real theme arrives over IPC — and
+ * the defaults live in exactly one place.
  */
-export const emberTheme: ITheme = {
-  background: '#0c0c0c',
-  foreground: '#e6e6e6',
-  cursor: '#ff9d5c',
-  cursorAccent: '#0c0c0c',
-  selectionBackground: '#3a4a63',
-  selectionForeground: '#ffffff',
+export const DEFAULT_THEME: ResolvedTheme = resolveTheme('ember-dark', {
+  name: 'Ember Dark',
+  type: 'dark'
+})
 
-  black: '#0c0c0c',
-  red: '#e05561',
-  green: '#8cc265',
-  yellow: '#d18f52',
-  blue: '#4aa5f0',
-  magenta: '#c162de',
-  cyan: '#42b3c2',
-  white: '#d6d6d6',
+export function toXtermTheme(palette: TerminalPalette): ITheme {
+  return { ...palette }
+}
 
-  brightBlack: '#6b6b6b',
-  brightRed: '#ff616e',
-  brightGreen: '#a5e075',
-  brightYellow: '#f0a45d',
-  brightBlue: '#4dc4ff',
-  brightMagenta: '#de73ff',
-  brightCyan: '#4cd1e0',
-  brightWhite: '#ffffff'
+/**
+ * Themes are applied as CSS custom properties on the root element rather than by
+ * swapping stylesheets, so every component restyles itself with no re-render.
+ */
+export function applyTheme(theme: ResolvedTheme): void {
+  const root = document.documentElement
+  for (const [name, value] of Object.entries(theme.vars)) {
+    root.style.setProperty(`--${name}`, value)
+  }
+  // Exposed for the rare rule that must branch on light vs dark.
+  root.dataset.themeType = theme.type
+  root.style.colorScheme = theme.type
 }

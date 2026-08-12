@@ -1,10 +1,16 @@
 @import '@xterm/xterm/css/xterm.css';
 
+/*
+ * These are fallbacks only — the real values are written as inline custom
+ * properties on :root by applyTheme(), from a VS Code-format theme file. Keeping
+ * a full set here means no unstyled flash before the theme loads.
+ */
 :root {
   --bg: #0c0c0c;
   --bg-chrome: #191919;
   --bg-elevated: #1f1f1f;
   --bg-hover: #2a2a2a;
+  --bg-block: #101010;
   --border: #2e2e2e;
   --border-strong: #3d3d3d;
   --fg: #e6e6e6;
@@ -14,6 +20,18 @@
   --accent-dim: #7a4a2a;
   --ok: #8cc265;
   --fail: #e05561;
+  --fail-border: #4a2226;
+  --fail-bg: #170e0f;
+  --info: #4aa5f0;
+  --info-fg: #9fd0ff;
+  --info-bg: #101820;
+  --info-border: #24425e;
+  --primary-bg: #1d4a75;
+  --primary-border: #2a6ba8;
+  --primary-fg: #dceaff;
+  --close-hover: #c42b1c;
+  --selection: #3a4a63;
+  --scrim: rgba(0, 0, 0, 0.58);
   --radius: 6px;
   --mono: 'Cascadia Code', 'Cascadia Mono', Consolas, 'Courier New', monospace;
   --ui: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
@@ -157,7 +175,7 @@ button {
 }
 
 .caption-btn--close:hover {
-  background: #c42b1c;
+  background: var(--close-hover);
   color: #fff;
 }
 
@@ -252,12 +270,13 @@ button {
   margin: 0 8px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: #101010;
+  background: var(--bg-block);
   overflow: hidden;
 }
 
 .block--failed {
-  border-color: #4a2226;
+  border-color: var(--fail-border);
+  border-left-width: 3px;
 }
 
 .block--running {
@@ -280,24 +299,28 @@ button {
   flex: 0 0 auto;
 }
 
+/* Glyph, not just a colour swatch — see the note in BlockView. */
 .block__status {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  width: 12px;
   flex: 0 0 auto;
-  background: var(--fg-faint);
+  font-size: 11px;
+  line-height: 1;
+  color: var(--fg-faint);
 }
 
 .block__status--done {
-  background: var(--ok);
+  color: var(--ok);
 }
 
 .block__status--failed {
-  background: var(--fail);
+  color: var(--fail);
 }
 
 .block__status--running {
-  background: var(--accent);
+  color: var(--accent);
+  font-size: 8px;
   animation: pulse 1.1s ease-in-out infinite;
 }
 
@@ -453,7 +476,7 @@ button {
 }
 
 .composer__row--ai:focus-within {
-  border-color: #4aa5f0;
+  border-color: var(--info);
 }
 
 .composer__sigil {
@@ -466,7 +489,7 @@ button {
 }
 
 .composer__row--ai .composer__sigil {
-  color: #4aa5f0;
+  color: var(--info);
 }
 
 .composer__input {
@@ -508,16 +531,16 @@ kbd {
 
 .composer__proposal {
   margin-top: 6px;
-  border: 1px solid #24425e;
+  border: 1px solid var(--info-border);
   border-radius: var(--radius);
-  background: #101820;
+  background: var(--info-bg);
   padding: 8px 10px;
 }
 
 .composer__proposal-cmd {
   font-family: var(--mono);
   font-size: 13px;
-  color: #9fd0ff;
+  color: var(--info-fg);
   user-select: text;
   word-break: break-all;
 }
@@ -548,14 +571,15 @@ kbd {
 }
 
 .btn--primary {
-  background: #1d4a75;
-  border-color: #2a6ba8;
-  color: #dceaff;
+  background: var(--primary-bg);
+  border-color: var(--primary-border);
+  color: var(--primary-fg);
 }
 
 .btn--primary:hover {
-  background: #245a8d;
-  color: #fff;
+  background: var(--info);
+  border-color: var(--info);
+  color: var(--primary-fg);
 }
 
 .composer__error {
@@ -569,7 +593,7 @@ kbd {
   width: 9px;
   height: 9px;
   border: 1.5px solid var(--border-strong);
-  border-top-color: #4aa5f0;
+  border-top-color: var(--info);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
@@ -594,7 +618,7 @@ kbd {
 .modal-scrim {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--scrim);
   display: grid;
   place-items: center;
   z-index: 20;
@@ -657,4 +681,18 @@ kbd {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 18px;
+}
+
+.theme-swatches {
+  display: flex;
+  gap: 4px;
+  margin-top: 7px;
+}
+
+.theme-swatch {
+  width: 22px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid var(--border-strong);
+  flex: 0 0 auto;
 }

@@ -3,8 +3,9 @@ import { FitAddon } from '@xterm/addon-fit'
 import { SerializeAddon } from '@xterm/addon-serialize'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
+import type { TerminalPalette } from '@shared/theme'
 import { useStore } from '../state/store'
-import { emberTheme } from './theme'
+import { DEFAULT_THEME, toXtermTheme } from './theme'
 
 /** Undo the escaping applied by the shell-integration scripts. */
 function unescapeOsc(value: string): string {
@@ -57,7 +58,8 @@ export class TerminalController {
   constructor(
     private paneId: string,
     fontFamily: string,
-    fontSize: number
+    fontSize: number,
+    palette: TerminalPalette = DEFAULT_THEME.terminal
   ) {
     this.term = new Terminal({
       allowProposedApi: true,
@@ -67,7 +69,7 @@ export class TerminalController {
       fontSize,
       lineHeight: 1.25,
       scrollback: 5000,
-      theme: emberTheme,
+      theme: toXtermTheme(palette),
       // Reported to programs so they enable colour and mouse handling.
       windowsPty: { backend: 'conpty' }
     })
@@ -85,7 +87,7 @@ export class TerminalController {
       cols: 120,
       rows: 200,
       scrollback: 5000,
-      theme: emberTheme
+      theme: toXtermTheme(palette)
     })
     this.renderTerm.loadAddon(this.renderSerialize)
 
@@ -390,6 +392,14 @@ export class TerminalController {
     this.refit()
   }
 
+  setPalette(palette: TerminalPalette): void {
+    const theme = toXtermTheme(palette)
+    this.term.options.theme = theme
+    // The offscreen terminal must match, or already-captured blocks would be
+    // serialized with the previous theme's colours.
+    this.renderTerm.options.theme = theme
+  }
+
   focus(): void {
     this.term.focus()
   }
@@ -416,11 +426,12 @@ const registry = new Map<string, TerminalController>()
 export function getController(
   paneId: string,
   fontFamily: string,
-  fontSize: number
+  fontSize: number,
+  palette?: TerminalPalette
 ): TerminalController {
   let c = registry.get(paneId)
   if (!c) {
-    c = new TerminalController(paneId, fontFamily, fontSize)
+    c = new TerminalController(paneId, fontFamily, fontSize, palette)
     registry.set(paneId, c)
   }
   return c

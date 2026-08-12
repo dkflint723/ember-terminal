@@ -165,7 +165,81 @@ await page.keyboard.press('Control+Comma')
 await sleep(800)
 log('settings modal open:', await page.evaluate(() => !!document.querySelector('.modal')))
 await page.screenshot({ path: path.join(SHOT_DIR, '05-settings.png') })
-await page.keyboard.press('Escape')
+log('shot: 05-settings.png')
+
+// Themes: the discovered list, then switching to each and reading back the
+// tokens that were actually applied to the document.
+const themeIds = await page.evaluate(() =>
+  [...document.querySelectorAll('.field select')][0]
+    ? [...document.querySelectorAll('option')]
+        .map((o) => o.value)
+        .filter((v) => v && !v.startsWith('pwsh') && !v.startsWith('windows') && !v.includes('.exe'))
+    : []
+)
+log('theme options:', JSON.stringify(themeIds.slice(0, 12)))
+
+const readTokens = () =>
+  page.evaluate(() => {
+    const cs = getComputedStyle(document.documentElement)
+    return {
+      type: document.documentElement.dataset.themeType,
+      bg: cs.getPropertyValue('--bg').trim(),
+      fg: cs.getPropertyValue('--fg').trim(),
+      accent: cs.getPropertyValue('--accent').trim(),
+      // Proves the palette reached xterm, not just the CSS.
+      xtermBg: getComputedStyle(document.querySelector('.xterm-screen') ?? document.body)
+        .backgroundColor
+    }
+  })
+
+for (const id of [
+  'redgreen-safe-dark',
+  'redgreen-safe-light',
+  'blueyellow-safe-dark',
+  'midnight',
+  'paper'
+]) {
+  if (!themeIds.includes(id)) {
+    log(`theme ${id}: NOT FOUND`)
+    continue
+  }
+  await page.selectOption('.field select', id)
+  await sleep(700)
+  log(`theme ${id} →`, JSON.stringify(await readTokens()))
+  await page.screenshot({ path: path.join(SHOT_DIR, `06-theme-${id}.png`) })
+}
+
+// Apply a light theme for real and look at it with no modal in the way — the
+// scrim otherwise hides how the panes themselves render.
+if (themeIds.includes('redgreen-safe-light')) {
+  await page.selectOption('.field select', 'redgreen-safe-light')
+  await sleep(500)
+  await page.evaluate(() => {
+    const btns = [...document.querySelectorAll('.modal__actions .btn')]
+    btns
+      .find((b) => b.textContent?.includes('Save'))
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+  await sleep(1200)
+  await page.screenshot({ path: path.join(SHOT_DIR, '07-light-applied.png') })
+  log('shot: 07-light-applied.png (modal closed)')
+  log('light theme live →', JSON.stringify(await readTokens()))
+
+  // Leave the saved setting back on the default for the next run.
+  await page.evaluate(() => window.ember.setSettings({ themeId: 'ember-dark' }))
+  await page.keyboard.press('Control+Comma')
+  await sleep(600)
+}
+
+// Cancel must restore the theme that was active on open.
+await page.evaluate(() => {
+  const btns = [...document.querySelectorAll('.modal__actions .btn')]
+  btns.find((b) => b.textContent?.includes('Cancel'))?.dispatchEvent(
+    new MouseEvent('click', { bubbles: true })
+  )
+})
+await sleep(900)
+log('after Cancel →', JSON.stringify(await readTokens()))
 
 log('--- console errors/warnings ---')
 log(consoleErrors.length === 0 ? '(none)' : consoleErrors.slice(0, 25).join('\n'))

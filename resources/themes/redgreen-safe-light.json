@@ -1,0 +1,56 @@
+// Red–Green Safe (Light)
+//
+// The light counterpart to Red–Green Safe (Dark). Okabe–Ito hues darkened where
+// needed to hold contrast against a light background, keeping the blue-vs-orange
+// status axis rather than green-vs-red.
+{
+  "name": "Red–Green Safe (Light)",
+  "type": "light",
+  "colors": {
+    "editor.background": "#fbfbfa",
+    "editor.foreground": "#21242b",
+    "terminal.background": "#fbfbfa",
+    "terminal.foreground": "#21242b",
+    "terminalCursor.foreground": "#a35c00",
+    "terminal.selectionBackground": "#cfe4f5",
+    "titleBar.activeBackground": "#eceef0",
+    "editorWidget.background": "#f4f5f6",
+    "list.hoverBackground": "#e3e6ea",
+    "panel.border": "#d8dbe0",
+    "input.border": "#b6bcc6",
+    "descriptionForeground": "#535a66",
+    "disabledForeground": "#848b96",
+    "focusBorder": "#a35c00",
+
+    "gitDecoration.addedResourceForeground": "#0f6fa8",
+    "errorForeground": "#a34400",
+    "textLink.foreground": "#0f6fa8",
+
+    "terminal.ansiBlack": "#21242b",
+    "terminal.ansiRed": "#a34400",
+    "terminal.ansiGreen": "#007052",
+    "terminal.ansiYellow": "#8a7500",
+    "terminal.ansiBlue": "#00548a",
+    "terminal.ansiMagenta": "#9c4a7a",
+    "terminal.ansiCyan": "#0f6fa8",
+    "terminal.ansiWhite": "#535a66",
+    "terminal.ansiBrightBlack": "#848b96",
+    "terminal.ansiBrightRed": "#c25400",
+    "terminal.ansiBrightGreen": "#008a66",
+    "terminal.ansiBrightYellow": "#a38a00",
+    "terminal.ansiBrightBlue": "#00699f",
+    "terminal.ansiBrightMagenta": "#b85a91",
+    "terminal.ansiBrightCyan": "#1a86c4",
+    "terminal.ansiBrightWhite": "#000000"
+  },
+  "tokenColors": [
+    { "scope": "comment", "settings": { "foreground": "#848b96", "fontStyle": "italic" } },
+    { "scope": "string", "settings": { "foreground": "#0f6fa8" } },
+    { "scope": "constant.numeric", "settings": { "foreground": "#8a7500" } },
+    { "scope": "keyword", "settings": { "foreground": "#9c4a7a" } },
+    { "scope": "keyword.operator", "settings": { "foreground": "#007052" } },
+    { "scope": "entity.name.function", "settings": { "foreground": "#a35c00" } },
+    { "scope": "variable", "settings": { "foreground": "#21242b" } },
+    { "scope": "invalid", "settings": { "foreground": "#a34400" } }
+  ]
+}

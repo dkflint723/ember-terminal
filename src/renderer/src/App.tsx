@@ -4,6 +4,7 @@ import { TitleBar } from './components/TitleBar'
 import { SplitView } from './components/SplitView'
 import { SettingsPanel } from './components/SettingsPanel'
 import { disposeController } from './terminal/controller'
+import { activateTheme, refreshThemeList } from './state/theming'
 
 export function App(): React.JSX.Element {
   const tabs = useStore((s) => s.tabs)
@@ -22,6 +23,10 @@ export function App(): React.JSX.Element {
       ])
       setProfiles(profiles)
       applySettings(settings)
+
+      // Theme before the first pane, so no terminal is ever created with the
+      // wrong palette and then repainted.
+      await Promise.all([activateTheme(settings.themeId), refreshThemeList()])
 
       if (profiles.length === 0) return
       const preferred =
