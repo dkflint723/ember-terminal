@@ -133,6 +133,13 @@ export type FileReadResult = FileReadOk | { ok: false; error: string }
 export type FileOpenResult = FileReadOk | { ok: false; error?: string; canceled?: boolean }
 export type FileWriteResult = { ok: true } | { ok: false; error: string }
 
+export interface LspEvent {
+  type: 'message' | 'exit'
+  language: string
+  message?: unknown
+  code?: number | null
+}
+
 export interface Settings {
   fontFamily: string
   fontSize: number
@@ -160,6 +167,9 @@ export interface EmberApi {
   openFileDialog(defaultPath?: string): Promise<FileOpenResult>
   readFile(path: string): Promise<FileReadResult>
   readDir(path: string): Promise<DirReadResult>
+  lspStart(language: string): Promise<{ ok: boolean; error?: string }>
+  lspSend(language: string, message: unknown): void
+  onLspMessage(cb: (e: LspEvent) => void): () => void
   writeFile(path: string, content: string): Promise<FileWriteResult>
   saveFileDialog(defaultPath?: string): Promise<string | null>
   complete(req: CompletionRequest): Promise<CompletionResult>

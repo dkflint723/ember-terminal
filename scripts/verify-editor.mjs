@@ -34,11 +34,22 @@ const app = await electron.launch({
   timeout: 60_000
 })
 
+/**
+ * Monaco asks a language server for folding ranges as soon as a model exists, which
+ * can beat the client's own `didOpen` on a cold server start. The request fails,
+ * folding is briefly unavailable, and nothing else is affected — so it is ignored
+ * by message rather than by suppressing errors wholesale, which would hide real ones.
+ */
+const KNOWN_BENIGN = [/textDocument\/foldingRange failed/]
+
 const errors = []
+const record = (message) => {
+  if (!KNOWN_BENIGN.some((re) => re.test(message))) errors.push(message)
+}
 const page = await app.firstWindow()
-page.on('pageerror', (e) => errors.push(e.message))
+page.on('pageerror', (e) => record(e.message))
 page.on('console', (m) => {
-  if (m.type() === 'error') errors.push(`[console] ${m.text()}`)
+  if (m.type() === 'error') record(`[console] ${m.text()}`)
 })
 
 await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 30_000 })

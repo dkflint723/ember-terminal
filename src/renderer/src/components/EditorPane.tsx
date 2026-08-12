@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore, type EditorPaneState } from '../state/store'
 import { monaco } from '../editor/monaco'
 import { applyMonacoTheme, MONACO_THEME_ID } from '../editor/theme'
+import { ensureLanguageServer } from '../editor/lsp'
 
 interface Props {
   pane: EditorPaneState
@@ -30,9 +31,19 @@ export function EditorPane({ pane, active, onFocus }: Props): React.JSX.Element 
     if (!host.current || editorRef.current) return
 
     applyMonacoTheme(theme)
+
+    // The model needs a real file:// URI, not Monaco's generated inmemory one: a
+    // language server identifies documents by URI, and resolves imports relative
+    // to them. Reuse an existing model so reopening a file keeps its history.
+    const uri = pane.filePath ? monaco.Uri.file(pane.filePath) : undefined
+    const model =
+      (uri && monaco.editor.getModel(uri)) ||
+      monaco.editor.createModel(pane.savedContent, pane.language, uri)
+
+    void ensureLanguageServer(pane.language)
+
     const editor = monaco.editor.create(host.current, {
-      value: pane.savedContent,
-      language: pane.language,
+      model,
       theme: MONACO_THEME_ID,
       fontFamily,
       fontSize,
@@ -63,7 +74,9 @@ export function EditorPane({ pane, active, onFocus }: Props): React.JSX.Element 
 
     return () => {
       sub.dispose()
-      editor.getModel()?.dispose()
+      // The model is deliberately kept: it is keyed by file URI and shared, so
+      // disposing it here would discard undo history on reopen and desync the
+      // language server, which still considers the document open.
       editor.dispose()
       editorRef.current = null
     }

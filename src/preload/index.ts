@@ -4,6 +4,7 @@ import type {
   AiRequest,
   CompletionRequest,
   HistoryQuery,
+  LspEvent,
   HistoryRecord,
   AiResponse,
   EmberApi,
@@ -28,6 +29,13 @@ const api: EmberApi = {
   openFileDialog: (defaultPath?: string) => ipcRenderer.invoke('file:openDialog', defaultPath),
   readFile: (path: string) => ipcRenderer.invoke('file:read', path),
   readDir: (path: string) => ipcRenderer.invoke('file:readDir', path),
+  lspStart: (language: string) => ipcRenderer.invoke('lsp:start', language),
+  lspSend: (language: string, message: unknown) => ipcRenderer.send('lsp:send', language, message),
+  onLspMessage: (cb: (e: LspEvent) => void) => {
+    const listener = (_: unknown, e: LspEvent): void => cb(e)
+    ipcRenderer.on('lsp:message', listener)
+    return () => ipcRenderer.removeListener('lsp:message', listener)
+  },
   writeFile: (path: string, content: string) => ipcRenderer.invoke('file:write', path, content),
   saveFileDialog: (defaultPath?: string) => ipcRenderer.invoke('file:saveDialog', defaultPath),
   complete: (req: CompletionRequest) => ipcRenderer.invoke('completion:request', req),

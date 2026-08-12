@@ -7,6 +7,7 @@ import { ThemeStore } from './themes.js'
 import { CompletionService } from './completion.js'
 import { HistoryStore } from './history.js'
 import { FileService, fileArgs } from './files.js'
+import { LspService } from './lsp.js'
 import { AiService } from './ai.js'
 import {
   DEFAULT_SETTINGS,
@@ -26,6 +27,7 @@ let themes: ThemeStore
 let completion: CompletionService
 let history: HistoryStore
 let files: FileService
+let lsp: LspService
 /** Drained once by the renderer at boot; refilled when a second instance starts. */
 let startupFiles: string[] = []
 let ai: AiService
@@ -122,6 +124,9 @@ function registerIpc(): void {
   )
   ipcMain.handle('file:read', (_e, filePath: string) => files.read(filePath))
   ipcMain.handle('file:readDir', (_e, dirPath: string) => files.readDir(dirPath))
+
+  ipcMain.handle('lsp:start', (_e, language: string) => lsp.start(language))
+  ipcMain.on('lsp:send', (_e, language: string, message: unknown) => lsp.post(language, message))
   ipcMain.handle('file:write', (_e, filePath: string, content: string) =>
     files.write(filePath, content)
   )
@@ -196,6 +201,7 @@ if (!app.requestSingleInstanceLock()) {
     themes = new ThemeStore()
     history = new HistoryStore()
     files = new FileService()
+    lsp = new LspService((payload) => sendToRenderer('lsp:message', payload))
     startupFiles = fileArgs(process.argv, app.getAppPath())
     ai = new AiService(settings)
     ptys = new PtyManager(
@@ -220,5 +226,6 @@ if (!app.requestSingleInstanceLock()) {
     ptys?.killAll()
     completion?.dispose()
     history?.close()
+    lsp?.dispose()
   })
 }
