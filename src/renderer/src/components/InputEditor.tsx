@@ -26,6 +26,7 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
   const [completion, setCompletion] = useState<{ result: CompletionResult; index: number } | null>(
     null
   )
+  const [suggestion, setSuggestion] = useState<string | null>(null)
   const ref = useRef<HTMLTextAreaElement>(null)
   /** Guards against a slow completion reply landing after the input moved on. */
   const completionSeq = useRef(0)
@@ -54,6 +55,20 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
     el.style.height = `${el.scrollHeight}px`
   }, [value])
 
+  // Suggest the most recent matching command from history as ghost text. Only for
+  // a single line: the overlay mirrors the input's metrics to align the ghost, and
+  // that alignment cannot be trusted once the text wraps.
+  useEffect(() => {
+    if (mode !== 'shell' || value.includes('\n') || value.trim().length < 2) {
+      setSuggestion(null)
+      return
+    }
+    const handle = window.setTimeout(() => {
+      void window.ember.suggestHistory(value, pane.cwd).then((s) => setSuggestion(s))
+    }, 110)
+    return () => window.clearTimeout(handle)
+  }, [value, mode, pane.cwd])
+
   const submitShell = (): void => {
     const command = value
     if (command.trim().length === 0) return
@@ -61,6 +76,7 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
     setHistoryIdx(null)
     setValue('')
     setProposal(null)
+    setSuggestion(null)
     controller.runCommand(command)
   }
 
@@ -150,6 +166,20 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
     setCompletion({ result, index: 0 })
   }
 
+  /** The part of a history suggestion that is not yet typed. */
+  const ghost =
+    suggestion && suggestion.startsWith(value) && suggestion !== value
+      ? suggestion.slice(value.length)
+      : ''
+
+  const acceptSuggestion = (): void => {
+    if (!ghost) return
+    setValue(value + ghost)
+    setSuggestion(null)
+    const caret = value.length + ghost.length
+    requestAnimationFrame(() => ref.current?.setSelectionRange(caret, caret))
+  }
+
   const acceptCompletion = (item: CompletionItem, result: CompletionResult): void => {
     applyCompletion(item.text, result)
     setCompletion(null)
@@ -184,6 +214,17 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
       if (e.key === 'Escape') {
         e.preventDefault()
         setCompletion(null)
+        return
+      }
+    }
+
+    // Accept a history suggestion the way fish does: Right or End at the end of
+    // the line. Deliberately not Tab, which belongs to shell completion.
+    if (ghost && (e.key === 'ArrowRight' || e.key === 'End')) {
+      const el = e.currentTarget
+      if (el.selectionStart === value.length && el.selectionStart === el.selectionEnd) {
+        e.preventDefault()
+        acceptSuggestion()
         return
       }
     }
@@ -311,7 +352,21 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
 
       <div className={`composer__row ${mode === 'ai' ? 'composer__row--ai' : ''}`}>
         <span className="composer__sigil">{mode === 'ai' ? '✦' : '❯'}</span>
-        <textarea
+        <div className="composer__field">
+          {/*
+            Always rendered, even with nothing to show. React reconciles unkeyed
+            children by position, so conditionally inserting this div ahead of the
+            textarea remounts the textarea and silently drops focus.
+          */}
+          <div className="composer__ghost" aria-hidden="true">
+            {ghost && (
+              <>
+                <span className="composer__ghost-typed">{value}</span>
+                <span className="composer__ghost-rest">{ghost}</span>
+              </>
+            )}
+          </div>
+          <textarea
           ref={ref}
           className="composer__input"
           rows={1}
@@ -328,7 +383,8 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
             completionSeq.current++
           }}
           onKeyDown={onKeyDown}
-        />
+          />
+        </div>
         {busy && <span className="spinner" />}
       </div>
 

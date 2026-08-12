@@ -887,3 +887,35 @@ kbd {
   color: var(--fg-faint);
   font-size: 12px;
 }
+
+/*
+ * Ghost text for a history suggestion. A textarea cannot style part of its own
+ * value, so an overlay mirrors it exactly: the typed part is rendered invisibly to
+ * push the suggestion to the right offset. Every metric here must match
+ * .composer__input or the ghost drifts out of alignment.
+ */
+.composer__field {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+}
+
+.composer__ghost {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow: hidden;
+}
+
+.composer__ghost-typed {
+  visibility: hidden;
+}
+
+.composer__ghost-rest {
+  color: var(--fg-faint);
+}

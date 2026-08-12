@@ -135,6 +135,7 @@ export interface EmberApi {
   complete(req: CompletionRequest): Promise<CompletionResult>
   recordHistory(entry: HistoryRecord): void
   searchHistory(query: HistoryQuery): Promise<HistoryEntry[]>
+  suggestHistory(prefix: string, cwd: string): Promise<string | null>
   listThemes(): Promise<ThemeSummary[]>
   /** Null when the id names a theme that has since been removed. */
   getTheme(id: string): Promise<ResolvedTheme | null>

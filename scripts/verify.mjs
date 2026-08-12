@@ -317,6 +317,38 @@ log(
     : 'secret masking: FAIL'
 )
 
+// Inline history suggestion. The ghost overlay sits next to the textarea, and
+// inserting it conditionally once remounted the textarea and dropped focus — so
+// focus is asserted here too, not just the suggested text.
+await page.click('.composer__input')
+await page.keyboard.press('Control+A')
+await page.keyboard.press('Delete')
+await page.keyboard.type('echo ember-bl', { delay: 12 })
+await sleep(1100)
+const ghostState = await page.evaluate(() => ({
+  ghost: document.querySelector('.composer__ghost-rest')?.textContent ?? null,
+  focusedTag: document.activeElement?.tagName ?? null
+}))
+await page.keyboard.press('ArrowRight')
+await sleep(400)
+const ghostAccepted = await page.evaluate(() => ({
+  value: document.querySelector('.composer__input')?.value ?? '',
+  focusedTag: document.activeElement?.tagName ?? null
+}))
+log('ghost suggestion →', JSON.stringify(ghostState), '→', JSON.stringify(ghostAccepted))
+log(
+  ghostState.ghost &&
+    ghostState.focusedTag === 'TEXTAREA' &&
+    ghostAccepted.value === 'echo ember-block-test' &&
+    ghostAccepted.focusedTag === 'TEXTAREA'
+    ? 'history suggestion: PASS'
+    : 'history suggestion: FAIL'
+)
+
+await page.click('.composer__input')
+await page.keyboard.press('Control+A')
+await page.keyboard.press('Delete')
+
 // Persistent history: the two blocks run above must be searchable, including by
 // what they printed, and Enter must insert rather than run.
 await page.keyboard.press('Control+r')

@@ -112,6 +112,9 @@ function registerIpc(): void {
 
   ipcMain.on('history:record', (_e, entry: HistoryRecord) => history.record(entry))
   ipcMain.handle('history:search', (_e, query: HistoryQuery) => history.search(query))
+  ipcMain.handle('history:suggest', (_e, prefix: string, cwd: string) =>
+    history.suggest(prefix, cwd)
+  )
 
   ipcMain.handle('themes:list', () => themes.list())
 

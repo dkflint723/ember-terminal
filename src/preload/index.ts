@@ -22,6 +22,8 @@ const api: EmberApi = {
   complete: (req: CompletionRequest) => ipcRenderer.invoke('completion:request', req),
   recordHistory: (entry: HistoryRecord) => ipcRenderer.send('history:record', entry),
   searchHistory: (query: HistoryQuery) => ipcRenderer.invoke('history:search', query),
+  suggestHistory: (prefix: string, cwd: string) =>
+    ipcRenderer.invoke('history:suggest', prefix, cwd),
   listThemes: () => ipcRenderer.invoke('themes:list'),
   getTheme: (id: string) => ipcRenderer.invoke('themes:get', id),
   importTheme: () => ipcRenderer.invoke('themes:import'),

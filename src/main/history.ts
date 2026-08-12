@@ -150,6 +150,37 @@ export class HistoryStore {
     }
   }
 
+  /**
+   * The most useful command starting with `prefix`. Commands run in the same
+   * directory win, because history is far more relevant in the place it was used;
+   * recency breaks the remaining ties.
+   */
+  suggest(prefix: string, cwd?: string): string | null {
+    const trimmed = prefix.trimStart()
+    if (trimmed.length < 2) return null
+    const db = this.open()
+    if (!db) return null
+
+    // Compared with substr rather than LIKE: LIKE would read % and _ in the typed
+    // prefix as wildcards, and the backslash escaping needed to prevent that is a
+    // needless source of error when an exact prefix comparison says what is meant.
+    try {
+      const row = db
+        .prepare(
+          `SELECT command FROM commands
+           WHERE substr(command, 1, ?) = ? AND command <> ?
+           ORDER BY (cwd = ?) DESC, started_at DESC
+           LIMIT 1`
+        )
+        .get(trimmed.length, trimmed, trimmed, cwd ?? '') as unknown as
+        | { command?: string }
+        | undefined
+      return row?.command ?? null
+    } catch {
+      return null
+    }
+  }
+
   /** Distinct recent commands, for prefix suggestions in the input editor. */
   recentCommands(limit = 500): string[] {
     const db = this.open()
