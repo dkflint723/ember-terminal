@@ -108,7 +108,45 @@ const SERVER_FOR: Record<string, string> = {
   typescript: 'typescript',
   javascript: 'typescript',
   typescriptreact: 'typescript',
-  javascriptreact: 'typescript'
+  javascriptreact: 'typescript',
+  python: 'python',
+  // Monaco calls this 'shell'; VS Code calls it 'shellscript'. The key is Monaco's.
+  shell: 'shell',
+  yaml: 'yaml'
+}
+
+/**
+ * Silence the bundled TypeScript worker's providers once the language server is up.
+ *
+ * Monaco ships its own TypeScript service and registers hover, completion and the
+ * rest for typescript and javascript. With a language server also answering, every
+ * hover renders twice and completions arrive doubled. The server is the better of
+ * the two — it reads tsconfig.json and resolves across the real project, where the
+ * worker sees one file — so the worker stands down rather than the other way round.
+ *
+ * Deliberately called only after the client is constructed: if no server starts, the
+ * worker stays on and TypeScript keeps the intelligence it had before.
+ */
+function standDownBundledTypeScript(): void {
+  const ts = (monaco as unknown as { typescript?: Record<string, TsDefaults | undefined> })
+    .typescript
+  const superseded = {
+    completionItems: false,
+    hovers: false,
+    documentSymbols: false,
+    definitions: false,
+    references: false,
+    documentHighlights: false,
+    rename: false,
+    diagnostics: false,
+    signatureHelp: false
+  }
+  ts?.typescriptDefaults?.setModeConfiguration(superseded)
+  ts?.javascriptDefaults?.setModeConfiguration(superseded)
+}
+
+interface TsDefaults {
+  setModeConfiguration(config: Record<string, boolean>): void
 }
 
 /**
@@ -133,6 +171,7 @@ export function ensureLanguageServer(language: string, root?: string): Promise<b
     if (!LspClient) return false
 
     new LspClient(transport)
+    if (target === 'typescript') standDownBundledTypeScript()
     return true
   })()
 

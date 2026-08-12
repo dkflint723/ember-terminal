@@ -1,18 +1,91 @@
 import { app } from 'electron'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { appendFileSync, existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 type Send = (payload: unknown) => void
 
 /**
+ * Every message between the renderer's LSP client and a server passes through
+ * post() and onData(), so this is the one place the whole conversation is visible.
+ * Off unless EMBER_LSP_LOG names a file, because the traffic is large and dominated
+ * by didChange on every keystroke.
+ */
+const LOG_PATH = process.env.EMBER_LSP_LOG
+function trace(direction: '-->' | '<--', language: string, message: unknown): void {
+  if (!LOG_PATH) return
+  try {
+    appendFileSync(LOG_PATH, `${direction} [${language}] ${JSON.stringify(message)}\n`, 'utf8')
+  } catch {
+    // Tracing must never take the transport down with it.
+  }
+}
+
+/**
+ * One spelling for a `file://` URI, applied to everything crossing this transport in
+ * either direction.
+ *
+ * Three parties spell the same Windows path three ways, and Monaco's client matches
+ * documents by plain string equality, so any disagreement silently drops the message:
+ *
+ *   client didOpen   file:///c:/users/…/sample.ts   (lowercased by the client)
+ *   client requests  file:///c:/Users/…/sample.ts   (the URI's original case)
+ *   tsserver replies file:///c%3A/users/…/sample.ts (drive colon percent-encoded)
+ *
+ * The consequences were invisible rather than loud. Outbound, a server that
+ * canonicalises paths (pyright, tsserver) shrugged off the case difference while one
+ * that does not (bash-language-server) answered null to every request about a file it
+ * had in memory. Inbound, `%3A` meant published diagnostics matched no open document
+ * and were discarded — which is why TypeScript's squiggles and hovers were really
+ * Monaco's bundled worker all along, with the language server contributing nothing
+ * the user could see.
+ *
+ * Lowercase with a literal colon is the canonical form because it is the one the
+ * client already uses for its own reverse lookups. Confined to Windows: elsewhere the
+ * case of a path is load-bearing and rewriting it would name a file that does not exist.
+ */
+function canonicalFileUri(uri: string): string {
+  return uri.toLowerCase().replace(/^file:\/\/\/([a-z])%3a/, 'file:///$1:')
+}
+
+function normalizeUris<T>(message: T): T {
+  if (process.platform !== 'win32') return message
+
+  const walk = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(walk)
+    if (typeof value !== 'object' || value === null) return value
+
+    const out: Record<string, unknown> = {}
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      const isFileUri =
+        (key === 'uri' || key === 'rootUri') &&
+        typeof item === 'string' &&
+        item.startsWith('file://')
+      out[key] = isFileUri ? canonicalFileUri(item as string) : walk(item)
+    }
+    return out
+  }
+
+  return walk(message) as T
+}
+
+/**
  * Runs language servers and shuttles JSON-RPC between them and the renderer.
  *
- * The renderer owns the LSP client (Monaco ships one), so this side deliberately
- * knows nothing about the protocol's semantics — only its framing. Servers speak
- * `Content-Length`-delimited JSON over stdio, which has to be reassembled because
- * a pipe read can split or coalesce messages arbitrarily.
+ * The renderer owns the LSP client, because Monaco ships one. That client is written
+ * against the servers VS Code's own extensions use, and is thinner than it looks:
+ * it answers only three of the requests a server may make of a client, and it is
+ * inconsistent about how it spells a document's URI. Neither gap can be closed from
+ * the renderer without replacing the client outright, and both are cheap to close
+ * here, because every message already passes through this one seam. So this side is
+ * not purely a pipe: it frames the stream, canonicalises URIs in both directions,
+ * enriches the handshake, and replies on the client's behalf where the client would
+ * otherwise reject a server's request. See `normalizeUris` and `answerClientRequest`.
+ *
+ * The framing itself is the ordinary part: servers speak `Content-Length`-delimited
+ * JSON over stdio, which has to be reassembled because a pipe read can split or
+ * coalesce messages arbitrarily.
  */
 export class LspService {
   private servers = new Map<string, ChildProcessWithoutNullStreams>()
@@ -23,11 +96,31 @@ export class LspService {
   constructor(private send: Send) {}
 
   /**
-   * Where each language's server lives, relative to the app root. Adding a
-   * language is one entry here plus the same id in the renderer's supported set.
+   * Where each language's server lives, relative to the app root, and how it is told
+   * to speak stdio. Adding a language is one entry here plus the same id in the
+   * renderer's supported set.
+   *
+   * The stdio flag is per-server rather than assumed: `--stdio` is the common
+   * spelling but not a universal one, and bash-language-server takes a `start`
+   * subcommand instead.
    */
-  private static readonly SERVERS: Record<string, string[]> = {
-    typescript: ['node_modules', 'typescript-language-server', 'lib', 'cli.mjs']
+  private static readonly SERVERS: Record<string, { entry: string[]; args: string[] }> = {
+    typescript: {
+      entry: ['node_modules', 'typescript-language-server', 'lib', 'cli.mjs'],
+      args: ['--stdio']
+    },
+    python: {
+      entry: ['node_modules', 'pyright', 'langserver.index.js'],
+      args: ['--stdio']
+    },
+    shell: {
+      entry: ['node_modules', 'bash-language-server', 'out', 'cli.js'],
+      args: ['start']
+    },
+    yaml: {
+      entry: ['node_modules', 'yaml-language-server', 'out', 'server', 'src', 'server.js'],
+      args: ['--stdio']
+    }
   }
 
   /**
@@ -37,13 +130,13 @@ export class LspService {
    * server would need its own branch here.
    */
   private serverCommand(language: string): { exe: string; args: string[] } | null {
-    const parts = LspService.SERVERS[language]
-    if (!parts) return null
+    const server = LspService.SERVERS[language]
+    if (!server) return null
 
     const base = app.isPackaged ? process.resourcesPath : app.getAppPath()
-    const entry = join(base, ...parts)
+    const entry = join(base, ...server.entry)
     if (!existsSync(entry)) return null
-    return { exe: process.execPath, args: [entry, '--stdio'] }
+    return { exe: process.execPath, args: [entry, ...server.args] }
   }
 
   start(language: string, root?: string): { ok: boolean; error?: string } {
@@ -68,8 +161,11 @@ export class LspService {
     this.buffers.set(language, Buffer.alloc(0))
 
     child.stdout.on('data', (chunk: Buffer) => this.onData(language, chunk))
-    child.stderr.resume()
-    child.on('exit', (code) => {
+    // A server that rejects the handshake often explains itself here and nowhere else.
+    if (LOG_PATH) child.stderr.on('data', (c: Buffer) => trace('<--', language, `stderr: ${c}`))
+    else child.stderr.resume()
+    child.on('exit', (code, signal) => {
+      trace('<--', language, `exit: code=${code} signal=${signal}`)
       this.servers.delete(language)
       this.buffers.delete(language)
       this.send({ type: 'exit', language, code })
@@ -106,7 +202,11 @@ export class LspService {
       buffer = buffer.subarray(start + length)
 
       try {
-        this.send({ type: 'message', language, message: JSON.parse(body) })
+        const parsed = normalizeUris(JSON.parse(body))
+        trace('<--', language, parsed)
+        if (!this.answerClientRequest(language, parsed)) {
+          this.send({ type: 'message', language, message: parsed })
+        }
       } catch {
         // A malformed body loses one message; the stream stays aligned.
       }
@@ -127,8 +227,7 @@ export class LspService {
    * Only absent fields are filled in, so anything the client does send still wins.
    */
   post(language: string, message: unknown): void {
-    const child = this.servers.get(language)
-    if (!child) return
+    if (!this.servers.has(language)) return
 
     let outgoing = message
     const root = this.roots.get(language)
@@ -148,7 +247,17 @@ export class LspService {
       }
     }
 
-    const body = Buffer.from(JSON.stringify(outgoing), 'utf8')
+    this.write(language, normalizeUris(outgoing))
+  }
+
+  /** Frame one message onto a server's stdin. */
+  private write(language: string, message: unknown): void {
+    const child = this.servers.get(language)
+    if (!child) return
+
+    trace('-->', language, message)
+
+    const body = Buffer.from(JSON.stringify(message), 'utf8')
     try {
       // Escapes, not real line breaks: the header must be CRLF-delimited, and a
       // literal break here would emit LF on an LF checkout and be rejected.
@@ -156,6 +265,81 @@ export class LspService {
       child.stdin.write(body)
     } catch {
       // The server died between the check and the write; its exit handler cleans up.
+    }
+  }
+
+  /**
+   * Answer the requests a server makes *of* the client.
+   *
+   * Monaco's client declares all of these in its protocol contract but registers
+   * handlers for only three — `client/registerCapability`, its `unregister` twin, and
+   * `workspace/inlayHint/refresh`. Every other one falls through to a JSON-RPC
+   * "method not found" error. Most servers shrug that off, but a server that treats a
+   * rejection of its own request as fatal will exit: pyright sends
+   * `workspace/diagnostic/refresh` as soon as it finishes its first analysis, gets an
+   * error back, and dies with code 1 about a second after the handshake. Everything
+   * after that is sent into a closed pipe, which is exactly what "the server starts,
+   * exchanges messages, then answers nothing" looked like from outside.
+   *
+   * Answering here rather than in the renderer keeps the client's own handlers
+   * authoritative: anything it implements is not in this table and is forwarded
+   * untouched. Returns true when the message was consumed.
+   */
+  private answerClientRequest(language: string, message: unknown): boolean {
+    if (typeof message !== 'object' || message === null) return false
+    const request = message as { id?: unknown; method?: unknown; params?: unknown }
+    // A notification has no id and needs no reply; a response has no method.
+    if (typeof request.method !== 'string' || request.id === undefined) return false
+
+    const result = this.clientResult(language, request.method, request.params)
+    if (result === undefined) return false
+
+    this.write(language, { jsonrpc: '2.0', id: request.id, result })
+    return true
+  }
+
+  /**
+   * The client's answer to a server-initiated request, or undefined to let Monaco's
+   * client handle it. The refreshes are acknowledged rather than acted on — Monaco
+   * re-pulls diagnostics and tokens on document change anyway, so the cost is
+   * staleness until the next edit, not absence. The capabilities that would let a
+   * server ask for more than this are not advertised, so declining is consistent
+   * rather than merely convenient.
+   */
+  private clientResult(language: string, method: string, params: unknown): unknown {
+    switch (method) {
+      case 'workspace/diagnostic/refresh':
+      case 'workspace/semanticTokens/refresh':
+      case 'workspace/codeLens/refresh':
+      case 'workspace/inlineValue/refresh':
+      case 'workspace/foldingRange/refresh':
+      case 'window/workDoneProgress/create':
+      case 'window/showMessageRequest':
+        return null
+
+      // One entry per requested section, in order, or the server cannot match them
+      // up. Null means "unset", which every server reads as "use your defaults".
+      case 'workspace/configuration': {
+        const items = (params as { items?: unknown[] } | undefined)?.items
+        return Array.isArray(items) ? items.map(() => null) : []
+      }
+
+      case 'workspace/workspaceFolders': {
+        const root = this.roots.get(language)
+        if (!root) return null
+        return [{ uri: pathToFileURL(root).href, name: basename(root) }]
+      }
+
+      // Declined rather than acknowledged: claiming success for an edit or a
+      // navigation that never happened would leave the server's model of the
+      // document ahead of the editor's.
+      case 'workspace/applyEdit':
+        return { applied: false }
+      case 'window/showDocument':
+        return { success: false }
+
+      default:
+        return undefined
     }
   }
 

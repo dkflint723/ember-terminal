@@ -41,9 +41,11 @@ export function EditorPane({ pane, active, onFocus }: Props): React.JSX.Element 
       monaco.editor.createModel(pane.savedContent, pane.language, uri)
 
     // The tree root when there is one, else the file's own directory: a server that
-    // indexes a project needs somewhere to start.
+    // indexes a project needs somewhere to start. The separator class has to include
+    // the backslash — without it a Windows path never matches and the "directory" is
+    // the file itself, which pyright accepts and then indexes as an empty project.
     const treeRoot = useStore.getState().treeRoot
-    const fileDir = pane.filePath?.replace(/[\/][^\/]*$/, '')
+    const fileDir = pane.filePath?.replace(/[\\/][^\\/]*$/, '')
     void ensureLanguageServer(pane.language, treeRoot ?? fileDir ?? undefined)
 
     const editor = monaco.editor.create(host.current, {
