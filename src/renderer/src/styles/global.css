@@ -272,6 +272,15 @@ button {
   border-radius: var(--radius);
   background: var(--bg-block);
   overflow: hidden;
+  /*
+   * Virtualization, done by the engine rather than by hand: off-screen blocks skip
+   * layout and paint entirely. `auto` for the intrinsic size makes the browser
+   * remember each block's last measured height, so the scrollbar does not jump as
+   * blocks come in and out of range. A long session accumulates hundreds of
+   * blocks, each holding many lines, and rendering all of them is wasted work.
+   */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 90px;
 }
 
 .block--failed {
@@ -393,9 +402,14 @@ button {
   font-style: italic;
 }
 
-/* The serialize addon emits <div> per row; keep them tight. */
-.block__body div {
+/*
+ * One element per logical line, not per grid row, so a long line reflows with the
+ * pane instead of keeping the hard breaks it was captured with.
+ */
+.block__body .row {
   min-height: 1.45em;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* ---------- live terminal ---------- */

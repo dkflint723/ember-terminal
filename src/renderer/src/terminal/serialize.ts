@@ -1,0 +1,178 @@
+import type { IBufferCell, IBufferLine, Terminal } from '@xterm/xterm'
+import type { TerminalPalette } from '@shared/theme'
+
+/**
+ * Renders a terminal buffer to HTML as *logical* lines.
+ *
+ * The serialize addon emits one element per grid row, which bakes the capture
+ * width into the markup: blocks then wrap at whatever width they were produced at
+ * and look wrong after the window is resized, and copying a wrapped path yields it
+ * broken across lines.
+ *
+ * xterm marks a row that is the continuation of a soft-wrapped line, so those rows
+ * are joined back into the single line the program actually wrote. CSS then
+ * reflows blocks at any width for free, and copied text has no artificial breaks.
+ * A newline the program emitted itself still starts a new line, which is the
+ * distinction that matters.
+ */
+
+/** The 256-colour palette: 16 themed, then the 6x6x6 cube, then the greys. */
+function buildPalette(theme: TerminalPalette): string[] {
+  const colors: string[] = [
+    theme.black,
+    theme.red,
+    theme.green,
+    theme.yellow,
+    theme.blue,
+    theme.magenta,
+    theme.cyan,
+    theme.white,
+    theme.brightBlack,
+    theme.brightRed,
+    theme.brightGreen,
+    theme.brightYellow,
+    theme.brightBlue,
+    theme.brightMagenta,
+    theme.brightCyan,
+    theme.brightWhite
+  ]
+
+  const steps = [0, 95, 135, 175, 215, 255]
+  const hex = (n: number): string => n.toString(16).padStart(2, '0')
+  for (let r = 0; r < 6; r++) {
+    for (let g = 0; g < 6; g++) {
+      for (let b = 0; b < 6; b++) {
+        colors.push(`#${hex(steps[r])}${hex(steps[g])}${hex(steps[b])}`)
+      }
+    }
+  }
+  for (let i = 0; i < 24; i++) {
+    const v = 8 + i * 10
+    colors.push(`#${hex(v)}${hex(v)}${hex(v)}`)
+  }
+  return colors
+}
+
+function rgbToHex(value: number): string {
+  return `#${(value & 0xffffff).toString(16).padStart(6, '0')}`
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+/** A cell's visual attributes, reduced to a comparable key plus a style string. */
+interface Style {
+  key: string
+  css: string
+}
+
+function styleOf(cell: IBufferCell, palette: string[]): Style {
+  const parts: string[] = []
+
+  let fg: string | null = null
+  if (cell.isFgRGB()) fg = rgbToHex(cell.getFgColor())
+  else if (cell.isFgPalette()) fg = palette[cell.getFgColor()] ?? null
+
+  let bg: string | null = null
+  if (cell.isBgRGB()) bg = rgbToHex(cell.getBgColor())
+  else if (cell.isBgPalette()) bg = palette[cell.getBgColor()] ?? null
+
+  // Inverse swaps the two, falling back to the pane's own colours where a side
+  // is default — otherwise inverted text on a default background disappears.
+  if (cell.isInverse()) {
+    const nextFg = bg ?? 'var(--bg)'
+    const nextBg = fg ?? 'var(--fg)'
+    fg = nextFg
+    bg = nextBg
+  }
+
+  if (fg) parts.push(`color:${fg}`)
+  if (bg) parts.push(`background-color:${bg}`)
+  if (cell.isBold()) parts.push('font-weight:bold')
+  if (cell.isItalic()) parts.push('font-style:italic')
+  if (cell.isDim()) parts.push('opacity:.65')
+  if (cell.isStrikethrough() && cell.isUnderline()) {
+    parts.push('text-decoration:underline line-through')
+  } else if (cell.isUnderline()) {
+    parts.push('text-decoration:underline')
+  } else if (cell.isStrikethrough()) {
+    parts.push('text-decoration:line-through')
+  }
+
+  const css = parts.join(';')
+  return { key: css, css }
+}
+
+/** Append one grid row's cells onto the logical line being built. */
+function appendRow(line: IBufferLine, palette: string[], runs: { style: Style; text: string }[]): void {
+  const cell = line.getCell(0)
+  if (!cell) return
+
+  for (let x = 0; x < line.length; x++) {
+    if (!line.getCell(x, cell)) continue
+    // Width 0 is the trailing half of a wide glyph; its chars belong to the lead.
+    if (cell.getWidth() === 0) continue
+
+    const chars = cell.getChars()
+    const text = chars.length === 0 ? ' ' : chars
+    const style = styleOf(cell, palette)
+    const last = runs[runs.length - 1]
+    if (last && last.style.key === style.key) last.text += text
+    else runs.push({ style, text })
+  }
+}
+
+export function renderBufferAsHtml(term: Terminal, theme: TerminalPalette): string {
+  const buffer = term.buffer.active
+  const palette = buildPalette(theme)
+
+  const logical: { style: Style; text: string }[][] = []
+  let current: { style: Style; text: string }[] = []
+
+  for (let y = 0; y < buffer.length; y++) {
+    const line = buffer.getLine(y)
+    if (!line) continue
+
+    // A row that is not a continuation begins a new logical line.
+    if (!line.isWrapped && y > 0) {
+      logical.push(current)
+      current = []
+    }
+    appendRow(line, palette, current)
+  }
+  logical.push(current)
+
+  // Drop the trailing spaces the grid pads every row with, then the blank lines
+  // left over from the unused part of the buffer.
+  for (const runs of logical) {
+    while (runs.length > 0) {
+      const last = runs[runs.length - 1]
+      last.text = last.text.replace(/\s+$/, '')
+      if (last.text.length === 0 && !last.style.css.includes('background')) runs.pop()
+      else break
+    }
+  }
+  while (logical.length > 0 && logical[logical.length - 1].every((r) => r.text.length === 0)) {
+    logical.pop()
+  }
+  while (logical.length > 0 && logical[0].every((r) => r.text.length === 0)) logical.shift()
+
+  return logical
+    .map((runs) => {
+      if (runs.length === 0) return '<div class="row"></div>'
+      const inner = runs
+        .map((run) =>
+          run.style.css.length > 0
+            ? `<span style="${run.style.css}">${escapeHtml(run.text)}</span>`
+            : escapeHtml(run.text)
+        )
+        .join('')
+      return `<div class="row">${inner}</div>`
+    })
+    .join('')
+}

@@ -1,10 +1,11 @@
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
-import { SerializeAddon } from '@xterm/addon-serialize'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
+import { WebglAddon } from '@xterm/addon-webgl'
 import type { TerminalPalette } from '@shared/theme'
 import { looksLikeSecretPrompt, stripAnsi } from '@shared/secrets'
+import { renderBufferAsHtml } from './serialize'
 import { useStore } from '../state/store'
 import { DEFAULT_THEME, toXtermTheme } from './theme'
 
@@ -40,11 +41,9 @@ function escapeHtml(s: string): string {
 export class TerminalController {
   readonly term: Terminal
   private fit = new FitAddon()
-  private serialize = new SerializeAddon()
 
   /** Offscreen terminal used only to render captured output into HTML. */
   private renderTerm: Terminal
-  private renderSerialize = new SerializeAddon()
 
   private capture = ''
   private capturing = false
@@ -58,6 +57,7 @@ export class TerminalController {
   private integrationTimer: number | null = null
   /** Rolling tail of recent output, used only for secret-prompt detection. */
   private tail = ''
+  private palette: TerminalPalette
 
   constructor(
     private paneId: string,
@@ -65,6 +65,7 @@ export class TerminalController {
     fontSize: number,
     palette: TerminalPalette = DEFAULT_THEME.terminal
   ) {
+    this.palette = palette
     this.term = new Terminal({
       allowProposedApi: true,
       cursorBlink: true,
@@ -79,7 +80,6 @@ export class TerminalController {
     })
 
     this.term.loadAddon(this.fit)
-    this.term.loadAddon(this.serialize)
     this.term.loadAddon(new WebLinksAddon())
 
     const unicode = new Unicode11Addon()
@@ -93,7 +93,6 @@ export class TerminalController {
       scrollback: 5000,
       theme: toXtermTheme(palette)
     })
-    this.renderTerm.loadAddon(this.renderSerialize)
 
     this.registerHandlers()
   }
@@ -300,34 +299,6 @@ export class TerminalController {
     }
   }
 
-  /**
-   * The serializer emits one `<div>` per terminal row, every row padded with
-   * spaces out to the full width and the unused rows of the grid included. Trim
-   * that back to the rows that actually hold output so blocks size themselves to
-   * their content and "copy output" yields clean text.
-   */
-  private tidyRows(html: string): string {
-    const wrap = document.createElement('div')
-    wrap.innerHTML = html
-
-    const rows = Array.from(wrap.children) as HTMLElement[]
-    let first = 0
-    let last = rows.length - 1
-    while (first <= last && !rows[first].textContent?.trim()) first++
-    while (last >= first && !rows[last].textContent?.trim()) last--
-    if (last < first) return ''
-
-    const kept = rows.slice(first, last + 1)
-    for (const row of kept) {
-      // Right-trim only the final span, so interior alignment is preserved.
-      const spans = row.querySelectorAll('span')
-      const tail = spans[spans.length - 1]
-      if (tail?.textContent) tail.textContent = tail.textContent.replace(/\s+$/, '')
-    }
-
-    return kept.map((r) => r.outerHTML).join('')
-  }
-
   /** Feed captured bytes through the offscreen terminal and serialize the result. */
   private async renderCapture(): Promise<string> {
     const bytes = this.capture
@@ -339,16 +310,10 @@ export class TerminalController {
     await new Promise<void>((resolve) => this.renderTerm.write(bytes, resolve))
 
     try {
-      const html = this.renderSerialize.serializeAsHTML({ onlySelection: false })
-      // Keep only the inner markup; the addon wraps output in its own container
-      // whose styling would fight the block layout.
-      const match = html.match(/<div[^>]*>([\s\S]*)<\/div>/)
-      return this.tidyRows(match ? match[1] : html)
+      return renderBufferAsHtml(this.renderTerm, this.palette)
     } catch {
-      // If HTML serialization is unavailable, fall back to plain text so the
-      // block still shows something useful.
-      const plain = this.renderSerialize.serialize()
-      return `<span>${escapeHtml(plain)}</span>`
+      // Rendering must never lose the block; fall back to plain text.
+      return `<span>${escapeHtml(this.renderTerm.buffer.active.getLine(0)?.translateToString(true) ?? '')}</span>`
     }
   }
 
@@ -400,6 +365,7 @@ export class TerminalController {
 
   attach(container: HTMLElement): void {
     this.term.open(container)
+    this.enableWebgl()
     this.refit()
 
     if (!this.spawned) {
@@ -434,6 +400,22 @@ export class TerminalController {
     const pane = this.store().terminalPane(this.paneId)
     if (!pane || pane.awaitingSecret === wants) return
     this.store().patchPane(this.paneId, { awaitingSecret: wants })
+  }
+
+  /**
+   * The GPU renderer, which is markedly faster on large bursts of output. It can
+   * only be loaded after open(), and the context can be lost at any time (driver
+   * reset, GPU process crash) — dropping the addon then falls back to the DOM
+   * renderer rather than leaving a dead canvas.
+   */
+  private enableWebgl(): void {
+    try {
+      const webgl = new WebglAddon()
+      webgl.onContextLoss(() => webgl.dispose())
+      this.term.loadAddon(webgl)
+    } catch {
+      // No GPU path available; the DOM renderer is still correct, just slower.
+    }
   }
 
   /** Called from the pane's pty data subscription. */
@@ -500,6 +482,7 @@ export class TerminalController {
   }
 
   setPalette(palette: TerminalPalette): void {
+    this.palette = palette
     const theme = toXtermTheme(palette)
     this.term.options.theme = theme
     // The offscreen terminal must match, or already-captured blocks would be
