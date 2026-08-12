@@ -21,7 +21,13 @@ export function TitleBar(): React.JSX.Element {
     if (!tab) return 'Shell'
     const pane = panes[tab.activePaneId]
     if (!pane) return 'Shell'
-    return pane.kind === 'terminal' ? pane.title : (pane.filePath ?? 'Untitled')
+    if (pane.kind !== 'terminal') return pane.filePath ?? 'Untitled'
+    // A pane with no integration never reports a cwd, so name it after its shell
+    // rather than leaving the placeholder.
+    if (pane.title === 'Shell') {
+      return profiles.find((p) => p.id === pane.profileId)?.name ?? pane.title
+    }
+    return pane.title
   }
 
   return (

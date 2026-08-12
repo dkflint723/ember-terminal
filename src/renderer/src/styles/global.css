@@ -696,3 +696,14 @@ kbd {
   border: 1px solid var(--border-strong);
   flex: 0 0 auto;
 }
+
+.pane__notice {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-chrome);
+  color: var(--fg-faint);
+  font-size: 11px;
+}

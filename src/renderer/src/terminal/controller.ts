@@ -54,6 +54,7 @@ export class TerminalController {
   private sawAltScreen = false
   private disposers: (() => void)[] = []
   private spawned = false
+  private integrationTimer: number | null = null
 
   constructor(
     private paneId: string,
@@ -114,6 +115,17 @@ export class TerminalController {
         const alternate = buffer.type === 'alternate'
         if (alternate) this.sawAltScreen = true
         this.store().patchPane(this.paneId, { mode: alternate ? 'raw' : 'blocks' })
+      }).dispose
+    )
+
+    // Shells without integration still set the window title the classic way
+    // (OSC 0/2), which is the only name a plain pane has to offer.
+    this.disposers.push(
+      this.term.onTitleChange((title) => {
+        const pane = this.store().terminalPane(this.paneId)
+        if (!pane || pane.integration === 'ready') return
+        const trimmed = title.trim()
+        if (trimmed.length > 0) this.store().patchPane(this.paneId, { title: trimmed })
       }).dispose
     )
 
@@ -187,7 +199,45 @@ export class TerminalController {
     if (this.capture.length > 2_000_000) this.capture = this.capture.slice(-2_000_000)
   }
 
+  /**
+   * Any semantic-prompt marker proves the shell is reporting boundaries, whoever
+   * emitted it — a user's own OSC 133 setup counts just as much as our script.
+   * Recoverable in both directions: a pane written off as `absent` flips back if
+   * markers show up late, which is what makes the timeout below safe.
+   */
+  private markIntegration(state: 'ready' | 'absent'): void {
+    if (this.integrationTimer !== null && state === 'ready') {
+      window.clearTimeout(this.integrationTimer)
+      this.integrationTimer = null
+    }
+    const pane = this.store().terminalPane(this.paneId)
+    if (!pane || pane.integration === state) return
+    this.store().patchPane(this.paneId, { integration: state })
+  }
+
+  /**
+   * Decide whether to expect blocks at all. Shells with no integration hook are
+   * settled immediately; the rest get a grace period, since a heavy user profile
+   * can take seconds to reach its first prompt.
+   */
+  private watchForIntegration(): void {
+    const pane = this.store().terminalPane(this.paneId)
+    const profile = this.store().profiles.find((p) => p.id === pane?.profileId)
+
+    if (profile && profile.integration === 'none') {
+      this.markIntegration('absent')
+      return
+    }
+
+    this.integrationTimer = window.setTimeout(() => {
+      this.integrationTimer = null
+      const current = this.store().terminalPane(this.paneId)
+      if (current?.integration === 'pending') this.markIntegration('absent')
+    }, 6000)
+  }
+
   private handleSemanticPrompt(data: string): void {
+    this.markIntegration('ready')
     const [kind, ...rest] = data.split(';')
 
     if (kind === 'C') {
@@ -216,7 +266,7 @@ export class TerminalController {
 
   private handleEmberOsc(data: string): void {
     if (data === 'Ready') {
-      this.store().patchPane(this.paneId, { integrationReady: true })
+      this.markIntegration('ready')
       return
     }
 
@@ -328,6 +378,7 @@ export class TerminalController {
 
     if (!this.spawned) {
       this.spawned = true
+      this.watchForIntegration()
       const pane = this.store().terminalPane(this.paneId)
       void window.ember
         .spawn({
@@ -364,7 +415,11 @@ export class TerminalController {
       this.send('\r')
       return
     }
-    this.currentBlockId = this.store().beginBlock(this.paneId, trimmed)
+    // Without integration there is no `133;D` to close a block, so opening one
+    // would leave it spinning forever. Just send the text.
+    if (this.store().terminalPane(this.paneId)?.integration === 'ready') {
+      this.currentBlockId = this.store().beginBlock(this.paneId, trimmed)
+    }
     this.send(`${trimmed}\r`)
   }
 
@@ -405,6 +460,7 @@ export class TerminalController {
   }
 
   dispose(): void {
+    if (this.integrationTimer !== null) window.clearTimeout(this.integrationTimer)
     for (const d of this.disposers) {
       try {
         d()
@@ -452,5 +508,17 @@ export function allControllers(): TerminalController[] {
 window.ember.onData(({ paneId, data }) => registry.get(paneId)?.write(data))
 
 window.ember.onExit(({ paneId, exitCode }) => {
-  useStore.getState().patchPane(paneId, { exited: true, exitCode, mode: 'blocks' })
+  const store = useStore.getState()
+  store.patchPane(paneId, { exited: true, exitCode, mode: 'blocks' })
+
+  // A shell that dies mid-command never sends `133;D`, so close the open block
+  // here rather than leaving it running for the life of the window.
+  const running = store.terminalPane(paneId)?.blocks.find((b) => b.status === 'running')
+  if (running) {
+    store.patchBlock(paneId, running.id, {
+      status: 'failed',
+      exitCode,
+      durationMs: Date.now() - running.startedAt
+    })
+  }
 })

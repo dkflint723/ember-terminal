@@ -25,6 +25,16 @@ export interface Block {
 
 export type PaneKind = 'terminal' | 'editor'
 
+/**
+ * Whether this pane's shell reports command boundaries.
+ *
+ * `absent` is not an error state — it means the pane falls back to being an
+ * ordinary full-screen terminal. Shells like cmd.exe have no integration hook at
+ * all, and a user's own prompt can displace ours, so the block UI has to be
+ * something the pane can do without.
+ */
+export type IntegrationState = 'pending' | 'ready' | 'absent'
+
 interface BasePane {
   id: string
   kind: PaneKind
@@ -38,8 +48,7 @@ export interface TerminalPaneState extends BasePane {
   blocks: Block[]
   /** `raw` hands the keyboard straight to the pty for full-screen programs. */
   mode: 'blocks' | 'raw'
-  /** Set once the shell-integration script reports in; blocks need it. */
-  integrationReady: boolean
+  integration: IntegrationState
   exited: boolean
   exitCode: number | null
 }
@@ -109,7 +118,7 @@ function makeTerminalPane(profileId: string, cwd: string): TerminalPaneState {
     cwd,
     blocks: [],
     mode: 'blocks',
-    integrationReady: false,
+    integration: 'pending',
     exited: false,
     exitCode: null
   }

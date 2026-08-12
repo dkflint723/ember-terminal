@@ -18,12 +18,18 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
   const fontFamily = useStore((s) => s.settings.fontFamily)
   const fontSize = useStore((s) => s.settings.fontSize)
   const palette = useStore((s) => s.theme.terminal)
+  const profileName = useStore((s) => s.profiles.find((p) => p.id === pane.profileId)?.name)
 
   // The controller is created once per pane; later font and theme changes go
   // through setFont/setPalette rather than recreating the terminal.
   const controller = getController(pane.id, fontFamily, fontSize, palette)
-  const raw = pane.mode === 'raw'
-  const running = pane.blocks.at(-1)?.status === 'running'
+
+  // Two separate reasons to hand the whole pane to the terminal: a full-screen
+  // program has taken over, or this shell never reports command boundaries and so
+  // has no blocks to show. Both present as an ordinary terminal.
+  const plain = pane.integration === 'absent'
+  const raw = pane.mode === 'raw' || plain
+  const running = !plain && pane.blocks.at(-1)?.status === 'running'
 
   useLayoutEffect(() => {
     if (termHost.current) controller.attach(termHost.current)
@@ -58,10 +64,16 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
   }
 
   return (
-    <div className={`pane ${active ? 'pane--active' : ''}`} onMouseDown={onFocus}>
+    <div
+      className={`pane ${active ? 'pane--active' : ''}`}
+      onMouseDown={onFocus}
+      // Reflects shell-integration state for styling and for the verify harness,
+      // which must not have to infer readiness from UI label text.
+      data-integration={pane.integration}
+    >
       {!raw && (
         <div className="pane__scroll" ref={scroller}>
-          {pane.blocks.length === 0 && !pane.integrationReady && (
+          {pane.blocks.length === 0 && pane.integration === 'pending' && (
             <div className="block">
               <div className="block__body block__body--empty">
                 Starting shell… command blocks appear once shell integration loads.
@@ -93,6 +105,17 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
       </div>
 
       {!raw && <InputEditor pane={pane} controller={controller} />}
+
+      {/*
+        Say why the block UI is missing, so a plain pane reads as a deliberate
+        fallback rather than a broken one.
+      */}
+      {plain && (
+        <div className="pane__notice">
+          <span>{profileName ?? 'This shell'} has no shell integration — plain terminal mode.</span>
+          {pane.exited && <span>· exited {pane.exitCode ?? ''}</span>}
+        </div>
+      )}
     </div>
   )
 }

@@ -43,17 +43,19 @@ log('app shell mounted')
 await page.waitForSelector('.composer__input', { timeout: 20_000 })
 log('composer present')
 
-// Shell integration reports in via OSC 633;Ready, which clears this badge.
+// Wait for the pane to actually report integration, not for a UI label — an
+// earlier version of this check inferred readiness from badge text and silently
+// passed the instant that text was renamed, letting commands be typed into a
+// shell that had not finished starting.
 let ready = false
-for (let i = 0; i < 60; i++) {
-  ready = await page.evaluate(() => {
-    const badges = [...document.querySelectorAll('.composer__badge')]
-    return !badges.some((b) => b.textContent?.includes('no blocks'))
-  })
-  if (ready) break
-  await sleep(500)
+try {
+  await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 30_000 })
+  ready = true
+} catch {
+  ready = false
 }
 log('shell integration ready:', ready)
+if (!ready) log('WARNING: no integration; block assertions below are meaningless')
 
 await page.screenshot({ path: path.join(SHOT_DIR, '01-launch.png') })
 log('shot: 01-launch.png')
@@ -240,6 +242,36 @@ await page.evaluate(() => {
 })
 await sleep(900)
 log('after Cancel →', JSON.stringify(await readTokens()))
+
+// A shell with no integration hook (cmd.exe) must degrade to a plain terminal
+// rather than stranding an unresolvable block. This regressed once; keep it here.
+const hasCmd = await page.evaluate(async () =>
+  (await window.ember.listProfiles()).some((p) => p.id === 'cmd')
+)
+if (hasCmd) {
+  await page.evaluate(() => window.ember.setSettings({ defaultProfileId: 'cmd' }))
+  await page.reload()
+  await page.waitForSelector('.app', { timeout: 20_000 })
+  await sleep(4500)
+
+  const plain = await page.evaluate(() => ({
+    integration: document.querySelector('.pane')?.dataset.integration,
+    composerHidden: !document.querySelector('.composer__input'),
+    fullPaneTerminal: !!document.querySelector('.live--raw'),
+    strandedBlocks: document.querySelectorAll('.block--running').length,
+    notice: (document.querySelector('.pane__notice')?.textContent ?? '').slice(0, 60)
+  }))
+  log('cmd.exe fallback →', JSON.stringify(plain))
+
+  const ok =
+    plain.integration === 'absent' &&
+    plain.composerHidden &&
+    plain.fullPaneTerminal &&
+    plain.strandedBlocks === 0
+  log(ok ? 'cmd.exe fallback: PASS' : 'cmd.exe fallback: FAIL')
+
+  await page.evaluate(() => window.ember.setSettings({ defaultProfileId: null }))
+}
 
 log('--- console errors/warnings ---')
 log(consoleErrors.length === 0 ? '(none)' : consoleErrors.slice(0, 25).join('\n'))

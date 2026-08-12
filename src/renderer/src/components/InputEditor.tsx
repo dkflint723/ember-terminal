@@ -195,9 +195,9 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
     <div className="composer">
       <div className="composer__meta">
         <span className="composer__cwd">{pane.cwd}</span>
-        {!pane.integrationReady && (
-          <span className="composer__badge" title="Shell integration has not reported in yet">
-            no blocks
+        {pane.integration === 'pending' && (
+          <span className="composer__badge" title="Waiting for the shell to report a prompt">
+            starting…
           </span>
         )}
         {pane.exited && (
