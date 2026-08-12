@@ -110,6 +110,18 @@ export interface HistoryQuery {
   limit?: number
 }
 
+export interface FileReadOk {
+  ok: true
+  path: string
+  name: string
+  content: string
+  eol: 'lf' | 'crlf'
+}
+
+export type FileReadResult = FileReadOk | { ok: false; error: string }
+export type FileOpenResult = FileReadOk | { ok: false; error?: string; canceled?: boolean }
+export type FileWriteResult = { ok: true } | { ok: false; error: string }
+
 export interface Settings {
   fontFamily: string
   fontSize: number
@@ -132,6 +144,12 @@ export const DEFAULT_SETTINGS: Settings = {
 
 /** The API the preload script exposes on `window.ember`. */
 export interface EmberApi {
+  startupFiles(): Promise<string[]>
+  onOpenFiles(cb: (paths: string[]) => void): () => void
+  openFileDialog(defaultPath?: string): Promise<FileOpenResult>
+  readFile(path: string): Promise<FileReadResult>
+  writeFile(path: string, content: string): Promise<FileWriteResult>
+  saveFileDialog(defaultPath?: string): Promise<string | null>
   complete(req: CompletionRequest): Promise<CompletionResult>
   recordHistory(entry: HistoryRecord): void
   searchHistory(query: HistoryQuery): Promise<HistoryEntry[]>

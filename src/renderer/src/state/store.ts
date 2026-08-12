@@ -64,6 +64,11 @@ export interface EditorPaneState extends BasePane {
   filePath: string | null
   title: string
   dirty: boolean
+  /** The text as loaded or last saved; compared against the buffer for dirtiness. */
+  savedContent: string
+  language: string
+  eol: 'lf' | 'crlf'
+  error: string | null
 }
 
 export type Pane = TerminalPaneState | EditorPaneState
@@ -108,6 +113,14 @@ interface Store {
   splitPane(tabId: string, paneId: string, direction: 'row' | 'column'): string | null
   closePane(tabId: string, paneId: string): void
   setSizes(tabId: string, path: number[], sizes: number[]): void
+
+  editorPane(paneId: string): EditorPaneState | null
+  patchEditorPane(paneId: string, patch: Partial<EditorPaneState>): void
+  /** Replace the active pane of a tab with an editor showing this file. */
+  openFileInSplit(
+    tabId: string,
+    file: { path: string; name: string; content: string; language: string; eol: 'lf' | 'crlf' }
+  ): string | null
 
   terminalPane(paneId: string): TerminalPaneState | null
   patchPane(paneId: string, patch: Partial<TerminalPaneState>): void
@@ -345,6 +358,59 @@ export const useStore = create<Store>((set, get) => ({
         return { ...t, root: replaceNode(t.root, path, { ...node, sizes }) }
       })
     })),
+
+  editorPane: (paneId) => {
+    const p = get().panes[paneId]
+    return p && p.kind === 'editor' ? p : null
+  },
+
+  patchEditorPane: (paneId, patch) =>
+    set((s) => {
+      const pane = s.panes[paneId]
+      if (!pane || pane.kind !== 'editor') return s
+      return { panes: { ...s.panes, [paneId]: { ...pane, ...patch } } }
+    }),
+
+  openFileInSplit: (tabId, file) => {
+    const { tabs, panes } = get()
+    const tab = tabs.find((t) => t.id === tabId)
+    if (!tab) return null
+
+    // Reuse an editor already showing this file rather than opening a duplicate.
+    const existing = Object.values(panes).find(
+      (p) => p.kind === 'editor' && p.filePath === file.path
+    )
+    if (existing) {
+      set({
+        tabs: tabs.map((t) => (t.id === tabId ? { ...t, activePaneId: existing.id } : t))
+      })
+      return existing.id
+    }
+
+    const pane: EditorPaneState = {
+      id: uid(),
+      kind: 'editor',
+      filePath: file.path,
+      title: file.name,
+      dirty: false,
+      savedContent: file.content,
+      language: file.language,
+      eol: file.eol,
+      error: null
+    }
+
+    // Editors open beside the current pane, so the terminal stays visible — the
+    // point of editing here rather than in a separate window.
+    set({
+      panes: { ...panes, [pane.id]: pane },
+      tabs: tabs.map((t) =>
+        t.id === tabId
+          ? { ...t, root: splitAt(t.root, tab.activePaneId, 'row', pane.id), activePaneId: pane.id }
+          : t
+      )
+    })
+    return pane.id
+  },
 
   terminalPane: (paneId) => {
     const p = get().panes[paneId]

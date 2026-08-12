@@ -6,6 +6,7 @@ import { SettingsStore } from './settings.js'
 import { ThemeStore } from './themes.js'
 import { CompletionService } from './completion.js'
 import { HistoryStore } from './history.js'
+import { FileService, fileArgs } from './files.js'
 import { AiService } from './ai.js'
 import {
   DEFAULT_SETTINGS,
@@ -24,6 +25,9 @@ let settings: SettingsStore
 let themes: ThemeStore
 let completion: CompletionService
 let history: HistoryStore
+let files: FileService
+/** Drained once by the renderer at boot; refilled when a second instance starts. */
+let startupFiles: string[] = []
 let ai: AiService
 let ptys: PtyManager
 
@@ -107,6 +111,23 @@ function registerIpc(): void {
 
   ipcMain.handle('ai:run', (_e, req: AiRequest) => ai.run(req))
 
+  ipcMain.handle('file:startupFiles', () => {
+    const pending = startupFiles
+    startupFiles = []
+    return pending
+  })
+
+  ipcMain.handle('file:openDialog', (_e, defaultPath?: string) =>
+    mainWindow ? files.openDialog(mainWindow, defaultPath) : { ok: false, error: 'No window.' }
+  )
+  ipcMain.handle('file:read', (_e, filePath: string) => files.read(filePath))
+  ipcMain.handle('file:write', (_e, filePath: string, content: string) =>
+    files.write(filePath, content)
+  )
+  ipcMain.handle('file:saveDialog', (_e, defaultPath?: string) =>
+    mainWindow ? files.saveDialog(mainWindow, defaultPath) : null
+  )
+
   completion = new CompletionService(profiles)
   ipcMain.handle('completion:request', (_e, req: CompletionRequest) => completion.complete(req))
 
@@ -155,7 +176,11 @@ function registerIpc(): void {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_e, argv) => {
+    // Opening a file while Ember is already running should surface it here rather
+    // than starting a competing instance.
+    const opened = fileArgs(argv, app.getAppPath())
+    if (opened.length > 0) sendToRenderer('file:open', opened)
     if (!mainWindow) return
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.focus()
@@ -169,6 +194,8 @@ if (!app.requestSingleInstanceLock()) {
     settings = new SettingsStore()
     themes = new ThemeStore()
     history = new HistoryStore()
+    files = new FileService()
+    startupFiles = fileArgs(process.argv, app.getAppPath())
     ai = new AiService(settings)
     ptys = new PtyManager(
       (paneId, data) => sendToRenderer('pty:data', { paneId, data }),

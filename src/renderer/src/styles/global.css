@@ -919,3 +919,54 @@ kbd {
 .composer__ghost-rest {
   color: var(--fg-faint);
 }
+
+/* ---------- editor pane ---------- */
+
+.editor {
+  overflow: hidden;
+}
+
+.editor__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 5px 8px 5px 10px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  font-size: 11.5px;
+}
+
+.editor__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--fg);
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: 0 0 auto;
+}
+
+.editor__lang,
+.editor__msg {
+  flex: 0 0 auto;
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+.editor__host {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}

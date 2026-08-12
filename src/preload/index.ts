@@ -19,6 +19,16 @@ import type {
  * crosses this bridge as plain data.
  */
 const api: EmberApi = {
+  startupFiles: () => ipcRenderer.invoke('file:startupFiles'),
+  onOpenFiles: (cb: (paths: string[]) => void) => {
+    const listener = (_: unknown, paths: string[]): void => cb(paths)
+    ipcRenderer.on('file:open', listener)
+    return () => ipcRenderer.removeListener('file:open', listener)
+  },
+  openFileDialog: (defaultPath?: string) => ipcRenderer.invoke('file:openDialog', defaultPath),
+  readFile: (path: string) => ipcRenderer.invoke('file:read', path),
+  writeFile: (path: string, content: string) => ipcRenderer.invoke('file:write', path, content),
+  saveFileDialog: (defaultPath?: string) => ipcRenderer.invoke('file:saveDialog', defaultPath),
   complete: (req: CompletionRequest) => ipcRenderer.invoke('completion:request', req),
   recordHistory: (entry: HistoryRecord) => ipcRenderer.send('history:record', entry),
   searchHistory: (query: HistoryQuery) => ipcRenderer.invoke('history:search', query),

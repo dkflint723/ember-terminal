@@ -21,7 +21,9 @@ export function TitleBar(): React.JSX.Element {
     if (!tab) return 'Shell'
     const pane = panes[tab.activePaneId]
     if (!pane) return 'Shell'
-    if (pane.kind !== 'terminal') return pane.filePath ?? 'Untitled'
+    // The file name, not its full path — a path fills the tab and truncates the
+    // part that identifies the file.
+    if (pane.kind !== 'terminal') return pane.title || 'Untitled'
     // A pane with no integration never reports a cwd, so name it after its shell
     // rather than leaving the placeholder.
     if (pane.title === 'Shell') {

@@ -33,8 +33,14 @@ export function App(): React.JSX.Element {
       const preferred =
         profiles.find((p) => p.id === settings.defaultProfileId)?.id ?? profiles[0].id
       if (useStore.getState().tabs.length === 0) newTab(preferred)
+
+      // Files named on the command line open once the first tab exists, since an
+      // editor pane is created beside an existing pane.
+      await openPaths(await window.ember.startupFiles())
     })()
   }, [newTab, setProfiles, applySettings])
+
+  useEffect(() => window.ember.onOpenFiles((paths) => void openPaths(paths)), [])
 
   // Dispose controllers for panes that have gone away, so xterm instances and
   // their offscreen render terminals are not leaked.
@@ -44,6 +50,39 @@ export function App(): React.JSX.Element {
       for (const id of live) if (!useStore.getState().panes[id]) disposeController(id)
     }
   }, [panes])
+
+  const openPaths = async (paths: string[]): Promise<void> => {
+    if (paths.length === 0) return
+    const { languageForPath } = await import('./editor/monaco')
+    for (const filePath of paths) {
+      const res = await window.ember.readFile(filePath)
+      if (!res.ok) continue
+      const s = useStore.getState()
+      const tab = s.tabs.find((t) => t.id === s.activeTabId)
+      if (!tab) return
+      s.openFileInSplit(tab.id, {
+        path: res.path,
+        name: res.name,
+        content: res.content,
+        language: languageForPath(res.path),
+        eol: res.eol
+      })
+    }
+  }
+
+  const openFile = async (): Promise<void> => {
+    const s = useStore.getState()
+    const tab = s.tabs.find((t) => t.id === s.activeTabId)
+    if (!tab) return
+    // Start the picker in the active terminal's directory, which is nearly always
+    // where the file the user wants lives.
+    const pane = s.panes[tab.activePaneId]
+    const from = pane?.kind === 'terminal' ? pane.cwd : undefined
+
+    const res = await window.ember.openFileDialog(from)
+    if (!res.ok) return
+    await openPaths([res.path])
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -82,6 +121,13 @@ export function App(): React.JSX.Element {
       if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'r') {
         e.preventDefault()
         s.toggleHistory()
+        return
+      }
+
+      // Ctrl+O opens a file in an editor pane beside the current one.
+      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'o') {
+        e.preventDefault()
+        void openFile()
         return
       }
 
