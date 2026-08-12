@@ -243,6 +243,32 @@ await page.evaluate(() => {
 await sleep(900)
 log('after Cancel →', JSON.stringify(await readTokens()))
 
+// A no-echo prompt must mask input, and the value must never reach the
+// serialized DOM. Pattern coverage is tested separately and far more thoroughly
+// by scripts/test-secret-prompt.mjs.
+await page.click('.composer__input')
+await page.keyboard.type('$s = Read-Host -AsSecureString "Password"', { delay: 10 })
+await page.keyboard.press('Enter')
+await sleep(3000)
+
+const SECRET_PROBE = 'verify-secret-must-not-leak'
+await page.keyboard.type(SECRET_PROBE, { delay: 10 })
+const secretState = await page.evaluate((s) => ({
+  masked: !!document.querySelector('.composer__row--secret'),
+  passwordInput: !!document.querySelector('input[type="password"]'),
+  leakedToDom: document.documentElement.outerHTML.includes(s),
+  visible: document.body.innerText.includes(s)
+}), SECRET_PROBE)
+await page.keyboard.press('Enter')
+await sleep(3000)
+
+log('secret prompt →', JSON.stringify(secretState))
+log(
+  secretState.masked && secretState.passwordInput && !secretState.leakedToDom && !secretState.visible
+    ? 'secret masking: PASS'
+    : 'secret masking: FAIL'
+)
+
 // A shell with no integration hook (cmd.exe) must degrade to a plain terminal
 // rather than stranding an unresolvable block. This regressed once; keep it here.
 const hasCmd = await page.evaluate(async () =>

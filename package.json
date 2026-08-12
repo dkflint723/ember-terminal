@@ -11,6 +11,8 @@
     "start": "electron-vite preview",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test:units": "node scripts/test-secret-prompt.mjs",
+    "verify": "npm run test:units && electron-vite build && node scripts/verify.mjs",
     "package": "electron-vite build && electron-builder --win --dir",
     "dist": "electron-vite build && electron-builder --win"
   },

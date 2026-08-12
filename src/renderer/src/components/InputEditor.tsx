@@ -152,43 +152,7 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
   // While a program is running, typing should go straight to it rather than
   // queueing up a new command line.
   if (running) {
-    return (
-      <div className="composer">
-        <div className="composer__meta">
-          <span className="composer__badge composer__badge--warn">running</span>
-          <span className="composer__cwd">input goes to the running program</span>
-        </div>
-        <div className="composer__row">
-          <span className="composer__sigil">›</span>
-          <textarea
-            className="composer__input"
-            rows={1}
-            placeholder="send to process…"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                controller.send(`${e.currentTarget.value}\r`)
-                e.currentTarget.value = ''
-              } else if (e.ctrlKey && e.key.toLowerCase() === 'c') {
-                e.preventDefault()
-                controller.send('\x03')
-              } else if (e.ctrlKey && e.key.toLowerCase() === 'd') {
-                e.preventDefault()
-                controller.send('\x04')
-              }
-            }}
-          />
-        </div>
-        <div className="composer__hint">
-          <span>
-            <kbd>Ctrl</kbd> <kbd>C</kbd> interrupt
-          </span>
-          <span>
-            <kbd>Ctrl</kbd> <kbd>D</kbd> end input
-          </span>
-        </div>
-      </div>
-    )
+    return <RunningInput pane={pane} controller={controller} />
   }
 
   return (
@@ -267,6 +231,104 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
             explain last error
           </button>
         )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Input for a program that is already running. Split out from the main composer
+ * because it has different rules: no history, no AI, and when the program is
+ * asking for a secret the value must be masked and never retained.
+ */
+function RunningInput({ pane, controller }: Props): React.JSX.Element {
+  const [value, setValue] = useState('')
+  const secretRef = useRef<HTMLInputElement>(null)
+  const secret = pane.awaitingSecret
+
+  const submit = (): void => {
+    if (secret) {
+      // Read straight from the DOM node and clear it. A React-controlled value
+      // would be mirrored into the element's value attribute, leaving the secret
+      // in the serialized DOM even though it renders masked.
+      const node = secretRef.current
+      if (!node) return
+      controller.sendSecret(node.value)
+      node.value = ''
+      return
+    }
+    controller.send(`${value}\r`)
+    setValue('')
+  }
+
+  const onKeyDown = (e: React.KeyboardEvent): void => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      submit()
+      return
+    }
+    if (e.ctrlKey && e.key.toLowerCase() === 'c') {
+      e.preventDefault()
+      setValue('')
+      if (secretRef.current) secretRef.current.value = ''
+      controller.send('\x03')
+      return
+    }
+    if (e.ctrlKey && e.key.toLowerCase() === 'd') {
+      e.preventDefault()
+      controller.send('\x04')
+    }
+  }
+
+  return (
+    <div className="composer">
+      <div className="composer__meta">
+        <span className="composer__badge composer__badge--warn">running</span>
+        {secret ? (
+          <span className="composer__cwd">input hidden — sent straight to the program</span>
+        ) : (
+          <span className="composer__cwd">input goes to the running program</span>
+        )}
+      </div>
+      <div className={`composer__row ${secret ? 'composer__row--secret' : ''}`}>
+        <span className="composer__sigil">{secret ? '🔒' : '›'}</span>
+        {/*
+          A textarea cannot mask its content, so a secret prompt swaps in a
+          password input. Both are controlled, so the value is cleared from React
+          state on submit rather than lingering in the DOM.
+        */}
+        {secret ? (
+          <input
+            ref={secretRef}
+            className="composer__input"
+            type="password"
+            autoFocus
+            autoComplete="off"
+            spellCheck={false}
+            // Intentionally uncontrolled — see submit().
+            defaultValue=""
+            onKeyDown={onKeyDown}
+          />
+        ) : (
+          <textarea
+            className="composer__input"
+            rows={1}
+            spellCheck={false}
+            placeholder="send to process…"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={onKeyDown}
+          />
+        )}
+      </div>
+      <div className="composer__hint">
+        {secret && <span>not saved to history</span>}
+        <span>
+          <kbd>Ctrl</kbd> <kbd>C</kbd> interrupt
+        </span>
+        <span>
+          <kbd>Ctrl</kbd> <kbd>D</kbd> end input
+        </span>
       </div>
     </div>
   )

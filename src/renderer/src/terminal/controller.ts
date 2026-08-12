@@ -4,6 +4,7 @@ import { SerializeAddon } from '@xterm/addon-serialize'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import type { TerminalPalette } from '@shared/theme'
+import { looksLikeSecretPrompt, stripAnsi } from '@shared/secrets'
 import { useStore } from '../state/store'
 import { DEFAULT_THEME, toXtermTheme } from './theme'
 
@@ -55,6 +56,8 @@ export class TerminalController {
   private disposers: (() => void)[] = []
   private spawned = false
   private integrationTimer: number | null = null
+  /** Rolling tail of recent output, used only for secret-prompt detection. */
+  private tail = ''
 
   constructor(
     private paneId: string,
@@ -244,6 +247,11 @@ export class TerminalController {
       // Output begins. The splitter in `feedCapture` owns the buffer itself; this
       // only handles the block's lifecycle.
       this.sawAltScreen = false
+      // A new command starts with no pending prompt, stale or otherwise.
+      this.tail = ''
+      if (this.store().terminalPane(this.paneId)?.awaitingSecret) {
+        this.store().patchPane(this.paneId, { awaitingSecret: false })
+      }
 
       // If the user typed straight into the terminal rather than the editor, the
       // block has not been opened yet.
@@ -396,12 +404,38 @@ export class TerminalController {
     }
   }
 
+  /**
+   * Watch the tail of the output for a prompt asking for a secret. A rolling
+   * window rather than the current chunk, because a prompt can be split across
+   * pty reads.
+   */
+  private detectSecretPrompt(data: string): void {
+    this.tail = (this.tail + stripAnsi(data)).slice(-400)
+    const wants = looksLikeSecretPrompt(this.tail)
+
+    const pane = this.store().terminalPane(this.paneId)
+    if (!pane || pane.awaitingSecret === wants) return
+    this.store().patchPane(this.paneId, { awaitingSecret: wants })
+  }
+
   /** Called from the pane's pty data subscription. */
   write(data: string): void {
     // Order matters: the capture must be sliced before xterm parses the markers
     // and fires finishBlock.
     this.feedCapture(data)
+    this.detectSecretPrompt(data)
     this.term.write(data)
+  }
+
+  /**
+   * Send a secret the program is waiting for. Kept separate from `send` so it is
+   * obvious at the call site that this value must never reach history, the block
+   * list, or a log.
+   */
+  sendSecret(value: string): void {
+    window.ember.write(this.paneId, `${value}\r`)
+    this.tail = ''
+    this.store().patchPane(this.paneId, { awaitingSecret: false })
   }
 
   send(data: string): void {

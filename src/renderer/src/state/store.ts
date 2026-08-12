@@ -49,6 +49,11 @@ export interface TerminalPaneState extends BasePane {
   /** `raw` hands the keyboard straight to the pty for full-screen programs. */
   mode: 'blocks' | 'raw'
   integration: IntegrationState
+  /**
+   * The running program appears to be asking for a secret, so input must be
+   * masked and kept out of history.
+   */
+  awaitingSecret: boolean
   exited: boolean
   exitCode: number | null
 }
@@ -119,6 +124,7 @@ function makeTerminalPane(profileId: string, cwd: string): TerminalPaneState {
     blocks: [],
     mode: 'blocks',
     integration: 'pending',
+    awaitingSecret: false,
     exited: false,
     exitCode: null
   }

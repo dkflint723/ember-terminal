@@ -707,3 +707,12 @@ kbd {
   color: var(--fg-faint);
   font-size: 11px;
 }
+
+.composer__row--secret {
+  border-color: var(--accent);
+  background: var(--fail-bg);
+}
+
+.composer__row--secret:focus-within {
+  border-color: var(--fail);
+}
