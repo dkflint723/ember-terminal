@@ -121,6 +121,7 @@ function registerIpc(): void {
     mainWindow ? files.openDialog(mainWindow, defaultPath) : { ok: false, error: 'No window.' }
   )
   ipcMain.handle('file:read', (_e, filePath: string) => files.read(filePath))
+  ipcMain.handle('file:readDir', (_e, dirPath: string) => files.readDir(dirPath))
   ipcMain.handle('file:write', (_e, filePath: string, content: string) =>
     files.write(filePath, content)
   )

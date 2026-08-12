@@ -93,6 +93,9 @@ interface Store {
   themes: ThemeSummary[]
   settingsOpen: boolean
   historyOpen: boolean
+  sidebarOpen: boolean
+  /** Root of the file tree; null until a terminal reports a directory. */
+  treeRoot: string | null
   /** Command handed to a pane's input by history search, consumed on mount. */
   pendingInput: Record<string, string>
 
@@ -102,6 +105,8 @@ interface Store {
   setTheme(theme: ResolvedTheme): void
   toggleSettings(open?: boolean): void
   toggleHistory(open?: boolean): void
+  toggleSidebar(open?: boolean): void
+  setTreeRoot(path: string): void
   setPendingInput(paneId: string, text: string): void
   clearPendingInput(paneId: string): void
 
@@ -240,6 +245,8 @@ export const useStore = create<Store>((set, get) => ({
   themes: [],
   settingsOpen: false,
   historyOpen: false,
+  sidebarOpen: false,
+  treeRoot: null,
   pendingInput: {},
 
   setProfiles: (profiles) => set({ profiles }),
@@ -248,6 +255,8 @@ export const useStore = create<Store>((set, get) => ({
   setTheme: (theme) => set({ theme }),
   toggleSettings: (open) => set((s) => ({ settingsOpen: open ?? !s.settingsOpen })),
   toggleHistory: (open) => set((s) => ({ historyOpen: open ?? !s.historyOpen })),
+  toggleSidebar: (open) => set((s) => ({ sidebarOpen: open ?? !s.sidebarOpen })),
+  setTreeRoot: (treeRoot) => set({ treeRoot }),
   setPendingInput: (paneId, text) =>
     set((s) => ({ pendingInput: { ...s.pendingInput, [paneId]: text } })),
   clearPendingInput: (paneId) =>

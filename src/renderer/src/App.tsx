@@ -4,6 +4,7 @@ import { TitleBar } from './components/TitleBar'
 import { SplitView } from './components/SplitView'
 import { SettingsPanel } from './components/SettingsPanel'
 import { HistorySearch } from './components/HistorySearch'
+import { FileTree } from './components/FileTree'
 import { disposeController } from './terminal/controller'
 import { activateTheme, refreshThemeList } from './state/theming'
 
@@ -11,6 +12,7 @@ export function App(): React.JSX.Element {
   const tabs = useStore((s) => s.tabs)
   const panes = useStore((s) => s.panes)
   const activeTabId = useStore((s) => s.activeTabId)
+  const sidebarOpen = useStore((s) => s.sidebarOpen)
   const setProfiles = useStore((s) => s.setProfiles)
   const applySettings = useStore((s) => s.applySettings)
   const newTab = useStore((s) => s.newTab)
@@ -124,6 +126,13 @@ export function App(): React.JSX.Element {
         return
       }
 
+      // Ctrl+B toggles the file tree, matching the editor convention.
+      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'b') {
+        e.preventDefault()
+        s.toggleSidebar()
+        return
+      }
+
       // Ctrl+O opens a file in an editor pane beside the current one.
       if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'o') {
         e.preventDefault()
@@ -156,6 +165,7 @@ export function App(): React.JSX.Element {
     <div className="app">
       <TitleBar />
       <div className="workspace">
+        {sidebarOpen && <FileTree onOpen={(p) => void openPaths([p])} />}
         {activeTab ? (
           <SplitView
             tabId={activeTab.id}

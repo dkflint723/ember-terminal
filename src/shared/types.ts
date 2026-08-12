@@ -110,6 +110,17 @@ export interface HistoryQuery {
   limit?: number
 }
 
+export interface DirEntry {
+  name: string
+  path: string
+  isDirectory: boolean
+  hidden: boolean
+}
+
+export type DirReadResult =
+  | { ok: true; path: string; entries: DirEntry[] }
+  | { ok: false; error: string }
+
 export interface FileReadOk {
   ok: true
   path: string
@@ -148,6 +159,7 @@ export interface EmberApi {
   onOpenFiles(cb: (paths: string[]) => void): () => void
   openFileDialog(defaultPath?: string): Promise<FileOpenResult>
   readFile(path: string): Promise<FileReadResult>
+  readDir(path: string): Promise<DirReadResult>
   writeFile(path: string, content: string): Promise<FileWriteResult>
   saveFileDialog(defaultPath?: string): Promise<string | null>
   complete(req: CompletionRequest): Promise<CompletionResult>

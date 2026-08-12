@@ -1,8 +1,14 @@
 import { dialog, type BrowserWindow } from 'electron'
 import { existsSync, statSync } from 'node:fs'
-import { readFile, stat, writeFile } from 'node:fs/promises'
-import { basename } from 'node:path'
-import type { FileOpenResult, FileReadResult, FileWriteResult } from '../shared/types.js'
+import { readdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { basename, join } from 'node:path'
+import type {
+  DirEntry,
+  DirReadResult,
+  FileOpenResult,
+  FileReadResult,
+  FileWriteResult
+} from '../shared/types.js'
 
 /** Refuse to load something that is not a text file into a text editor. */
 const MAX_BYTES = 16 * 1024 * 1024
@@ -39,6 +45,48 @@ export function fileArgs(argv: string[], appPath: string): string[] {
 }
 
 export class FileService {
+  /**
+   * One directory level. The tree reads lazily on expand rather than walking
+   * recursively — a root like a home directory or a repo with node_modules would
+   * otherwise take seconds and pull tens of thousands of entries into memory.
+   */
+  async readDir(dirPath: string): Promise<DirReadResult> {
+    try {
+      const entries = await readdir(dirPath, { withFileTypes: true })
+      const items: DirEntry[] = []
+
+      for (const entry of entries) {
+        let isDirectory = entry.isDirectory()
+        // A symlink reports its own type, so resolve it to place the entry
+        // correctly; an unresolvable link is treated as a file.
+        if (entry.isSymbolicLink()) {
+          try {
+            isDirectory = (await stat(join(dirPath, entry.name))).isDirectory()
+          } catch {
+            isDirectory = false
+          }
+        }
+        items.push({
+          name: entry.name,
+          path: join(dirPath, entry.name),
+          isDirectory,
+          hidden: entry.name.startsWith('.')
+        })
+      }
+
+      // Directories first, then case-insensitive by name, which is what every
+      // file browser does and what makes a tree scannable.
+      items.sort(
+        (a, b) =>
+          Number(b.isDirectory) - Number(a.isDirectory) ||
+          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+      )
+      return { ok: true, path: dirPath, entries: items }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'Could not read directory.' }
+    }
+  }
+
   async read(filePath: string): Promise<FileReadResult> {
     try {
       const info = await stat(filePath)
