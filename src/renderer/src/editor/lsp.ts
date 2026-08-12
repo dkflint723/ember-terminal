@@ -97,15 +97,25 @@ class IpcTransport {
 const started = new Map<string, Promise<boolean>>()
 
 /**
+ * Monaco language ids that have a server, mapped to the server's id. Several
+ * Monaco languages share one server, and some need none: Monaco's bundled
+ * TypeScript worker already covers javascript.
+ */
+const SERVER_FOR: Record<string, string> = {
+  typescript: 'typescript',
+  javascript: 'typescript',
+  typescriptreact: 'typescript',
+  javascriptreact: 'typescript'
+}
+
+/**
  * Start the client for a language once per session. Called when an editor opens a
  * file of that language rather than at boot, so a terminal-only session never pays
  * for a language server.
  */
 export function ensureLanguageServer(language: string): Promise<boolean> {
-  // Monaco's TypeScript worker already handles javascript; only ask for a server
-  // where one is configured.
-  const target = language === 'javascript' ? 'typescript' : language
-  if (target !== 'typescript') return Promise.resolve(false)
+  const target = SERVER_FOR[language]
+  if (!target) return Promise.resolve(false)
 
   const existing = started.get(target)
   if (existing) return existing
@@ -114,8 +124,9 @@ export function ensureLanguageServer(language: string): Promise<boolean> {
     const transport = new IpcTransport(target)
     if (!(await transport.connect())) return false
 
-    const LspClient = (monaco as unknown as { lsp?: { MonacoLspClient?: new (t: unknown) => unknown } })
-      .lsp?.MonacoLspClient
+    const LspClient = (
+      monaco as unknown as { lsp?: { MonacoLspClient?: new (t: unknown) => unknown } }
+    ).lsp?.MonacoLspClient
     if (!LspClient) return false
 
     new LspClient(transport)

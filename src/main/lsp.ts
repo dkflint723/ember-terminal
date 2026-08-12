@@ -20,17 +20,27 @@ export class LspService {
   constructor(private send: Send) {}
 
   /**
+   * Where each language's server lives, relative to the app root. Adding a
+   * language is one entry here plus the same id in the renderer's supported set.
+   */
+  private static readonly SERVERS: Record<string, string[]> = {
+    typescript: ['node_modules', 'typescript-language-server', 'lib', 'cli.mjs']
+  }
+
+  /**
    * A packaged app has no `node` on the path, but Electron's own binary runs as
    * Node when ELECTRON_RUN_AS_NODE is set — the standard way to host a Node child
-   * process from Electron.
+   * process from Electron. Both servers happen to be Node programs; a native
+   * server would need its own branch here.
    */
   private serverCommand(language: string): { exe: string; args: string[] } | null {
-    if (language !== 'typescript') return null
+    const parts = LspService.SERVERS[language]
+    if (!parts) return null
 
     const base = app.isPackaged ? process.resourcesPath : app.getAppPath()
-    const cli = join(base, 'node_modules', 'typescript-language-server', 'lib', 'cli.mjs')
-    if (!existsSync(cli)) return null
-    return { exe: process.execPath, args: [cli, '--stdio'] }
+    const entry = join(base, ...parts)
+    if (!existsSync(entry)) return null
+    return { exe: process.execPath, args: [entry, '--stdio'] }
   }
 
   start(language: string): { ok: boolean; error?: string } {
