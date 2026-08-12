@@ -51,6 +51,35 @@ export interface AiResponse {
   error?: string
 }
 
+export interface CompletionRequest {
+  profileId: string
+  cwd: string
+  /** The whole input line, so shells can complete parameters in context. */
+  input: string
+  /** Caret offset within `input`. */
+  cursor: number
+}
+
+export interface CompletionItem {
+  /** Text to substitute into the line. */
+  text: string
+  /** What to show in the list, when it differs from `text`. */
+  label: string
+  /** Provider-specific kind, e.g. Command, ParameterName, ProviderItem. */
+  type: string
+  tip?: string
+}
+
+export interface CompletionResult {
+  /** Start of the span in `input` that `text` replaces. */
+  replaceIndex: number
+  replaceLength: number
+  items: CompletionItem[]
+  /** Which backend answered, surfaced so the UI can explain reduced fidelity. */
+  source: 'powershell' | 'generic' | 'none'
+  error?: string
+}
+
 export interface Settings {
   fontFamily: string
   fontSize: number
@@ -73,6 +102,7 @@ export const DEFAULT_SETTINGS: Settings = {
 
 /** The API the preload script exposes on `window.ember`. */
 export interface EmberApi {
+  complete(req: CompletionRequest): Promise<CompletionResult>
   listThemes(): Promise<ThemeSummary[]>
   /** Null when the id names a theme that has since been removed. */
   getTheme(id: string): Promise<ResolvedTheme | null>

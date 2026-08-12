@@ -716,3 +716,63 @@ kbd {
 .composer__row--secret:focus-within {
   border-color: var(--fail);
 }
+
+/* ---------- completion list ---------- */
+
+.complete {
+  margin-bottom: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.complete__list {
+  max-height: 210px;
+  overflow-y: auto;
+}
+
+.complete__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 4px 10px;
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--fg-dim);
+}
+
+.complete__item:hover {
+  background: var(--bg-hover);
+}
+
+.complete__item--on {
+  background: var(--accent-dim);
+  color: var(--fg);
+}
+
+.complete__label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.complete__type {
+  flex: 0 0 auto;
+  color: var(--fg-faint);
+  font-family: var(--ui);
+  font-size: 10.5px;
+}
+
+.complete__foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 10px;
+  border-top: 1px solid var(--border);
+  color: var(--fg-faint);
+  font-size: 11px;
+}

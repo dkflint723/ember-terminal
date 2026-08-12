@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { homedir } from 'node:os'
 import type {
   AiRequest,
+  CompletionRequest,
   AiResponse,
   EmberApi,
   PtyDataEvent,
@@ -16,6 +17,7 @@ import type {
  * crosses this bridge as plain data.
  */
 const api: EmberApi = {
+  complete: (req: CompletionRequest) => ipcRenderer.invoke('completion:request', req),
   listThemes: () => ipcRenderer.invoke('themes:list'),
   getTheme: (id: string) => ipcRenderer.invoke('themes:get', id),
   importTheme: () => ipcRenderer.invoke('themes:import'),

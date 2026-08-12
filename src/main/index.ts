@@ -4,14 +4,22 @@ import { PtyManager } from './pty.js'
 import { detectProfiles } from './profiles.js'
 import { SettingsStore } from './settings.js'
 import { ThemeStore } from './themes.js'
+import { CompletionService } from './completion.js'
 import { AiService } from './ai.js'
-import { DEFAULT_SETTINGS, type AiRequest, type Settings, type SpawnRequest } from '../shared/types.js'
+import {
+  DEFAULT_SETTINGS,
+  type AiRequest,
+  type CompletionRequest,
+  type Settings,
+  type SpawnRequest
+} from '../shared/types.js'
 
 const isDev = !app.isPackaged
 
 let mainWindow: BrowserWindow | null = null
 let settings: SettingsStore
 let themes: ThemeStore
+let completion: CompletionService
 let ai: AiService
 let ptys: PtyManager
 
@@ -95,6 +103,9 @@ function registerIpc(): void {
 
   ipcMain.handle('ai:run', (_e, req: AiRequest) => ai.run(req))
 
+  completion = new CompletionService(profiles)
+  ipcMain.handle('completion:request', (_e, req: CompletionRequest) => completion.complete(req))
+
   ipcMain.handle('themes:list', () => themes.list())
 
   ipcMain.handle('themes:get', (_e, id: string) => {
@@ -162,5 +173,8 @@ if (!app.requestSingleInstanceLock()) {
     if (process.platform !== 'darwin') app.quit()
   })
 
-  app.on('before-quit', () => ptys?.killAll())
+  app.on('before-quit', () => {
+    ptys?.killAll()
+    completion?.dispose()
+  })
 }

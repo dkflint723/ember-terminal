@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AiResponse } from '@shared/types'
+import type { AiResponse, CompletionItem, CompletionResult } from '@shared/types'
+import { commonPrefix } from '@shared/completion'
 import type { TerminalController } from '../terminal/controller'
 import type { TerminalPaneState } from '../state/store'
 
@@ -22,7 +23,12 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
   const [historyIdx, setHistoryIdx] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [proposal, setProposal] = useState<AiResponse | null>(null)
+  const [completion, setCompletion] = useState<{ result: CompletionResult; index: number } | null>(
+    null
+  )
   const ref = useRef<HTMLTextAreaElement>(null)
+  /** Guards against a slow completion reply landing after the input moved on. */
+  const completionSeq = useRef(0)
 
   const running = pane.blocks.at(-1)?.status === 'running'
 
@@ -87,7 +93,95 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
     }
   }
 
+  /** Replace the span the backend nominated, and put the caret after it. */
+  const applyCompletion = (text: string, result: CompletionResult): void => {
+    const start = Math.max(0, result.replaceIndex)
+    const before = value.slice(0, start)
+    const after = value.slice(start + Math.max(0, result.replaceLength))
+    setValue(before + text + after)
+    const caret = before.length + text.length
+    // The textarea has not re-rendered yet, so defer moving the caret.
+    requestAnimationFrame(() => ref.current?.setSelectionRange(caret, caret))
+  }
+
+  const requestCompletions = async (): Promise<void> => {
+    const el = ref.current
+    if (!el) return
+    const cursor = el.selectionStart ?? value.length
+    const seq = ++completionSeq.current
+
+    const result = await window.ember.complete({
+      profileId: pane.profileId,
+      cwd: pane.cwd,
+      input: value,
+      cursor
+    })
+    // Discard a reply the user has already typed past.
+    if (seq !== completionSeq.current) return
+
+    if (result.items.length === 0) {
+      setCompletion(null)
+      return
+    }
+    if (result.items.length === 1) {
+      applyCompletion(result.items[0].text, result)
+      setCompletion(null)
+      return
+    }
+
+    // Insert whatever part is unambiguous, then let the list resolve the rest.
+    const token = value.slice(result.replaceIndex, result.replaceIndex + result.replaceLength)
+    const prefix = commonPrefix(result.items.map((i) => i.text))
+    if (prefix.length > token.length) applyCompletion(prefix, result)
+    setCompletion({ result, index: 0 })
+  }
+
+  const acceptCompletion = (item: CompletionItem, result: CompletionResult): void => {
+    applyCompletion(item.text, result)
+    setCompletion(null)
+    ref.current?.focus()
+  }
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    // The completion list owns these keys while it is open.
+    if (completion) {
+      const items = completion.result.items
+      const move = (delta: number): void =>
+        setCompletion({
+          ...completion,
+          index: (completion.index + delta + items.length) % items.length
+        })
+
+      if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) {
+        e.preventDefault()
+        move(1)
+        return
+      }
+      if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
+        e.preventDefault()
+        move(-1)
+        return
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        acceptCompletion(items[completion.index], completion.result)
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setCompletion(null)
+        return
+      }
+    }
+
+    // Tab must never fall through to the browser, which would move focus out of
+    // the input entirely — the behaviour that made the editor feel broken.
+    if (e.key === 'Tab') {
+      e.preventDefault()
+      if (mode === 'shell') void requestCompletions()
+      return
+    }
+
     // Shift+Enter always inserts a newline, in either mode.
     if (e.key === 'Enter' && e.shiftKey) return
 
@@ -157,6 +251,36 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
 
   return (
     <div className="composer">
+      {completion && (
+        <div className="complete">
+          <div className="complete__list">
+            {completion.result.items.map((item, i) => (
+              <button
+                key={`${item.text}-${i}`}
+                className={`complete__item ${i === completion.index ? 'complete__item--on' : ''}`}
+                // Mouse-down, not click: the input must not lose focus first.
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  acceptCompletion(item, completion.result)
+                }}
+              >
+                <span className="complete__label">{item.label}</span>
+                <span className="complete__type">{shortType(item.type)}</span>
+              </button>
+            ))}
+          </div>
+          <div className="complete__foot">
+            <span>
+              {completion.result.items.length} matches ·{' '}
+              {completion.result.source === 'powershell' ? 'PowerShell' : 'paths'}
+            </span>
+            <span>
+              <kbd>Tab</kbd> next · <kbd>Enter</kbd> accept · <kbd>Esc</kbd> dismiss
+            </span>
+          </div>
+        </div>
+      )}
+
       <div className="composer__meta">
         <span className="composer__cwd">{pane.cwd}</span>
         {pane.integration === 'pending' && (
@@ -183,7 +307,12 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
           placeholder={
             mode === 'ai' ? 'describe what you want to do…' : pane.exited ? 'shell exited' : ''
           }
-          onChange={(e) => setValue(e.target.value)}
+          onChange={(e) => {
+            setValue(e.target.value)
+            // Any edit invalidates an open list; its replacement span is stale.
+            if (completion) setCompletion(null)
+            completionSeq.current++
+          }}
           onKeyDown={onKeyDown}
         />
         {busy && <span className="spinner" />}
@@ -332,6 +461,34 @@ function RunningInput({ pane, controller }: Props): React.JSX.Element {
       </div>
     </div>
   )
+}
+
+/** Compress PowerShell's CompletionResultType names into a short badge. */
+function shortType(type: string): string {
+  switch (type) {
+    case 'ProviderContainer':
+      return 'dir'
+    case 'ProviderItem':
+      return 'file'
+    case 'Command':
+      return 'cmd'
+    case 'ParameterName':
+      return 'param'
+    case 'ParameterValue':
+      return 'value'
+    case 'Property':
+      return 'prop'
+    case 'Method':
+      return 'method'
+    case 'Variable':
+      return 'var'
+    case 'Type':
+      return 'type'
+    case 'Keyword':
+      return 'kw'
+    default:
+      return type.toLowerCase().slice(0, 6)
+  }
 }
 
 function plainText(html: string): string {

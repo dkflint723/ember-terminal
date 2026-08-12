@@ -243,6 +243,54 @@ await page.evaluate(() => {
 await sleep(900)
 log('after Cancel →', JSON.stringify(await readTokens()))
 
+// Tab completion. Tab used to fall through to the browser and move focus out of
+// the input, so the focus assertion matters as much as the candidates.
+const completionCases = []
+
+async function tabCase(label, text) {
+  await page.click('.composer__input')
+  await page.keyboard.press('Control+A')
+  await page.keyboard.press('Delete')
+  await page.keyboard.type(text, { delay: 8 })
+  await page.keyboard.press('Tab')
+  await sleep(2200)
+  const snap = await page.evaluate(() => ({
+    value: document.querySelector('.composer__input')?.value ?? '',
+    focusedTag: document.activeElement?.tagName ?? null,
+    listCount: document.querySelectorAll('.complete__item').length,
+    source: document.querySelector('.complete__foot')?.textContent?.includes('PowerShell')
+      ? 'powershell'
+      : document.querySelector('.complete__foot')
+        ? 'paths'
+        : null
+  }))
+  completionCases.push({ label, ...snap })
+  return snap
+}
+
+// A unique cmdlet prefix completes outright.
+const unique = await tabCase('unique cmdlet', 'Get-ChildIt')
+// Parameter names are only reachable through the shell's own engine.
+const param = await tabCase('parameter', 'Get-ChildItem -Rec')
+// An ambiguous prefix opens the list.
+const ambiguous = await tabCase('ambiguous', 'Get-A')
+await page.screenshot({ path: path.join(SHOT_DIR, '10-completion.png') })
+log('shot: 10-completion.png')
+await page.keyboard.press('Escape')
+
+for (const c of completionCases) log('completion', JSON.stringify(c))
+
+const completionOk =
+  unique.value === 'Get-ChildItem' &&
+  param.value === 'Get-ChildItem -Recurse' &&
+  ambiguous.listCount > 1 &&
+  completionCases.every((c) => c.focusedTag === 'TEXTAREA')
+log(completionOk ? 'tab completion: PASS' : 'tab completion: FAIL')
+
+await page.click('.composer__input')
+await page.keyboard.press('Control+A')
+await page.keyboard.press('Delete')
+
 // A no-echo prompt must mask input, and the value must never reach the
 // serialized DOM. Pattern coverage is tested separately and far more thoroughly
 // by scripts/test-secret-prompt.mjs.
