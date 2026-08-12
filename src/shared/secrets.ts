@@ -40,6 +40,33 @@ export function stripAnsi(text: string): string {
 }
 
 /**
+ * Credentials passed inline on a command line. Persistent history is forever, so
+ * these commands are dropped rather than stored — a leak here outlives the session
+ * that caused it, and the user has no reason to expect a shell command to be
+ * archived to disk.
+ *
+ * Deliberately conservative: it only matches shapes that carry a value, so
+ * `git push` and `--password-stdin` (which is the safe form) are kept.
+ */
+const INLINE_SECRET = [
+  // --password=x, --token x, -p x, PASSWORD=x, api_key: x
+  /(?:--?)(?:password|passwd|pwd|token|secret|api[-_]?key|access[-_]?key|auth)(?:[=:]|\s+)\S/i,
+  /\b(?:PASSWORD|PASSWD|TOKEN|SECRET|API_KEY|APIKEY|ACCESS_KEY|SECRET_KEY|AUTH_TOKEN)=\S/,
+  // mysql/psql style flag with the value attached: -pMyPassword
+  /(?:^|\s)-p\S{3,}/,
+  // Bearer tokens and basic-auth URLs.
+  /Authorization:\s*(?:Bearer|Basic)\s+\S/i,
+  /\b[a-z][a-z0-9+.-]*:\/\/[^\s/@:]+:[^\s/@]+@/i
+]
+
+/** True when a command line appears to carry a credential in the clear. */
+export function containsInlineSecret(command: string): boolean {
+  // `--password-stdin` and friends read the secret from a pipe; nothing to leak.
+  if (/--(?:password|token|secret)-stdin\b/i.test(command)) return false
+  return INLINE_SECRET.some((re) => re.test(command))
+}
+
+/**
  * True when the tail of the terminal output looks like an open request for a
  * secret. `tail` may contain multiple lines; only the last is considered.
  */

@@ -317,6 +317,59 @@ log(
     : 'secret masking: FAIL'
 )
 
+// Persistent history: the two blocks run above must be searchable, including by
+// what they printed, and Enter must insert rather than run.
+await page.keyboard.press('Control+r')
+await sleep(1300)
+const histOpen = await page.evaluate(() => !!document.querySelector('.hist'))
+
+const histSearch = async (q) => {
+  await page.click('.hist__input')
+  await page.keyboard.press('Control+A')
+  await page.keyboard.press('Delete')
+  if (q) await page.keyboard.type(q, { delay: 8 })
+  await sleep(1300)
+  return page.evaluate(() => ({
+    n: document.querySelectorAll('.hist__item').length,
+    top: Array.from(document.querySelectorAll('.hist__item'))
+      .slice(0, 2)
+      .map((e) => e.querySelector('.hist__cmd')?.textContent)
+  }))
+}
+
+const byCommand = await histSearch('ember-block-test')
+const byOutput = await histSearch('not recognized')
+log('history by command →', JSON.stringify(byCommand))
+log('history by output  →', JSON.stringify(byOutput))
+
+const blocksBefore = await page.evaluate(() => document.querySelectorAll('.block').length)
+await histSearch('ember-block-test')
+await page.keyboard.press('Enter')
+await sleep(1200)
+const inserted = await page.evaluate(
+  (n) => ({
+    closed: !document.querySelector('.hist'),
+    value: document.querySelector('.composer__input')?.value ?? '',
+    didNotRun: document.querySelectorAll('.block').length === n
+  }),
+  blocksBefore
+)
+log('history insert →', JSON.stringify(inserted))
+log(
+  histOpen &&
+    byCommand.n > 0 &&
+    byOutput.n > 0 &&
+    inserted.closed &&
+    inserted.value.includes('ember-block-test') &&
+    inserted.didNotRun
+    ? 'history search: PASS'
+    : 'history search: FAIL'
+)
+
+await page.click('.composer__input')
+await page.keyboard.press('Control+A')
+await page.keyboard.press('Delete')
+
 // A shell with no integration hook (cmd.exe) must degrade to a plain terminal
 // rather than stranding an unresolvable block. This regressed once; keep it here.
 const hasCmd = await page.evaluate(async () =>

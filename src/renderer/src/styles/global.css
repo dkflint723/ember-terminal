@@ -776,3 +776,100 @@ kbd {
   color: var(--fg-faint);
   font-size: 11px;
 }
+
+/* ---------- history search ---------- */
+
+.hist {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 92vw);
+  max-height: 76vh;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.hist__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hist__input {
+  flex: 1 1 auto;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 13.5px;
+  user-select: text;
+}
+
+.hist__input::placeholder {
+  color: var(--fg-faint);
+}
+
+.hist__filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hist__count {
+  margin-left: auto;
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+.hist__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.hist__item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 5px 12px;
+  text-align: left;
+}
+
+.hist__item:hover {
+  background: var(--bg-hover);
+}
+
+.hist__item--on {
+  background: var(--accent-dim);
+}
+
+.hist__cmd {
+  flex: 1 1 auto;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hist__meta {
+  flex: 0 0 auto;
+  color: var(--fg-faint);
+  font-size: 11px;
+  font-family: var(--mono);
+}
+
+.hist__empty {
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--fg-faint);
+  font-size: 12px;
+}

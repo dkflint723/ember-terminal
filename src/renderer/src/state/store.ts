@@ -87,12 +87,18 @@ interface Store {
   theme: ResolvedTheme
   themes: ThemeSummary[]
   settingsOpen: boolean
+  historyOpen: boolean
+  /** Command handed to a pane's input by history search, consumed on mount. */
+  pendingInput: Record<string, string>
 
   setProfiles(p: ShellProfile[]): void
   applySettings(s: Settings): void
   setThemes(list: ThemeSummary[]): void
   setTheme(theme: ResolvedTheme): void
   toggleSettings(open?: boolean): void
+  toggleHistory(open?: boolean): void
+  setPendingInput(paneId: string, text: string): void
+  clearPendingInput(paneId: string): void
 
   newTab(profileId: string, cwd?: string): string
   closeTab(tabId: string): void
@@ -220,12 +226,23 @@ export const useStore = create<Store>((set, get) => ({
   theme: DEFAULT_THEME,
   themes: [],
   settingsOpen: false,
+  historyOpen: false,
+  pendingInput: {},
 
   setProfiles: (profiles) => set({ profiles }),
   applySettings: (settings) => set({ settings }),
   setThemes: (themes) => set({ themes }),
   setTheme: (theme) => set({ theme }),
   toggleSettings: (open) => set((s) => ({ settingsOpen: open ?? !s.settingsOpen })),
+  toggleHistory: (open) => set((s) => ({ historyOpen: open ?? !s.historyOpen })),
+  setPendingInput: (paneId, text) =>
+    set((s) => ({ pendingInput: { ...s.pendingInput, [paneId]: text } })),
+  clearPendingInput: (paneId) =>
+    set((s) => {
+      const next = { ...s.pendingInput }
+      delete next[paneId]
+      return { pendingInput: next }
+    }),
 
   newTab: (profileId, cwd) => {
     const pane = makeTerminalPane(profileId, cwd ?? window.ember.homeDir)

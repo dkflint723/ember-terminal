@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { AiResponse, CompletionItem, CompletionResult } from '@shared/types'
 import { commonPrefix } from '@shared/completion'
 import type { TerminalController } from '../terminal/controller'
-import type { TerminalPaneState } from '../state/store'
+import { useStore, type TerminalPaneState } from '../state/store'
 
 interface Props {
   pane: TerminalPaneState
@@ -31,6 +31,20 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
   const completionSeq = useRef(0)
 
   const running = pane.blocks.at(-1)?.status === 'running'
+  const pending = useStore((st) => st.pendingInput[pane.id])
+
+  // History search hands a command over rather than running it, so the user can
+  // read and edit it before committing.
+  useEffect(() => {
+    if (pending === undefined) return
+    setValue(pending)
+    useStore.getState().clearPendingInput(pane.id)
+    const el = ref.current
+    if (el) {
+      el.focus()
+      requestAnimationFrame(() => el.setSelectionRange(pending.length, pending.length))
+    }
+  }, [pending, pane.id])
 
   // Grow with content instead of scrolling a one-line box.
   useEffect(() => {

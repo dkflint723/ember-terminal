@@ -1,15 +1,18 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import { join } from 'node:path'
 import { PtyManager } from './pty.js'
 import { detectProfiles } from './profiles.js'
 import { SettingsStore } from './settings.js'
 import { ThemeStore } from './themes.js'
 import { CompletionService } from './completion.js'
+import { HistoryStore } from './history.js'
 import { AiService } from './ai.js'
 import {
   DEFAULT_SETTINGS,
   type AiRequest,
   type CompletionRequest,
+  type HistoryQuery,
+  type HistoryRecord,
   type Settings,
   type SpawnRequest
 } from '../shared/types.js'
@@ -20,6 +23,7 @@ let mainWindow: BrowserWindow | null = null
 let settings: SettingsStore
 let themes: ThemeStore
 let completion: CompletionService
+let history: HistoryStore
 let ai: AiService
 let ptys: PtyManager
 
@@ -106,6 +110,9 @@ function registerIpc(): void {
   completion = new CompletionService(profiles)
   ipcMain.handle('completion:request', (_e, req: CompletionRequest) => completion.complete(req))
 
+  ipcMain.on('history:record', (_e, entry: HistoryRecord) => history.record(entry))
+  ipcMain.handle('history:search', (_e, query: HistoryQuery) => history.search(query))
+
   ipcMain.handle('themes:list', () => themes.list())
 
   ipcMain.handle('themes:get', (_e, id: string) => {
@@ -151,9 +158,14 @@ if (!app.requestSingleInstanceLock()) {
     mainWindow.focus()
   })
 
+  // The window draws its own chrome, and the default menu would bind accelerators
+  // the app uses itself — Ctrl+R for history search would reload instead.
+  Menu.setApplicationMenu(null)
+
   void app.whenReady().then(() => {
     settings = new SettingsStore()
     themes = new ThemeStore()
+    history = new HistoryStore()
     ai = new AiService(settings)
     ptys = new PtyManager(
       (paneId, data) => sendToRenderer('pty:data', { paneId, data }),
@@ -176,5 +188,6 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     ptys?.killAll()
     completion?.dispose()
+    history?.close()
   })
 }

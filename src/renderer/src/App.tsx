@@ -3,6 +3,7 @@ import { useStore } from './state/store'
 import { TitleBar } from './components/TitleBar'
 import { SplitView } from './components/SplitView'
 import { SettingsPanel } from './components/SettingsPanel'
+import { HistorySearch } from './components/HistorySearch'
 import { disposeController } from './terminal/controller'
 import { activateTheme, refreshThemeList } from './state/theming'
 
@@ -76,6 +77,14 @@ export function App(): React.JSX.Element {
         }
       }
 
+      // Ctrl+R is history search. Electron's default accelerator would reload the
+      // window, so this must claim the key.
+      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'r') {
+        e.preventDefault()
+        s.toggleHistory()
+        return
+      }
+
       if (e.ctrlKey && e.key === ',') {
         e.preventDefault()
         s.toggleSettings()
@@ -117,6 +126,7 @@ export function App(): React.JSX.Element {
           </div>
         )}
         <SettingsPanel />
+        <HistorySearch />
       </div>
     </div>
   )

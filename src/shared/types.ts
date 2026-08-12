@@ -80,6 +80,36 @@ export interface CompletionResult {
   error?: string
 }
 
+export interface HistoryRecord {
+  command: string
+  cwd: string
+  shell: string
+  exitCode: number | null
+  durationMs: number | null
+  startedAt: number
+  /** Plain text, stored to make history searchable rather than replayable. */
+  output: string
+}
+
+export interface HistoryEntry {
+  id: number
+  command: string
+  cwd: string
+  shell: string
+  exitCode: number | null
+  durationMs: number | null
+  startedAt: number
+}
+
+export interface HistoryQuery {
+  /** Free text; matched against the command and, more weakly, its output. */
+  text?: string
+  /** Restrict to one directory. */
+  cwd?: string
+  onlyFailures?: boolean
+  limit?: number
+}
+
 export interface Settings {
   fontFamily: string
   fontSize: number
@@ -103,6 +133,8 @@ export const DEFAULT_SETTINGS: Settings = {
 /** The API the preload script exposes on `window.ember`. */
 export interface EmberApi {
   complete(req: CompletionRequest): Promise<CompletionResult>
+  recordHistory(entry: HistoryRecord): void
+  searchHistory(query: HistoryQuery): Promise<HistoryEntry[]>
   listThemes(): Promise<ThemeSummary[]>
   /** Null when the id names a theme that has since been removed. */
   getTheme(id: string): Promise<ResolvedTheme | null>

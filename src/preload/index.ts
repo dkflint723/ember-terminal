@@ -3,6 +3,8 @@ import { homedir } from 'node:os'
 import type {
   AiRequest,
   CompletionRequest,
+  HistoryQuery,
+  HistoryRecord,
   AiResponse,
   EmberApi,
   PtyDataEvent,
@@ -18,6 +20,8 @@ import type {
  */
 const api: EmberApi = {
   complete: (req: CompletionRequest) => ipcRenderer.invoke('completion:request', req),
+  recordHistory: (entry: HistoryRecord) => ipcRenderer.send('history:record', entry),
+  searchHistory: (query: HistoryQuery) => ipcRenderer.invoke('history:search', query),
   listThemes: () => ipcRenderer.invoke('themes:list'),
   getTheme: (id: string) => ipcRenderer.invoke('themes:get', id),
   importTheme: () => ipcRenderer.invoke('themes:import'),

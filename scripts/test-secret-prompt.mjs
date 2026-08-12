@@ -3,7 +3,7 @@
 // Driving a real shell to reproduce every vendor's prompt wording is slow and
 // flaky, so the wordings are pinned here instead — taken from the actual output of
 // sudo, OpenSSH, git credential helpers, PowerShell and common 2FA flows.
-import { looksLikeSecretPrompt } from '../src/shared/secrets.ts'
+import { containsInlineSecret, looksLikeSecretPrompt } from '../src/shared/secrets.ts'
 
 const SHOULD_MASK = [
   '[sudo] password for dkfli:',
@@ -63,9 +63,50 @@ for (const text of SHOULD_NOT_MASK) {
 }
 
 const total = SHOULD_MASK.length + SHOULD_NOT_MASK.length
+
+// Commands that must never be written to persistent history.
+const SHOULD_NOT_PERSIST = [
+  'mysql -u root -pSuperSecret123',
+  'curl -H "Authorization: Bearer sk-ant-abc123" https://api.example.com',
+  'docker login --password hunter2 --username me',
+  'gh auth login --token ghp_abcdefghijklmnop',
+  'export API_KEY=sk-live-1234567890',
+  'PASSWORD=letmein ./deploy.sh',
+  'psql postgres://user:secretpw@localhost:5432/db',
+  'aws configure set aws_secret_access_key AKIAIOSFODNN7EXAMPLE --secret abc123'
+]
+
+const SHOULD_PERSIST = [
+  'git push origin main',
+  'npm run build',
+  'docker login --username me --password-stdin',
+  'echo $env:PASSWORD',
+  'kubectl get pods -n prod',
+  'ls -la',
+  'ssh user@host',
+  'grep -rn "token" src/',
+  'git commit -m "add password reset flow"',
+  'code --diff a.txt b.txt',
+  'tar -xzf archive.tar.gz'
+]
+
+for (const cmd of SHOULD_NOT_PERSIST) {
+  if (!containsInlineSecret(cmd)) {
+    console.log(`FAIL (should NOT persist): ${JSON.stringify(cmd)}`)
+    failures++
+  }
+}
+for (const cmd of SHOULD_PERSIST) {
+  if (containsInlineSecret(cmd)) {
+    console.log(`FAIL (should persist):     ${JSON.stringify(cmd)}`)
+    failures++
+  }
+}
+
+const total2 = total + SHOULD_NOT_PERSIST.length + SHOULD_PERSIST.length
 console.log(
   failures === 0
-    ? `secret-prompt detection: ${total}/${total} PASS`
-    : `secret-prompt detection: ${failures}/${total} FAILED`
+    ? `secret handling: ${total2}/${total2} PASS`
+    : `secret handling: ${failures} of ${total2} FAILED`
 )
 process.exit(failures === 0 ? 0 : 1)

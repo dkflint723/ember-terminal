@@ -365,13 +365,31 @@ export class TerminalController {
     const pane = this.store().terminalPane(this.paneId)
     const block = pane?.blocks.find((b) => b.id === blockId)
 
+    const durationMs = block ? Date.now() - block.startedAt : null
+
     this.store().patchBlock(this.paneId, blockId, {
       output,
       interactive,
       status: exitCode === 0 ? 'done' : 'failed',
       exitCode,
-      durationMs: block ? Date.now() - block.startedAt : null
+      durationMs
     })
+
+    // Persist for cross-session search. Output goes over as plain text: history
+    // exists to be searched, not to reproduce a block's rendering.
+    if (block && block.command.trim().length > 0) {
+      const el = document.createElement('div')
+      el.innerHTML = output
+      window.ember.recordHistory({
+        command: block.command,
+        cwd: block.cwd,
+        shell: pane?.profileId ?? '',
+        exitCode,
+        durationMs,
+        startedAt: block.startedAt,
+        output: el.innerText
+      })
+    }
 
     // Reset the live view so the next command starts on a clean screen. Deferred
     // out of the parser callback to avoid writing while the stream is mid-parse.
