@@ -25,6 +25,7 @@ export function SplitView({ tabId, node, path, activePaneId }: Props): React.JSX
       return (
         <EditorPane
           pane={pane}
+          tabId={tabId}
           active={pane.id === activePaneId}
           onFocus={() => setActivePane(tabId, pane.id)}
         />

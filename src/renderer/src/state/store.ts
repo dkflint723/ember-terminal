@@ -61,9 +61,8 @@ export interface TerminalPaneState extends BasePane {
   exitCode: number | null
 }
 
-/** Reserved so the pane tree does not need reshaping when editors land. */
-export interface EditorPaneState extends BasePane {
-  kind: 'editor'
+/** One open file. Several share a pane, switched between by the tab strip. */
+export interface EditorDocument {
   filePath: string | null
   title: string
   dirty: boolean
@@ -71,7 +70,19 @@ export interface EditorPaneState extends BasePane {
   savedContent: string
   language: string
   eol: 'lf' | 'crlf'
+}
+
+export interface EditorPaneState extends BasePane {
+  kind: 'editor'
+  /** Never empty: a pane whose last document closes closes with it. */
+  documents: EditorDocument[]
+  activeIndex: number
   error: string | null
+}
+
+/** The document a pane is currently showing. */
+export function activeDocument(pane: EditorPaneState): EditorDocument {
+  return pane.documents[pane.activeIndex] ?? pane.documents[0]
 }
 
 /**
@@ -158,6 +169,11 @@ interface Store {
 
   editorPane(paneId: string): EditorPaneState | null
   patchEditorPane(paneId: string, patch: Partial<EditorPaneState>): void
+  /** Patch one document in a pane, by default the one on screen. */
+  patchDocument(paneId: string, patch: Partial<EditorDocument>, index?: number): void
+  setActiveDocument(paneId: string, index: number): void
+  /** Close a tab; closing the last one closes the pane with it. */
+  closeDocument(tabId: string, paneId: string, index: number): void
   /** Open (or re-focus) a read-only comparison of two revisions of one file. */
   openDiffInSplit(tabId: string, diff: Omit<DiffPaneState, 'id' | 'kind'>): string | null
   /** Replace the active pane of a tab with an editor showing this file. */
@@ -436,31 +452,54 @@ export const useStore = create<Store>((set, get) => ({
     const tab = tabs.find((t) => t.id === tabId)
     if (!tab) return null
 
-    // Reuse an editor already showing this file rather than opening a duplicate.
-    const existing = Object.values(panes).find(
-      (p) => p.kind === 'editor' && p.filePath === file.path
-    )
-    if (existing) {
-      set({
-        tabs: tabs.map((t) => (t.id === tabId ? { ...t, activePaneId: existing.id } : t))
-      })
-      return existing.id
-    }
-
-    const pane: EditorPaneState = {
-      id: uid(),
-      kind: 'editor',
+    const document: EditorDocument = {
       filePath: file.path,
       title: file.name,
       dirty: false,
       savedContent: file.content,
       language: file.language,
-      eol: file.eol,
+      eol: file.eol
+    }
+
+    // An editor already showing this file wins, wherever it is: opening the same
+    // path twice should go to it rather than make a second copy that can diverge.
+    for (const pane of Object.values(panes)) {
+      if (pane.kind !== 'editor') continue
+      const index = pane.documents.findIndex((d) => d.filePath === file.path)
+      if (index === -1) continue
+      set({
+        panes: { ...panes, [pane.id]: { ...pane, activeIndex: index } },
+        tabs: tabs.map((t) => (t.id === tabId ? { ...t, activePaneId: pane.id } : t))
+      })
+      return pane.id
+    }
+
+    // Otherwise it becomes a tab in this tab's editor pane if there is one. Only
+    // the first file opens a split — after that the terminal keeps the space it
+    // has, which is the point of tabs.
+    const here = new Set(collectPaneIds(tab.root))
+    const host = Object.values(panes).find(
+      (p): p is EditorPaneState => p.kind === 'editor' && here.has(p.id)
+    )
+    if (host) {
+      const documents = [...host.documents, document]
+      set({
+        panes: { ...panes, [host.id]: { ...host, documents, activeIndex: documents.length - 1 } },
+        tabs: tabs.map((t) => (t.id === tabId ? { ...t, activePaneId: host.id } : t))
+      })
+      return host.id
+    }
+
+    const pane: EditorPaneState = {
+      id: uid(),
+      kind: 'editor',
+      documents: [document],
+      activeIndex: 0,
       error: null
     }
 
-    // Editors open beside the current pane, so the terminal stays visible — the
-    // point of editing here rather than in a separate window.
+    // The first editor opens beside the current pane, so the terminal stays
+    // visible — the point of editing here rather than in a separate window.
     set({
       panes: { ...panes, [pane.id]: pane },
       tabs: tabs.map((t) =>
@@ -470,6 +509,42 @@ export const useStore = create<Store>((set, get) => ({
       )
     })
     return pane.id
+  },
+
+  patchDocument: (paneId, patch, index) =>
+    set((s) => {
+      const pane = s.panes[paneId]
+      if (!pane || pane.kind !== 'editor') return s
+      const at = index ?? pane.activeIndex
+      if (!pane.documents[at]) return s
+      const documents = pane.documents.map((d, i) => (i === at ? { ...d, ...patch } : d))
+      return { panes: { ...s.panes, [paneId]: { ...pane, documents } } }
+    }),
+
+  setActiveDocument: (paneId, index) =>
+    set((s) => {
+      const pane = s.panes[paneId]
+      if (!pane || pane.kind !== 'editor' || !pane.documents[index]) return s
+      return { panes: { ...s.panes, [paneId]: { ...pane, activeIndex: index } } }
+    }),
+
+  closeDocument: (tabId, paneId, index) => {
+    const pane = get().editorPane(paneId)
+    if (!pane) return
+
+    if (pane.documents.length <= 1) {
+      get().closePane(tabId, paneId)
+      return
+    }
+
+    const documents = pane.documents.filter((_, i) => i !== index)
+    // Keep looking at the same document where possible; closing the active one
+    // falls to its neighbour rather than jumping to the start.
+    const activeIndex =
+      pane.activeIndex > index
+        ? pane.activeIndex - 1
+        : Math.min(pane.activeIndex, documents.length - 1)
+    set((s) => ({ panes: { ...s.panes, [paneId]: { ...pane, documents, activeIndex } } }))
   },
 
   openDiffInSplit: (tabId, diff) => {

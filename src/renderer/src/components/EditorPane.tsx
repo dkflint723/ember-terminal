@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useStore, type EditorPaneState } from '../state/store'
+import { activeDocument, useStore, type EditorPaneState } from '../state/store'
 import { monaco } from '../editor/monaco'
 import { applyMonacoTheme, MONACO_THEME_ID } from '../editor/theme'
 import { ensureLanguageServer } from '../editor/lsp'
@@ -9,48 +9,73 @@ interface Props {
   pane: EditorPaneState
   active: boolean
   onFocus: () => void
+  tabId: string
 }
 
 /**
- * A Monaco editor in a pane. Monaco holds its own model and undo history, so the
- * instance is created once per pane and kept out of React state — the same reason
- * terminal controllers live in a registry.
+ * Where a file sits, relative to the workspace, without its own name on the end.
+ * Empty for a file at the root or outside the workspace entirely — in both cases
+ * there is nothing useful to add beyond the tab's label.
  */
-export function EditorPane({ pane, active, onFocus }: Props): React.JSX.Element {
+function locate(filePath: string | null, root: string | null): string {
+  if (!filePath) return ''
+  const parts = filePath.replace(/\\/g, '/').split('/')
+  parts.pop()
+  const dir = parts.join('/')
+  if (!root) return ''
+  const base = root.replace(/\\/g, '/')
+  if (!dir.toLowerCase().startsWith(base.toLowerCase())) return ''
+  return dir.slice(base.length).replace(/^\//, '')
+}
+
+/**
+ * A Monaco editor in a pane, holding one or more open files.
+ *
+ * There is a single editor instance and one model per document, which is what makes
+ * the tab strip cheap: switching tabs swaps the model rather than rebuilding an
+ * editor, so each file keeps its own undo history, folds and scroll position for
+ * free. Models are keyed by file URI and deliberately outlive the pane — a language
+ * server still considers those documents open, and reopening a file should not
+ * throw away what the user did to it.
+ */
+export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.Element {
   const host = useRef<HTMLDivElement>(null)
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const theme = useStore((s) => s.theme)
   const fontFamily = useStore((s) => s.settings.fontFamily)
   const fontSize = useStore((s) => s.settings.fontSize)
-  const patch = useStore((s) => s.patchEditorPane)
+  const patchDocument = useStore((s) => s.patchDocument)
+  const setActiveDocument = useStore((s) => s.setActiveDocument)
+  const closeDocument = useStore((s) => s.closeDocument)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
-  // Create the editor once. Later prop changes are pushed in through the effects
-  // below rather than by recreating it, which would lose undo history.
+  const document = activeDocument(pane)
+
+  /**
+   * The model for a document, created on first use. A real `file://` URI, not
+   * Monaco's generated inmemory one: a language server identifies documents by URI
+   * and resolves imports relative to them.
+   */
+  const modelFor = (doc: typeof document): monaco.editor.ITextModel => {
+    const uri = doc.filePath ? monaco.Uri.file(doc.filePath) : undefined
+    const existing = uri ? monaco.editor.getModel(uri) : null
+    if (existing) return existing
+
+    const model = monaco.editor.createModel(doc.savedContent, doc.language, uri)
+    model.setEOL(
+      doc.eol === 'crlf' ? monaco.editor.EndOfLineSequence.CRLF : monaco.editor.EndOfLineSequence.LF
+    )
+    return model
+  }
+
+  // Created once per pane; the model is swapped underneath it as tabs change.
   useEffect(() => {
     if (!host.current || editorRef.current) return
-
     applyMonacoTheme(theme)
 
-    // The model needs a real file:// URI, not Monaco's generated inmemory one: a
-    // language server identifies documents by URI, and resolves imports relative
-    // to them. Reuse an existing model so reopening a file keeps its history.
-    const uri = pane.filePath ? monaco.Uri.file(pane.filePath) : undefined
-    const model =
-      (uri && monaco.editor.getModel(uri)) ||
-      monaco.editor.createModel(pane.savedContent, pane.language, uri)
-
-    // The tree root when there is one, else the file's own directory: a server that
-    // indexes a project needs somewhere to start. The separator class has to include
-    // the backslash — without it a Windows path never matches and the "directory" is
-    // the file itself, which pyright accepts and then indexes as an empty project.
-    const treeRoot = useStore.getState().treeRoot
-    const fileDir = pane.filePath?.replace(/[\\/][^\\/]*$/, '')
-    void ensureLanguageServer(pane.language, treeRoot ?? fileDir ?? undefined)
-
     const editor = monaco.editor.create(host.current, {
-      model,
+      model: modelFor(document),
       theme: MONACO_THEME_ID,
       fontFamily,
       fontSize,
@@ -68,30 +93,29 @@ export function EditorPane({ pane, active, onFocus }: Props): React.JSX.Element 
     })
     editorRef.current = editor
 
-    editor.getModel()?.setEOL(
-      pane.eol === 'crlf' ? monaco.editor.EndOfLineSequence.CRLF : monaco.editor.EndOfLineSequence.LF
-    )
-
     // Reported as it changes rather than read on demand: a tool call arrives from
     // a socket, and by then the editor may not be the focused thing on screen.
     const selectionSub = editor.onDidChangeCursorSelection((e) => {
       const model = editor.getModel()
       if (!model) return
       recordSelection({
-        filePath: pane.filePath,
+        filePath: activeDocument(useStore.getState().editorPane(pane.id) ?? pane).filePath,
         text: model.getValueInRange(e.selection),
-        start: {
-          line: e.selection.startLineNumber - 1,
-          character: e.selection.startColumn - 1
-        },
+        start: { line: e.selection.startLineNumber - 1, character: e.selection.startColumn - 1 },
         end: { line: e.selection.endLineNumber - 1, character: e.selection.endColumn - 1 }
       })
     })
 
+    // Dirtiness is per document, and the edit always belongs to whichever one is on
+    // screen — so the index is read at the time of the edit, not captured here.
     const sub = editor.onDidChangeModelContent(() => {
-      const current = editor.getValue()
-      const dirty = current !== useStore.getState().editorPane(pane.id)?.savedContent
-      if (dirty !== useStore.getState().editorPane(pane.id)?.dirty) patch(pane.id, { dirty })
+      const current = useStore.getState().editorPane(pane.id)
+      if (!current) return
+      const index = current.activeIndex
+      const doc = current.documents[index]
+      if (!doc) return
+      const dirty = editor.getValue() !== doc.savedContent
+      if (dirty !== doc.dirty) patchDocument(pane.id, { dirty }, index)
     })
 
     // Ctrl+S is handled here rather than in the global handler so it reaches the
@@ -101,8 +125,8 @@ export function EditorPane({ pane, active, onFocus }: Props): React.JSX.Element 
     return () => {
       selectionSub.dispose()
       sub.dispose()
-      // The model is deliberately kept: it is keyed by file URI and shared, so
-      // disposing it here would discard undo history on reopen and desync the
+      // Models are deliberately kept: they are keyed by file URI and shared, so
+      // disposing them here would discard undo history on reopen and desync the
       // language server, which still considers the document open.
       editor.dispose()
       editorRef.current = null
@@ -111,7 +135,20 @@ export function EditorPane({ pane, active, onFocus }: Props): React.JSX.Element 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pane.id])
 
-  // Theme and font follow the app without touching the model.
+  // Swap the model when the active tab changes. Guarded so an unrelated re-render
+  // does not reset the editor and lose the cursor.
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editor) return
+    const model = modelFor(document)
+    if (editor.getModel() !== model) editor.setModel(model)
+
+    const treeRoot = useStore.getState().treeRoot
+    const fileDir = document.filePath?.replace(/[\\/][^\\/]*$/, '')
+    void ensureLanguageServer(document.language, treeRoot ?? fileDir ?? undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pane.activeIndex, document.filePath, document.language])
+
   useEffect(() => {
     if (editorRef.current) applyMonacoTheme(theme)
   }, [theme])
@@ -126,10 +163,12 @@ export function EditorPane({ pane, active, onFocus }: Props): React.JSX.Element 
 
   const save = async (): Promise<void> => {
     const editor = editorRef.current
-    if (!editor) return
+    const current = useStore.getState().editorPane(pane.id)
+    if (!editor || !current) return
+    const index = current.activeIndex
     const content = editor.getValue()
 
-    let target = useStore.getState().editorPane(pane.id)?.filePath ?? null
+    let target = current.documents[index]?.filePath ?? null
     if (!target) {
       target = await window.ember.saveFileDialog()
       if (!target) return
@@ -145,13 +184,17 @@ export function EditorPane({ pane, active, onFocus }: Props): React.JSX.Element 
     }
     // Dirtiness is derived by comparing against what is on disk, so the saved
     // content has to move with it.
-    patch(pane.id, { filePath: target, savedContent: content, dirty: false, error: null })
+    patchDocument(
+      pane.id,
+      { filePath: target, savedContent: content, dirty: false, title: target.split(/[\\/]/).pop() },
+      index
+    )
     setMessage('saved')
     window.setTimeout(() => setMessage(null), 1500)
   }
 
   const revert = async (): Promise<void> => {
-    const path = pane.filePath
+    const path = document.filePath
     if (!path) return
     const res = await window.ember.readFile(path)
     if (!res.ok) {
@@ -159,26 +202,68 @@ export function EditorPane({ pane, active, onFocus }: Props): React.JSX.Element 
       return
     }
     editorRef.current?.setValue(res.content)
-    patch(pane.id, { savedContent: res.content, dirty: false })
+    patchDocument(pane.id, { savedContent: res.content, dirty: false })
   }
 
   return (
     <div
       className={`pane editor ${active ? 'pane--active' : ''}`}
       onMouseDown={onFocus}
-      data-editor-path={pane.filePath ?? ''}
-      data-dirty={pane.dirty ? 'true' : 'false'}
+      data-editor-path={document.filePath ?? ''}
+      data-dirty={document.dirty ? 'true' : 'false'}
+      data-editor-tabs={pane.documents.length}
     >
+      {/* One tab per open file. Shown even when there is only one, so opening a
+          second does not shift the editor down under the pointer. */}
+      <div className="etabs" role="tablist">
+        {pane.documents.map((doc, i) => (
+          <div
+            key={doc.filePath ?? `untitled-${i}`}
+            role="tab"
+            aria-selected={i === pane.activeIndex}
+            className={`etab ${i === pane.activeIndex ? 'etab--active' : ''} ${
+              doc.dirty ? 'etab--dirty' : ''
+            }`}
+            title={doc.filePath ?? doc.title}
+            onMouseDown={(e) => {
+              // Middle-click closes, as everywhere else that has tabs.
+              if (e.button === 1) {
+                e.preventDefault()
+                closeDocument(tabId, pane.id, i)
+              } else if (e.button === 0) {
+                setActiveDocument(pane.id, i)
+              }
+            }}
+          >
+            <span className="etab__label">{doc.title}</span>
+            <button
+              className="etab__close"
+              aria-label={`Close ${doc.title}`}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation()
+                closeDocument(tabId, pane.id, i)
+              }}
+            >
+              {doc.dirty ? '●' : '×'}
+            </button>
+          </div>
+        ))}
+      </div>
+
       <div className="editor__bar">
-        <span className="editor__name">
-          {pane.title}
-          {pane.dirty && <span className="editor__dot" title="Unsaved changes" />}
+        {/* The tab above already names the file, so this shows where it sits —
+            which is the thing you cannot tell from a name alone when two
+            directories both contain an index.ts. */}
+        <span className="editor__name" title={document.filePath ?? document.title}>
+          {locate(document.filePath, useStore.getState().treeRoot) || document.title}
+          {document.dirty && <span className="editor__dot" title="Unsaved changes" />}
         </span>
-        <span className="editor__lang">{pane.language}</span>
+        <span className="editor__lang">{document.language}</span>
         <button className="block__action" onClick={() => void save()} disabled={saving}>
           {saving ? 'saving…' : 'save'}
         </button>
-        <button className="block__action" onClick={() => void revert()} disabled={!pane.dirty}>
+        <button className="block__action" onClick={() => void revert()} disabled={!document.dirty}>
           revert
         </button>
         {message && <span className="editor__msg">{message}</span>}

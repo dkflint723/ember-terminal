@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useStore } from '../state/store'
+import { activeDocument, useStore } from '../state/store'
 
 export function TitleBar(): React.JSX.Element {
   const tabs = useStore((s) => s.tabs)
@@ -23,7 +23,8 @@ export function TitleBar(): React.JSX.Element {
     if (!pane) return 'Shell'
     // The file name, not its full path — a path fills the tab and truncates the
     // part that identifies the file.
-    if (pane.kind !== 'terminal') return pane.title || 'Untitled'
+    if (pane.kind === 'diff') return pane.title || 'Untitled'
+    if (pane.kind === 'editor') return activeDocument(pane).title || 'Untitled'
     // A pane with no integration never reports a cwd, so name it after its shell
     // rather than leaving the placeholder.
     if (pane.title === 'Shell') {

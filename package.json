@@ -18,7 +18,9 @@
     "verify:editor": "electron-vite build && node scripts/verify-editor.mjs",
     "verify:lsp": "electron-vite build && node scripts/verify-lsp.mjs",
     "verify:git": "electron-vite build && node scripts/verify-git.mjs",
-    "verify:ide": "electron-vite build && node scripts/verify-ide.mjs"
+    "verify:ide": "electron-vite build && node scripts/verify-ide.mjs",
+    "verify:tabs": "electron-vite build && node scripts/verify-tabs.mjs",
+    "verify:all": "npm run verify && node scripts/verify-editor.mjs && node scripts/verify-tabs.mjs && node scripts/verify-lsp.mjs && node scripts/verify-git.mjs && node scripts/verify-ide.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",

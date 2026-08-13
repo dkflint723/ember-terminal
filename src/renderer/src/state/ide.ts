@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import type { IdeCall } from '@shared/types'
-import { useStore, type DiffPaneState, type EditorPaneState } from './store'
+import { useStore, type DiffPaneState, type EditorDocument } from './store'
 
 /**
  * Answers Claude Code's tool calls.
@@ -21,10 +21,22 @@ const pendingProposals = new Map<string, { paneId: string; settle: (v: unknown) 
 /** The last selection seen, so `getLatestSelection` can answer after focus moves. */
 let lastSelection: unknown = null
 
-function editors(): EditorPaneState[] {
-  return Object.values(useStore.getState().panes).filter(
-    (p): p is EditorPaneState => p.kind === 'editor'
-  )
+/** Every open file across every editor pane, flattened — a pane holds several. */
+interface OpenDocument extends EditorDocument {
+  paneId: string
+  index: number
+  isActive: boolean
+}
+
+function openDocuments(): OpenDocument[] {
+  const out: OpenDocument[] = []
+  for (const pane of Object.values(useStore.getState().panes)) {
+    if (pane.kind !== 'editor') continue
+    pane.documents.forEach((doc, index) =>
+      out.push({ ...doc, paneId: pane.id, index, isActive: index === pane.activeIndex })
+    )
+  }
+  return out
 }
 
 function diffPanes(): DiffPaneState[] {
@@ -38,9 +50,11 @@ function toUri(filePath: string): string {
   return `file:///${forward.replace(/^\//, '')}`
 }
 
-function editorFor(filePath: string): EditorPaneState | undefined {
+function documentFor(filePath: string): OpenDocument | undefined {
   const wanted = filePath.replace(/\\/g, '/').toLowerCase()
-  return editors().find((e) => (e.filePath ?? '').replace(/\\/g, '/').toLowerCase() === wanted)
+  return openDocuments().find(
+    (d) => (d.filePath ?? '').replace(/\\/g, '/').toLowerCase() === wanted
+  )
 }
 
 /**
@@ -123,13 +137,13 @@ async function handle(call: IdeCall): Promise<unknown> {
 
     case 'getOpenEditors':
       return {
-        tabs: editors().map((e) => ({
-          uri: e.filePath ? toUri(e.filePath) : null,
-          path: e.filePath,
-          isActive: false,
-          label: e.title,
-          languageId: e.language,
-          isDirty: e.dirty
+        tabs: openDocuments().map((d) => ({
+          uri: d.filePath ? toUri(d.filePath) : null,
+          path: d.filePath,
+          isActive: d.isActive,
+          label: d.title,
+          languageId: d.language,
+          isDirty: d.dirty
         }))
       }
 
@@ -138,20 +152,20 @@ async function handle(call: IdeCall): Promise<unknown> {
       return lastSelection ?? { success: false, message: 'No active editor found' }
 
     case 'checkDocumentDirty': {
-      const editor = editorFor(String(args.filePath ?? ''))
-      if (!editor) return { success: false, message: 'Document not open in the editor.' }
-      return { success: true, filePath: editor.filePath, isDirty: editor.dirty }
+      const doc = documentFor(String(args.filePath ?? ''))
+      if (!doc) return { success: false, message: 'Document not open in the editor.' }
+      return { success: true, filePath: doc.filePath, isDirty: doc.dirty }
     }
 
     case 'saveDocument': {
-      const editor = editorFor(String(args.filePath ?? ''))
-      if (!editor || !editor.filePath) {
+      const doc = documentFor(String(args.filePath ?? ''))
+      if (!doc || !doc.filePath) {
         return { success: false, message: 'Document not open in the editor.' }
       }
       // Saved from the store's copy of the buffer, which the pane keeps current.
-      const res = await window.ember.writeFile(editor.filePath, editor.savedContent)
+      const res = await window.ember.writeFile(doc.filePath, doc.savedContent)
       return res.ok
-        ? { success: true, filePath: editor.filePath }
+        ? { success: true, filePath: doc.filePath }
         : { success: false, message: res.error }
     }
 

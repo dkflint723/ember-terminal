@@ -1491,3 +1491,86 @@ kbd {
   color: var(--fail);
   border-color: var(--fail-border);
 }
+
+/* ---------- editor tabs ---------- */
+
+/*
+ * Always rendered, even for a single file: appearing on the second open would
+ * shift the editor down under the pointer mid-click.
+ */
+.etabs {
+  display: flex;
+  flex: 0 0 auto;
+  overflow-x: auto;
+  background: var(--bg-chrome);
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: none;
+}
+
+.etabs::-webkit-scrollbar {
+  height: 0;
+}
+
+.etab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  max-width: 190px;
+  padding: 4px 6px 4px 10px;
+  border-right: 1px solid var(--border);
+  /* Reserved on every tab so the active marker does not resize the strip. */
+  border-top: 2px solid transparent;
+  color: var(--fg-faint);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.etab:hover {
+  background: var(--bg-hover);
+  color: var(--fg-dim);
+}
+
+.etab--active {
+  background: var(--bg);
+  border-top-color: var(--accent);
+  color: var(--fg);
+}
+
+.etab__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.etab__close {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: inherit;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  /* Hidden until wanted, except on a dirty tab where the dot is the unsaved mark. */
+  visibility: hidden;
+}
+
+.etab:hover .etab__close,
+.etab--active .etab__close,
+.etab--dirty .etab__close {
+  visibility: visible;
+}
+
+.etab--dirty .etab__close {
+  color: var(--accent);
+}
+
+.etab__close:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
