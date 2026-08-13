@@ -100,6 +100,82 @@ const complaint = await page.evaluate(() => document.querySelector('.tree__error
 check('creating over an existing name is refused', complaint.includes('already taken'), complaint)
 check('and the existing file is untouched', fs.readFileSync(path.join(work, 'renamed.txt'), 'utf8') === 'hello\n')
 
+// --- an open editor follows a rename ----------------------------------------
+// A document holds the path it saves to, and renaming used to leave that behind: the
+// tab went on pointing at a name that no longer existed, so the next save recreated
+// the old file with the edits in it while the renamed one kept the text from before.
+// Auto-save made it worse by doing that without the user touching anything.
+await page.locator('.tree__head .icon-btn[title="New file"]').click()
+await page.waitForSelector('.tree__input', { timeout: 10_000 })
+await page.locator('.tree__input').fill('notes.md')
+await page.keyboard.press('Enter')
+await sleep(1600)
+
+await page.locator('.pane.editor .view-lines').first().click()
+await page.keyboard.press('Control+End')
+await page.keyboard.type('# notes worth keeping')
+// Left sitting a moment with the cursor in it, so any language-server chatter this
+// file provokes happens before the rename as well as after it.
+await sleep(2500)
+
+await page.locator('.tree__row', { hasText: 'notes.md' }).first().click({ button: 'right' })
+await page.waitForSelector('.menu', { timeout: 10_000 })
+await page.locator('.menu__item', { hasText: 'Rename' }).click()
+await page.waitForSelector('.tree__input', { timeout: 10_000 })
+await page.locator('.tree__input').fill('notes-2024.md')
+await page.keyboard.press('Enter')
+await sleep(1800)
+
+// Monaco renders spaces as non-breaking ones, so the text is normalised before it
+// is compared with anything a person wrote.
+const editorText = () =>
+  page.evaluate(
+    () => document.querySelector('.pane.editor .view-lines')?.textContent?.replace(/\s+/g, ' ') ?? ''
+  )
+
+const followed = await page.evaluate(() => ({
+  tabs: Array.from(document.querySelectorAll('.etab__label')).map((l) => l.textContent),
+  shownPath: document.querySelector('.pane.editor')?.getAttribute('data-editor-path') ?? null,
+  language: document.querySelector('.pane.editor .editor__lang')?.textContent ?? null,
+  text: document.querySelector('.pane.editor .view-lines')?.textContent?.replace(/\s+/g, ' ') ?? ''
+}))
+check('the renamed file keeps a language of its own', followed.language === 'markdown', followed.language)
+check('the open tab follows the new name', followed.tabs.includes('notes-2024.md'), JSON.stringify(followed.tabs))
+check(
+  'and points at the new path',
+  followed.shownPath === path.join(work, 'notes-2024.md'),
+  followed.shownPath
+)
+check('with the unsaved edit still in the buffer', followed.text.includes('notes worth keeping'), followed.text)
+
+await page.locator('.pane.editor .view-lines').first().click()
+await page.keyboard.press('Control+s')
+await sleep(1600)
+check(
+  'saving writes to the renamed file',
+  fs.existsSync(path.join(work, 'notes-2024.md')) &&
+    fs.readFileSync(path.join(work, 'notes-2024.md'), 'utf8').includes('notes worth keeping'),
+  fs.existsSync(path.join(work, 'notes-2024.md'))
+    ? JSON.stringify(fs.readFileSync(path.join(work, 'notes-2024.md'), 'utf8'))
+    : 'missing'
+)
+check('and does not recreate the old one', !fs.existsSync(path.join(work, 'notes.md')))
+
+// --- a deleted file's buffer is the only copy left ---------------------------
+// The text is kept deliberately, but the tab has to say it is unsaved: a tab that
+// looks saved while nothing on disk backs it is how work disappears unnoticed.
+await page.locator('.tree__row', { hasText: 'notes-2024.md' }).first().click({ button: 'right' })
+await page.waitForSelector('.menu', { timeout: 10_000 })
+await page.locator('.menu__item', { hasText: 'Delete' }).click()
+await sleep(2000)
+check('the deleted file is gone from disk', !fs.existsSync(path.join(work, 'notes-2024.md')))
+const orphanedText = await editorText()
+const orphanedDirty = await page.evaluate(
+  () => document.querySelector('.pane.editor')?.getAttribute('data-dirty') ?? null
+)
+check('its buffer is kept', orphanedText.includes('notes worth keeping'), orphanedText)
+check('and marked unsaved, since nothing on disk holds it now', orphanedDirty === 'true', orphanedDirty)
+
 // --- delete goes to the recycle bin -----------------------------------------
 await page.locator('.tree__row', { hasText: 'made-dir' }).first().click({ button: 'right' })
 await page.waitForSelector('.menu', { timeout: 10_000 })

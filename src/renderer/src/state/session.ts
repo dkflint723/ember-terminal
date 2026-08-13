@@ -203,19 +203,26 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
     const documents = []
     for (const doc of saved.documents) {
       let savedContent = ''
+      // The line endings come back off the file too, not from the snapshot. They
+      // are what the editor's buffer is normalised to and therefore what a save
+      // writes back, so a file converted to CRLF between sessions would otherwise
+      // be restored as LF, look unsaved the moment it was opened, and have every
+      // line of it rewritten by the next Ctrl+S.
+      let eol = doc.eol
       if (doc.filePath) {
         const read = await window.ember.readFile(doc.filePath)
         // A file that has since been deleted or renamed is dropped rather than
         // restored as an empty buffer that would overwrite it if saved.
         if (!read.ok && doc.unsaved === undefined) continue
         savedContent = read.ok ? read.content : ''
+        if (read.ok) eol = read.eol
       }
       documents.push({
         filePath: doc.filePath,
         title: doc.title,
         savedContent,
         language: doc.language || languageForPath(doc.filePath ?? ''),
-        eol: doc.eol,
+        eol,
         dirty: doc.unsaved !== undefined && doc.unsaved !== savedContent
       })
       if (doc.unsaved !== undefined) pendingUnsaved.set(doc.filePath ?? '', doc.unsaved)

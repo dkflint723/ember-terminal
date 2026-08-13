@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import { DEFAULT_SETTINGS, type GitStatus, type Settings, type ShellProfile } from '@shared/types'
 import type { ResolvedTheme, ThemeSummary } from '@shared/theme'
 import { DEFAULT_THEME } from '../terminal/theme'
+import { lastSynced, noteSynced } from '../editor/synced'
+import { isInside, pathKey, samePath } from '@shared/paths'
 
 /** One command and everything it printed — the unit the UI is built around. */
 export interface Block {
@@ -195,6 +197,10 @@ interface Store {
   moveDocument(paneId: string, from: number, to: number): void
   /** Re-read these files into any editor showing them, leaving edited ones alone. */
   reloadFromDisk(paths: string[]): Promise<void>
+  /** Follow a renamed file or folder, so open editors keep pointing at it. */
+  notePathRenamed(from: string, to: string): Promise<void>
+  /** Mark editors for a deleted file or folder as holding the only copy left. */
+  notePathDeleted(target: string): void
   /** Write every edited document to disk, including ones not on screen. */
   saveAllDocuments(): Promise<{ saved: number; failed: number }>
   /** Open (or re-focus) a read-only comparison of two revisions of one file. */
@@ -525,10 +531,24 @@ export const useStore = create<Store>((set, get) => ({
       const here = new Set(collectPaneIds(candidate.root))
       for (const pane of Object.values(panes)) {
         if (pane.kind !== 'editor' || !here.has(pane.id)) continue
-        const index = pane.documents.findIndex((d) => d.filePath === file.path)
+        const index = pane.documents.findIndex((d) => samePath(d.filePath, file.path))
         if (index === -1) continue
+        /*
+         * Opening a file is also the moment to notice it changed.
+         *
+         * Every caller reads the file before calling this, and revealing an already
+         * open tab used to throw that text away — which is the stale-buffer overwrite
+         * in its most ordinary form. Something rewrites the file, the user clicks it
+         * in the explorer to see the new version, gets the old one with no unsaved
+         * marker, and saves over it. Carrying `savedContent` forward is enough on its
+         * own: the editor pane reconciles its buffer against it, bringing an untouched
+         * one up to date and marking an edited one unsaved against the new content.
+         */
+        const documents = pane.documents.map((d, i) =>
+          i === index ? { ...d, savedContent: file.content, eol: file.eol } : d
+        )
         set({
-          panes: { ...panes, [pane.id]: { ...pane, activeIndex: index } },
+          panes: { ...panes, [pane.id]: { ...pane, documents, activeIndex: index } },
           tabs: tabs.map((t) => (t.id === candidate.id ? { ...t, activePaneId: pane.id } : t)),
           activeTabId: candidate.id
         })
@@ -605,29 +625,130 @@ export const useStore = create<Store>((set, get) => ({
    * comparing the two — the other order would mark a freshly reloaded file dirty.
    */
   reloadFromDisk: async (paths) => {
-    const key = (p: string): string => p.replace(/\\/g, '/').toLowerCase()
-    const wanted = new Set(paths.map(key))
+    const wanted = new Set(paths.map(pathKey))
     const { monaco } = await import('../editor/monaco')
 
     for (const pane of Object.values(get().panes)) {
       if (pane.kind !== 'editor') continue
       for (let index = 0; index < pane.documents.length; index++) {
         const doc = pane.documents[index]
-        if (!doc.filePath || doc.dirty || !wanted.has(key(doc.filePath))) continue
+        if (!doc.filePath || doc.dirty || !wanted.has(pathKey(doc.filePath))) continue
 
         const res = await window.ember.readFile(doc.filePath)
         if (!res.ok) continue
         // Re-found by path after the read, since a tab closed in the meantime would
         // leave this index pointing at some other document.
         const current = get().editorPane(pane.id)
-        const at = current?.documents.findIndex((d) => d.filePath === doc.filePath) ?? -1
+        const at = current?.documents.findIndex((d) => samePath(d.filePath, doc.filePath)) ?? -1
         if (at === -1) continue
-        get().patchDocument(pane.id, { savedContent: res.content }, at)
+        get().patchDocument(pane.id, { savedContent: res.content, eol: res.eol }, at)
         const model = monaco.editor.getModel(monaco.Uri.file(doc.filePath))
-        if (model && model.getValue() !== res.content) model.setValue(res.content)
+        if (model && model.getValue() !== res.content) {
+          // The replacement can have brought different line endings with it, and the
+          // model's are what the next save writes back.
+          model.setEOL(
+            res.eol === 'crlf'
+              ? monaco.editor.EndOfLineSequence.CRLF
+              : monaco.editor.EndOfLineSequence.LF
+          )
+          model.setValue(res.content)
+        }
+        // Recorded so that closing this tab and opening it again still knows the
+        // buffer matches disk rather than treating it as unsaved work.
+        if (model) noteSynced(doc.filePath, model.getValue())
       }
     }
   },
+
+  /**
+   * Follow a file or folder the user renamed in the explorer.
+   *
+   * A document holds the path it will be saved to, and nothing used to update it:
+   * renaming a file with its tab open left the editor pointing at a path that no
+   * longer existed, and the next save — or an auto-save the user never asked for —
+   * recreated the old file with the edits in it, leaving the renamed one behind
+   * holding the text from before. The buffer has to travel with the name.
+   *
+   * Monaco keys models by URI, so the buffer is copied to a model at the new path
+   * rather than renamed in place; anything the old path was known to agree with is
+   * copied across with it, since the text is the same text.
+   */
+  notePathRenamed: async (from, to) => {
+    const { monaco, languageForPath } = await import('../editor/monaco')
+    const moved = new Map<string, string>()
+
+    for (const pane of Object.values(get().panes)) {
+      if (pane.kind !== 'editor') continue
+      for (let index = 0; index < pane.documents.length; index++) {
+        const doc = pane.documents[index]
+        // A folder rename moves everything under it, which is the case that looks
+        // like nothing happened until a save lands somewhere unexpected.
+        if (!doc.filePath || !isInside(from, doc.filePath)) continue
+        const next = to + doc.filePath.slice(from.length)
+
+        if (!moved.has(pathKey(doc.filePath))) {
+          moved.set(pathKey(doc.filePath), next)
+          const source = monaco.editor.getModel(monaco.Uri.file(doc.filePath))
+          if (source) {
+            const text = source.getValue()
+            const crlf = source.getEOL() === '\r\n'
+            // A model can already exist at the destination — renaming a file back to
+            // a name used earlier in the session is enough — and creating a second
+            // one for the same URI throws.
+            const existing = monaco.editor.getModel(monaco.Uri.file(next))
+            if (existing) {
+              existing.setEOL(
+                crlf
+                  ? monaco.editor.EndOfLineSequence.CRLF
+                  : monaco.editor.EndOfLineSequence.LF
+              )
+              existing.setValue(text)
+            } else {
+              monaco.editor.createModel(text, languageForPath(next), monaco.Uri.file(next))
+            }
+            const agreed = lastSynced(doc.filePath)
+            if (agreed !== undefined) noteSynced(next, agreed)
+          }
+        }
+
+        get().patchDocument(
+          pane.id,
+          {
+            filePath: next,
+            title: next.split(/[\\/]/).pop() ?? next,
+            language: languageForPath(next)
+          },
+          index
+        )
+      }
+    }
+  },
+
+  /**
+   * Say out loud that a deleted file's buffer is now the only copy of it.
+   *
+   * The text is deliberately kept — someone who deletes a file with edits open has
+   * not necessarily decided to lose the edits — but it is marked unsaved, because
+   * a tab that looks saved while nothing on disk backs it is the state where work
+   * disappears without anyone being asked. Saving it afterwards recreates the file,
+   * which is a decision the unsaved marker makes visible first.
+   */
+  notePathDeleted: (target) =>
+    set((s) => {
+      const panes = { ...s.panes }
+      let touched = false
+      for (const pane of Object.values(s.panes)) {
+        if (pane.kind !== 'editor') continue
+        const documents = pane.documents.map((d) =>
+          d.filePath && isInside(target, d.filePath) && !d.dirty ? { ...d, dirty: true } : d
+        )
+        if (documents.some((d, i) => d !== pane.documents[i])) {
+          panes[pane.id] = { ...pane, documents }
+          touched = true
+        }
+      }
+      return touched ? { panes } : {}
+    }),
 
   /**
    * Save every edited document.
@@ -665,6 +786,9 @@ export const useStore = create<Store>((set, get) => ({
         const current = get().editorPane(pane.id)
         const at = current?.documents.findIndex((d) => d.filePath === doc.filePath) ?? -1
         if (at !== -1) get().patchDocument(pane.id, { savedContent: content, dirty: false }, at)
+        // Recorded even when the tab has gone: the model outlives it, and this is
+        // what stops a later reopen mistaking a saved buffer for unsaved work.
+        noteSynced(doc.filePath, content)
         saved += 1
       }
     }

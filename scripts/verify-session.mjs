@@ -18,11 +18,15 @@ fs.mkdirSync(SHOT_DIR, { recursive: true })
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-session-'))
 const userData = path.join(work, 'userData')
-const files = ['one.ts', 'two.ts'].map((name, i) => {
+const files = ['one.ts', 'two.ts', 'crlf.ts'].map((name, i) => {
   const file = path.join(work, name)
   fs.writeFileSync(file, `export const n${i} = ${i}\n`, 'utf8')
   return file
 })
+// Written with LF for the first session; converted to CRLF while the app is closed,
+// which is what a branch switch or a colleague's editor does.
+const crlf = files[2]
+const CRLF_TEXT = 'export const n2 = 2\r\nexport const also = 3\r\n'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const env = { ...process.env }
@@ -80,7 +84,7 @@ const shape = (page) =>
   await sleep(900)
 
   const before = await shape(page)
-  check('built two editor tabs', before.editorTabs.length === 2, JSON.stringify(before.editorTabs))
+  check('built three editor tabs', before.editorTabs.length === 3, JSON.stringify(before.editorTabs))
   check('with an unsaved edit', before.dirty === 'true', before.dirty)
   check('and a split', before.terminals >= 2, `${before.terminals} terminals`)
   await page.screenshot({ path: path.join(SHOT_DIR, '90-session-before.png') })
@@ -101,6 +105,9 @@ if (fs.existsSync(sessionFile)) {
   check('but not terminal scrollback', !JSON.stringify(saved).includes('"blocks"'))
 }
 
+// The file moves on while nothing is watching it.
+fs.writeFileSync(crlf, CRLF_TEXT, 'utf8')
+
 // --- launch again with no arguments and see what comes back -----------------
 {
   const app = await launch([])
@@ -110,8 +117,12 @@ if (fs.existsSync(sessionFile)) {
   await sleep(4000)
 
   const after = await shape(page)
-  check('the editor tabs came back', after.editorTabs.length === 2, JSON.stringify(after.editorTabs))
-  check('in the same order', after.editorTabs.join(',') === 'one.ts,two.ts', after.editorTabs.join(','))
+  check('the editor tabs came back', after.editorTabs.length === 3, JSON.stringify(after.editorTabs))
+  check(
+    'in the same order',
+    after.editorTabs.join(',') === 'one.ts,two.ts,crlf.ts',
+    after.editorTabs.join(',')
+  )
   check('showing the same file', after.shownPath === files[0], after.shownPath)
   check('the split came back', after.terminals >= 2, `${after.terminals} terminals`)
   check('the sidebar reopened', after.sidebarOpen === true)
@@ -128,10 +139,86 @@ if (fs.existsSync(sessionFile)) {
   // Restoring the edit must not have written it to disk behind the user's back.
   check('without touching the file', !fs.readFileSync(files[0], 'utf8').includes('unsavedEdit'))
 
+  /*
+   * A file whose line endings changed while the app was closed.
+   *
+   * Documents are re-read from disk on restore, but the line endings used to come
+   * from the snapshot — so a file converted to CRLF in between was loaded as its new
+   * self and then normalised back to what it had been. That marked an untouched file
+   * unsaved, and the buffer's endings are what a save writes, so the next Ctrl+S
+   * rewrote every line of it. Both halves are checked, the second against the bytes.
+   */
+  await page.locator('.etab', { hasText: 'crlf.ts' }).click()
+  await sleep(900)
+  const converted = await shape(page)
+  check('a file converted to CRLF between sessions is not marked unsaved', converted.dirty === 'false', converted.dirty)
+  await page.click('.pane.editor .view-lines')
+  await page.keyboard.press('Control+s')
+  await sleep(1200)
+  check(
+    'and saving it does not rewrite every line ending',
+    fs.readFileSync(crlf, 'utf8') === CRLF_TEXT,
+    JSON.stringify(fs.readFileSync(crlf, 'utf8'))
+  )
+
   await page.screenshot({ path: path.join(SHOT_DIR, '91-session-after.png') })
   await app.close()
   await sleep(800)
 }
+
+// --- launching on a folder does not destroy the session ----------------------
+/*
+ * Explorer's "Open in Ember" verb on a folder, with a previous workspace saved.
+ *
+ * A folder argument used to skip the restore — and the session autosave is armed
+ * before boot decides anything, so the one-tab workspace it started instead was
+ * written over session.json about a second later. Every tab from the last session
+ * and every unsaved buffer stored with it were gone, on an ordinary launch, with
+ * restore switched on the whole time. The folder is now opened alongside what came
+ * back rather than instead of it.
+ */
+{
+  const app = await launch([work])
+  const page = await app.firstWindow()
+  await placeTopRight(app)
+  await page.waitForSelector('.pane', { timeout: 30_000 })
+  await sleep(4500)
+
+  const landed = await shape(page)
+  check('the folder gets a tab of its own', landed.tabs >= 2, `${landed.tabs} tabs`)
+
+  // Only the active tab renders its panes, and the folder's tab is the one in front.
+  await page.locator('.tab').first().click()
+  await sleep(1500)
+  const opened = await shape(page)
+  check(
+    'launching on a folder still restores the last session',
+    opened.editorTabs.length === 3,
+    JSON.stringify(opened.editorTabs)
+  )
+  // one.ts is the tab holding the unsaved edit; crlf.ts was left in front last time.
+  await page.locator('.etab', { hasText: 'one.ts' }).click()
+  await sleep(1200)
+  const text = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('.pane.editor .view-line'))
+      .map((l) => l.textContent ?? '')
+      .join('\n')
+  )
+  check('with the unsaved text intact', text.includes('unsavedEdit'), text.slice(0, 90))
+
+  // The debounce has to fire before the window goes, so the next block reads a
+  // session file this launch actually wrote.
+  await sleep(2500)
+  await app.close()
+  await sleep(1000)
+}
+
+const afterFolder = JSON.parse(fs.readFileSync(sessionFile, 'utf8'))
+check(
+  'and the session it wrote still holds the unsaved work',
+  JSON.stringify(afterFolder).includes('unsavedEdit'),
+  JSON.stringify(afterFolder).slice(0, 120)
+)
 
 // --- a session pointing at directories that have since gone ------------------
 // The exact shape that broke a real launch: a workspace rooted in a temp folder

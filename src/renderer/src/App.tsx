@@ -102,8 +102,16 @@ export function App(): React.JSX.Element {
        * do anything. Main validates the file now, but a fresh window is the right
        * answer to any restore that still fails, rather than no window at all.
        */
+      /*
+       * A folder argument used to skip the restore entirely, which quietly destroyed
+       * the session it skipped: the autosave subscription is already armed by then,
+       * so opening a folder from Explorer's "Open in Ember" wrote a one-tab snapshot
+       * over session.json a second later, taking every tab from the last workspace
+       * and every unsaved buffer in it. The last session comes back either way now,
+       * and the folder joins it — the same thing a second instance does with one.
+       */
       let restored = false
-      if (settings.restoreSession && folders.length === 0) {
+      if (settings.restoreSession) {
         try {
           restored = await restore(await window.ember.sessionLoad())
         } catch (err) {
@@ -121,6 +129,10 @@ export function App(): React.JSX.Element {
       // to keep in the sidebar and break in the terminal.
       if (!restored && useStore.getState().tabs.length === 0) {
         newTab(preferred, folders[0] ?? undefined)
+      } else if (folders[0]) {
+        // A folder asked for on top of a workspace that came back gets its own tab,
+        // the same answer a second instance gives when it is handed one.
+        newTab(preferred, folders[0])
       }
 
       // Files named on the command line open once the first tab exists, since an

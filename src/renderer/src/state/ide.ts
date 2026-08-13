@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import type { IdeCall } from '@shared/types'
 import { useStore, type DiffPaneState, type EditorDocument } from './store'
+import { noteSynced } from '../editor/synced'
 
 /**
  * Answers Claude Code's tool calls.
@@ -153,7 +154,13 @@ async function reconcileAcceptedDiff(filePath: string, written: string): Promise
       const model = monaco.editor.getModel(monaco.Uri.file(doc.filePath))
       const untouched = !model || model.getValue() === doc.savedContent
       state.patchDocument(pane.id, { savedContent: written, dirty: !untouched }, index)
-      if (untouched && model && model.getValue() !== written) model.setValue(written)
+      if (untouched && model) {
+        if (model.getValue() !== written) model.setValue(written)
+        // A buffer brought into line with what was accepted agrees with disk again,
+        // and has to be recorded as such or closing and reopening the file would
+        // read it as unsaved work and stop showing what Claude wrote.
+        noteSynced(doc.filePath, model.getValue())
+      }
     }
   }
 }
@@ -219,6 +226,7 @@ async function handle(call: IdeCall): Promise<unknown> {
 
       const res = await window.ember.writeFile(doc.filePath, content)
       if (!res.ok) return { success: false, message: res.error }
+      noteSynced(doc.filePath, content)
 
       // Dirtiness is derived by comparing against what is on disk, so the saved
       // content has to move with it or the document stays reported as dirty.

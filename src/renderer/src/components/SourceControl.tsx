@@ -17,6 +17,8 @@ export function SourceControl(): React.JSX.Element {
   const tabs = useStore((s) => s.tabs)
   const activeTabId = useStore((s) => s.activeTabId)
   const openDiff = useStore((s) => s.openDiffInSplit)
+  const reloadFromDisk = useStore((s) => s.reloadFromDisk)
+  const notePathDeleted = useStore((s) => s.notePathDeleted)
 
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
@@ -68,9 +70,23 @@ export function SourceControl(): React.JSX.Element {
         : `Discard changes to ${change.path}? This cannot be undone.`
     )
     if (!ok) return
-    await act(() =>
+    const done = await act(() =>
       window.ember.gitDiscard(root, untracked ? [] : [change.path], untracked ? [change.path] : [])
     )
+    if (!done) return
+
+    /*
+     * Tell the editors, or the discard undoes itself.
+     *
+     * git rewrites the working tree, and a tab showing that file kept its old buffer,
+     * kept believing it matched disk, and stayed unmarked — so the next Ctrl+S wrote
+     * the discarded changes straight back. This was the one thing in the app that
+     * changed a file without anything telling the editor. Reloading leaves a buffer
+     * with unsaved edits of the user's own alone, as it does everywhere else.
+     */
+    const full = `${root}/${change.path}`
+    if (untracked) notePathDeleted(full)
+    else await reloadFromDisk([full])
   }
 
   const commit = async (): Promise<void> => {

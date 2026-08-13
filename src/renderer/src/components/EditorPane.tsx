@@ -4,8 +4,10 @@ import { monaco } from '../editor/monaco'
 import { applyMonacoTheme, MONACO_THEME_ID } from '../editor/theme'
 import { ensureLanguageServer } from '../editor/lsp'
 import { ensureSnippets } from '../editor/snippets'
+import { lastSynced, noteSynced } from '../editor/synced'
 import { recordSelection } from '../state/ide'
 import { pendingUnsaved, setBufferReader } from '../state/session'
+import { samePath } from '@shared/paths'
 
 interface Props {
   pane: EditorPaneState
@@ -28,6 +30,13 @@ function locate(filePath: string | null, root: string | null): string {
   const base = root.replace(/\\/g, '/')
   if (!dir.toLowerCase().startsWith(base.toLowerCase())) return ''
   return dir.slice(base.length).replace(/^\//, '')
+}
+
+/** A document's line endings, as Monaco names them. */
+function eolOf(eol: 'crlf' | 'lf'): monaco.editor.EndOfLineSequence {
+  return eol === 'crlf'
+    ? monaco.editor.EndOfLineSequence.CRLF
+    : monaco.editor.EndOfLineSequence.LF
 }
 
 /**
@@ -83,7 +92,29 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
   const modelFor = (doc: typeof document): monaco.editor.ITextModel => {
     const uri = doc.filePath ? monaco.Uri.file(doc.filePath) : undefined
     const existing = uri ? monaco.editor.getModel(uri) : null
-    if (existing) return existing
+    if (existing) {
+      /*
+       * A retained model can be older than the file.
+       *
+       * Models outlive their tabs deliberately, so reopening a file that changed on
+       * disk in the meantime handed back the text as it was — and saving wrote that
+       * back over the newer file. `lastSynced` is what separates "the user edited
+       * this" from "the file moved on underneath it": a buffer still holding what it
+       * held when it last agreed with disk is brought up to date, and one with edits
+       * of the user's own is left alone, to be read as unsaved against the new
+       * content by the reconciliation below.
+       */
+      const synced = lastSynced(doc.filePath)
+      if (synced !== undefined && synced !== doc.savedContent && existing.getValue() === synced) {
+        // The line endings can have changed with the content, and the model's are
+        // what a save writes back — without this, reopening a file someone had
+        // converted to CRLF would rewrite every line of it on the next Ctrl+S.
+        existing.setEOL(eolOf(doc.eol))
+        existing.setValue(doc.savedContent)
+        noteSynced(doc.filePath, existing.getValue())
+      }
+      return existing
+    }
 
     // Text carried over from the last session, if this document had unsaved edits
     // when it was written down. Consumed once: after this the model is the truth.
@@ -91,9 +122,11 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     if (doc.filePath) pendingUnsaved.delete(doc.filePath)
 
     const model = monaco.editor.createModel(carried ?? doc.savedContent, doc.language, uri)
-    model.setEOL(
-      doc.eol === 'crlf' ? monaco.editor.EndOfLineSequence.CRLF : monaco.editor.EndOfLineSequence.LF
-    )
+    model.setEOL(eolOf(doc.eol))
+    // Read back off the model rather than recorded as handed in: Monaco normalises
+    // line endings, and what has to match later is the buffer's own text. Carried
+    // text is unsaved by definition, so it is recorded as agreeing with nothing.
+    if (carried === undefined) noteSynced(doc.filePath, model.getValue())
     return model
   }
 
@@ -231,8 +264,11 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     const fileDir = document.filePath?.replace(/[\\/][^\\/]*$/, '')
     void ensureLanguageServer(document.language, treeRoot ?? fileDir ?? undefined)
     void ensureSnippets(document.language)
+    // savedContent is in here because it moving is how this pane hears that the file
+    // changed underneath it — opening an already-open file re-reads it, and without
+    // this the tab went on showing the old text with no unsaved marker.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pane.activeIndex, document.filePath, document.language])
+  }, [pane.activeIndex, document.filePath, document.language, document.savedContent])
 
   useEffect(() => {
     if (editorRef.current) applyMonacoTheme(theme)
@@ -251,9 +287,14 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     const current = useStore.getState().editorPane(pane.id)
     if (!editor || !current) return
     const index = current.activeIndex
-    const content = editor.getValue()
+    const from = current.documents[index]?.filePath ?? null
+    // The buffer, held directly rather than through the editor: a tab switch during
+    // the write moves the editor to another model, and what is being saved is this
+    // document's text wherever it ends up on screen.
+    const buffer = editor.getModel()
+    const content = buffer?.getValue() ?? editor.getValue()
 
-    let target = current.documents[index]?.filePath ?? null
+    let target = from
     if (!target) {
       target = await window.ember.saveFileDialog()
       if (!target) return
@@ -267,12 +308,35 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
       setMessage(res.error)
       return
     }
-    // Dirtiness is derived by comparing against what is on disk, so the saved
-    // content has to move with it.
+    // What was written, not what the buffer holds now: typing during the write
+    // leaves the two different, and the buffer is then genuinely ahead of disk.
+    noteSynced(target, content)
+
+    /*
+     * Both the document and its dirtiness are settled after the write, not before.
+     *
+     * `content` was read before an await, and a keystroke landing inside that window
+     * used to be marked as saved: the store took `dirty: false` on trust, the change
+     * handler had already seen dirty as true and so patched nothing, and from then on
+     * nothing knew those characters existed. Closing the tab did not ask, Save All
+     * skipped it, and the session snapshot dropped it — the edit was gone at the next
+     * launch. The index is re-found for the same reason a save is not the only thing
+     * that can happen while a file is being written.
+     */
+    const after = useStore.getState().editorPane(pane.id)
+    const at = from
+      ? (after?.documents.findIndex((d) => samePath(d.filePath, from)) ?? -1)
+      : index
+    if (!after || at === -1 || !after.documents[at]) return
     patchDocument(
       pane.id,
-      { filePath: target, savedContent: content, dirty: false, title: target.split(/[\\/]/).pop() },
-      index
+      {
+        filePath: target,
+        savedContent: content,
+        dirty: (buffer?.getValue() ?? content) !== content,
+        title: target.split(/[\\/]/).pop()
+      },
+      at
     )
     setMessage('saved')
     window.setTimeout(() => setMessage(null), 1500)
@@ -291,18 +355,25 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
    */
   autoSaveFn.current = async (filePath: string) => {
     const current = useStore.getState().editorPane(pane.id)
-    const index = current?.documents.findIndex((d) => d.filePath === filePath) ?? -1
+    const index = current?.documents.findIndex((d) => samePath(d.filePath, filePath)) ?? -1
     if (!current || index === -1 || !current.documents[index].dirty) return
 
-    const content = monaco.editor.getModel(monaco.Uri.file(filePath))?.getValue()
-    if (content === undefined) return
+    const buffer = monaco.editor.getModel(monaco.Uri.file(filePath))
+    if (!buffer) return
+    const content = buffer.getValue()
 
     const res = await window.ember.writeFile(filePath, content)
     if (!res.ok) {
       setMessage(res.error)
       return
     }
-    patchDocument(pane.id, { savedContent: content, dirty: false }, index)
+    noteSynced(filePath, content)
+    // Re-found after the write, and dirtiness read off the buffer rather than
+    // assumed, for the reasons spelled out in save().
+    const after = useStore.getState().editorPane(pane.id)
+    const at = after?.documents.findIndex((d) => samePath(d.filePath, filePath)) ?? -1
+    if (!after || at === -1) return
+    patchDocument(pane.id, { savedContent: content, dirty: buffer.getValue() !== content }, at)
   }
 
   /**
@@ -333,8 +404,24 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
       setMessage(res.error)
       return
     }
-    editorRef.current?.setValue(res.content)
-    patchDocument(pane.id, { savedContent: res.content, dirty: false })
+    /*
+     * Both the buffer and the tab are found by path, never taken from the editor.
+     *
+     * The editor is whatever is on screen when the read comes back, and the default
+     * patch target is whichever tab is active by then — so switching tabs during the
+     * read poured this file's text into a different file's buffer, marked that one
+     * saved, and left the next Ctrl+S ready to write one file's contents into the
+     * other's path. The reverted file is a fixed thing; it is looked up as one.
+     */
+    const model = monaco.editor.getModel(monaco.Uri.file(path))
+    const current = useStore.getState().editorPane(pane.id)
+    const at = current?.documents.findIndex((d) => samePath(d.filePath, path)) ?? -1
+    if (!current || at === -1) return
+
+    model?.setEOL(eolOf(res.eol))
+    model?.setValue(res.content)
+    patchDocument(pane.id, { savedContent: res.content, dirty: false, eol: res.eol }, at)
+    if (model) noteSynced(path, model.getValue())
   }
 
   return (

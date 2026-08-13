@@ -31,6 +31,8 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
   const tabs = useStore((s) => s.tabs)
   const panes = useStore((s) => s.panes)
   const activeTabId = useStore((s) => s.activeTabId)
+  const notePathRenamed = useStore((s) => s.notePathRenamed)
+  const notePathDeleted = useStore((s) => s.notePathDeleted)
 
   const [children, setChildren] = useState<Record<string, DirEntry[]>>({})
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -150,14 +152,18 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
     setDraft(null)
     if (!name) return
 
+    const target = joinPath(dir, name)
     const res = original
-      ? await window.ember.renamePath(original, joinPath(dir, name))
-      : await window.ember.createPath(joinPath(dir, name), kind)
+      ? await window.ember.renamePath(original, target)
+      : await window.ember.createPath(target, kind)
 
     if (!res.ok) {
       setError(res.error)
       return
     }
+    // Editors showing the old path have to travel with it, or their next save goes
+    // to a file that no longer exists.
+    if (original) await notePathRenamed(original, target)
     setError(null)
     await refresh(dir)
     // A new file is almost always about to be edited.
@@ -172,6 +178,8 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
       setError(res.error)
       return
     }
+    // An open tab is now the only copy of what was in there.
+    notePathDeleted(target)
     setError(null)
     await refresh(parentOf(target))
   }
