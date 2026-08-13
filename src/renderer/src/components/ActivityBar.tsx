@@ -24,6 +24,17 @@ const ENTRIES: Entry[] = [
     )
   },
   {
+    view: 'search',
+    label: 'Search',
+    hint: 'Search (Ctrl+Shift+F)',
+    icon: (
+      <>
+        <circle cx="8.6" cy="8.6" r="5.1" />
+        <path d="M12.4 12.4 L16.8 16.8" />
+      </>
+    )
+  },
+  {
     view: 'scm',
     label: 'Source Control',
     hint: 'Source Control (Ctrl+Shift+G)',

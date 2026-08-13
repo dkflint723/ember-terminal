@@ -205,11 +205,34 @@ export interface SessionSnapshot {
   version: 1
   treeRoot: string | null
   sidebarOpen: boolean
-  sidebarView: 'explorer' | 'scm' | 'github'
+  sidebarView: 'explorer' | 'search' | 'scm' | 'github'
   activeTabId: string | null
   tabs: { id: string; root: SessionLayout; activePaneId: string }[]
   panes: SessionPane[]
 }
+
+export interface SearchQuery {
+  root: string
+  text: string
+  caseSensitive: boolean
+  wholeWord: boolean
+  regex: boolean
+  /** A ripgrep glob such as `*.ts`, or empty for everything. */
+  include: string
+}
+
+export interface SearchHit {
+  path: string
+  line: number
+  /** Character offsets into `preview`, so a match can be highlighted. */
+  column: number
+  length: number
+  preview: string
+}
+
+export type SearchResult =
+  | { ok: true; hits: SearchHit[]; truncated: boolean }
+  | { ok: false; error: string }
 
 /** A finished command worth telling the user about. */
 export interface CommandNotice {
@@ -339,6 +362,8 @@ export interface EmberApi {
   githubOverview(cwd: string): Promise<GitHubResult>
   githubCheckout(cwd: string, number: number): Promise<GitSimpleResult>
   openExternal(url: string): void
+  search(query: SearchQuery): Promise<SearchResult>
+  cancelSearch(): void
   gitStatus(cwd: string): Promise<GitStatusResult>
   gitDiff(root: string, path: string, staged: boolean): Promise<GitDiffResult>
   gitStage(root: string, paths: string[]): Promise<GitSimpleResult>

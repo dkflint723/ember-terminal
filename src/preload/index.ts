@@ -7,6 +7,7 @@ import type {
   HistoryQuery,
   IdeCall,
   LspEvent,
+  SearchQuery,
   SessionSnapshot,
   HistoryRecord,
   AiResponse,
@@ -68,6 +69,9 @@ const api: EmberApi = {
   githubCheckout: (cwd: string, number: number) =>
     ipcRenderer.invoke('github:checkout', cwd, number),
   openExternal: (url: string) => ipcRenderer.send('shell:openExternal', url),
+
+  search: (query: SearchQuery) => ipcRenderer.invoke('search:run', query),
+  cancelSearch: () => ipcRenderer.send('search:cancel'),
 
   gitStatus: (cwd: string) => ipcRenderer.invoke('git:status', cwd),
   gitDiff: (root: string, path: string, staged: boolean) =>

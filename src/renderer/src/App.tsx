@@ -146,6 +146,35 @@ export function App(): React.JSX.Element {
     }
   }
 
+  /**
+   * Open a file and put the cursor on a specific match, for a search result.
+   *
+   * The reveal is a separate step from the open because the editor pane creates
+   * Monaco's model itself — the position can only be set once that exists, which
+   * is a render later.
+   */
+  const revealAt = async (filePath: string, line: number, column: number): Promise<void> => {
+    await openPaths([filePath])
+    const { monaco } = await import('./editor/monaco')
+    // A couple of frames is enough for the pane to mount and claim the model.
+    window.setTimeout(() => {
+      const model = monaco.editor.getModel(monaco.Uri.file(filePath))
+      if (!model) return
+      for (const editor of monaco.editor.getEditors()) {
+        if (editor.getModel() !== model) continue
+        const position = { lineNumber: line, column: column + 1 }
+        editor.setSelection({
+          startLineNumber: line,
+          startColumn: column + 1,
+          endLineNumber: line,
+          endColumn: column + 1
+        })
+        editor.revealPositionInCenter(position)
+        editor.focus()
+      }
+    }, 220)
+  }
+
   const openFile = async (): Promise<void> => {
     const s = useStore.getState()
     const tab = s.tabs.find((t) => t.id === s.activeTabId)
@@ -238,6 +267,11 @@ export function App(): React.JSX.Element {
         s.showSidebarView('github')
         return
       }
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        s.showSidebarView('search')
+        return
+      }
 
       // Ctrl+O opens a file in an editor pane beside the current one.
       if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'o') {
@@ -272,7 +306,9 @@ export function App(): React.JSX.Element {
       <TitleBar />
       <div className="workspace">
         <ActivityBar />
-        {sidebarOpen && <Sidebar onOpen={(p) => void openPaths([p])} />}
+        {sidebarOpen && (
+          <Sidebar onOpen={(p) => void openPaths([p])} onOpenAt={(p, l, c) => void revealAt(p, l, c)} />
+        )}
         {activeTab ? (
           <SplitView
             tabId={activeTab.id}

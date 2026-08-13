@@ -1781,3 +1781,164 @@ kbd {
 .activity__spacer {
   flex: 1 1 auto;
 }
+
+/* ---------- search across files ---------- */
+
+.find {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.find--empty {
+  padding: 10px 12px;
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+.find__controls {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 0 10px 6px;
+}
+
+.find__box {
+  width: 100%;
+  padding: 5px 6px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.find__box:focus {
+  outline: none;
+  border-color: var(--accent-dim);
+}
+
+.find__box--glob {
+  font-size: 11px;
+}
+
+.find__toggles {
+  display: flex;
+  gap: 3px;
+}
+
+.find__toggle {
+  padding: 1px 6px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  color: var(--fg-faint);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.find__toggle:hover {
+  background: var(--bg-hover);
+  color: var(--fg-dim);
+}
+
+.find__toggle--on {
+  color: var(--fg);
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.find__summary {
+  padding: 0 12px 6px;
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+.find__error {
+  color: var(--fail);
+}
+
+.find__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 8px;
+}
+
+.find__file {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  width: 100%;
+  padding: 3px 8px 3px 8px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.find__file:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.find__name {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+}
+
+.find__dir {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-faint);
+  font-size: 10px;
+}
+
+.find__hit {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 8px 2px 26px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.find__hit:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.find__line {
+  flex: 0 0 auto;
+  min-width: 28px;
+  text-align: right;
+  color: var(--fg-faint);
+}
+
+/* Preview keeps its leading whitespace so a match sits where it does in the file. */
+.find__preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.find__preview mark {
+  background: var(--accent-dim);
+  color: var(--fg);
+  border-radius: 2px;
+}

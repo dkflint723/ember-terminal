@@ -13,6 +13,7 @@ import { IdeServer } from './ide.js'
 import { GitHubService } from './github.js'
 import { ExplorerMenu } from './explorer.js'
 import { SessionStore } from './session.js'
+import { SearchService } from './search.js'
 import { Notifier, focusWindow } from './notify.js'
 import { AiService } from './ai.js'
 import {
@@ -39,6 +40,7 @@ let ide: IdeServer
 let github: GitHubService
 const explorer = new ExplorerMenu()
 let session: SessionStore
+const search = new SearchService()
 let notifier: Notifier
 
 /**
@@ -216,6 +218,9 @@ function registerIpc(): void {
     // registered for the scheme.
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
   })
+
+  ipcMain.handle('search:run', (_e, query) => search.run(query))
+  ipcMain.on('search:cancel', () => search.cancel())
 
   ipcMain.handle('git:status', (_e, cwd: string) => git.status(cwd))
   ipcMain.handle('git:diff', (_e, root: string, path: string, staged: boolean) =>
