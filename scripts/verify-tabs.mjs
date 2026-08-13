@@ -5,11 +5,13 @@
 // Run: node scripts/verify-tabs.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
+import { newProfile } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
+const profile = newProfile('tabs')
 const SHOT_DIR = process.env.SCREENSHOT_DIR || path.join(APP_DIR, '.shots')
 fs.mkdirSync(SHOT_DIR, { recursive: true })
 
@@ -28,7 +30,7 @@ delete env.ELECTRON_RUN_AS_NODE
 // become tabs in it rather than splitting the workspace three ways.
 const app = await electron.launch({
   executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
-  args: [APP_DIR, ...files],
+  args: [APP_DIR, profile.arg, ...files],
   cwd: APP_DIR,
   env,
   timeout: 60_000
@@ -137,6 +139,7 @@ await page.screenshot({ path: path.join(SHOT_DIR, '41-tabs-closed.png') })
 await app.close()
 fs.rmSync(work, { recursive: true, force: true })
 
+profile.cleanup()
 for (const f of failures) console.log(`  - ${f}`)
 console.log('editor tabs:', failures.length === 0 ? 'PASS' : 'FAIL')
 console.log('page errors:', errors.length === 0 ? '(none)' : errors.slice(0, 4))

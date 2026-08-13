@@ -3,11 +3,13 @@
 // Run: node scripts/verify-editor.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
+import { newProfile } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
+const profile = newProfile('editor')
 const SHOT_DIR = process.env.SCREENSHOT_DIR || path.join(APP_DIR, '.shots')
 fs.mkdirSync(SHOT_DIR, { recursive: true })
 
@@ -29,7 +31,7 @@ delete env.ELECTRON_RUN_AS_NODE
 
 const app = await electron.launch({
   executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
-  args: [APP_DIR, FILE],
+  args: [APP_DIR, profile.arg, FILE],
   cwd: APP_DIR,
   env,
   timeout: 60_000
@@ -127,4 +129,5 @@ log('page errors:', errors.length === 0 ? '(none)' : errors.slice(0, 5))
 
 await app.close()
 fs.rmSync(path.dirname(FILE), { recursive: true, force: true })
+profile.cleanup()
 process.exit(pass && errors.length === 0 ? 0 : 1)

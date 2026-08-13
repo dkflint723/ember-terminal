@@ -6,11 +6,18 @@
 // Run: node scripts/verify-lsp.mjs [language...]
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
+import { newProfile } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
+/**
+ * A profile per language, not per run. This harness launches the app four times,
+ * and a shared profile would mean the second launch restoring the first language's
+ * tabs — the checks would then be looking at the wrong file.
+ */
+const profiles = []
 
 const CASES = {
   typescript: {
@@ -56,6 +63,8 @@ async function run(language) {
 
   // A real directory, not a bare temp file: a project-indexing server behaves
   // differently with and without a workspace root.
+  const profile = newProfile(language)
+  profiles.push(profile)
   const work = fs.mkdtempSync(path.join(os.tmpdir(), `ember-${language}-`))
   const file = path.join(work, spec.file)
   fs.writeFileSync(file, spec.body, 'utf8')
@@ -73,7 +82,7 @@ async function run(language) {
   const packaged = process.env.EMBER_EXE
   const app = await electron.launch({
     executablePath: packaged ?? path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
-    args: packaged ? [file] : [APP_DIR, file],
+    args: packaged ? [profile.arg, file] : [APP_DIR, profile.arg, file],
     cwd: packaged ? path.dirname(packaged) : APP_DIR,
     env,
     timeout: 60_000
@@ -195,5 +204,6 @@ for (const language of languages) {
   }
 }
 
+profiles.forEach((p) => p.cleanup())
 console.log(failed === 0 ? 'multi-language lsp: PASS' : `multi-language lsp: FAIL (${failed})`)
 process.exit(failed === 0 ? 0 : 1)

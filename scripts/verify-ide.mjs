@@ -9,12 +9,14 @@
 // Run: node scripts/verify-ide.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
+import { newProfile } from './profile.mjs'
 import WebSocket from 'ws'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
+const profile = newProfile('ide')
 const SHOT_DIR = process.env.SCREENSHOT_DIR || path.join(APP_DIR, '.shots')
 fs.mkdirSync(SHOT_DIR, { recursive: true })
 const LOCK_DIR = path.join(os.homedir(), '.claude', 'ide')
@@ -34,7 +36,7 @@ const before = new Set(fs.existsSync(LOCK_DIR) ? fs.readdirSync(LOCK_DIR) : [])
 
 const app = await electron.launch({
   executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
-  args: [APP_DIR, target],
+  args: [APP_DIR, profile.arg, target],
   cwd: APP_DIR,
   env,
   timeout: 60_000
@@ -234,6 +236,7 @@ await sleep(1200)
 check('lockfile removed on exit', !fs.existsSync(path.join(LOCK_DIR, lock.file)))
 
 fs.rmSync(work, { recursive: true, force: true })
+profile.cleanup()
 for (const f of failures) console.log(`  - ${f}`)
 console.log('claude code ide:', failures.length === 0 ? 'PASS' : 'FAIL')
 console.log('page errors:', errors.length === 0 ? '(none)' : errors.slice(0, 4))

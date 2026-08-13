@@ -10,6 +10,7 @@ import { disposeController } from './terminal/controller'
 import { activateTheme, refreshThemeList } from './state/theming'
 import { useGitStatusPolling } from './state/git'
 import { useIdeBridge } from './state/ide'
+import { restore, useSessionAutosave } from './state/session'
 
 export function App(): React.JSX.Element {
   const tabs = useStore((s) => s.tabs)
@@ -19,12 +20,15 @@ export function App(): React.JSX.Element {
   const setProfiles = useStore((s) => s.setProfiles)
   const applySettings = useStore((s) => s.applySettings)
   const newTab = useStore((s) => s.newTab)
+  const restoreEnabled = useStore((s) => s.settings.restoreSession)
 
   // Mounted here rather than in the source-control view: the explorer colours its
   // rows from the same status, and that has to work while the view is closed.
   useGitStatusPolling()
   // Answers Claude Code's tool calls, and keeps the published workspace root current.
   useIdeBridge()
+  // Reads the applied setting, so turning restore off stops the writing too.
+  useSessionAutosave(restoreEnabled)
 
   // The workspace root defaults to the active terminal's directory, but does not
   // follow it afterwards — re-rooting under someone mid-browse would be hostile.
@@ -68,13 +72,24 @@ export function App(): React.JSX.Element {
       const root =
         folders[0] ??
         (startup[0] ? startup[0].replace(/[\\/][^\\/]*$/, '') || null : null)
+
+      // The last workspace goes back before anything is created, so restored tabs
+      // are the tabs rather than joining an empty one that was made first.
+      const restored =
+        settings.restoreSession && folders.length === 0
+          ? await restore(await window.ember.sessionLoad())
+          : false
+      // A folder argument overrides a restored root: launching on a folder is an
+      // explicit statement about where the user is working now.
       if (root) useStore.getState().setTreeRoot(root)
 
       const preferred =
         profiles.find((p) => p.id === settings.defaultProfileId)?.id ?? profiles[0].id
       // The shell starts in that folder too: "open here" would be a strange promise
       // to keep in the sidebar and break in the terminal.
-      if (useStore.getState().tabs.length === 0) newTab(preferred, folders[0] ?? undefined)
+      if (!restored && useStore.getState().tabs.length === 0) {
+        newTab(preferred, folders[0] ?? undefined)
+      }
 
       // Files named on the command line open once the first tab exists, since an
       // editor pane is created beside an existing pane.

@@ -217,6 +217,22 @@ export function SettingsPanel(): React.JSX.Element | null {
           </div>
         </div>
 
+        <div className="field">
+          <label>On launch</label>
+          <label className="field__check">
+            <input
+              type="checkbox"
+              checked={draft.restoreSession}
+              onChange={(e) => field('restoreSession', e.target.checked)}
+            />
+            <span>Reopen the last window&rsquo;s tabs, splits and files</span>
+          </label>
+          <div className="field__note">
+            Layout and open files, including anything unsaved. Command output is not
+            restored — a finished command from last week would only look live.
+          </div>
+        </div>
+
         <ExplorerMenuField />
 
         <div className="modal__actions">

@@ -4,6 +4,7 @@ import { monaco } from '../editor/monaco'
 import { applyMonacoTheme, MONACO_THEME_ID } from '../editor/theme'
 import { ensureLanguageServer } from '../editor/lsp'
 import { recordSelection } from '../state/ide'
+import { pendingUnsaved, setBufferReader } from '../state/session'
 
 interface Props {
   pane: EditorPaneState
@@ -62,12 +63,23 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     const existing = uri ? monaco.editor.getModel(uri) : null
     if (existing) return existing
 
-    const model = monaco.editor.createModel(doc.savedContent, doc.language, uri)
+    // Text carried over from the last session, if this document had unsaved edits
+    // when it was written down. Consumed once: after this the model is the truth.
+    const carried = doc.filePath ? pendingUnsaved.get(doc.filePath) : undefined
+    if (doc.filePath) pendingUnsaved.delete(doc.filePath)
+
+    const model = monaco.editor.createModel(carried ?? doc.savedContent, doc.language, uri)
     model.setEOL(
       doc.eol === 'crlf' ? monaco.editor.EndOfLineSequence.CRLF : monaco.editor.EndOfLineSequence.LF
     )
     return model
   }
+
+  // Lets the session snapshot read any document's live text, including tabs that
+  // are not on screen — their models hold the edits whether they are shown or not.
+  useEffect(() => {
+    setBufferReader((filePath) => monaco.editor.getModel(monaco.Uri.file(filePath))?.getValue() ?? null)
+  }, [])
 
   // Created once per pane; the model is swapped underneath it as tabs change.
   useEffect(() => {

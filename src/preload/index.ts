@@ -6,6 +6,7 @@ import type {
   HistoryQuery,
   IdeCall,
   LspEvent,
+  SessionSnapshot,
   HistoryRecord,
   AiResponse,
   EmberApi,
@@ -33,6 +34,9 @@ const api: EmberApi = {
     ipcRenderer.on('file:openFolder', listener)
     return () => ipcRenderer.removeListener('file:openFolder', listener)
   },
+  sessionLoad: () => ipcRenderer.invoke('session:load'),
+  sessionSave: (snapshot: SessionSnapshot) => ipcRenderer.invoke('session:save', snapshot),
+  sessionClear: () => ipcRenderer.send('session:clear'),
   explorerSupported: () => ipcRenderer.invoke('explorer:supported'),
   explorerStatus: () => ipcRenderer.invoke('explorer:status'),
   explorerRegister: () => ipcRenderer.invoke('explorer:register'),

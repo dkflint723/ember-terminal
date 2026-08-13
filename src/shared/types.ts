@@ -173,6 +173,44 @@ export interface GitDiffOk {
   modifiedLabel: string
 }
 
+/**
+ * A workspace, written down so it can be put back.
+ *
+ * Structure only: which tabs, how they were split, which shells were where and what
+ * was open in the editors. Deliberately not the terminal scrollback — a block
+ * reading "done in 107ms" from yesterday is a lie about a process that no longer
+ * exists, and restoring it would make the pane look alive when it is not.
+ *
+ * Unsaved editor content is the exception, and is kept: a feature called session
+ * restore that loses work someone had not saved would be worse than none at all.
+ */
+export type SessionLayout =
+  | { type: 'leaf'; paneId: string }
+  | { type: 'split'; direction: 'row' | 'column'; children: SessionLayout[]; sizes: number[] }
+
+export interface SessionDocument {
+  filePath: string | null
+  title: string
+  language: string
+  eol: 'lf' | 'crlf'
+  /** Only present when the buffer differed from disk when the session was written. */
+  unsaved?: string
+}
+
+export type SessionPane =
+  | { kind: 'terminal'; id: string; profileId: string; cwd: string; title: string }
+  | { kind: 'editor'; id: string; activeIndex: number; documents: SessionDocument[] }
+
+export interface SessionSnapshot {
+  version: 1
+  treeRoot: string | null
+  sidebarOpen: boolean
+  sidebarView: 'explorer' | 'scm' | 'github'
+  activeTabId: string | null
+  tabs: { id: string; root: SessionLayout; activePaneId: string }[]
+  panes: SessionPane[]
+}
+
 /** One word for a pull request's checks, reduced from however many it has. */
 export type GitHubCheckState = 'passing' | 'failing' | 'pending' | 'none'
 
@@ -242,6 +280,8 @@ export interface Settings {
   /** Stored encrypted at rest via Electron safeStorage when available. */
   anthropicApiKey: string | null
   aiModel: string
+  /** Put the last window's tabs, splits and open files back on launch. */
+  restoreSession: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -250,7 +290,8 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultProfileId: null,
   themeId: 'ember-dark',
   anthropicApiKey: null,
-  aiModel: 'claude-opus-5'
+  aiModel: 'claude-opus-5',
+  restoreSession: true
 }
 
 /** The API the preload script exposes on `window.ember`. */
@@ -260,6 +301,9 @@ export interface EmberApi {
   /** Folders named on the command line — what Explorer's "Open in Ember" passes. */
   startupFolders(): Promise<string[]>
   onOpenFolder(cb: (folder: string) => void): () => void
+  sessionLoad(): Promise<SessionSnapshot | null>
+  sessionSave(snapshot: SessionSnapshot): Promise<{ ok: boolean; error?: string }>
+  sessionClear(): void
   explorerSupported(): Promise<boolean>
   explorerStatus(): Promise<boolean>
   explorerRegister(): Promise<{ ok: boolean; error?: string }>

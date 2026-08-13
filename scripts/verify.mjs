@@ -2,10 +2,12 @@
 // actually happened. Windows has a real display, so no xvfb wrapper is needed.
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
+import { newProfile } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
+const profile = newProfile('main')
 const SHOT_DIR = process.env.SCREENSHOT_DIR || path.join(APP_DIR, '.shots')
 fs.mkdirSync(SHOT_DIR, { recursive: true })
 
@@ -19,7 +21,7 @@ delete env.ELECTRON_RUN_AS_NODE
 
 const app = await electron.launch({
   executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
-  args: [APP_DIR],
+  args: [APP_DIR, profile.arg],
   cwd: APP_DIR,
   env,
   timeout: 60_000
@@ -410,7 +412,13 @@ const hasCmd = await page.evaluate(async () =>
   (await window.ember.listProfiles()).some((p) => p.id === 'cmd')
 )
 if (hasCmd) {
-  await page.evaluate(() => window.ember.setSettings({ defaultProfileId: 'cmd' }))
+  // A reload is a boot, and boot restores the last session — which would put the
+  // PowerShell panes back and never open the cmd one this check is about. Clearing
+  // the session is not enough, because the window saves itself again on the way
+  // out; restore is turned off so the reload is the cold start it pretends to be.
+  await page.evaluate(() =>
+    window.ember.setSettings({ defaultProfileId: 'cmd', restoreSession: false })
+  )
   await page.reload()
   await page.waitForSelector('.app', { timeout: 20_000 })
   await sleep(4500)
@@ -431,11 +439,14 @@ if (hasCmd) {
     plain.strandedBlocks === 0
   log(ok ? 'cmd.exe fallback: PASS' : 'cmd.exe fallback: FAIL')
 
-  await page.evaluate(() => window.ember.setSettings({ defaultProfileId: null }))
+  await page.evaluate(() =>
+    window.ember.setSettings({ defaultProfileId: null, restoreSession: true })
+  )
 }
 
 log('--- console errors/warnings ---')
 log(consoleErrors.length === 0 ? '(none)' : consoleErrors.slice(0, 25).join('\n'))
 
 await app.close()
+profile.cleanup()
 log('closed cleanly')

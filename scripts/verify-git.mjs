@@ -7,12 +7,14 @@
 // Run: node scripts/verify-git.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
+import { newProfile } from './profile.mjs'
 import { execFileSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
+const profile = newProfile('git')
 const SHOT_DIR = process.env.SCREENSHOT_DIR || path.join(APP_DIR, '.shots')
 fs.mkdirSync(SHOT_DIR, { recursive: true })
 
@@ -37,7 +39,7 @@ delete env.ELECTRON_RUN_AS_NODE
 
 const app = await electron.launch({
   executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
-  args: [APP_DIR, path.join(repo, 'tracked.ts')],
+  args: [APP_DIR, profile.arg, path.join(repo, 'tracked.ts')],
   cwd: APP_DIR,
   env,
   timeout: 60_000
@@ -167,6 +169,7 @@ await page.screenshot({ path: path.join(SHOT_DIR, '22-explorer-git.png') })
 await app.close()
 fs.rmSync(repo, { recursive: true, force: true })
 
+profile.cleanup()
 for (const f of failures) console.log(`  - ${f}`)
 console.log('source control:', failures.length === 0 ? 'PASS' : 'FAIL')
 console.log('page errors:', errors.length === 0 ? '(none)' : errors.slice(0, 5))

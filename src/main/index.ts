@@ -12,6 +12,7 @@ import { GitService } from './git.js'
 import { IdeServer } from './ide.js'
 import { GitHubService } from './github.js'
 import { ExplorerMenu } from './explorer.js'
+import { SessionStore } from './session.js'
 import { AiService } from './ai.js'
 import {
   DEFAULT_SETTINGS,
@@ -36,6 +37,7 @@ let git: GitService
 let ide: IdeServer
 let github: GitHubService
 const explorer = new ExplorerMenu()
+let session: SessionStore
 
 /**
  * Tool calls arrive on a socket owned by main, but every one of them is a question
@@ -167,6 +169,10 @@ function registerIpc(): void {
   ipcMain.handle('explorer:status', () =>
     explorer.supported ? explorer.isRegistered() : Promise.resolve(false)
   )
+  ipcMain.handle('session:load', () => session.load())
+  ipcMain.handle('session:save', (_e, snapshot) => session.save(snapshot))
+  ipcMain.on('session:clear', () => session.clear())
+
   ipcMain.handle('explorer:supported', () => explorer.supported)
   ipcMain.handle('explorer:register', () => explorer.register())
   ipcMain.handle('explorer:unregister', () => explorer.unregister())
@@ -287,6 +293,7 @@ if (!app.requestSingleInstanceLock()) {
     lsp = new LspService((payload) => sendToRenderer('lsp:message', payload))
     git = new GitService()
     github = new GitHubService()
+    session = new SessionStore()
     const startup = pathArgs(process.argv, app.getAppPath())
     startupFiles = startup.files
     startupFolders = startup.folders
