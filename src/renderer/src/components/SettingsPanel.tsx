@@ -233,6 +233,22 @@ export function SettingsPanel(): React.JSX.Element | null {
           </div>
         </div>
 
+        <div className="field">
+          <label>Notify after</label>
+          <input
+            type="number"
+            min={0}
+            max={3600}
+            value={draft.notifyAfterSeconds}
+            onChange={(e) => field('notifyAfterSeconds', Math.max(0, Number(e.target.value) || 0))}
+          />
+          <div className="field__note">
+            Seconds. A command running at least this long raises a desktop notification
+            when it finishes, but only while Ember is in the background — you do not need
+            telling about something you are watching. Zero turns it off.
+          </div>
+        </div>
+
         <ExplorerMenuField />
 
         <div className="modal__actions">

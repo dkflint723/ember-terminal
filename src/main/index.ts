@@ -13,6 +13,7 @@ import { IdeServer } from './ide.js'
 import { GitHubService } from './github.js'
 import { ExplorerMenu } from './explorer.js'
 import { SessionStore } from './session.js'
+import { Notifier, focusWindow } from './notify.js'
 import { AiService } from './ai.js'
 import {
   DEFAULT_SETTINGS,
@@ -38,6 +39,7 @@ let ide: IdeServer
 let github: GitHubService
 const explorer = new ExplorerMenu()
 let session: SessionStore
+let notifier: Notifier
 
 /**
  * Tool calls arrive on a socket owned by main, but every one of them is a question
@@ -172,6 +174,14 @@ function registerIpc(): void {
   ipcMain.handle('session:load', () => session.load())
   ipcMain.handle('session:save', (_e, snapshot) => session.save(snapshot))
   ipcMain.on('session:clear', () => session.clear())
+  ipcMain.on('notify:command', (_e, notice) => {
+    // The window is the only thing that reliably knows whether it has focus:
+    // `document.hasFocus()` in the renderer reports true even when minimized,
+    // which would suppress precisely the notifications worth sending.
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()) return
+    notifier.show(notice)
+  })
+  ipcMain.handle('notify:supported', () => notifier.supported)
 
   ipcMain.handle('explorer:supported', () => explorer.supported)
   ipcMain.handle('explorer:register', () => explorer.register())
@@ -294,6 +304,7 @@ if (!app.requestSingleInstanceLock()) {
     git = new GitService()
     github = new GitHubService()
     session = new SessionStore()
+    notifier = new Notifier(() => focusWindow(mainWindow))
     const startup = pathArgs(process.argv, app.getAppPath())
     startupFiles = startup.files
     startupFolders = startup.folders

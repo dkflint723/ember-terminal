@@ -211,6 +211,15 @@ export interface SessionSnapshot {
   panes: SessionPane[]
 }
 
+/** A finished command worth telling the user about. */
+export interface CommandNotice {
+  command: string
+  durationMs: number
+  ok: boolean
+  /** So a click can put the user back where the command ran. */
+  paneId: string
+}
+
 /** One word for a pull request's checks, reduced from however many it has. */
 export type GitHubCheckState = 'passing' | 'failing' | 'pending' | 'none'
 
@@ -282,6 +291,11 @@ export interface Settings {
   aiModel: string
   /** Put the last window's tabs, splits and open files back on launch. */
   restoreSession: boolean
+  /**
+   * Notify when a command taking at least this many seconds finishes while the
+   * window is not focused. Zero turns it off.
+   */
+  notifyAfterSeconds: number
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -291,7 +305,8 @@ export const DEFAULT_SETTINGS: Settings = {
   themeId: 'ember-dark',
   anthropicApiKey: null,
   aiModel: 'claude-opus-5',
-  restoreSession: true
+  restoreSession: true,
+  notifyAfterSeconds: 10
 }
 
 /** The API the preload script exposes on `window.ember`. */
@@ -304,6 +319,8 @@ export interface EmberApi {
   sessionLoad(): Promise<SessionSnapshot | null>
   sessionSave(snapshot: SessionSnapshot): Promise<{ ok: boolean; error?: string }>
   sessionClear(): void
+  notifyCommand(notice: CommandNotice): void
+  notificationsSupported(): Promise<boolean>
   explorerSupported(): Promise<boolean>
   explorerStatus(): Promise<boolean>
   explorerRegister(): Promise<{ ok: boolean; error?: string }>

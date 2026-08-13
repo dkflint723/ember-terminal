@@ -73,6 +73,14 @@ export class TerminalController {
       fontFamily,
       fontSize,
       lineHeight: 1.25,
+      /**
+       * Powerline separators and other prompt decorations are rarely in the
+       * terminal font itself, so the browser falls back to whatever does have
+       * them — and those fonts have their own metrics, which is why the shapes
+       * come out oversized and overhang the line. This shrinks a glyph to the
+       * cell it belongs to rather than letting it set its own size.
+       */
+      rescaleOverlappingGlyphs: true,
       scrollback: 5000,
       theme: toXtermTheme(palette),
       // Reported to programs so they enable colour and mouse handling.
@@ -317,6 +325,38 @@ export class TerminalController {
     }
   }
 
+  /**
+   * Tell the user a long command finished, when they are not already looking.
+   *
+   * Two conditions here, and a third in main. Long enough to have been worth
+   * walking away from, or the notification is noise. Not an interactive session:
+   * quitting vim after ten minutes is not a build finishing, and a toast for it
+   * would be baffling.
+   *
+   * Whether the window has focus is deliberately not decided here.
+   * `document.hasFocus()` reports true even for a minimized window, so it would
+   * suppress exactly the notifications this feature exists to send. Main asks the
+   * window itself, which is the only party that actually knows.
+   */
+  private maybeNotify(
+    command: string,
+    durationMs: number | null,
+    exitCode: number,
+    interactive: boolean
+  ): void {
+    if (interactive || durationMs === null || !command.trim()) return
+
+    const threshold = this.store().settings.notifyAfterSeconds
+    if (threshold <= 0 || durationMs < threshold * 1000) return
+
+    window.ember.notifyCommand({
+      command: command.trim(),
+      durationMs,
+      ok: exitCode === 0,
+      paneId: this.paneId
+    })
+  }
+
   private async finishBlock(exitCode: number): Promise<void> {
     this.capturing = false
     const blockId = this.currentBlockId
@@ -339,6 +379,8 @@ export class TerminalController {
       exitCode,
       durationMs
     })
+
+    this.maybeNotify(block?.command ?? '', durationMs, exitCode, interactive)
 
     // Persist for cross-session search. Output goes over as plain text: history
     // exists to be searched, not to reproduce a block's rendering.

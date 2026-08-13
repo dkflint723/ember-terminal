@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { homedir } from 'node:os'
 import type {
   AiRequest,
+  CommandNotice,
   CompletionRequest,
   HistoryQuery,
   IdeCall,
@@ -37,6 +38,8 @@ const api: EmberApi = {
   sessionLoad: () => ipcRenderer.invoke('session:load'),
   sessionSave: (snapshot: SessionSnapshot) => ipcRenderer.invoke('session:save', snapshot),
   sessionClear: () => ipcRenderer.send('session:clear'),
+  notifyCommand: (notice: CommandNotice) => ipcRenderer.send('notify:command', notice),
+  notificationsSupported: () => ipcRenderer.invoke('notify:supported'),
   explorerSupported: () => ipcRenderer.invoke('explorer:supported'),
   explorerStatus: () => ipcRenderer.invoke('explorer:status'),
   explorerRegister: () => ipcRenderer.invoke('explorer:register'),
