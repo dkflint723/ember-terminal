@@ -112,7 +112,8 @@ const SERVER_FOR: Record<string, string> = {
   python: 'python',
   // Monaco calls this 'shell'; VS Code calls it 'shellscript'. The key is Monaco's.
   shell: 'shell',
-  yaml: 'yaml'
+  yaml: 'yaml',
+  powershell: 'powershell'
 }
 
 /**

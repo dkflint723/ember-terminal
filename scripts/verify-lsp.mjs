@@ -42,6 +42,15 @@ const CASES = {
     hoverWord: 'description',
     minErrorSquiggles: 1
   },
+  // PowerShell Editor Services is not shipped with the app; it is used if a copy
+  // is already on the machine. Skipped rather than failed when there is not one.
+  powershell: {
+    file: 'sample.ps1',
+    body: 'function Get-Distance {\n    param([int]$X, [int]$Y)\n    [Math]::Sqrt($X * $X + $Y * $Y)\n}\n\nGet-Distance -X 3 -Y 4\n',
+    hoverWord: 'Get-Distance',
+    answersNonEmpty: 'textDocument/documentSymbol',
+    optional: true
+  },
   // bash-language-server sources hover text from `man` and diagnostics from
   // shellcheck, neither of which exists on a stock Windows box. Document symbols
   // need only the file itself, so that is what proves the server is being reached.
@@ -131,6 +140,10 @@ function check(language, { spec, ui, lines }) {
     ;(line.startsWith('-->') ? sent : received).push(msg)
   }
 
+  // An optional server is one this app does not ship — PowerShell Editor Services
+  // is used if the machine already has a copy. Its absence is a fact about the
+  // machine, not a defect, so it reports as skipped rather than failed.
+  if (lines.length === 0 && spec.optional) return ['SKIP: no server installed on this machine']
   if (lines.length === 0) failures.push('no traffic at all — the server never started')
   if (ui.language !== language) failures.push(`pane language is ${ui.language}, expected ${language}`)
 
@@ -192,6 +205,14 @@ let failed = 0
 for (const language of languages) {
   const result = await run(language)
   const failures = check(language, result)
+  if (failures.length === 1 && failures[0].startsWith('SKIP:')) {
+    console.log(`${language}: SKIP —${failures[0].slice(5)}`)
+    continue
+  }
+  if (failures.length === 1 && failures[0].startsWith('SKIP')) {
+    console.log()
+    continue
+  }
   const summary = `squiggles=${result.ui.errorSquiggles} messages=${result.lines.length}`
   if (failures.length) {
     failed++

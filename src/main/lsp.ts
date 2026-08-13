@@ -1,7 +1,8 @@
 import { app } from 'electron'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { appendFileSync, existsSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { appendFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
+import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 
 type Send = (payload: unknown) => void
@@ -71,6 +72,109 @@ function normalizeUris<T>(message: T): T {
 }
 
 /**
+ * The shorthand most servers use: a Node program shipped in node_modules, run by
+ * Electron's own binary in Node mode.
+ */
+function nodeServer(
+  entry: string[],
+  args: string[]
+): (base: string) => { exe: string; args: string[] } | null {
+  return (base) => {
+    const path = join(base, ...entry)
+    return existsSync(path) ? { exe: process.execPath, args: [path, ...args] } : null
+  }
+}
+
+/**
+ * PowerShell Editor Services, which is not a Node program and so does not fit the
+ * shorthand above — it is a PowerShell module started by a script, and needs
+ * `pwsh` to run it.
+ *
+ * Looked for in `resources/lsp` first, so it can be shipped with the app, and then
+ * in an installed VS Code PowerShell extension, which is where most Windows
+ * machines that care about PowerShell already have a copy. Nothing is downloaded
+ * and nothing is assumed: when neither is present the language simply has no
+ * server, exactly as if no entry existed.
+ */
+function powerShellEditorServices(base: string): { exe: string; args: string[] } | null {
+  const candidates = [join(base, 'resources', 'lsp', 'PowerShellEditorServices')]
+
+  // The extension folder is version-stamped, so the newest match wins.
+  try {
+    const extensions = join(homedir(), '.vscode', 'extensions')
+    const installed = readdirSync(extensions)
+      .filter((name) => name.startsWith('ms-vscode.powershell-'))
+      .sort()
+      .reverse()
+    for (const name of installed) {
+      candidates.push(join(extensions, name, 'modules', 'PowerShellEditorServices'))
+    }
+  } catch {
+    // No VS Code on this machine; the bundled path is still worth trying.
+  }
+
+  const modules = candidates.find((path) => existsSync(join(path, 'Start-EditorServices.ps1')))
+  if (!modules) return null
+
+  const exe = powerShellExecutable()
+  if (!exe) return null
+
+  // PSES insists on somewhere to write its log and session details even over
+  // stdio, so it gets a corner of userData rather than the workspace.
+  const scratch = join(app.getPath('userData'), 'pses')
+  try {
+    mkdirSync(scratch, { recursive: true })
+  } catch {
+    return null
+  }
+
+  const script = join(modules, 'Start-EditorServices.ps1')
+  return {
+    exe,
+    args: [
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      script,
+      '-HostName',
+      'Ember',
+      '-HostProfileId',
+      'dev.dkflint.ember',
+      '-HostVersion',
+      app.getVersion(),
+      '-BundledModulesPath',
+      dirname(modules),
+      '-LogPath',
+      join(scratch, 'pses.log'),
+      '-SessionDetailsPath',
+      join(scratch, 'session.json'),
+      '-LogLevel',
+      'Warning',
+      '-Stdio'
+    ]
+  }
+}
+
+/** pwsh if it is installed, else the Windows PowerShell that always is. */
+function powerShellExecutable(): string | null {
+  if (process.platform !== 'win32') return 'pwsh'
+  const candidates = [
+    join(process.env.ProgramFiles ?? 'C:\\Program Files', 'PowerShell', '7', 'pwsh.exe'),
+    join(
+      process.env.SystemRoot ?? 'C:\\Windows',
+      'System32',
+      'WindowsPowerShell',
+      'v1.0',
+      'powershell.exe'
+    )
+  ]
+  return candidates.find((path) => existsSync(path)) ?? null
+}
+
+/**
  * Runs language servers and shuttles JSON-RPC between them and the renderer.
  *
  * The renderer owns the LSP client, because Monaco ships one. That client is written
@@ -108,11 +212,16 @@ export class LspService {
    */
   private static readonly SERVERS: Record<
     string,
-    { entry: string[]; args: string[]; initialization?: (base: string) => Record<string, unknown> }
+    {
+      /** Resolves the command, or null when this machine cannot run this server. */
+      command: (base: string) => { exe: string; args: string[] } | null
+      initialization?: (base: string) => Record<string, unknown>
+    }
   > = {
     typescript: {
-      entry: ['node_modules', 'typescript-language-server', 'lib', 'cli.mjs'],
-      args: ['--stdio'],
+      command: nodeServer(['node_modules', 'typescript-language-server', 'lib', 'cli.mjs'], [
+        '--stdio'
+      ]),
       // Left to itself the server hunts for `node_modules/typescript/lib/tsserver.js`
       // by walking up from its working directory. That happens to succeed when the
       // app runs from its own source tree and finds nothing once it is packaged, so
@@ -122,17 +231,18 @@ export class LspService {
       })
     },
     python: {
-      entry: ['node_modules', 'pyright', 'langserver.index.js'],
-      args: ['--stdio']
+      command: nodeServer(['node_modules', 'pyright', 'langserver.index.js'], ['--stdio'])
     },
     shell: {
-      entry: ['node_modules', 'bash-language-server', 'out', 'cli.js'],
-      args: ['start']
+      command: nodeServer(['node_modules', 'bash-language-server', 'out', 'cli.js'], ['start'])
     },
     yaml: {
-      entry: ['node_modules', 'yaml-language-server', 'out', 'server', 'src', 'server.js'],
-      args: ['--stdio']
-    }
+      command: nodeServer(
+        ['node_modules', 'yaml-language-server', 'out', 'server', 'src', 'server.js'],
+        ['--stdio']
+      )
+    },
+    powershell: { command: powerShellEditorServices }
   }
 
   /**
@@ -160,12 +270,12 @@ export class LspService {
     if (!server) return null
 
     const base = this.appBase()
-    const entry = join(base, ...server.entry)
-    if (!existsSync(entry)) {
-      trace('-->', language, `no server binary at ${entry}`)
+    const command = server.command(base)
+    if (!command) {
+      trace('-->', language, `no server available for ${language}`)
       return null
     }
-    return { exe: process.execPath, args: [entry, ...server.args], cwd: base }
+    return { ...command, cwd: base }
   }
 
   start(language: string, root?: string): { ok: boolean; error?: string } {
