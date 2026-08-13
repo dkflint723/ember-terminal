@@ -211,6 +211,15 @@ export interface SessionSnapshot {
   panes: SessionPane[]
 }
 
+/** One editor snippet, in the form the completion list needs it. */
+export interface Snippet {
+  label: string
+  prefix: string
+  /** The insertion text, in the `${1:placeholder}` syntax Monaco already speaks. */
+  body: string
+  description: string | null
+}
+
 export interface SearchQuery {
   root: string
   text: string
@@ -343,6 +352,12 @@ export interface Settings {
    * window is not focused. Zero turns it off.
    */
   notifyAfterSeconds: number
+  /**
+   * Save an edited file this many seconds after typing stops. Zero turns it off,
+   * which is the default: writing to disk on a timer is a real change in what the
+   * editor does with your work, and it should be asked for rather than assumed.
+   */
+  autoSaveAfterSeconds: number
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -353,7 +368,8 @@ export const DEFAULT_SETTINGS: Settings = {
   anthropicApiKey: null,
   aiModel: 'claude-opus-5',
   restoreSession: true,
-  notifyAfterSeconds: 10
+  notifyAfterSeconds: 10,
+  autoSaveAfterSeconds: 0
 }
 
 /** The API the preload script exposes on `window.ember`. */
@@ -394,6 +410,11 @@ export interface EmberApi {
   search(query: SearchQuery): Promise<SearchResult>
   listFiles(root: string): Promise<string[]>
   replaceInFiles(request: ReplaceRequest): Promise<ReplaceOutcome>
+  openFolderDialog(defaultPath?: string): Promise<string | null>
+  snippetsFor(languageId: string): Promise<Snippet[]>
+  importSnippets(): Promise<{ ok: boolean; error?: string }>
+  importSnippetsFrom(file: string): Promise<{ ok: boolean; error?: string }>
+  openSnippetsFolder(): void
   cancelSearch(): void
   gitStatus(cwd: string): Promise<GitStatusResult>
   gitDiff(root: string, path: string, staged: boolean): Promise<GitDiffResult>

@@ -3,6 +3,7 @@ import { activeDocument, useStore, type EditorPaneState } from '../state/store'
 import { monaco } from '../editor/monaco'
 import { applyMonacoTheme, MONACO_THEME_ID } from '../editor/theme'
 import { ensureLanguageServer } from '../editor/lsp'
+import { ensureSnippets } from '../editor/snippets'
 import { recordSelection } from '../state/ide'
 import { pendingUnsaved, setBufferReader } from '../state/session'
 
@@ -52,6 +53,23 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
   const [message, setMessage] = useState<string | null>(null)
 
   const document = activeDocument(pane)
+
+  /*
+   * Auto-save state, held in refs.
+   *
+   * The content-change subscription is created once per pane, so anything it reads
+   * directly would be frozen at the value it had when the pane opened — the setting
+   * could be changed and the editor would go on using the old one. A ref updated
+   * every render is read at the moment the callback runs instead.
+   */
+  const autoSaveAfter = useStore((s) => s.settings.autoSaveAfterSeconds)
+  const autoSaveRef = useRef(autoSaveAfter)
+  autoSaveRef.current = autoSaveAfter
+  const autoSaveFn = useRef<(filePath: string) => Promise<void>>(async () => {})
+  // Keyed by file, not one timer for the pane: a pending save belongs to the
+  // document that was edited, and switching tabs while it is pending must not
+  // redirect it to whatever is on screen when it fires.
+  const autoSaveTimers = useRef(new Map<string, number>())
 
   /**
    * The model for a document, created on first use. A real `file://` URI, not
@@ -128,6 +146,23 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
       if (!doc) return
       const dirty = editor.getValue() !== doc.savedContent
       if (dirty !== doc.dirty) patchDocument(pane.id, { dirty }, index)
+
+      // Auto-save, when it is switched on. Restarted on every edit so it saves
+      // once after typing stops rather than repeatedly in the middle of a word,
+      // and only for a document that has somewhere on disk to go.
+      const target = doc.filePath
+      if (!target) return
+      const pending = autoSaveTimers.current.get(target)
+      if (pending) window.clearTimeout(pending)
+      if (autoSaveRef.current > 0 && dirty) {
+        autoSaveTimers.current.set(
+          target,
+          window.setTimeout(() => {
+            autoSaveTimers.current.delete(target)
+            void autoSaveFn.current(target)
+          }, autoSaveRef.current * 1000)
+        )
+      }
     })
 
     // Ctrl+S is handled here rather than in the global handler so it reaches the
@@ -155,6 +190,9 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     return () => {
       selectionSub.dispose()
       sub.dispose()
+      // Pending auto-saves would fire into a pane that no longer exists.
+      for (const timer of autoSaveTimers.current.values()) window.clearTimeout(timer)
+      autoSaveTimers.current.clear()
       // Models are deliberately kept: they are keyed by file URI and shared, so
       // disposing them here would discard undo history on reopen and desync the
       // language server, which still considers the document open.
@@ -176,6 +214,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     const treeRoot = useStore.getState().treeRoot
     const fileDir = document.filePath?.replace(/[\\/][^\\/]*$/, '')
     void ensureLanguageServer(document.language, treeRoot ?? fileDir ?? undefined)
+    void ensureSnippets(document.language)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pane.activeIndex, document.filePath, document.language])
 
@@ -221,6 +260,33 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     )
     setMessage('saved')
     window.setTimeout(() => setMessage(null), 1500)
+  }
+
+  /*
+   * Save one named document, without reference to what is on screen.
+   *
+   * Separate from `save` because that one saves the active tab and will open a
+   * file dialog for a document that has never been saved — neither of which an
+   * auto-save should do. It writes the model's text rather than the editor's, so a
+   * document edited and then left behind another tab is still saved correctly.
+   *
+   * Held in a ref: the subscription that schedules it is created once per pane and
+   * cannot see this function directly.
+   */
+  autoSaveFn.current = async (filePath: string) => {
+    const current = useStore.getState().editorPane(pane.id)
+    const index = current?.documents.findIndex((d) => d.filePath === filePath) ?? -1
+    if (!current || index === -1 || !current.documents[index].dirty) return
+
+    const content = monaco.editor.getModel(monaco.Uri.file(filePath))?.getValue()
+    if (content === undefined) return
+
+    const res = await window.ember.writeFile(filePath, content)
+    if (!res.ok) {
+      setMessage(res.error)
+      return
+    }
+    patchDocument(pane.id, { savedContent: content, dirty: false }, index)
   }
 
   const revert = async (): Promise<void> => {

@@ -191,9 +191,10 @@ export class SearchService {
  * change text the user never saw in the results.
  *
  * A pattern is still compiled in regex mode, but only to expand `$1` against the
- * matched text itself — so a group reference means what it meant in the search.
- * Nothing is decided by it: if it will not compile, the replacement goes in
- * literally, which is what a search without groups wanted anyway.
+ * matched text itself — so a group reference means what it meant in the search. A
+ * regex search whose pattern will not compile here is refused rather than run: the
+ * fallback would be to insert the replacement literally, which for a pattern with
+ * groups writes `$1` into the file.
  *
  * Each hit is checked against the line as it is on disk now, and one that no longer
  * matches is left alone and counted. Results can be minutes old, and silently
@@ -212,7 +213,13 @@ export function applyReplacement(request: ReplaceRequest): ReplaceOutcome {
     try {
       expander = new RegExp(request.pattern, request.caseSensitive ? '' : 'i')
     } catch {
-      expander = null
+      return {
+        ok: false,
+        files: 0,
+        replaced: 0,
+        stale: 0,
+        error: 'That pattern searched, but cannot be used for a replacement here.'
+      }
     }
   }
 
@@ -245,7 +252,7 @@ export function applyReplacement(request: ReplaceRequest): ReplaceOutcome {
       }
 
       const found = line.slice(hit.column, hit.column + hit.length)
-      if (found.length !== hit.length || !stillMatches(found, hit, request)) {
+      if (found.length !== hit.length || !stillMatches(found, hit, request, expander)) {
         stale += 1
         continue
       }
@@ -277,14 +284,33 @@ export function applyReplacement(request: ReplaceRequest): ReplaceOutcome {
 /**
  * Whether the text at a hit's position is still the text that was found there.
  *
- * The preview carries the whole line as it was, so comparing against it catches a
- * file edited since the search even when the replacement text would have been
- * valid — which is the case that would otherwise corrupt a file silently.
+ * Checked against the preview where it reaches, since that is the line exactly as
+ * the user saw it, and so catches a file edited since the search even when the new
+ * text would have been a valid match.
+ *
+ * The preview is capped, though, and a match beyond the cap has nothing to compare
+ * against. Treating that as stale would silently refuse to replace anything late in
+ * a long line, so those fall back to checking the text against the query itself: an
+ * exact compare for a literal search, and a whole-string match for a regex one.
  */
-function stillMatches(found: string, hit: SearchHit, request: ReplaceRequest): boolean {
-  const was = hit.preview.slice(hit.column, hit.column + hit.length)
-  if (was.length !== found.length) return false
-  return request.caseSensitive ? was === found : was.toLowerCase() === found.toLowerCase()
+function stillMatches(
+  found: string,
+  hit: SearchHit,
+  request: ReplaceRequest,
+  expander: RegExp | null
+): boolean {
+  const same = (a: string, b: string): boolean =>
+    request.caseSensitive ? a === b : a.toLowerCase() === b.toLowerCase()
+
+  if (hit.column + hit.length <= hit.preview.length) {
+    return same(hit.preview.slice(hit.column, hit.column + hit.length), found)
+  }
+
+  if (!request.regex) return same(request.pattern, found)
+  if (!expander) return false
+  // Anchored, so a pattern matching only part of `found` does not pass it.
+  const whole = new RegExp(`^(?:${expander.source})$`, expander.flags)
+  return whole.test(found)
 }
 
 /** Byte offset to character offset, for a line that may not be ASCII. */

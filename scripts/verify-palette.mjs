@@ -101,6 +101,14 @@ await page.waitForSelector('.qp__box', { timeout: 10_000 })
 await sleep(500)
 const commands = await rows()
 check('the palette lists commands', commands.length >= 8, `${commands.length}`)
+// The folder picker itself is an OS dialog and cannot be driven from here, so what
+// is checked is that the way to reach it exists. Before this the workspace could
+// only be set by launching with a path.
+check(
+  'opening a folder is reachable',
+  commands.some((c) => c.label?.startsWith('File: Open Folder')),
+  JSON.stringify(commands.map((c) => c.label).slice(0, 12))
+)
 check(
   'including the views',
   commands.some((c) => c.label.includes('Source Control')),

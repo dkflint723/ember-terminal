@@ -14,6 +14,7 @@ import { GitHubService } from './github.js'
 import { ExplorerMenu } from './explorer.js'
 import { SessionStore } from './session.js'
 import { applyReplacement, SearchService } from './search.js'
+import { SnippetStore } from './snippets.js'
 import { Notifier, focusWindow } from './notify.js'
 import { AiService } from './ai.js'
 import {
@@ -42,6 +43,7 @@ let github: GitHubService
 const explorer = new ExplorerMenu()
 let session: SessionStore
 const search = new SearchService()
+const snippets = new SnippetStore()
 let notifier: Notifier
 
 /**
@@ -206,6 +208,9 @@ function registerIpc(): void {
   ipcMain.handle('file:openDialog', (_e, defaultPath?: string) =>
     mainWindow ? files.openDialog(mainWindow, defaultPath) : { ok: false, error: 'No window.' }
   )
+  ipcMain.handle('file:openFolderDialog', (_e, defaultPath?: string) =>
+    mainWindow ? files.openFolderDialog(mainWindow, defaultPath) : null
+  )
   ipcMain.handle('file:read', (_e, filePath: string) => files.read(filePath))
   ipcMain.handle('file:readDir', (_e, dirPath: string) => files.readDir(dirPath))
   ipcMain.handle('file:dirExists', (_e, dirPath: string) => files.directoryExists(dirPath))
@@ -311,6 +316,26 @@ function registerIpc(): void {
   })
 
   ipcMain.on('themes:openFolder', () => void shell.openPath(themes.userDir()))
+
+  ipcMain.handle('snippets:for', (_e, languageId: string) => snippets.forLanguage(languageId))
+  ipcMain.handle('snippets:import', async () => {
+    if (!mainWindow) return { ok: false, error: 'No window.' }
+    const picked = await dialog.showOpenDialog(mainWindow, {
+      title: 'Import snippets or a .vsix extension',
+      filters: [{ name: 'Snippets or extension', extensions: ['json', 'code-snippets', 'vsix'] }],
+      properties: ['openFile']
+    })
+    if (picked.canceled || picked.filePaths.length === 0) return { ok: false }
+    const chosen = picked.filePaths[0]
+    return chosen.toLowerCase().endsWith('.vsix')
+      ? snippets.installVsix(chosen)
+      : snippets.install(chosen)
+  })
+  // Reachable with a path so importing is scriptable, the same as themes.
+  ipcMain.handle('snippets:importFrom', (_e, file: string) =>
+    file.toLowerCase().endsWith('.vsix') ? snippets.installVsix(file) : snippets.install(file)
+  )
+  ipcMain.on('snippets:openFolder', () => void shell.openPath(snippets.dir()))
 
   ipcMain.handle('settings:get', () => settings.get())
   ipcMain.handle('settings:set', (_e, patch: Partial<Settings>) => settings.set(patch))

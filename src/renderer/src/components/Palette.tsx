@@ -136,6 +136,12 @@ function commands(): Command[] {
           run: () => runEditorAction('editor.action.formatDocument')
         },
         {
+          id: 'file.saveAll',
+          label: 'File: Save All',
+          hint: 'Ctrl+Alt+S',
+          run: () => void s.saveAllDocuments()
+        },
+        {
           id: 'editor.gotoLine',
           label: 'Go to Line/Column',
           hint: 'Ctrl+G',
@@ -182,6 +188,18 @@ function commands(): Command[] {
 
   return [
     ...editorCommands,
+    {
+      id: 'file.openFolder',
+      label: 'File: Open Folder…',
+      run: () => {
+        void (async () => {
+          const picked = await window.ember.openFolderDialog(s.treeRoot ?? undefined)
+          if (!picked) return
+          s.setTreeRoot(picked)
+          s.showSidebarView('explorer')
+        })()
+      }
+    },
     { id: 'view.explorer', label: 'View: Explorer', hint: 'Ctrl+B', run: () => s.showSidebarView('explorer') },
     { id: 'view.search', label: 'View: Search', hint: 'Ctrl+Shift+F', run: () => s.showSidebarView('search') },
     { id: 'view.scm', label: 'View: Source Control', hint: 'Ctrl+Shift+G', run: () => s.showSidebarView('scm') },

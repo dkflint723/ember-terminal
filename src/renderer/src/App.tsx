@@ -243,6 +243,14 @@ export function App(): React.JSX.Element {
         return
       }
 
+      // Save All. Ctrl+S belongs to the focused editor, and VS Code's Ctrl+K S is
+      // not available here because Ctrl+K asks Claude.
+      if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        void s.saveAllDocuments()
+        return
+      }
+
       // Ctrl+R is history search. Electron's default accelerator would reload the
       // window, so this must claim the key.
       if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'r') {

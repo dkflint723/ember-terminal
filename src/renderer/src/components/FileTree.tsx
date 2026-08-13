@@ -57,6 +57,12 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
   const activePane = activeTab ? panes[activeTab.activePaneId] : undefined
   const terminalCwd = activePane?.kind === 'terminal' ? activePane.cwd : null
 
+  /** Start the picker where the user already is, which is nearly always right. */
+  const openFolder = async (): Promise<void> => {
+    const picked = await window.ember.openFolderDialog(root ?? terminalCwd ?? undefined)
+    if (picked) setRoot(picked)
+  }
+
   // Rows are keyed by absolute path; git reports repository-relative ones.
   const decorations = useMemo(
     () =>
@@ -268,6 +274,12 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
         <span className="tree__root" title={root ?? ''}>
           {shortRoot ?? 'No folder'}
         </span>
+        {/* Without this the workspace could only be set by launching with a path or
+            by inheriting the terminal's directory, so there was no way to move to a
+            different project from inside the app. */}
+        <button className="icon-btn" title="Open folder" onClick={() => void openFolder()}>
+          🗀
+        </button>
         <button
           className="icon-btn"
           title="New file"

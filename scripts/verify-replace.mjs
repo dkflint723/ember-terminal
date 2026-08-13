@@ -27,6 +27,12 @@ fs.writeFileSync(alpha, 'const needle = 1\r\nconst other = 2\r\nlet needle2 = ne
 fs.writeFileSync(beta, 'export const needle = "b"\n', 'utf8')
 fs.writeFileSync(held, 'const needle = "held"\n', 'utf8')
 
+// Past the 400-character preview the results carry, so the hit cannot be checked
+// against the line the user saw. Anything late in a long line would otherwise be
+// quietly reported as no longer matching and left as it was.
+const long = path.join(work, 'src', 'long.ts')
+fs.writeFileSync(long, `const pad = "${'x'.repeat(460)}" // needle\n`, 'utf8')
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
@@ -98,6 +104,12 @@ check(
   'a file with unsaved edits is not written',
   read(held) === 'const needle = "held"\n',
   JSON.stringify(read(held))
+)
+
+check(
+  'a match past the end of the preview is still replaced',
+  read(long).includes('// pin') && !read(long).includes('needle'),
+  read(long).slice(-40)
 )
 
 const said = (await summary()) ?? ''

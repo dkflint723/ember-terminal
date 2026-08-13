@@ -47,6 +47,8 @@ const api: EmberApi = {
   explorerRegister: () => ipcRenderer.invoke('explorer:register'),
   explorerUnregister: () => ipcRenderer.invoke('explorer:unregister'),
   openFileDialog: (defaultPath?: string) => ipcRenderer.invoke('file:openDialog', defaultPath),
+  openFolderDialog: (defaultPath?: string) =>
+    ipcRenderer.invoke('file:openFolderDialog', defaultPath),
   readFile: (path: string) => ipcRenderer.invoke('file:read', path),
   readDir: (path: string) => ipcRenderer.invoke('file:readDir', path),
   directoryExists: (path: string) => ipcRenderer.invoke('file:dirExists', path),
@@ -103,6 +105,10 @@ const api: EmberApi = {
   importTheme: () => ipcRenderer.invoke('themes:import'),
   importThemeFrom: (file: string) => ipcRenderer.invoke('themes:importFrom', file),
   openThemeFolder: () => ipcRenderer.send('themes:openFolder'),
+  snippetsFor: (languageId: string) => ipcRenderer.invoke('snippets:for', languageId),
+  importSnippets: () => ipcRenderer.invoke('snippets:import'),
+  importSnippetsFrom: (file: string) => ipcRenderer.invoke('snippets:importFrom', file),
+  openSnippetsFolder: () => ipcRenderer.send('snippets:openFolder'),
 
   spawn: (req: SpawnRequest) => ipcRenderer.invoke('pty:spawn', req),
   write: (paneId: string, data: string) => ipcRenderer.send('pty:write', paneId, data),

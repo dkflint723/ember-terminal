@@ -6,6 +6,7 @@ const SWATCH_TOKENS = ['bg', 'fg', 'accent', 'ok', 'fail', 'info', 'bg-elevated'
 
 import { useStore } from '../state/store'
 import { activateTheme, refreshThemeList } from '../state/theming'
+import { ensureSnippets, forgetSnippets } from '../editor/snippets'
 
 /**
  * The Explorer context-menu entry.
@@ -75,6 +76,7 @@ export function SettingsPanel(): React.JSX.Element | null {
   const [draft, setDraft] = useState<Settings | null>(null)
   const [saved, setSaved] = useState<Settings | null>(null)
   const [themeError, setThemeError] = useState<string | null>(null)
+  const [snippetError, setSnippetError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -140,6 +142,29 @@ export function SettingsPanel(): React.JSX.Element | null {
     if (res.id) chooseTheme(res.id)
   }
 
+  const importSnippets = async (): Promise<void> => {
+    setSnippetError(null)
+    const res = await window.ember.importSnippets()
+    // A cancelled picker reports failure with no error to show.
+    if (!res.ok) {
+      if (res.error) setSnippetError(res.error)
+      return
+    }
+    /*
+     * The providers already registered hold the old set, so they are dropped and
+     * rebuilt now rather than the next time a document is opened — otherwise the
+     * file the user is looking at keeps offering the snippets they just replaced,
+     * which reads as the import having failed.
+     */
+    forgetSnippets()
+    const open = new Set(
+      Object.values(useStore.getState().panes).flatMap((p) =>
+        p.kind === 'editor' ? p.documents.map((d) => d.language) : []
+      )
+    )
+    for (const language of open) void ensureSnippets(language)
+  }
+
   const field = <K extends keyof Settings>(key: K, value: Settings[K]): void =>
     setDraft({ ...draft, [key]: value })
 
@@ -181,6 +206,25 @@ export function SettingsPanel(): React.JSX.Element | null {
             </button>
           </div>
           {themeError && <div className="composer__error">{themeError}</div>}
+        </div>
+
+        <div className="field">
+          <label>Snippets</label>
+          <div className="field__note">
+            Snippets in the VS Code format, from a folder or a <code>.vsix</code>. A file
+            named for its language applies to that language; a <code>.code-snippets</code>{' '}
+            file says so per entry. They appear in the completion list with everything the
+            language server offers.
+          </div>
+          <div className="composer__proposal-actions">
+            <button className="btn" onClick={() => void importSnippets()}>
+              Import snippets…
+            </button>
+            <button className="btn" onClick={() => window.ember.openSnippetsFolder()}>
+              Open snippets folder
+            </button>
+          </div>
+          {snippetError && <div className="composer__error">{snippetError}</div>}
         </div>
 
         <div className="field">
@@ -270,6 +314,24 @@ export function SettingsPanel(): React.JSX.Element | null {
             Seconds. A command running at least this long raises a desktop notification
             when it finishes, but only while Ember is in the background — you do not need
             telling about something you are watching. Zero turns it off.
+          </div>
+        </div>
+
+        <div className="field">
+          <label>Auto save after</label>
+          <input
+            type="number"
+            min={0}
+            max={600}
+            value={draft.autoSaveAfterSeconds}
+            onChange={(e) =>
+              field('autoSaveAfterSeconds', Math.max(0, Number(e.target.value) || 0))
+            }
+          />
+          <div className="field__note">
+            Seconds. An edited file is written this long after you stop typing. Files that
+            have never been saved are left alone, since saving one has to ask where it
+            goes. Zero turns it off.
           </div>
         </div>
 

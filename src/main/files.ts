@@ -221,6 +221,20 @@ export class FileService {
     return this.read(picked.filePaths[0]) as Promise<FileOpenResult>
   }
 
+  /**
+   * Pick a folder to work in, which is what makes the explorer, search and quick
+   * open point somewhere. Without this the workspace could only ever be set from a
+   * command-line argument or inherited from the terminal's directory.
+   */
+  async openFolderDialog(window: BrowserWindow, defaultPath?: string): Promise<string | null> {
+    const picked = await dialog.showOpenDialog(window, {
+      title: 'Open folder',
+      defaultPath,
+      properties: ['openDirectory']
+    })
+    return picked.canceled || picked.filePaths.length === 0 ? null : picked.filePaths[0]
+  }
+
   /** Used when saving a buffer that has no path yet. */
   async saveDialog(window: BrowserWindow, defaultPath?: string): Promise<string | null> {
     const picked = await dialog.showSaveDialog(window, { title: 'Save as', defaultPath })

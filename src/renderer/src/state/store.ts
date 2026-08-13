@@ -192,6 +192,8 @@ interface Store {
   closeDocument(tabId: string, paneId: string, index: number): void
   /** Re-read these files into any editor showing them, leaving edited ones alone. */
   reloadFromDisk(paths: string[]): Promise<void>
+  /** Write every edited document to disk, including ones not on screen. */
+  saveAllDocuments(): Promise<{ saved: number; failed: number }>
   /** Open (or re-focus) a read-only comparison of two revisions of one file. */
   openDiffInSplit(tabId: string, diff: Omit<DiffPaneState, 'id' | 'kind'>): string | null
   /** Replace the active pane of a tab with an editor showing this file. */
@@ -585,6 +587,43 @@ export const useStore = create<Store>((set, get) => ({
         if (model && model.getValue() !== res.content) model.setValue(res.content)
       }
     }
+  },
+
+  /**
+   * Save every edited document.
+   *
+   * The text comes from the models rather than the store, because the store holds
+   * what was last read from disk — the edits live in Monaco. Models are keyed by
+   * file URI and exist whether or not their tab is on screen, so a document edited
+   * and then left behind another tab is saved too, which is the whole point of a
+   * Save All.
+   */
+  saveAllDocuments: async () => {
+    const { monaco } = await import('../editor/monaco')
+    let saved = 0
+    let failed = 0
+
+    for (const pane of Object.values(get().panes)) {
+      if (pane.kind !== 'editor') continue
+      for (let index = 0; index < pane.documents.length; index++) {
+        const doc = pane.documents[index]
+        if (!doc.dirty || !doc.filePath) continue
+
+        const content = monaco.editor.getModel(monaco.Uri.file(doc.filePath))?.getValue()
+        if (content === undefined) {
+          failed += 1
+          continue
+        }
+        const res = await window.ember.writeFile(doc.filePath, content)
+        if (!res.ok) {
+          failed += 1
+          continue
+        }
+        get().patchDocument(pane.id, { savedContent: content, dirty: false }, index)
+        saved += 1
+      }
+    }
+    return { saved, failed }
   },
 
   patchDocument: (paneId, patch, index) =>
