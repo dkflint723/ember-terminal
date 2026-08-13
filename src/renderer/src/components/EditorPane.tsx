@@ -134,6 +134,17 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     // focused editor and nothing else.
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void save())
 
+    // Claiming Ctrl+K stops Monaco starting one of its chords, which would eat the
+    // next keystroke and look like a freeze. The global handler does the rest, so
+    // this only has to prevent the chord.
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK, () => {
+      const s = useStore.getState()
+      const tab = s.tabs.find((t) => t.id === s.activeTabId)
+      if (!tab) return
+      const target = Object.values(s.panes).find((p) => p.kind === 'terminal')?.id
+      if (target) s.requestAsk(target)
+    })
+
     return () => {
       selectionSub.dispose()
       sub.dispose()

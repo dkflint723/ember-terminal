@@ -192,6 +192,27 @@ export function App(): React.JSX.Element {
         }
       }
 
+      /*
+       * Ctrl+K asks Claude, and is claimed globally so it means the same thing
+       * wherever focus is. In an editor pane Monaco takes it as a chord prefix and
+       * swallows the next keystroke, which reads as the app freezing — the
+       * shortcut is advertised in the composer footer, so it has to work from
+       * anywhere rather than only from the composer itself.
+       */
+      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        if (!tab) return
+        // The pane it targets is the active one when that is a terminal, else the
+        // first terminal in the tab — asking about a shell needs a shell.
+        const active = s.panes[tab.activePaneId]
+        const target =
+          active?.kind === 'terminal'
+            ? active.id
+            : Object.values(s.panes).find((p) => p.kind === 'terminal')?.id
+        if (target) s.requestAsk(target)
+        return
+      }
+
       // Ctrl+R is history search. Electron's default accelerator would reload the
       // window, so this must claim the key.
       if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'r') {

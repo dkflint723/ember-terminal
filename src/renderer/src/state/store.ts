@@ -143,6 +143,15 @@ interface Store {
   gitStatus: GitStatus | null
   /** Command handed to a pane's input by history search, consumed on mount. */
   pendingInput: Record<string, string>
+  /**
+   * A request to put a pane's composer into ask-Claude mode.
+   *
+   * Routed through the store because Ctrl+K is advertised in the composer footer
+   * but can be pressed from anywhere — including an editor pane, where Monaco
+   * would otherwise take it as a chord prefix and swallow the next keystroke. The
+   * counter makes repeated presses distinguishable, so it still toggles.
+   */
+  askRequest: { paneId: string; n: number } | null
 
   setProfiles(p: ShellProfile[]): void
   applySettings(s: Settings): void
@@ -157,6 +166,7 @@ interface Store {
   setGitStatus(status: GitStatus | null): void
   setPendingInput(paneId: string, text: string): void
   clearPendingInput(paneId: string): void
+  requestAsk(paneId: string): void
 
   newTab(profileId: string, cwd?: string): string
   closeTab(tabId: string): void
@@ -305,6 +315,7 @@ export const useStore = create<Store>((set, get) => ({
   treeRoot: null,
   gitStatus: null,
   pendingInput: {},
+  askRequest: null,
 
   setProfiles: (profiles) => set({ profiles }),
   applySettings: (settings) => set({ settings }),
@@ -324,6 +335,9 @@ export const useStore = create<Store>((set, get) => ({
 
   setTreeRoot: (treeRoot) => set({ treeRoot }),
   setGitStatus: (gitStatus) => set({ gitStatus }),
+  requestAsk: (paneId) =>
+    set((s) => ({ askRequest: { paneId, n: (s.askRequest?.n ?? 0) + 1 } })),
+
   setPendingInput: (paneId, text) =>
     set((s) => ({ pendingInput: { ...s.pendingInput, [paneId]: text } })),
   clearPendingInput: (paneId) =>

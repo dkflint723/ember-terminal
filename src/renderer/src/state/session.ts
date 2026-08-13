@@ -137,14 +137,32 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
   const panes: Record<string, Pane> = {}
   const { languageForPath } = await import('../editor/monaco')
 
+  /**
+   * A directory in a session file is a claim about the past, and the past moves:
+   * temp folders get cleaned up, projects get renamed, drives get unplugged. Each
+   * one is checked once — several panes usually share a directory — and anything
+   * gone is replaced rather than restored, or the shell fails to start and the
+   * sidebar roots itself at nothing.
+   */
+  const existence = new Map<string, boolean>()
+  const stillThere = async (dir: string): Promise<boolean> => {
+    const known = existence.get(dir)
+    if (known !== undefined) return known
+    const found = await window.ember.directoryExists(dir)
+    existence.set(dir, found)
+    return found
+  }
+
   for (const saved of snapshotIn.panes) {
     if (saved.kind === 'terminal') {
+      const cwd = (await stillThere(saved.cwd)) ? saved.cwd : window.ember.homeDir
       panes[saved.id] = {
         id: saved.id,
         kind: 'terminal',
         profileId: saved.profileId,
-        title: saved.title,
-        cwd: saved.cwd,
+        // The title follows the directory, so a fallback must not keep the old name.
+        title: cwd === saved.cwd ? saved.title : cwd.split(/[\\/]/).filter(Boolean).pop() || 'Shell',
+        cwd,
         blocks: [],
         mode: 'blocks',
         integration: 'pending',
@@ -203,11 +221,17 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
   }
   if (tabs.length === 0) return false
 
+  // A root that has gone is dropped rather than restored: the explorer, source
+  // control, the language servers and the Claude Code lockfile all key off it, and
+  // every one of them would be pointing at nothing.
+  const root =
+    snapshotIn.treeRoot && (await stillThere(snapshotIn.treeRoot)) ? snapshotIn.treeRoot : null
+
   useStore.setState({
     panes,
     tabs,
     activeTabId: tabs.find((t) => t.id === snapshotIn.activeTabId)?.id ?? tabs[0].id,
-    treeRoot: snapshotIn.treeRoot,
+    treeRoot: root,
     sidebarOpen: snapshotIn.sidebarOpen,
     sidebarView: snapshotIn.sidebarView
   })

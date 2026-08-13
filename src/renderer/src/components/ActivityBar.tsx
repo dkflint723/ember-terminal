@@ -57,6 +57,7 @@ export function ActivityBar(): React.JSX.Element {
   const view = useStore((s) => s.sidebarView)
   const show = useStore((s) => s.showSidebarView)
   const status = useStore((s) => s.gitStatus)
+  const toggleSettings = useStore((s) => s.toggleSettings)
 
   // One badge per changed path, not per list entry: a file that is both staged and
   // modified again is one thing needing attention, and VS Code counts it once.
@@ -90,6 +91,25 @@ export function ActivityBar(): React.JSX.Element {
           </button>
         )
       })}
+
+      {/*
+        Pinned to the bottom, where every editor with this shape puts it. Settings
+        were previously reachable only through the new-tab menu or an undocumented
+        Ctrl+, — which is a good way to ship a settings dialog nobody finds.
+      */}
+      <div className="activity__spacer" />
+      <button
+        className="activity__item"
+        aria-label="Settings"
+        title="Settings (Ctrl+,)"
+        data-view="settings"
+        onClick={() => toggleSettings(true)}
+      >
+        <svg viewBox="0 0 20 20" className="activity__icon" aria-hidden="true">
+          <circle cx="10" cy="10" r="2.6" />
+          <path d="M10 2.2v2M10 15.8v2M17.8 10h-2M4.2 10h-2M15.5 4.5l-1.4 1.4M5.9 14.1l-1.4 1.4M15.5 15.5l-1.4-1.4M5.9 5.9L4.5 4.5" />
+        </svg>
+      </button>
     </div>
   )
 }

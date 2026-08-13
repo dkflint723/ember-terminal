@@ -47,6 +47,7 @@ const api: EmberApi = {
   openFileDialog: (defaultPath?: string) => ipcRenderer.invoke('file:openDialog', defaultPath),
   readFile: (path: string) => ipcRenderer.invoke('file:read', path),
   readDir: (path: string) => ipcRenderer.invoke('file:readDir', path),
+  directoryExists: (path: string) => ipcRenderer.invoke('file:dirExists', path),
   lspStart: (language: string, root?: string) => ipcRenderer.invoke('lsp:start', language, root),
   lspSend: (language: string, message: unknown) => ipcRenderer.send('lsp:send', language, message),
   onLspMessage: (cb: (e: LspEvent) => void) => {

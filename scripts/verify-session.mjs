@@ -133,6 +133,60 @@ if (fs.existsSync(sessionFile)) {
   await sleep(800)
 }
 
+// --- a session pointing at directories that have since gone ------------------
+// The exact shape that broke a real launch: a workspace rooted in a temp folder
+// that was later cleaned up, with shells whose directories went with it. Restoring
+// it verbatim leaves the sidebar rooted at nothing and the shells unable to start.
+{
+  const vanished = path.join(os.tmpdir(), 'ember-session-gone-forever')
+  const stale = JSON.parse(fs.readFileSync(sessionFile, 'utf8'))
+  stale.treeRoot = vanished
+  for (const pane of stale.panes) if (pane.kind === 'terminal') pane.cwd = vanished
+  // Editor documents for missing files are already dropped; keep only the shells.
+  stale.panes = stale.panes.filter((p) => p.kind === 'terminal')
+  const keep = new Set(stale.panes.map((p) => p.id))
+  const prune = (node) => {
+    if (node.type === 'leaf') return keep.has(node.paneId) ? node : null
+    const children = node.children.map(prune).filter(Boolean)
+    if (children.length === 0) return null
+    if (children.length === 1) return children[0]
+    return { ...node, children, sizes: children.map(() => 1 / children.length) }
+  }
+  stale.tabs = stale.tabs
+    .map((t) => ({ ...t, root: prune(t.root) }))
+    .filter((t) => t.root)
+    .map((t) => ({ ...t, activePaneId: [...keep][0] }))
+  fs.writeFileSync(sessionFile, JSON.stringify(stale), 'utf8')
+
+  const app = await launch([])
+  const page = await app.firstWindow()
+  await placeTopRight(app)
+  await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
+  await sleep(2500)
+
+  const recovered = await page.evaluate(() => ({
+    panes: document.querySelectorAll('.pane').length,
+    integration: document.querySelector('.pane')?.getAttribute('data-integration') ?? null,
+    composer: !!document.querySelector('.composer__input')
+  }))
+  check('shells still start when their directory is gone', recovered.integration === 'ready', recovered.integration)
+  check('and the pane is usable', recovered.composer === true)
+  check('panes were restored, not dropped', recovered.panes >= 1, `${recovered.panes}`)
+
+  await page.click('.activity__item[data-view="explorer"]')
+  await sleep(900)
+  const rootLabel = await page.evaluate(
+    () => document.querySelector('.tree__root')?.textContent ?? null
+  )
+  check(
+    'the missing workspace root is not restored',
+    rootLabel !== path.basename(vanished),
+    rootLabel
+  )
+  await app.close()
+  await sleep(600)
+}
+
 fs.rmSync(work, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)
 console.log('session restore:', failures.length === 0 ? 'PASS' : 'FAIL')

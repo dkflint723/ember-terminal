@@ -1776,3 +1776,8 @@ kbd {
   accent-color: var(--accent);
   cursor: pointer;
 }
+
+/* Pushes whatever follows it to the bottom of the rail. */
+.activity__spacer {
+  flex: 1 1 auto;
+}

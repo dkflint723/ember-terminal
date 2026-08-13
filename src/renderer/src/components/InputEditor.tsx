@@ -80,6 +80,17 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
     controller.runCommand(command)
   }
 
+  /**
+   * Ctrl+K, wherever it was pressed. The counter is what makes a second press
+   * register as a second request rather than the same state, so it still toggles.
+   */
+  const askRequest = useStore((s) => s.askRequest)
+  useEffect(() => {
+    if (!askRequest || askRequest.paneId !== pane.id) return
+    setMode((m) => (m === 'ai' ? 'shell' : 'ai'))
+    ref.current?.focus()
+  }, [askRequest?.n, askRequest?.paneId, pane.id])
+
   const askAi = async (requestMode: 'command' | 'explain'): Promise<void> => {
     const intent = value.trim()
     if (requestMode === 'command' && intent.length === 0) return
@@ -97,16 +108,27 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
         exitCode: b.exitCode ?? 0
       }))
 
-    const res = await window.ember.ai({
-      intent: requestMode === 'explain' && intent.length === 0 ? 'Why did that fail?' : intent,
-      shell: pane.profileId,
-      cwd: pane.cwd,
-      recent,
-      mode: requestMode
-    })
-
-    setBusy(false)
-    setProposal(res)
+    // Wrapped because `busy` disables the composer: if this call rejects rather
+    // than resolving — main throwing, the window reloading mid-flight — an
+    // unhandled rejection would leave the input permanently unusable with no
+    // explanation, which reads as the app having locked up.
+    try {
+      const res = await window.ember.ai({
+        intent: requestMode === 'explain' && intent.length === 0 ? 'Why did that fail?' : intent,
+        shell: pane.profileId,
+        cwd: pane.cwd,
+        recent,
+        mode: requestMode
+      })
+      setProposal(res)
+    } catch (err) {
+      setProposal({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Could not reach Claude.'
+      })
+    } finally {
+      setBusy(false)
+    }
   }
 
   const acceptProposal = (run: boolean): void => {
@@ -255,12 +277,8 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
       return
     }
 
-    // Ctrl+K toggles natural language mode.
-    if (e.ctrlKey && e.key.toLowerCase() === 'k') {
-      e.preventDefault()
-      setMode((m) => (m === 'ai' ? 'shell' : 'ai'))
-      return
-    }
+    // Ctrl+K is handled globally rather than here, so it behaves the same wherever
+    // focus happens to be — see the askRequest effect below.
 
     // Ctrl+C with nothing selected interrupts the running program.
     if (e.ctrlKey && e.key.toLowerCase() === 'c' && !window.getSelection()?.toString()) {

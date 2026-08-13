@@ -328,6 +328,7 @@ export interface EmberApi {
   openFileDialog(defaultPath?: string): Promise<FileOpenResult>
   readFile(path: string): Promise<FileReadResult>
   readDir(path: string): Promise<DirReadResult>
+  directoryExists(path: string): Promise<boolean>
   lspStart(language: string, root?: string): Promise<{ ok: boolean; error?: string }>
   lspSend(language: string, message: unknown): void
   onLspMessage(cb: (e: LspEvent) => void): () => void

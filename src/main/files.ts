@@ -64,6 +64,19 @@ export function pathArgs(argv: string[], appPath: string): { files: string[]; fo
 
 export class FileService {
   /**
+   * Whether a directory is still there. Used when putting a session back: a
+   * workspace root or a shell's directory can be a temp folder that has since been
+   * cleaned up, a renamed project, or a drive that is no longer plugged in.
+   */
+  async directoryExists(dirPath: string): Promise<boolean> {
+    try {
+      return (await stat(dirPath)).isDirectory()
+    } catch {
+      return false
+    }
+  }
+
+  /**
    * One directory level. The tree reads lazily on expand rather than walking
    * recursively — a root like a home directory or a repo with node_modules would
    * otherwise take seconds and pull tens of thousands of entries into memory.

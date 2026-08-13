@@ -98,7 +98,10 @@ export class AiService {
       }
     }
 
-    const client = new Anthropic({ apiKey })
+    // Bounded on purpose. Someone waiting on a one-line command has given up long
+    // before a default timeout would fire, and the composer is disabled while the
+    // request is in flight — an unbounded call is indistinguishable from a hang.
+    const client = new Anthropic({ apiKey, timeout: 45_000, maxRetries: 1 })
     const model = this.settings.get().aiModel
 
     try {

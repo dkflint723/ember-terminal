@@ -83,7 +83,10 @@ const check = (label, ok, detail) => {
 }
 
 // --- the view is reachable from the rail ------------------------------------
-check('the rail has three views', (await page.locator('.activity__item').count()) === 3)
+// Asserted as "the rail offers this view" rather than counted. A count breaks every
+// time an unrelated entry is added, which has now happened twice and both times
+// reported a working panel as broken.
+check('the rail offers GitHub', (await page.locator('.activity__item[data-view="github"]').count()) === 1)
 await page.click('.activity__item[data-view="github"]')
 await page.waitForSelector('.gh', { timeout: 10_000 })
 
