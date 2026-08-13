@@ -33,6 +33,11 @@ fs.writeFileSync(held, 'const needle = "held"\n', 'utf8')
 const long = path.join(work, 'src', 'long.ts')
 fs.writeFileSync(long, `const pad = "${'x'.repeat(460)}" // needle\n`, 'utf8')
 
+// Not UTF-8. ripgrep matches in it happily, and rewriting it as UTF-8 to change one
+// line would destroy every other byte it could not decode.
+const latin1 = path.join(work, 'src', 'latin1.txt')
+fs.writeFileSync(latin1, Buffer.concat([Buffer.from('needle caf'), Buffer.from([0xe9, 0x0a])]))
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
@@ -110,6 +115,15 @@ check(
   'a match past the end of the preview is still replaced',
   read(long).includes('// pin') && !read(long).includes('needle'),
   read(long).slice(-40)
+)
+
+check(
+  'a file that is not UTF-8 is left exactly as it was',
+  Buffer.compare(
+    fs.readFileSync(latin1),
+    Buffer.concat([Buffer.from('needle caf'), Buffer.from([0xe9, 0x0a])])
+  ) === 0,
+  fs.readFileSync(latin1).toString('hex')
 )
 
 const said = (await summary()) ?? ''

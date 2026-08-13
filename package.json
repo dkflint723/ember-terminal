@@ -20,7 +20,7 @@
     "verify:git": "electron-vite build && node scripts/verify-git.mjs",
     "verify:ide": "electron-vite build && node scripts/verify-ide.mjs",
     "verify:tabs": "electron-vite build && node scripts/verify-tabs.mjs",
-    "verify:all": "npm run verify && node scripts/verify-editor.mjs && node scripts/verify-tabs.mjs && node scripts/verify-lsp.mjs && node scripts/verify-git.mjs && node scripts/verify-ide.mjs && node scripts/verify-github.mjs && node scripts/verify-explorer.mjs && node scripts/verify-session.mjs && node scripts/verify-notify.mjs && node scripts/verify-settings.mjs && node scripts/verify-search.mjs && node scripts/verify-palette.mjs && node scripts/verify-fileops.mjs && node scripts/verify-problems.mjs && node scripts/verify-vsix.mjs && node scripts/verify-panes.mjs && node scripts/verify-replace.mjs && node scripts/verify-keys.mjs && node scripts/verify-save.mjs && node scripts/verify-snippets.mjs && node scripts/verify-ai.mjs",
+    "verify:all": "npm run verify && node scripts/verify-editor.mjs && node scripts/verify-tabs.mjs && node scripts/verify-lsp.mjs && node scripts/verify-git.mjs && node scripts/verify-ide.mjs && node scripts/verify-github.mjs && node scripts/verify-explorer.mjs && node scripts/verify-session.mjs && node scripts/verify-notify.mjs && node scripts/verify-settings.mjs && node scripts/verify-search.mjs && node scripts/verify-palette.mjs && node scripts/verify-fileops.mjs && node scripts/verify-problems.mjs && node scripts/verify-vsix.mjs && node scripts/verify-panes.mjs && node scripts/verify-replace.mjs && node scripts/verify-keys.mjs && node scripts/verify-save.mjs && node scripts/verify-snippets.mjs && node scripts/verify-ai.mjs && node scripts/verify-lsp-root.mjs",
     "verify:github": "electron-vite build && node scripts/verify-github.mjs",
     "verify:explorer": "electron-vite build && node scripts/verify-explorer.mjs",
     "icon": "node scripts/build-icon.mjs",
@@ -37,7 +37,8 @@
     "verify:keys": "electron-vite build && node scripts/verify-keys.mjs",
     "verify:save": "electron-vite build && node scripts/verify-save.mjs",
     "verify:snippets": "electron-vite build && node scripts/verify-snippets.mjs",
-    "verify:ai": "electron-vite build && node scripts/verify-ai.mjs"
+    "verify:ai": "electron-vite build && node scripts/verify-ai.mjs",
+    "verify:lsproot": "electron-vite build && node scripts/verify-lsp-root.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",

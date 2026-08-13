@@ -222,6 +222,7 @@ function registerIpc(): void {
   ipcMain.on('file:reveal', (_e, target: string) => files.reveal(target))
 
   ipcMain.handle('lsp:start', (_e, language: string, root?: string) => lsp.start(language, root))
+  ipcMain.on('lsp:setRoot', (_e, root: string) => lsp.setRoot(root))
   ipcMain.on('lsp:send', (_e, language: string, message: unknown) => lsp.post(language, message))
   ipcMain.handle('lsp:request', (_e, language: string, method: string, params: unknown) =>
     lsp.request(language, method, params)
@@ -339,6 +340,7 @@ function registerIpc(): void {
 
   ipcMain.handle('settings:get', () => settings.get())
   ipcMain.handle('settings:set', (_e, patch: Partial<Settings>) => settings.set(patch))
+  ipcMain.handle('settings:noteFolder', (_e, folder: string) => settings.noteRecentFolder(folder))
 
   ipcMain.on('window:action', (_e, action: 'minimize' | 'maximize' | 'close') => {
     if (!mainWindow) return

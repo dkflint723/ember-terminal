@@ -190,6 +190,8 @@ interface Store {
   setActiveDocument(paneId: string, index: number): void
   /** Close a tab; closing the last one closes the pane with it. */
   closeDocument(tabId: string, paneId: string, index: number): void
+  /** Move an editor tab within its pane, keeping the same document active. */
+  moveDocument(paneId: string, from: number, to: number): void
   /** Re-read these files into any editor showing them, leaving edited ones alone. */
   reloadFromDisk(paths: string[]): Promise<void>
   /** Write every edited document to disk, including ones not on screen. */
@@ -344,7 +346,18 @@ export const useStore = create<Store>((set, get) => ({
       sidebarView: view
     })),
 
-  setTreeRoot: (treeRoot) => set({ treeRoot }),
+  setTreeRoot: (treeRoot) => {
+    // Servers are started once per language and told their root in the handshake,
+    // so moving the workspace has to be passed on or they go on answering about
+    // the folder that was open before.
+    if (treeRoot && get().treeRoot !== treeRoot) {
+      window.ember.lspSetRoot(treeRoot)
+      // Recorded here rather than at each place that opens a folder, so every route
+      // in — the picker, the palette, the terminal's directory — is remembered.
+      void window.ember.noteRecentFolder(treeRoot).then((next) => get().applySettings(next))
+    }
+    set({ treeRoot })
+  },
   setGitStatus: (gitStatus) => set({ gitStatus }),
   openPalette: (paletteMode) => set({ paletteMode }),
   closePalette: () => set({ paletteMode: null }),
@@ -559,6 +572,27 @@ export const useStore = create<Store>((set, get) => ({
     return pane.id
   },
 
+  moveDocument: (paneId, from, to) =>
+    set((s) => {
+      const pane = s.panes[paneId]
+      if (pane?.kind !== 'editor') return {}
+      if (from === to || from < 0 || to < 0) return {}
+      if (from >= pane.documents.length || to >= pane.documents.length) return {}
+
+      const documents = [...pane.documents]
+      const [moved] = documents.splice(from, 1)
+      documents.splice(to, 0, moved)
+
+      // The active index points at a position, not a document, so reordering has to
+      // carry it — otherwise dragging a tab silently switches which file is shown.
+      const active = pane.documents[pane.activeIndex]
+      const activeIndex = Math.max(
+        0,
+        documents.findIndex((d) => d === active)
+      )
+      return { panes: { ...s.panes, [paneId]: { ...pane, documents, activeIndex } } }
+    }),
+
   /**
    * Pull these files back off disk into the editors showing them.
    *
@@ -582,7 +616,12 @@ export const useStore = create<Store>((set, get) => ({
 
         const res = await window.ember.readFile(doc.filePath)
         if (!res.ok) continue
-        get().patchDocument(pane.id, { savedContent: res.content }, index)
+        // Re-found by path after the read, since a tab closed in the meantime would
+        // leave this index pointing at some other document.
+        const current = get().editorPane(pane.id)
+        const at = current?.documents.findIndex((d) => d.filePath === doc.filePath) ?? -1
+        if (at === -1) continue
+        get().patchDocument(pane.id, { savedContent: res.content }, at)
         const model = monaco.editor.getModel(monaco.Uri.file(doc.filePath))
         if (model && model.getValue() !== res.content) model.setValue(res.content)
       }
@@ -619,7 +658,12 @@ export const useStore = create<Store>((set, get) => ({
           failed += 1
           continue
         }
-        get().patchDocument(pane.id, { savedContent: content, dirty: false }, index)
+        // Re-found by path rather than reused: the write is awaited, and a tab
+        // closed in the meantime would leave this index pointing at a different
+        // document, which would then be marked saved when it is not.
+        const current = get().editorPane(pane.id)
+        const at = current?.documents.findIndex((d) => d.filePath === doc.filePath) ?? -1
+        if (at !== -1) get().patchDocument(pane.id, { savedContent: content, dirty: false }, at)
         saved += 1
       }
     }

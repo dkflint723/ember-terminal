@@ -358,6 +358,8 @@ export interface Settings {
    * editor does with your work, and it should be asked for rather than assumed.
    */
   autoSaveAfterSeconds: number
+  /** Folders opened before, most recent first, so one can be returned to. */
+  recentFolders: string[]
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -369,7 +371,8 @@ export const DEFAULT_SETTINGS: Settings = {
   aiModel: 'claude-opus-5',
   restoreSession: true,
   notifyAfterSeconds: 10,
-  autoSaveAfterSeconds: 0
+  autoSaveAfterSeconds: 0,
+  recentFolders: []
 }
 
 /** The API the preload script exposes on `window.ember`. */
@@ -397,6 +400,9 @@ export interface EmberApi {
   trashPath(target: string): Promise<FileWriteResult>
   revealPath(target: string): void
   lspStart(language: string, root?: string): Promise<{ ok: boolean; error?: string }>
+  noteRecentFolder(folder: string): Promise<Settings>
+  /** Tell every running server the workspace moved. */
+  lspSetRoot(root: string): void
   lspSend(language: string, message: unknown): void
   lspRequest(language: string, method: string, params: unknown): Promise<unknown>
   onLspMessage(cb: (e: LspEvent) => void): () => void

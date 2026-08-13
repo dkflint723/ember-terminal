@@ -200,6 +200,19 @@ function commands(): Command[] {
         })()
       }
     },
+    // One command per folder rather than a mode of its own: the palette already
+    // filters by typing, and a folder is found by its name either way.
+    ...s.settings.recentFolders
+      .filter((folder) => folder !== s.treeRoot)
+      .map((folder) => ({
+        id: `file.recent:${folder}`,
+        label: `Open Recent: ${folder.split(/[\\/]/).filter(Boolean).pop() ?? folder}`,
+        hint: folder,
+        run: () => {
+          s.setTreeRoot(folder)
+          s.showSidebarView('explorer')
+        }
+      })),
     { id: 'view.explorer', label: 'View: Explorer', hint: 'Ctrl+B', run: () => s.showSidebarView('explorer') },
     { id: 'view.search', label: 'View: Search', hint: 'Ctrl+Shift+F', run: () => s.showSidebarView('search') },
     { id: 'view.scm', label: 'View: Source Control', hint: 'Ctrl+Shift+G', run: () => s.showSidebarView('scm') },

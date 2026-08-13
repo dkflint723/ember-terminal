@@ -425,6 +425,46 @@ export class LspService {
   }
 
   /**
+   * Move every running server to a new workspace root.
+   *
+   * A server is started once per language and told its root in the handshake, so
+   * opening a different folder afterwards left them all indexing the previous one:
+   * imports resolved against the old project and diagnostics described a tree the
+   * user had moved away from. Nothing looked broken, which is what made it worth
+   * finding — the answers were simply about the wrong code.
+   *
+   * Told rather than restarted. `workspace/didChangeWorkspaceFolders` is the
+   * protocol's own answer to this, and restarting would mean disposing a client
+   * whose providers are already registered with Monaco — the way to end up with
+   * two of everything answering each request.
+   */
+  setRoot(root: string): void {
+    for (const language of this.servers.keys()) {
+      const previous = this.roots.get(language)
+      if (previous === root) continue
+      this.roots.set(language, root)
+
+      const folder = (path: string): { uri: string; name: string } => ({
+        uri: pathToFileURL(path).href,
+        name: basename(path)
+      })
+      this.write(
+        language,
+        normalizeUris({
+          jsonrpc: '2.0',
+          method: 'workspace/didChangeWorkspaceFolders',
+          params: {
+            event: {
+              added: [folder(root)],
+              removed: previous ? [folder(previous)] : []
+            }
+          }
+        })
+      )
+    }
+  }
+
+  /**
    * Ask a server something directly, outside Monaco's client.
    *
    * Some things the UI wants — a document outline, say — are answered by the

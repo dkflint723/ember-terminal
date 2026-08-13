@@ -1538,6 +1538,12 @@ kbd {
   color: var(--fg);
 }
 
+/* Where a dragged tab would land. A left edge rather than a fill, so the tab being
+   hovered still reads as itself. */
+.etab--drop {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
 .etab__label {
   overflow: hidden;
   text-overflow: ellipsis;

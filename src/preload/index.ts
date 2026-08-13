@@ -58,6 +58,7 @@ const api: EmberApi = {
   trashPath: (target: string) => ipcRenderer.invoke('file:trash', target),
   revealPath: (target: string) => ipcRenderer.send('file:reveal', target),
   lspStart: (language: string, root?: string) => ipcRenderer.invoke('lsp:start', language, root),
+  lspSetRoot: (root: string) => ipcRenderer.send('lsp:setRoot', root),
   lspSend: (language: string, message: unknown) => ipcRenderer.send('lsp:send', language, message),
   lspRequest: (language: string, method: string, params: unknown) =>
     ipcRenderer.invoke('lsp:request', language, method, params),
@@ -131,6 +132,8 @@ const api: EmberApi = {
   listProfiles: (): Promise<ShellProfile[]> => ipcRenderer.invoke('profiles:list'),
   ai: (req: AiRequest): Promise<AiResponse> => ipcRenderer.invoke('ai:run', req),
   getSettings: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),
+  noteRecentFolder: (folder: string): Promise<Settings> =>
+    ipcRenderer.invoke('settings:noteFolder', folder),
   setSettings: (patch: Partial<Settings>): Promise<Settings> =>
     ipcRenderer.invoke('settings:set', patch),
 

@@ -230,7 +230,15 @@ export function applyReplacement(request: ReplaceRequest): ReplaceOutcome {
   for (const [path, hits] of byFile) {
     let text: string
     try {
-      text = readFileSync(path, 'utf8')
+      /*
+       * Decoded strictly, so a file that is not UTF-8 is left alone.
+       *
+       * Reading with 'utf8' silently turns every byte it cannot decode into a
+       * replacement character, and writing that back would destroy the rest of the
+       * file to change one line of it. ripgrep will happily match in a file with
+       * another encoding, so this is reachable rather than theoretical.
+       */
+      text = new TextDecoder('utf-8', { fatal: true }).decode(readFileSync(path))
     } catch {
       stale += hits.length
       continue

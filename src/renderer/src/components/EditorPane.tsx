@@ -49,6 +49,10 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
   const patchDocument = useStore((s) => s.patchDocument)
   const setActiveDocument = useStore((s) => s.setActiveDocument)
   const closeDocument = useStore((s) => s.closeDocument)
+  const moveDocument = useStore((s) => s.moveDocument)
+  /** Which tab is being dragged, and which one it is currently over. */
+  const dragFrom = useRef<number | null>(null)
+  const [dragOver, setDragOver] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
@@ -319,8 +323,33 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
             aria-selected={i === pane.activeIndex}
             className={`etab ${i === pane.activeIndex ? 'etab--active' : ''} ${
               doc.dirty ? 'etab--dirty' : ''
-            }`}
+            } ${dragOver === i ? 'etab--drop' : ''}`}
             title={doc.filePath ?? doc.title}
+            draggable
+            onDragStart={(e) => {
+              dragFrom.current = i
+              // Needed for the drop to be allowed at all in Chromium, even though
+              // the index travels in a ref rather than the payload.
+              e.dataTransfer.effectAllowed = 'move'
+              e.dataTransfer.setData('text/plain', String(i))
+            }}
+            onDragOver={(e) => {
+              if (dragFrom.current === null) return
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'move'
+              if (dragOver !== i) setDragOver(i)
+            }}
+            onDrop={(e) => {
+              e.preventDefault()
+              const from = dragFrom.current
+              dragFrom.current = null
+              setDragOver(null)
+              if (from !== null) moveDocument(pane.id, from, i)
+            }}
+            onDragEnd={() => {
+              dragFrom.current = null
+              setDragOver(null)
+            }}
             onMouseDown={(e) => {
               // Middle-click closes, as everywhere else that has tabs.
               if (e.button === 1) {

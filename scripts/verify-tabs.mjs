@@ -113,6 +113,39 @@ const backOnAlpha = await page.evaluate(() =>
 )
 check('the unsaved edit survived the round trip', backOnAlpha.includes('const edited = true'), backOnAlpha.slice(0, 80))
 
+// --- reordering -------------------------------------------------------------
+// Last, because it renumbers the tabs and the checks above are written by index.
+// The active index points at a position rather than at a document, so a reorder
+// that failed to carry it would quietly switch which file is on screen.
+const beforeMove = (await state()).tabs.map((t) => t.label)
+await page
+  .locator('.etab', { hasText: 'gamma.ts' })
+  .dragTo(page.locator('.etab', { hasText: 'alpha.ts' }))
+await sleep(1200)
+const afterMove = await state()
+check(
+  'a tab can be dragged to a new position',
+  afterMove.tabs[0]?.label.includes('gamma') === true,
+  `${beforeMove.join(',')} -> ${afterMove.tabs.map((t) => t.label).join(',')}`
+)
+/*
+ * Picking a tab up selects it, as it does in VS Code, so the dragged file is the
+ * one that should be on screen when it lands. This is the check that tells a
+ * working reorder from a broken one: the active index points at a position, so an
+ * implementation that left it alone would still show whatever ended up at index 2
+ * — beta — rather than the tab the user was holding.
+ */
+check(
+  'the dragged file is the one still on screen',
+  afterMove.shownPath === files[2],
+  `expected gamma, got ${afterMove.shownPath}`
+)
+check(
+  'and its tab is the active one',
+  afterMove.tabs.find((t) => t.active)?.label.includes('gamma') === true,
+  JSON.stringify(afterMove.tabs)
+)
+
 // --- closing ---------------------------------------------------------------
 // The × is revealed on hover, as in VS Code, so an inactive tab has to be pointed
 // at before its close control can be clicked.

@@ -60,7 +60,12 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
   /** Start the picker where the user already is, which is nearly always right. */
   const openFolder = async (): Promise<void> => {
     const picked = await window.ember.openFolderDialog(root ?? terminalCwd ?? undefined)
-    if (picked) setRoot(picked)
+    if (!picked) return
+    setRoot(picked)
+    // Dropped rather than kept: listings are cached by path, so coming back to a
+    // folder later would otherwise show what was in it when it was last open.
+    setChildren({})
+    setExpanded(new Set())
   }
 
   // Rows are keyed by absolute path; git reports repository-relative ones.

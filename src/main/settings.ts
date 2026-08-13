@@ -48,6 +48,24 @@ export class SettingsStore {
   }
 
   /**
+   * Record a folder as recently opened, newest first and without duplicates.
+   *
+   * Compared case-insensitively, because Windows will hand back the same folder
+   * with different capitalisation depending on how it was reached, and the same
+   * place twice in a recent list is not a recent list.
+   */
+  noteRecentFolder(folder: string): Settings {
+    if (!folder.trim()) return this.get()
+    const same = (a: string, b: string): boolean =>
+      a.replace(/[\\/]+$/, '').toLowerCase() === b.replace(/[\\/]+$/, '').toLowerCase()
+
+    const rest = this.get().recentFolders.filter((f) => !same(f, folder))
+    // Ten is enough to cover what someone moves between; past that it is a history
+    // rather than a shortcut.
+    return this.set({ recentFolders: [folder, ...rest].slice(0, 10) })
+  }
+
+  /**
    * The key the AI feature should use. An explicit setting wins; otherwise fall
    * back to the ambient environment, which many developers already have set.
    */
