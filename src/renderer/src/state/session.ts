@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import type { SessionLayout, SessionPane, SessionSnapshot } from '@shared/types'
-import { useStore, type LayoutNode, type Pane, type Tab } from './store'
+import { useStore, type EditorDocument, type LayoutNode, type Pane, type Tab } from './store'
 
 /**
  * Writing the workspace down, and putting it back.
@@ -88,9 +88,7 @@ export function snapshot(): SessionSnapshot {
           language: doc.language,
           eol: doc.eol,
           // Only when it differs from disk, and only if it is a sane size to keep.
-          ...(doc.dirty && doc.savedContent.length <= MAX_UNSAVED_BYTES
-            ? { unsaved: currentText(doc.filePath) ?? doc.savedContent }
-            : {})
+          ...unsavedFor(doc)
         }))
       })
     }
@@ -105,6 +103,33 @@ export function snapshot(): SessionSnapshot {
     tabs,
     panes
   }
+}
+
+/**
+ * The unsaved text to write down for a document, if there is any.
+ *
+ * Two things went wrong here before, both of which destroyed work.
+ *
+ * The text came from `currentText(...) ?? doc.savedContent`, and savedContent is
+ * what is on disk — the one value that can never be the unsaved version. A restored
+ * tab only gets a Monaco model once it is looked at, so a tab restored and left
+ * alone had no model, fell through to the disk text, and wrote that down as its
+ * "unsaved" content. On the next restore that reads back as identical to disk, so
+ * the document is not dirty and the edit is gone. Two relaunches without clicking
+ * the tab and the work had quietly evaporated.
+ *
+ * The size guard also measured savedContent rather than the text being stored, so
+ * an edit was kept or dropped according to the size of the wrong string.
+ *
+ * When there is no model, the text carried in from the previous session is still
+ * held in `pendingUnsaved` — unconsumed precisely because nobody opened the tab —
+ * so it is passed along rather than invented.
+ */
+function unsavedFor(doc: EditorDocument): { unsaved?: string } {
+  if (!doc.dirty) return {}
+  const live = currentText(doc.filePath) ?? pendingUnsaved.get(doc.filePath ?? '')
+  if (live === undefined || live === doc.savedContent) return {}
+  return live.length <= MAX_UNSAVED_BYTES ? { unsaved: live } : {}
 }
 
 /**

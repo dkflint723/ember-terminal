@@ -195,7 +195,17 @@ export function SourceControl(): React.JSX.Element {
             className="icon-btn"
             title="Unstage"
             disabled={busy}
-            onClick={() => void act(() => window.ember.gitUnstage(root!, [change.path]))}
+            /* Both halves of a rename. Git stages one as a deletion of the old path
+               and an addition of the new one, so unstaging only the new name left
+               the deletion staged — and the next commit deleted the file. */
+            onClick={() =>
+              void act(() =>
+                window.ember.gitUnstage(
+                  root!,
+                  change.origPath ? [change.path, change.origPath] : [change.path]
+                )
+              )
+            }
           >
             −
           </button>

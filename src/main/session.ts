@@ -28,6 +28,16 @@ export class SessionStore {
       // Version is the only compatibility promise made; anything else is a file
       // from a future or broken build and is not worth guessing at.
       if (parsed?.version !== 1 || !Array.isArray(parsed.tabs)) return null
+      /*
+       * Shape-checked, not just version-checked.
+       *
+       * The renderer walked these fields without guarding them, so a file that
+       * parsed as JSON but was structurally wrong threw partway through boot. That
+       * left a window with no tabs at all, and the autosave then wrote the empty
+       * result back over the file — losing the workspace and any unsaved text in it
+       * because one field had the wrong type.
+       */
+      if (!wellFormed(parsed)) return null
       return parsed
     } catch {
       return null
@@ -55,4 +65,37 @@ export class SessionStore {
       // Nothing to do about it, and nothing worth failing for.
     }
   }
+}
+
+/** A layout node the renderer's walk can survive: leaves and splits, all the way down. */
+function validNode(node: unknown, depth = 0): boolean {
+  if (typeof node !== 'object' || node === null || depth > 32) return false
+  const n = node as { type?: unknown; paneId?: unknown; children?: unknown }
+  if (n.type === 'leaf') return typeof n.paneId === 'string'
+  if (n.type !== 'split' || !Array.isArray(n.children) || n.children.length === 0) return false
+  return n.children.every((child) => validNode(child, depth + 1))
+}
+
+/**
+ * Whether a parsed session is shaped the way the renderer assumes.
+ *
+ * Checked here rather than there because main is the only place that can decline to
+ * hand it over at all. Anything short of a full match is treated as no session,
+ * which costs a restored layout and saves the window.
+ */
+function wellFormed(snapshot: SessionSnapshot): boolean {
+  if (!Array.isArray(snapshot.panes)) return false
+  if (snapshot.treeRoot !== null && typeof snapshot.treeRoot !== 'string') return false
+
+  for (const tab of snapshot.tabs) {
+    if (typeof tab?.id !== 'string' || typeof tab?.activePaneId !== 'string') return false
+    if (!validNode(tab.root)) return false
+  }
+
+  for (const pane of snapshot.panes) {
+    if (typeof pane?.id !== 'string') return false
+    if (pane.kind === 'editor' && !Array.isArray(pane.documents)) return false
+    if (pane.kind !== 'editor' && pane.kind !== 'terminal') return false
+  }
+  return true
 }

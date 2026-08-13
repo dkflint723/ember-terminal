@@ -53,6 +53,27 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
     if (raw) controller.focus()
   }, [controller, raw, running])
 
+  /*
+   * Shift+Tab leaves the terminal.
+   *
+   * xterm takes every key, so without somewhere to send focus the pane was a
+   * keyboard trap: once in, there was no way out without a mouse. The composer is
+   * the natural landing place — it is the same pane, and Tab from there reaches the
+   * rest of the app normally.
+   */
+  useEffect(() => {
+    controller.onEscapeFocus = () => {
+      const composer = termHost.current
+        ?.closest('.pane')
+        ?.querySelector<HTMLElement>('.composer__input')
+      if (composer) composer.focus()
+      else termHost.current?.closest<HTMLElement>('.pane')?.focus()
+    }
+    return () => {
+      controller.onEscapeFocus = null
+    }
+  }, [controller])
+
   // Keep the newest block in view as output lands.
   useEffect(() => {
     const el = scroller.current

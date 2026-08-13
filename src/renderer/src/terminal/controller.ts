@@ -87,6 +87,27 @@ export class TerminalController {
       windowsPty: { backend: 'conpty' }
     })
 
+    /*
+     * A way back out of the terminal.
+     *
+     * xterm consumes every key, including Tab, so once focus entered a terminal
+     * pane it could never leave it from the keyboard — not by Tab, not by
+     * Shift+Tab, not by Escape. That is a keyboard trap, and it makes the whole app
+     * unusable without a mouse no matter how well everything else is labelled.
+     *
+     * Shift+Tab is given up rather than plain Tab, because Tab is completion and a
+     * shell needs it. Returning false tells xterm not to handle the event, so the
+     * app's own handler takes it from there.
+     */
+    this.term.attachCustomKeyEventHandler((event) => {
+      if (event.type !== 'keydown') return true
+      if (event.key === 'Tab' && event.shiftKey) {
+        this.onEscapeFocus?.()
+        return false
+      }
+      return true
+    })
+
     this.term.loadAddon(this.fit)
     this.term.loadAddon(new WebLinksAddon())
 
@@ -535,6 +556,9 @@ export class TerminalController {
   focus(): void {
     this.term.focus()
   }
+
+  /** Called when the user asks to leave the terminal with Shift+Tab. */
+  onEscapeFocus: (() => void) | null = null
 
   dispose(): void {
     if (this.integrationTimer !== null) window.clearTimeout(this.integrationTimer)

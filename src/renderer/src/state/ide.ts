@@ -104,6 +104,17 @@ export async function resolveProposal(
       pending.settle({ success: false, message: written.error })
       return
     }
+    /*
+     * Tell any editor showing that file what just happened to it.
+     *
+     * Without this the file changed on disk while a tab went on holding the old
+     * text and still believing it matched — so the user's next save wrote the old
+     * text back and silently undid the change they had just accepted. Accepting a
+     * diff and then losing it to an ordinary Ctrl+S is about the worst outcome this
+     * integration could have.
+     */
+    await reconcileAcceptedDiff(target, diff.modified)
+
     pending.settle({
       __content: [
         { type: 'text', text: 'FILE_SAVED' },
@@ -118,6 +129,33 @@ export async function resolveProposal(
   // reject it the tab in front of them may not be the one Claude opened it in.
   const owner = state.tabIdForPane(pending.paneId)
   if (owner) state.closePane(owner, pending.paneId)
+}
+
+/**
+ * Bring open editors into line with a file Claude Code just wrote.
+ *
+ * A document whose buffer still matches what was on disk before is updated in
+ * place, so the editor shows what was accepted. One with genuine unsaved edits of
+ * the user's own keeps them — but is left marked unsaved against the new content,
+ * so saving is a deliberate overwrite rather than a silent revert.
+ */
+async function reconcileAcceptedDiff(filePath: string, written: string): Promise<void> {
+  const { monaco } = await import('../editor/monaco')
+  const state = useStore.getState()
+  const key = (p: string): string => p.replace(/\\/g, '/').toLowerCase()
+
+  for (const pane of Object.values(state.panes)) {
+    if (pane.kind !== 'editor') continue
+    for (let index = 0; index < pane.documents.length; index++) {
+      const doc = pane.documents[index]
+      if (!doc.filePath || key(doc.filePath) !== key(filePath)) continue
+
+      const model = monaco.editor.getModel(monaco.Uri.file(doc.filePath))
+      const untouched = !model || model.getValue() === doc.savedContent
+      state.patchDocument(pane.id, { savedContent: written, dirty: !untouched }, index)
+      if (untouched && model && model.getValue() !== written) model.setValue(written)
+    }
+  }
 }
 
 async function handle(call: IdeCall): Promise<unknown> {
@@ -164,11 +202,33 @@ async function handle(call: IdeCall): Promise<unknown> {
       if (!doc || !doc.filePath) {
         return { success: false, message: 'Document not open in the editor.' }
       }
-      // Saved from the store's copy of the buffer, which the pane keeps current.
-      const res = await window.ember.writeFile(doc.filePath, doc.savedContent)
-      return res.ok
-        ? { success: true, filePath: doc.filePath }
-        : { success: false, message: res.error }
+      /*
+       * The live buffer, not the store's copy of it.
+       *
+       * `savedContent` is what was last read from or written to disk — the one
+       * value that is never the unsaved work being asked for. Saving it wrote the
+       * old text back over anything newer and reported success, so a Claude Code
+       * session that asked Ember to save reverted the file it was working on.
+       * saveAllDocuments in the store already reads the model; this now matches.
+       */
+      const { monaco } = await import('../editor/monaco')
+      const content = monaco.editor.getModel(monaco.Uri.file(doc.filePath))?.getValue()
+      if (content === undefined) {
+        return { success: false, message: 'That document has no editor buffer to save.' }
+      }
+
+      const res = await window.ember.writeFile(doc.filePath, content)
+      if (!res.ok) return { success: false, message: res.error }
+
+      // Dirtiness is derived by comparing against what is on disk, so the saved
+      // content has to move with it or the document stays reported as dirty.
+      const state = useStore.getState()
+      for (const pane of Object.values(state.panes)) {
+        if (pane.kind !== 'editor') continue
+        const index = pane.documents.findIndex((d) => d.filePath === doc.filePath)
+        if (index !== -1) state.patchDocument(pane.id, { savedContent: content, dirty: false }, index)
+      }
+      return { success: true, filePath: doc.filePath }
     }
 
     case 'openFile': {

@@ -461,7 +461,26 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
 function RunningInput({ pane, controller }: Props): React.JSX.Element {
   const [value, setValue] = useState('')
   const secretRef = useRef<HTMLInputElement>(null)
+  const runningRef = useRef<HTMLTextAreaElement>(null)
   const secret = pane.awaitingSecret
+
+  /*
+   * Take the focus the composer just lost.
+   *
+   * Starting a command swaps this component in for the one the user was typing
+   * into, and the element they were focused on goes with it — so focus fell to the
+   * document body and every key here, including the Ctrl+C this very panel
+   * advertises as "interrupt", reached nothing at all. A running program could not
+   * be stopped from the keyboard.
+   *
+   * Only when nothing else has taken focus in the meantime, so a command finishing
+   * while the user is typing in the editor does not drag them back to the terminal.
+   */
+  useEffect(() => {
+    const active = document.activeElement
+    if (active && active !== document.body) return
+    runningRef.current?.focus()
+  }, [secret])
 
   const submit = (): void => {
     if (secret) {
@@ -528,6 +547,7 @@ function RunningInput({ pane, controller }: Props): React.JSX.Element {
           />
         ) : (
           <textarea
+            ref={runningRef}
             className="composer__input"
             rows={1}
             spellCheck={false}
@@ -542,6 +562,9 @@ function RunningInput({ pane, controller }: Props): React.JSX.Element {
         {secret && <span>not saved to history</span>}
         <span>
           <kbd>Ctrl</kbd> <kbd>C</kbd> interrupt
+        </span>
+        <span>
+          <kbd>Shift</kbd> <kbd>Tab</kbd> leave terminal
         </span>
         <span>
           <kbd>Ctrl</kbd> <kbd>D</kbd> end input

@@ -156,9 +156,13 @@ export class GitService {
       const { readFile } = await import('node:fs/promises')
       const { join } = await import('node:path')
       return decodeText(await readFile(join(root, path)))
-    } catch {
-      // Deleted from the working tree: an empty right-hand side is the truth.
-      return ''
+    } catch (err) {
+      // Only "it is not there" means deleted. Any other failure — a lock, a
+      // permission, a file the user cannot read — was being rendered as an empty
+      // right-hand side, which is a diff saying the whole file was deleted. Staging
+      // from that view would stage a deletion nobody asked for, so it is an error.
+      if ((err as { code?: string }).code === 'ENOENT') return ''
+      throw err
     }
   }
 

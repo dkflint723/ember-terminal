@@ -93,10 +93,24 @@ export function App(): React.JSX.Element {
 
       // The last workspace goes back before anything is created, so restored tabs
       // are the tabs rather than joining an empty one that was made first.
-      const restored =
-        settings.restoreSession && folders.length === 0
-          ? await restore(await window.ember.sessionLoad())
-          : false
+      /*
+       * A restore that throws must not take the window with it.
+       *
+       * The whole boot sequence runs inside one unguarded async block, so anything
+       * thrown while walking a saved layout stopped it before the first tab was
+       * ever created — leaving a window with no terminal, no editor and no way to
+       * do anything. Main validates the file now, but a fresh window is the right
+       * answer to any restore that still fails, rather than no window at all.
+       */
+      let restored = false
+      if (settings.restoreSession && folders.length === 0) {
+        try {
+          restored = await restore(await window.ember.sessionLoad())
+        } catch (err) {
+          console.error('Could not restore the last session; starting fresh.', err)
+          restored = false
+        }
+      }
       // A folder argument overrides a restored root: launching on a folder is an
       // explicit statement about where the user is working now.
       if (root) useStore.getState().setTreeRoot(root)
