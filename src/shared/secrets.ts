@@ -68,12 +68,31 @@ export function containsInlineSecret(command: string): boolean {
 
 /**
  * True when the tail of the terminal output looks like an open request for a
- * secret. `tail` may contain multiple lines; only the last is considered.
+ * secret. `tail` may contain multiple lines; only the last one with anything on it
+ * is considered.
+ *
+ * "Last line with anything on it" rather than simply "last line", because ConPTY
+ * does not write a prompt and stop — it repaints. PowerShell's `Read-Host` arrives
+ * as `\r\nPassword:` followed by an erase, another CRLF, and an absolute cursor move
+ * back up to sit after the colon. Taken literally the last line is empty and the
+ * prompt is on the one before, so an unconditional `.pop()` never matched it.
+ *
+ * This was intermittent rather than broken, which is what made it hard to see: when
+ * a pty read happened to end at the colon the prompt was the last line and masking
+ * worked, and when the trailing CRLF arrived in the same read it did not.
  */
 export function looksLikeSecretPrompt(tail: string): boolean {
-  const lastLine = stripAnsi(tail).split('\n').pop() ?? ''
-  // `\r` is used to redraw a line in place; only the final segment is on screen.
-  const visible = lastLine.split('\r').pop() ?? ''
+  const visible =
+    stripAnsi(tail)
+      // Normalised first: a line ending would otherwise survive as a trailing `\r`
+      // and the redraw rule below would treat everything before it as overwritten.
+      .replace(/\r\n/g, '\n')
+      .split('\n')
+      // `\r` alone redraws a line in place; only the final segment is on screen.
+      .map((line) => line.split('\r').pop() ?? '')
+      .filter((line) => line.trim() !== '')
+      .pop() ?? ''
+
   if (!SECRET_PROMPT.test(visible)) return false
   return !NOT_A_PROMPT.some((re) => re.test(visible))
 }

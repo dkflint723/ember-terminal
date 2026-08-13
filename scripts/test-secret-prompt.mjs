@@ -23,7 +23,15 @@ const SHOULD_MASK = [
   // Redrawn in place; only the segment after the last \r is on screen.
   'downloading...\rPassword:',
   // Preceded by unrelated output on earlier lines.
-  'Cloning into repo...\nUsername: dkfli\nPassword:'
+  'Cloning into repo...\nUsername: dkfli\nPassword:',
+  // ConPTY repaints rather than stopping at the prompt: PowerShell's Read-Host
+  // emits the prompt, a CRLF and an erase, then moves the cursor back up to sit
+  // after the colon. Taken as "the last line", this is blank. Verbatim from a pty
+  // read, with the escape sequences left in so the stripping is exercised too.
+  '\x1b[?25l\r\nPassword:\x1b[K\r\n\x1b[K\x1b[17;11H\x1b[?25h',
+  // The same shape without the escapes, which is what survives stripping.
+  '\r\nPassword:\r\n',
+  'Enter passphrase:\r\n\r\n'
 ]
 
 const SHOULD_NOT_MASK = [
