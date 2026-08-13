@@ -25,7 +25,8 @@ const ORIGINAL = 'export function greet(name: string): string {\n  return "hi " 
 fs.writeFileSync(target, ORIGINAL, 'utf8')
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const env = { ...process.env }
+// The connection log is what the opt-in real-CLI stage reads; harmless otherwise.
+const env = { ...process.env, EMBER_IDE_LOG: path.join(work, 'ide.log') }
 delete env.ELECTRON_RUN_AS_NODE
 
 // Locks that already existed belong to other editors and must not be touched.
@@ -204,6 +205,27 @@ check('accept wrote the file', fs.readFileSync(target, 'utf8') === ACCEPTED)
 
 await sleep(800)
 check('proposal pane closed after a verdict', (await page.locator('.pane.diff').count()) === 0)
+
+// --- the real CLI, opt-in ---------------------------------------------------
+// Off by default. It needs the Claude Code binary installed and signed in, and an
+// unauthenticated one starts a browser sign-in flow — not something a verification
+// run should do to someone unprompted. Set EMBER_VERIFY_REAL_CLI=1 to include it.
+//
+// Everything above proves the protocol against a client written here, which cannot
+// prove the CLI's own discovery works. This can.
+if (process.env.EMBER_VERIFY_REAL_CLI === '1' && process.env.CLAUDE_CODE_EXECPATH) {
+  const cliLog = path.join(work, 'ide.log')
+  await page.click('.composer__input')
+  await page.keyboard.type(`& "${process.env.CLAUDE_CODE_EXECPATH}"`, { delay: 5 })
+  await page.keyboard.press('Enter')
+
+  let connected = false
+  for (let i = 0; i < 40 && !connected; i++) {
+    await sleep(1500)
+    connected = fs.existsSync(cliLog) && fs.readFileSync(cliLog, 'utf8').includes('connected')
+  }
+  check('the real CLI discovers and connects', connected, 'no connection in 60s')
+}
 
 // --- shutdown removes the lockfile -----------------------------------------
 client.ws.close()
