@@ -358,6 +358,7 @@ export interface EmberApi {
   revealPath(target: string): void
   lspStart(language: string, root?: string): Promise<{ ok: boolean; error?: string }>
   lspSend(language: string, message: unknown): void
+  lspRequest(language: string, method: string, params: unknown): Promise<unknown>
   onLspMessage(cb: (e: LspEvent) => void): () => void
   onIdeCall(cb: (call: IdeCall) => void): () => void
   ideResult(id: number, result: unknown): void

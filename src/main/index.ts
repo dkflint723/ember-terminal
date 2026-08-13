@@ -204,6 +204,9 @@ function registerIpc(): void {
 
   ipcMain.handle('lsp:start', (_e, language: string, root?: string) => lsp.start(language, root))
   ipcMain.on('lsp:send', (_e, language: string, message: unknown) => lsp.post(language, message))
+  ipcMain.handle('lsp:request', (_e, language: string, method: string, params: unknown) =>
+    lsp.request(language, method, params)
+  )
 
   ipcMain.on('ide:result', (_e, id: number, result: unknown) => {
     const resolve = pendingIdeCalls.get(id)

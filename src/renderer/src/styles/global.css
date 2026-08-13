@@ -2203,3 +2203,81 @@ kbd {
   background: var(--fail);
   color: var(--bg);
 }
+
+/* ---------- outline ---------- */
+
+/*
+ * A section at the foot of the Explorer, capped so a long file cannot push the
+ * tree off screen. It disappears entirely when there is nothing to show, rather
+ * than sitting there empty.
+ */
+.outline {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 45%;
+  border-top: 1px solid var(--border);
+}
+
+.outline__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+}
+
+.outline__head:hover {
+  color: var(--fg);
+}
+
+.outline__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 6px;
+}
+
+.outline__row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 1px 8px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.outline__row:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.outline__kind {
+  flex: 0 0 auto;
+  min-width: 30px;
+  color: var(--fg-faint);
+  font-size: 9px;
+}
+
+.outline__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

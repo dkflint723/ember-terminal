@@ -56,6 +56,8 @@ const api: EmberApi = {
   revealPath: (target: string) => ipcRenderer.send('file:reveal', target),
   lspStart: (language: string, root?: string) => ipcRenderer.invoke('lsp:start', language, root),
   lspSend: (language: string, message: unknown) => ipcRenderer.send('lsp:send', language, message),
+  lspRequest: (language: string, method: string, params: unknown) =>
+    ipcRenderer.invoke('lsp:request', language, method, params),
   onLspMessage: (cb: (e: LspEvent) => void) => {
     const listener = (_: unknown, e: LspEvent): void => cb(e)
     ipcRenderer.on('lsp:message', listener)

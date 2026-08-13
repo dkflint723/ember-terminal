@@ -237,7 +237,7 @@ export class LspService {
       try {
         const parsed = normalizeUris(JSON.parse(body))
         trace('<--', language, parsed)
-        if (!this.answerClientRequest(language, parsed)) {
+        if (!this.settleDirect(parsed) && !this.answerClientRequest(language, parsed)) {
           this.send({ type: 'message', language, message: parsed })
         }
       } catch {
@@ -295,6 +295,57 @@ export class LspService {
     }
 
     this.write(language, normalizeUris(outgoing))
+  }
+
+  /**
+   * Ask a server something directly, outside Monaco's client.
+   *
+   * Some things the UI wants — a document outline, say — are answered by the
+   * server but not exposed by the client, which registers providers with Monaco
+   * and offers no way to invoke them. Rather than reimplement the client, this
+   * borrows its connection.
+   *
+   * Sharing a connection means sharing an id space, so these are numbered from a
+   * reserved range far above anything the client will reach, and their responses
+   * are resolved here instead of being forwarded — a reply the client never asked
+   * for would otherwise arrive as an answer to a request it does not have.
+   */
+  private static readonly DIRECT_ID_BASE = 1_000_000
+  private nextDirectId = LspService.DIRECT_ID_BASE
+  private pendingDirect = new Map<number, (result: unknown) => void>()
+
+  request(language: string, method: string, params: unknown): Promise<unknown> {
+    if (!this.servers.has(language)) return Promise.resolve(null)
+    const id = ++this.nextDirectId
+
+    return new Promise((resolve) => {
+      // Never left hanging: a server that goes away mid-request would otherwise
+      // strand whatever is waiting on it.
+      const timer = setTimeout(() => {
+        this.pendingDirect.delete(id)
+        resolve(null)
+      }, 10_000)
+
+      this.pendingDirect.set(id, (result) => {
+        clearTimeout(timer)
+        resolve(result)
+      })
+      this.write(language, normalizeUris({ jsonrpc: '2.0', id, method, params }))
+    })
+  }
+
+  /** True when this was an answer to one of our own direct requests. */
+  private settleDirect(message: unknown): boolean {
+    if (typeof message !== 'object' || message === null) return false
+    const reply = message as { id?: unknown; method?: unknown; result?: unknown }
+    if (typeof reply.id !== 'number' || reply.method !== undefined) return false
+    if (reply.id < LspService.DIRECT_ID_BASE) return false
+
+    const resolve = this.pendingDirect.get(reply.id)
+    if (!resolve) return false
+    this.pendingDirect.delete(reply.id)
+    resolve(reply.result ?? null)
+    return true
   }
 
   /** Frame one message onto a server's stdin. */

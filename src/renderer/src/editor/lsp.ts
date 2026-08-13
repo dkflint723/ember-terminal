@@ -154,6 +154,11 @@ interface TsDefaults {
  * file of that language rather than at boot, so a terminal-only session never pays
  * for a language server.
  */
+/** Which server answers for a Monaco language id, if any. */
+export function serverFor(language: string): string | null {
+  return SERVER_FOR[language] ?? null
+}
+
 export function ensureLanguageServer(language: string, root?: string): Promise<boolean> {
   const target = SERVER_FOR[language]
   if (!target) return Promise.resolve(false)
