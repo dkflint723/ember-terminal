@@ -30,7 +30,18 @@ export class SearchService {
     try {
       // Resolved lazily: a packaged build that somehow lacks the binary should
       // report that clearly rather than failing at import time.
-      return (require('@vscode/ripgrep') as { rgPath: string }).rgPath
+      const { rgPath } = require('@vscode/ripgrep') as { rgPath: string }
+      /*
+       * In a packaged build the module resolves to a path inside app.asar, and no
+       * child process can execute a file inside an archive — Electron's shim only
+       * fools code that goes through its own fs. The binary is unpacked beside it,
+       * which is where this has to point.
+       *
+       * Search, quick open and the workspace file list all come through here, so
+       * getting this wrong takes all three out at once, and only in builds nobody
+       * runs from source.
+       */
+      return rgPath.replace(/app\.asar(?=[\\/]|$)/, 'app.asar.unpacked')
     } catch {
       return null
     }
