@@ -363,6 +363,7 @@ export interface EmberApi {
   githubCheckout(cwd: string, number: number): Promise<GitSimpleResult>
   openExternal(url: string): void
   search(query: SearchQuery): Promise<SearchResult>
+  listFiles(root: string): Promise<string[]>
   cancelSearch(): void
   gitStatus(cwd: string): Promise<GitStatusResult>
   gitDiff(root: string, path: string, staged: boolean): Promise<GitDiffResult>

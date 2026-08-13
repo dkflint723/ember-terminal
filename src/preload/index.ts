@@ -72,6 +72,7 @@ const api: EmberApi = {
 
   search: (query: SearchQuery) => ipcRenderer.invoke('search:run', query),
   cancelSearch: () => ipcRenderer.send('search:cancel'),
+  listFiles: (root: string) => ipcRenderer.invoke('search:files', root),
 
   gitStatus: (cwd: string) => ipcRenderer.invoke('git:status', cwd),
   gitDiff: (root: string, path: string, staged: boolean) =>

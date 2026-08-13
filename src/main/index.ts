@@ -221,6 +221,7 @@ function registerIpc(): void {
 
   ipcMain.handle('search:run', (_e, query) => search.run(query))
   ipcMain.on('search:cancel', () => search.cancel())
+  ipcMain.handle('search:files', (_e, root: string) => search.files(root))
 
   ipcMain.handle('git:status', (_e, cwd: string) => git.status(cwd))
   ipcMain.handle('git:diff', (_e, root: string, path: string, staged: boolean) =>

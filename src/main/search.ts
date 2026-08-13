@@ -39,6 +39,41 @@ export class SearchService {
     this.current = null
   }
 
+  /**
+   * Every file in the workspace, for quick open.
+   *
+   * `rg --files` rather than a recursive readdir: it is the same walk ripgrep does
+   * for a search, so it honours the same ignore rules — a quick-open list that
+   * offered node_modules while search skipped it would be its own kind of wrong.
+   */
+  async files(root: string): Promise<string[]> {
+    const rg = this.rgPath()
+    if (!rg) return []
+
+    return new Promise<string[]>((resolve) => {
+      let child: ChildProcess
+      try {
+        child = spawn(rg, ['--files', '--no-require-git', '--', root], {
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'ignore']
+        })
+      } catch {
+        resolve([])
+        return
+      }
+
+      let out = ''
+      child.stdout?.on('data', (chunk: Buffer) => {
+        out += chunk.toString('utf8')
+        // A workspace can have hundreds of thousands of files; past this the list
+        // is not the tool for the job and the fuzzy filter would crawl.
+        if (out.length > 8 * 1024 * 1024) child.kill()
+      })
+      child.on('error', () => resolve([]))
+      child.on('close', () => resolve(out.split('\n').map((l) => l.trim()).filter(Boolean)))
+    })
+  }
+
   async run(query: SearchQuery): Promise<SearchResult> {
     this.cancel()
 

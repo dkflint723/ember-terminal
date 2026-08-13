@@ -152,6 +152,8 @@ interface Store {
    * counter makes repeated presses distinguishable, so it still toggles.
    */
   askRequest: { paneId: string; n: number } | null
+  /** Which overlay is open: file quick-open, the command palette, or neither. */
+  paletteMode: 'files' | 'commands' | null
 
   setProfiles(p: ShellProfile[]): void
   applySettings(s: Settings): void
@@ -167,6 +169,8 @@ interface Store {
   setPendingInput(paneId: string, text: string): void
   clearPendingInput(paneId: string): void
   requestAsk(paneId: string): void
+  openPalette(mode: 'files' | 'commands'): void
+  closePalette(): void
 
   newTab(profileId: string, cwd?: string): string
   closeTab(tabId: string): void
@@ -316,6 +320,7 @@ export const useStore = create<Store>((set, get) => ({
   gitStatus: null,
   pendingInput: {},
   askRequest: null,
+  paletteMode: null,
 
   setProfiles: (profiles) => set({ profiles }),
   applySettings: (settings) => set({ settings }),
@@ -335,6 +340,9 @@ export const useStore = create<Store>((set, get) => ({
 
   setTreeRoot: (treeRoot) => set({ treeRoot }),
   setGitStatus: (gitStatus) => set({ gitStatus }),
+  openPalette: (paletteMode) => set({ paletteMode }),
+  closePalette: () => set({ paletteMode: null }),
+
   requestAsk: (paneId) =>
     set((s) => ({ askRequest: { paneId, n: (s.askRequest?.n ?? 0) + 1 } })),
 

@@ -6,6 +6,7 @@ import { SettingsPanel } from './components/SettingsPanel'
 import { HistorySearch } from './components/HistorySearch'
 import { ActivityBar } from './components/ActivityBar'
 import { Sidebar } from './components/Sidebar'
+import { Palette } from './components/Palette'
 import { disposeController } from './terminal/controller'
 import { activateTheme, refreshThemeList } from './state/theming'
 import { useGitStatusPolling } from './state/git'
@@ -273,6 +274,14 @@ export function App(): React.JSX.Element {
         return
       }
 
+      // Ctrl+P goes to a file, Ctrl+Shift+P runs a command. Claimed globally, and
+      // ahead of the editor, so they work wherever focus happens to be.
+      if (e.ctrlKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault()
+        s.openPalette(e.shiftKey ? 'commands' : 'files')
+        return
+      }
+
       // Ctrl+O opens a file in an editor pane beside the current one.
       if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'o') {
         e.preventDefault()
@@ -326,6 +335,7 @@ export function App(): React.JSX.Element {
         )}
         <SettingsPanel />
         <HistorySearch />
+        <Palette onOpenFile={(p) => void openPaths([p])} />
       </div>
     </div>
   )

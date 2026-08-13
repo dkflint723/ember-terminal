@@ -20,14 +20,15 @@
     "verify:git": "electron-vite build && node scripts/verify-git.mjs",
     "verify:ide": "electron-vite build && node scripts/verify-ide.mjs",
     "verify:tabs": "electron-vite build && node scripts/verify-tabs.mjs",
-    "verify:all": "npm run verify && node scripts/verify-editor.mjs && node scripts/verify-tabs.mjs && node scripts/verify-lsp.mjs && node scripts/verify-git.mjs && node scripts/verify-ide.mjs && node scripts/verify-github.mjs && node scripts/verify-explorer.mjs && node scripts/verify-session.mjs && node scripts/verify-notify.mjs && node scripts/verify-settings.mjs && node scripts/verify-search.mjs",
+    "verify:all": "npm run verify && node scripts/verify-editor.mjs && node scripts/verify-tabs.mjs && node scripts/verify-lsp.mjs && node scripts/verify-git.mjs && node scripts/verify-ide.mjs && node scripts/verify-github.mjs && node scripts/verify-explorer.mjs && node scripts/verify-session.mjs && node scripts/verify-notify.mjs && node scripts/verify-settings.mjs && node scripts/verify-search.mjs && node scripts/verify-palette.mjs",
     "verify:github": "electron-vite build && node scripts/verify-github.mjs",
     "verify:explorer": "electron-vite build && node scripts/verify-explorer.mjs",
     "icon": "node scripts/build-icon.mjs",
     "verify:session": "electron-vite build && node scripts/verify-session.mjs",
     "verify:notify": "electron-vite build && node scripts/verify-notify.mjs",
     "verify:settings": "electron-vite build && node scripts/verify-settings.mjs",
-    "verify:search": "electron-vite build && node scripts/verify-search.mjs"
+    "verify:search": "electron-vite build && node scripts/verify-search.mjs",
+    "verify:palette": "electron-vite build && node scripts/verify-palette.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
