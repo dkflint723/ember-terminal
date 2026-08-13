@@ -1,9 +1,16 @@
 import { useStore } from '../state/store'
 import { FileTree } from './FileTree'
 import { SourceControl } from './SourceControl'
+import { GitHubPanel } from './GitHubPanel'
 
 interface Props {
   onOpen: (filePath: string) => void
+}
+
+const TITLES: Record<string, string> = {
+  explorer: 'Explorer',
+  scm: 'Source Control',
+  github: 'GitHub'
 }
 
 /**
@@ -15,8 +22,10 @@ export function Sidebar({ onOpen }: Props): React.JSX.Element {
 
   return (
     <div className="sidebar" data-view={view}>
-      <div className="sidebar__title">{view === 'scm' ? 'Source Control' : 'Explorer'}</div>
-      {view === 'scm' ? <SourceControl /> : <FileTree onOpen={onOpen} />}
+      <div className="sidebar__title">{TITLES[view]}</div>
+      {view === 'scm' && <SourceControl />}
+      {view === 'github' && <GitHubPanel />}
+      {view === 'explorer' && <FileTree onOpen={onOpen} />}
     </div>
   )
 }

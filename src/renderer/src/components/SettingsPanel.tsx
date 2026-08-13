@@ -7,6 +7,65 @@ const SWATCH_TOKENS = ['bg', 'fg', 'accent', 'ok', 'fail', 'info', 'bg-elevated'
 import { useStore } from '../state/store'
 import { activateTheme, refreshThemeList } from '../state/theming'
 
+/**
+ * The Explorer context-menu entry.
+ *
+ * Read from the registry rather than stored as a setting: the entry lives outside
+ * this app and can be removed from outside it, so a remembered "on" would go stale
+ * the moment someone tidied their shell extensions. Saved immediately on toggle,
+ * not on Save, because it is a system change rather than a preference in a draft.
+ */
+function ExplorerMenuField(): React.JSX.Element | null {
+  const [supported, setSupported] = useState<boolean | null>(null)
+  const [on, setOn] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    void (async () => {
+      const can = await window.ember.explorerSupported()
+      setSupported(can)
+      if (can) setOn(await window.ember.explorerStatus())
+    })()
+  }, [])
+
+  if (supported === null || supported === false) return null
+
+  const toggle = async (next: boolean): Promise<void> => {
+    setBusy(true)
+    setError(null)
+    const res = next
+      ? await window.ember.explorerRegister()
+      : await window.ember.explorerUnregister()
+    setBusy(false)
+    if (!res.ok) {
+      setError(res.error ?? 'Could not change the context menu.')
+      return
+    }
+    // Re-read rather than trusting the write, so the checkbox reflects the
+    // registry and not what was asked for.
+    setOn(await window.ember.explorerStatus())
+  }
+
+  return (
+    <div className="field">
+      <label>Windows Explorer</label>
+      <label className="field__check">
+        <input
+          type="checkbox"
+          checked={on}
+          disabled={busy}
+          onChange={(e) => void toggle(e.target.checked)}
+        />
+        <span>Show &ldquo;Open in Ember&rdquo; when right-clicking a folder</span>
+      </label>
+      <div className="field__note">
+        {error ?? 'Applies immediately, for this user only, and can be turned off here again.'}
+      </div>
+    </div>
+  )
+}
+
 export function SettingsPanel(): React.JSX.Element | null {
   const open = useStore((s) => s.settingsOpen)
   const toggle = useStore((s) => s.toggleSettings)
@@ -157,6 +216,8 @@ export function SettingsPanel(): React.JSX.Element | null {
             ANTHROPIC_API_KEY environment variable instead.
           </div>
         </div>
+
+        <ExplorerMenuField />
 
         <div className="modal__actions">
           <button className="btn" onClick={close}>

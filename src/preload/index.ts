@@ -27,6 +27,16 @@ const api: EmberApi = {
     ipcRenderer.on('file:open', listener)
     return () => ipcRenderer.removeListener('file:open', listener)
   },
+  startupFolders: () => ipcRenderer.invoke('file:startupFolders'),
+  onOpenFolder: (cb: (folder: string) => void) => {
+    const listener = (_: unknown, folder: string): void => cb(folder)
+    ipcRenderer.on('file:openFolder', listener)
+    return () => ipcRenderer.removeListener('file:openFolder', listener)
+  },
+  explorerSupported: () => ipcRenderer.invoke('explorer:supported'),
+  explorerStatus: () => ipcRenderer.invoke('explorer:status'),
+  explorerRegister: () => ipcRenderer.invoke('explorer:register'),
+  explorerUnregister: () => ipcRenderer.invoke('explorer:unregister'),
   openFileDialog: (defaultPath?: string) => ipcRenderer.invoke('file:openDialog', defaultPath),
   readFile: (path: string) => ipcRenderer.invoke('file:read', path),
   readDir: (path: string) => ipcRenderer.invoke('file:readDir', path),
@@ -45,6 +55,11 @@ const api: EmberApi = {
   ideResult: (id: number, result: unknown) => ipcRenderer.send('ide:result', id, result),
   ideWorkspace: (folders: string[]) => ipcRenderer.send('ide:workspace', folders),
   ideNotify: (method: string, params: unknown) => ipcRenderer.send('ide:notify', method, params),
+
+  githubOverview: (cwd: string) => ipcRenderer.invoke('github:overview', cwd),
+  githubCheckout: (cwd: string, number: number) =>
+    ipcRenderer.invoke('github:checkout', cwd, number),
+  openExternal: (url: string) => ipcRenderer.send('shell:openExternal', url),
 
   gitStatus: (cwd: string) => ipcRenderer.invoke('git:status', cwd),
   gitDiff: (root: string, path: string, staged: boolean) =>

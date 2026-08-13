@@ -68,8 +68,15 @@ const check = (label, condition, detail) => {
 }
 
 // --- the activity bar is present with the sidebar closed -------------------
+// Asserted as "has a source control entry" rather than a count: this check exists
+// to prove the rail is there and reaches this view, and counting made adding a
+// third view look like a regression in source control.
 const railCount = await page.locator('.activity__item').count()
-check('activity bar has both views', railCount === 2, `saw ${railCount}`)
+check('the rail is present', railCount >= 2, `saw ${railCount}`)
+check(
+  'and offers source control',
+  (await page.locator('.activity__item[data-view="scm"]').count()) === 1
+)
 
 // The badge counts changed paths, and must appear without the sidebar ever
 // being opened — it reads the same status the explorer colours itself from.

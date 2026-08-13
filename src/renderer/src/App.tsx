@@ -57,15 +57,24 @@ export function App(): React.JSX.Element {
       // Read before the first tab exists, so the workspace root can be seeded from
       // a file argument. A new terminal reports the home directory until its shell
       // says otherwise, and that placeholder would otherwise claim the root first.
-      const startup = await window.ember.startupFiles()
-      if (startup.length > 0) {
-        const dir = startup[0].replace(/[\\/][^\\/]*$/, '')
-        if (dir && dir !== startup[0]) useStore.getState().setTreeRoot(dir)
-      }
+      const [startup, folders] = await Promise.all([
+        window.ember.startupFiles(),
+        window.ember.startupFolders()
+      ])
+
+      // A folder argument — what Explorer's "Open in Ember" passes — is the
+      // strongest statement of where the user is working, so it wins over a file's
+      // directory, which in turn beats the shell's own default.
+      const root =
+        folders[0] ??
+        (startup[0] ? startup[0].replace(/[\\/][^\\/]*$/, '') || null : null)
+      if (root) useStore.getState().setTreeRoot(root)
 
       const preferred =
         profiles.find((p) => p.id === settings.defaultProfileId)?.id ?? profiles[0].id
-      if (useStore.getState().tabs.length === 0) newTab(preferred)
+      // The shell starts in that folder too: "open here" would be a strange promise
+      // to keep in the sidebar and break in the terminal.
+      if (useStore.getState().tabs.length === 0) newTab(preferred, folders[0] ?? undefined)
 
       // Files named on the command line open once the first tab exists, since an
       // editor pane is created beside an existing pane.
@@ -74,6 +83,18 @@ export function App(): React.JSX.Element {
   }, [newTab, setProfiles, applySettings])
 
   useEffect(() => window.ember.onOpenFiles((paths) => void openPaths(paths)), [])
+
+  // A second instance launched on a folder opens a tab there rather than stealing
+  // the root from whatever the current window is already working on.
+  useEffect(
+    () =>
+      window.ember.onOpenFolder((folder) => {
+        const s = useStore.getState()
+        if (!s.treeRoot) s.setTreeRoot(folder)
+        s.newTab(s.profiles[0]?.id ?? '', folder)
+      }),
+    []
+  )
 
   // Dispose controllers for panes that have gone away, so xterm instances and
   // their offscreen render terminals are not leaked.
@@ -174,6 +195,11 @@ export function App(): React.JSX.Element {
       if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'g') {
         e.preventDefault()
         s.showSidebarView('scm')
+        return
+      }
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'h') {
+        e.preventDefault()
+        s.showSidebarView('github')
         return
       }
 

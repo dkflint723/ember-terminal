@@ -173,6 +173,48 @@ export interface GitDiffOk {
   modifiedLabel: string
 }
 
+/** One word for a pull request's checks, reduced from however many it has. */
+export type GitHubCheckState = 'passing' | 'failing' | 'pending' | 'none'
+
+export interface GitHubPr {
+  number: number
+  title: string
+  author: string
+  isDraft: boolean
+  state: string
+  headRefName: string
+  updatedAt: string
+  url: string
+  /** APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or null when none applies. */
+  reviewDecision: string | null
+  checks: GitHubCheckState
+}
+
+export interface GitHubIssue {
+  number: number
+  title: string
+  author: string
+  updatedAt: string
+  url: string
+  labels: string[]
+}
+
+export interface GitHubOverview {
+  repo: { owner: string; name: string; url: string; defaultBranch: string }
+  prs: GitHubPr[]
+  issues: GitHubIssue[]
+}
+
+/**
+ * A failure carries why, not just what: gh missing, not signed in and no GitHub
+ * remote each have a different remedy, and the panel says which.
+ */
+export type GitHubFailure = 'no-cli' | 'no-auth' | 'no-repo' | 'error'
+
+export type GitHubResult =
+  | { ok: true; overview: GitHubOverview; reason?: undefined }
+  | { ok: false; reason: GitHubFailure; error: string }
+
 /** A Claude Code tool call, forwarded from the socket in main to the editors here. */
 export interface IdeCall {
   id: number
@@ -215,6 +257,13 @@ export const DEFAULT_SETTINGS: Settings = {
 export interface EmberApi {
   startupFiles(): Promise<string[]>
   onOpenFiles(cb: (paths: string[]) => void): () => void
+  /** Folders named on the command line — what Explorer's "Open in Ember" passes. */
+  startupFolders(): Promise<string[]>
+  onOpenFolder(cb: (folder: string) => void): () => void
+  explorerSupported(): Promise<boolean>
+  explorerStatus(): Promise<boolean>
+  explorerRegister(): Promise<{ ok: boolean; error?: string }>
+  explorerUnregister(): Promise<{ ok: boolean; error?: string }>
   openFileDialog(defaultPath?: string): Promise<FileOpenResult>
   readFile(path: string): Promise<FileReadResult>
   readDir(path: string): Promise<DirReadResult>
@@ -225,6 +274,9 @@ export interface EmberApi {
   ideResult(id: number, result: unknown): void
   ideWorkspace(folders: string[]): void
   ideNotify(method: string, params: unknown): void
+  githubOverview(cwd: string): Promise<GitHubResult>
+  githubCheckout(cwd: string, number: number): Promise<GitSimpleResult>
+  openExternal(url: string): void
   gitStatus(cwd: string): Promise<GitStatusResult>
   gitDiff(root: string, path: string, staged: boolean): Promise<GitDiffResult>
   gitStage(root: string, paths: string[]): Promise<GitSimpleResult>

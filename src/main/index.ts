@@ -6,10 +6,12 @@ import { SettingsStore } from './settings.js'
 import { ThemeStore } from './themes.js'
 import { CompletionService } from './completion.js'
 import { HistoryStore } from './history.js'
-import { FileService, fileArgs } from './files.js'
+import { FileService, fileArgs, pathArgs } from './files.js'
 import { LspService } from './lsp.js'
 import { GitService } from './git.js'
 import { IdeServer } from './ide.js'
+import { GitHubService } from './github.js'
+import { ExplorerMenu } from './explorer.js'
 import { AiService } from './ai.js'
 import {
   DEFAULT_SETTINGS,
@@ -32,6 +34,8 @@ let files: FileService
 let lsp: LspService
 let git: GitService
 let ide: IdeServer
+let github: GitHubService
+const explorer = new ExplorerMenu()
 
 /**
  * Tool calls arrive on a socket owned by main, but every one of them is a question
@@ -56,6 +60,7 @@ function callRenderer(name: string, args: Record<string, unknown>): Promise<unkn
 }
 /** Drained once by the renderer at boot; refilled when a second instance starts. */
 let startupFiles: string[] = []
+let startupFolders: string[] = []
 let ai: AiService
 let ptys: PtyManager
 
@@ -145,6 +150,19 @@ function registerIpc(): void {
     return pending
   })
 
+  ipcMain.handle('file:startupFolders', () => {
+    const pending = startupFolders
+    startupFolders = []
+    return pending
+  })
+
+  ipcMain.handle('explorer:status', () =>
+    explorer.supported ? explorer.isRegistered() : Promise.resolve(false)
+  )
+  ipcMain.handle('explorer:supported', () => explorer.supported)
+  ipcMain.handle('explorer:register', () => explorer.register())
+  ipcMain.handle('explorer:unregister', () => explorer.unregister())
+
   ipcMain.handle('file:openDialog', (_e, defaultPath?: string) =>
     mainWindow ? files.openDialog(mainWindow, defaultPath) : { ok: false, error: 'No window.' }
   )
@@ -162,6 +180,17 @@ function registerIpc(): void {
   })
   ipcMain.on('ide:workspace', (_e, folders: string[]) => ide.setWorkspaceFolders(folders))
   ipcMain.on('ide:notify', (_e, method: string, params: unknown) => ide.notify(method, params))
+
+  ipcMain.handle('github:overview', (_e, cwd: string) => github.overview(cwd))
+  ipcMain.handle('github:checkout', (_e, cwd: string, number: number) =>
+    github.checkout(cwd, number)
+  )
+  ipcMain.on('shell:openExternal', (_e, url: string) => {
+    // Only ever a link the user clicked in a list this app fetched, and only over
+    // http(s): openExternal will hand anything else to whatever the OS has
+    // registered for the scheme.
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
+  })
 
   ipcMain.handle('git:status', (_e, cwd: string) => git.status(cwd))
   ipcMain.handle('git:diff', (_e, root: string, path: string, staged: boolean) =>
@@ -249,7 +278,10 @@ if (!app.requestSingleInstanceLock()) {
     files = new FileService()
     lsp = new LspService((payload) => sendToRenderer('lsp:message', payload))
     git = new GitService()
-    startupFiles = fileArgs(process.argv, app.getAppPath())
+    github = new GitHubService()
+    const startup = pathArgs(process.argv, app.getAppPath())
+    startupFiles = startup.files
+    startupFolders = startup.folders
     ai = new AiService(settings)
     ide = new IdeServer((name, args) => callRenderer(name, args))
     ide.start([])

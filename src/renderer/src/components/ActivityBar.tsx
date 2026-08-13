@@ -35,6 +35,20 @@ const ENTRIES: Entry[] = [
         <path d="M5.5 6.6v5.8M7.6 5.6h2.6a2 2 0 0 1 2 2v.6M12.2 11.4v.6a2 2 0 0 1-2 2H7.6" />
       </>
     )
+  },
+  {
+    view: 'github',
+    label: 'GitHub',
+    hint: 'GitHub (Ctrl+Shift+H)',
+    icon: (
+      // A pull request: a branch leaving a line and merging back into it.
+      <>
+        <circle cx="6" cy="4.5" r="2" />
+        <circle cx="6" cy="15" r="2" />
+        <circle cx="14" cy="9" r="2" />
+        <path d="M6 6.5v6.5M14 11v1.5a2 2 0 0 1-2 2H8M14 7V5.5a2 2 0 0 0-2-2H8.2" />
+      </>
+    )
   }
 ]
 

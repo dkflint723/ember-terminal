@@ -1,7 +1,7 @@
 import { dialog, type BrowserWindow } from 'electron'
 import { existsSync, statSync } from 'node:fs'
 import { readdir, readFile, stat, writeFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import type {
   DirEntry,
   DirReadResult,
@@ -31,17 +31,35 @@ function looksBinary(buffer: Buffer): boolean {
  * exists rather than trusting position.
  */
 export function fileArgs(argv: string[], appPath: string): string[] {
-  const out: string[] = []
+  return pathArgs(argv, appPath).files
+}
+
+/**
+ * Paths on the command line, split into files to open and folders to work in.
+ *
+ * A folder argument is what Explorer's "Open in Ember" passes, and it means
+ * something different from a file: not "show me this" but "start here", so the
+ * shell opens in it and the sidebar is rooted there.
+ */
+export function pathArgs(argv: string[], appPath: string): { files: string[]; folders: string[] } {
+  const files: string[] = []
+  const folders: string[] = []
   for (const arg of argv.slice(1)) {
     if (arg.startsWith('-')) continue
-    if (arg === '.' || arg === appPath) continue
+    if (arg === appPath) continue
+    // `.` is meaningful from a shell but is also what Chromium and packagers pass
+    // around; resolved against the working directory it is an ordinary folder.
+    const candidate = arg === '.' ? process.cwd() : arg
     try {
-      if (existsSync(arg) && statSync(arg).isFile()) out.push(arg)
+      if (!existsSync(candidate)) continue
+      const info = statSync(candidate)
+      if (info.isFile()) files.push(candidate)
+      else if (info.isDirectory()) folders.push(resolve(candidate))
     } catch {
       // Not a path we can inspect; ignore it.
     }
   }
-  return out
+  return { files, folders }
 }
 
 export class FileService {

@@ -1574,3 +1574,205 @@ kbd {
   background: var(--bg-hover);
   color: var(--fg);
 }
+
+/* ---------- github ---------- */
+
+.gh {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.gh--empty {
+  gap: 8px;
+  padding: 10px 12px;
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+.gh__problem {
+  color: var(--fg-dim);
+}
+
+.gh__hint {
+  padding: 6px 12px;
+  color: var(--fg-faint);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.gh__hint code {
+  padding: 0 3px;
+  border-radius: 2px;
+  background: var(--bg-hover);
+  font-family: var(--mono);
+}
+
+.gh__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 6px 12px;
+}
+
+.gh__repo {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.gh__repo:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.gh__switch {
+  display: flex;
+  gap: 2px;
+  padding: 0 10px 6px;
+}
+
+.gh__switch-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1 1 0;
+  justify-content: center;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  color: var(--fg-faint);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.gh__switch-btn:hover {
+  color: var(--fg-dim);
+  background: var(--bg-hover);
+}
+
+.gh__switch-btn--on {
+  color: var(--fg);
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.gh__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 8px;
+}
+
+.gh__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 0 8px 0 12px;
+}
+
+.gh__row:hover {
+  background: var(--bg-hover);
+}
+
+.gh__item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 0;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.gh__num {
+  grid-row: 1;
+  color: var(--fg-faint);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.gh__title {
+  grid-row: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+
+.gh__row:hover .gh__title {
+  color: var(--fg);
+}
+
+/* Second row of the grid, under the title rather than competing with it. */
+.gh__meta {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+}
+
+.gh__author {
+  color: var(--fg-faint);
+}
+
+.gh__draft,
+.gh__label {
+  padding: 0 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--fg-faint);
+}
+
+/*
+ * Checks read as a word as well as a colour, so the state survives a theme where
+ * red and green are not distinguishable.
+ */
+.gh__checks--passing,
+.gh__ok {
+  color: var(--ok);
+}
+
+.gh__checks--failing,
+.gh__bad {
+  color: var(--fail);
+}
+
+.gh__checks--pending {
+  color: var(--info-fg);
+}
+
+/* A checkbox reads as one control with its text, so the whole row is the label. */
+.field__check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--fg-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.field__check input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
