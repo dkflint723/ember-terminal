@@ -149,6 +149,48 @@ button {
   color: var(--fg);
 }
 
+/* A single line for things that failed with nowhere else to say so. Bottom-right,
+   out of the way of both the composer and the sidebar. */
+.notice {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 460px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-left-width: 3px;
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font-size: 12px;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 35%);
+}
+
+.notice--error {
+  border-left-color: var(--fail);
+}
+
+.notice--info {
+  border-left-color: var(--ok);
+}
+
+.notice__close {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  background: none;
+  border: none;
+  color: var(--fg-faint);
+  cursor: pointer;
+}
+
+.notice__close:hover {
+  color: var(--fg);
+}
+
 /* Split controls, sitting with the window buttons rather than the tabs — they act
    on the layout, not on any one tab. */
 .titlebar__layout {

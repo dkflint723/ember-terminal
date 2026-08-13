@@ -471,7 +471,14 @@ export interface EmberApi {
   listProfiles(): Promise<ShellProfile[]>
   ai(req: AiRequest): Promise<AiResponse>
   getSettings(): Promise<Settings>
-  setSettings(patch: Partial<Settings>): Promise<Settings>
+  /** `persisted` is false when the value is in memory only and will not survive. */
+  setSettings(
+    patch: Partial<Settings>
+  ): Promise<{ settings: Settings; persisted: boolean; error?: string }>
+  /** Why stored settings could not be read, once, if they could not. */
+  settingsLoadError(): Promise<string | null>
+  /** Keep main's count current, so closing the window can ask before discarding. */
+  reportUnsaved(count: number): void
   windowAction(action: 'minimize' | 'maximize' | 'close'): void
   onWindowState(cb: (s: { maximized: boolean }) => void): () => void
   platform: string

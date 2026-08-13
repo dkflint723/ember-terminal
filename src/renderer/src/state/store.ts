@@ -156,12 +156,24 @@ interface Store {
   askRequest: { paneId: string; n: number } | null
   /** Which overlay is open: file quick-open, the command palette, or neither. */
   paletteMode: 'files' | 'commands' | null
+  /**
+   * Something the user needs told, with nowhere of its own to appear.
+   *
+   * Several things that can fail happen away from any particular panel — a
+   * background save, the session file, writing settings — and each of them used to
+   * discard its own result. Silence is the wrong answer for all of them: a
+   * workspace that has quietly stopped being saved looks exactly like one that is
+   * being saved.
+   */
+  notice: { text: string; tone: 'info' | 'error' } | null
 
   setProfiles(p: ShellProfile[]): void
   applySettings(s: Settings): void
   setThemes(list: ThemeSummary[]): void
   setTheme(theme: ResolvedTheme): void
   toggleSettings(open?: boolean): void
+  /** Say something once. Passing null clears it. */
+  setNotice(text: string | null, tone?: 'info' | 'error'): void
   toggleHistory(open?: boolean): void
   toggleSidebar(open?: boolean): void
   /** Show a view, opening the sidebar; picking the one already shown closes it. */
@@ -176,7 +188,8 @@ interface Store {
 
   /** Opens a tab and returns its *pane* id, which is what callers need to write to. */
   newTab(profileId: string, cwd?: string): string
-  closeTab(tabId: string): void
+  /** `alreadyConfirmed` is for closePane, which has asked about the same documents. */
+  closeTab(tabId: string, alreadyConfirmed?: boolean): void
   setActiveTab(tabId: string): void
   setActivePane(tabId: string, paneId: string): void
 
@@ -190,6 +203,8 @@ interface Store {
   closePane(tabId: string, paneId: string): void
   /** The tab whose layout contains this pane, which is not always the active one. */
   tabIdForPane(paneId: string): string | null
+  /** Titles of the unsaved documents held by these panes, for a close prompt. */
+  dirtyDocumentsIn(paneIds: string[]): string[]
   setSizes(tabId: string, path: number[], sizes: number[]): void
 
   editorPane(paneId: string): EditorPaneState | null
@@ -282,6 +297,22 @@ function removeLeaf(node: LayoutNode, paneId: string): LayoutNode | null {
   }
 }
 
+/**
+ * Ask before closing something that holds unsaved work.
+ *
+ * In the store rather than in a component because every way of closing converges
+ * here, and the one that did ask was the only one anybody had thought about.
+ * Returns true when there is nothing to lose or the user accepted losing it.
+ */
+function confirmDiscarding(titles: string[]): boolean {
+  if (titles.length === 0) return true
+  const names = titles.slice(0, 4).join(', ')
+  const rest = titles.length > 4 ? ` and ${titles.length - 4} more` : ''
+  return window.confirm(
+    `${names}${rest} ${titles.length === 1 ? 'has' : 'have'} unsaved changes. Close anyway?`
+  )
+}
+
 export function collectPaneIds(node: LayoutNode, out: string[] = []): string[] {
   if (node.type === 'leaf') out.push(node.paneId)
   else node.children.forEach((c) => collectPaneIds(c, out))
@@ -353,12 +384,15 @@ export const useStore = create<Store>((set, get) => ({
   pendingInput: {},
   askRequest: null,
   paletteMode: null,
+  notice: null,
 
   setProfiles: (profiles) => set({ profiles }),
   applySettings: (settings) => set({ settings }),
   setThemes: (themes) => set({ themes }),
   setTheme: (theme) => set({ theme }),
   toggleSettings: (open) => set((s) => ({ settingsOpen: open ?? !s.settingsOpen })),
+
+  setNotice: (text, tone = 'info') => set({ notice: text === null ? null : { text, tone } }),
   toggleHistory: (open) => set((s) => ({ historyOpen: open ?? !s.historyOpen })),
   toggleSidebar: (open) => set((s) => ({ sidebarOpen: open ?? !s.sidebarOpen })),
 
@@ -413,10 +447,16 @@ export const useStore = create<Store>((set, get) => ({
     return pane.id
   },
 
-  closeTab: (tabId) => {
+  closeTab: (tabId, alreadyConfirmed = false) => {
     const { tabs, panes } = get()
     const tab = tabs.find((t) => t.id === tabId)
     if (!tab) return
+    // A tab can hold several editors, so this asks about all of them at once
+    // rather than once per pane on the way down. Skipped when closePane has
+    // already asked about the same documents on its way here.
+    if (!alreadyConfirmed && !confirmDiscarding(get().dirtyDocumentsIn(collectPaneIds(tab.root)))) {
+      return
+    }
 
     for (const id of collectPaneIds(tab.root)) window.ember.kill(id)
 
@@ -473,10 +513,30 @@ export const useStore = create<Store>((set, get) => ({
   tabIdForPane: (paneId) =>
     get().tabs.find((t) => collectPaneIds(t.root).includes(paneId))?.id ?? null,
 
+  dirtyDocumentsIn: (paneIds) => {
+    const panes = get().panes
+    const out: string[] = []
+    for (const id of paneIds) {
+      const pane = panes[id]
+      if (pane?.kind !== 'editor') continue
+      for (const doc of pane.documents) if (doc.dirty) out.push(doc.title)
+    }
+    return out
+  },
+
   closePane: (tabId, paneId) => {
     const { tabs, panes } = get()
     const tab = tabs.find((t) => t.id === tabId)
     if (!tab) return
+    /*
+     * Ask before taking unsaved work with it.
+     *
+     * The tab strip's own close button asked, but nothing else did — Close Pane,
+     * Ctrl+Shift+W and closing a whole tab all went straight through and removed
+     * editors holding unsaved edits without a word. The check belongs here because
+     * this is where every one of those paths converges.
+     */
+    if (!confirmDiscarding(get().dirtyDocumentsIn([paneId]))) return
     // Closing a pane through the wrong tab used to remove it from the pane map and
     // kill its process while the tab that really owns it kept a leaf pointing at it,
     // leaving that tab with a hole where a pane should be.
@@ -484,7 +544,8 @@ export const useStore = create<Store>((set, get) => ({
 
     const nextRoot = removeLeaf(tab.root, paneId)
     if (!nextRoot) {
-      get().closeTab(tabId)
+      // Already asked above, about the only pane this tab had.
+      get().closeTab(tabId, true)
       return
     }
 
@@ -789,7 +850,7 @@ export const useStore = create<Store>((set, get) => ({
   saveAllDocuments: async () => {
     const { monaco } = await import('../editor/monaco')
     let saved = 0
-    let failed = 0
+    const failures: string[] = []
 
     for (const pane of Object.values(get().panes)) {
       if (pane.kind !== 'editor') continue
@@ -799,12 +860,12 @@ export const useStore = create<Store>((set, get) => ({
 
         const content = monaco.editor.getModel(monaco.Uri.file(doc.filePath))?.getValue()
         if (content === undefined) {
-          failed += 1
+          failures.push(doc.title)
           continue
         }
         const res = await window.ember.writeFile(doc.filePath, content)
         if (!res.ok) {
-          failed += 1
+          failures.push(doc.title)
           continue
         }
         // Re-found by path rather than reused: the write is awaited, and a tab
@@ -819,7 +880,22 @@ export const useStore = create<Store>((set, get) => ({
         saved += 1
       }
     }
-    return { saved, failed }
+    /*
+     * Say when a save did not happen.
+     *
+     * The count was returned and both callers dropped it, so a Save All that wrote
+     * nothing at all looked exactly like one that wrote everything — while the tabs
+     * stayed dirty and the reason went nowhere. Naming the files matters because
+     * the usual cause is one of them: read-only, locked, or gone.
+     */
+    if (failures.length > 0) {
+      const names = failures.slice(0, 3).join(', ')
+      const rest = failures.length > 3 ? ` and ${failures.length - 3} more` : ''
+      get().setNotice(`Could not save ${names}${rest}.`, 'error')
+    } else if (saved > 0) {
+      get().setNotice(`Saved ${saved} ${saved === 1 ? 'file' : 'files'}.`)
+    }
+    return { saved, failed: failures.length }
   },
 
   patchDocument: (paneId, patch, index) =>

@@ -124,6 +124,7 @@ export function SettingsPanel(): React.JSX.Element | null {
   const [probing, setProbing] = useState(false)
   /** Null until asked; false means a saved key would sit in plain text. */
   const [encrypted, setEncrypted] = useState<boolean | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const refreshAccess = async (): Promise<void> => {
     setProbing(true)
@@ -243,7 +244,20 @@ export function SettingsPanel(): React.JSX.Element | null {
 
   const save = async (): Promise<void> => {
     // Panes pick the new font up by re-rendering off the store.
-    applySettings(await window.ember.setSettings(draft))
+    const res = await window.ember.setSettings(draft)
+    applySettings(res.settings)
+    /*
+     * A write that did not happen keeps the dialog open.
+     *
+     * The failure used to be swallowed in main and unreportable by construction, so
+     * a key typed into a settings file that could not be written was accepted,
+     * applied, and gone by the next launch — with the dialog closing as if it had
+     * worked.
+     */
+    if (!res.persisted) {
+      setSaveError(res.error ?? 'Settings could not be saved, and will be lost on restart.')
+      return
+    }
     toggle(false)
   }
 
@@ -496,6 +510,8 @@ export function SettingsPanel(): React.JSX.Element | null {
         </div>
 
         <ExplorerMenuField />
+
+        {saveError && <div className="composer__error">{saveError}</div>}
 
         <div className="modal__actions">
           <button className="btn" onClick={close}>

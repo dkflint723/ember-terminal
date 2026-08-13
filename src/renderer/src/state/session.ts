@@ -276,15 +276,63 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
  */
 export const pendingUnsaved = new Map<string, string>()
 
+/**
+ * Whether unsaved text is actually being written down.
+ *
+ * Closing the window only needs to warn about unsaved work that closing would
+ * lose. With session restore on and the snapshot succeeding, it would not be lost —
+ * it comes back — so a warning there is a prompt for nothing, several times a day.
+ * With restore off, or with the snapshot failing because it grew too large, the
+ * work really is about to go, and that is the case worth interrupting for.
+ */
+let preserving = false
+let failing = false
+
+export function unsavedWorkIsPreserved(): boolean {
+  return preserving && !failing
+}
+
 /** Save on a debounce whenever the shape of the workspace changes. */
 export function useSessionAutosave(enabled: boolean): void {
   useEffect(() => {
-    if (!enabled) return
+    // Restore switched off means nothing is written down, so unsaved work really
+    // does go when the window closes — which is what makes the prompt worth having.
+    if (!enabled) {
+      preserving = false
+      return
+    }
 
     let timer: number | undefined
+    /*
+     * Said once, not every 1.2 seconds.
+     *
+     * The result used to be dropped, so a workspace that had stopped being saved —
+     * usually because an unsaved buffer pushed the snapshot over the size limit —
+     * looked exactly like one that was being saved, right up until the window
+     * closed and took the work with it. Repeating the same complaint on every
+     * keystroke would be its own problem, so it is reported when the outcome
+     * changes rather than when it recurs.
+     */
+    const save = async (): Promise<void> => {
+      const res = await window.ember.sessionSave(snapshot())
+      preserving = res.ok
+      if (!res.ok && !failing) {
+        failing = true
+        useStore
+          .getState()
+          .setNotice(
+            `The workspace is no longer being saved: ${res.error ?? 'unknown error'}`,
+            'error'
+          )
+      } else if (res.ok && failing) {
+        failing = false
+        useStore.getState().setNotice('The workspace is being saved again.')
+      }
+    }
+
     const schedule = (): void => {
       if (timer) window.clearTimeout(timer)
-      timer = window.setTimeout(() => void window.ember.sessionSave(snapshot()), SAVE_DEBOUNCE_MS)
+      timer = window.setTimeout(() => void save(), SAVE_DEBOUNCE_MS)
     }
 
     const unsubscribe = useStore.subscribe(schedule)

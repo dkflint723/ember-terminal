@@ -1,5 +1,5 @@
 import { app, safeStorage } from 'electron'
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { DEFAULT_SETTINGS, type Settings } from '../shared/types.js'
 
@@ -21,9 +21,25 @@ export class SettingsStore {
     let stored: Partial<Settings> = {}
     try {
       stored = JSON.parse(readFileSync(this.file, 'utf8')) as Partial<Settings>
-    } catch {
-      // No settings yet, or the file is unreadable/corrupt: fall back to
-      // defaults rather than failing to launch.
+      if (typeof stored !== 'object' || stored === null) throw new Error('not an object')
+    } catch (err) {
+      /*
+       * There is a difference between no settings and unreadable settings.
+       *
+       * Both used to fall back to defaults in silence, so a file that failed to
+       * parse looked like a first run — and the next write replaced it, taking the
+       * API key and every preference with it. A file that exists but cannot be read
+       * is put aside under .bad instead, which keeps it recoverable and says so.
+       */
+      if ((err as { code?: string }).code !== 'ENOENT' && existsSync(this.file)) {
+        this.loadError = err instanceof Error ? err.message : 'Settings could not be read.'
+        try {
+          renameSync(this.file, `${this.file}.bad`)
+        } catch {
+          // Keeping the original is better than losing it; the notice still goes out.
+        }
+      }
+      stored = {}
     }
 
     const merged: Settings = { ...DEFAULT_SETTINGS, ...stored }
@@ -32,19 +48,44 @@ export class SettingsStore {
     return merged
   }
 
-  set(patch: Partial<Settings>): Settings {
+  /** Why the stored settings could not be read, if they could not. Read once. */
+  private loadError: string | null = null
+
+  takeLoadError(): string | null {
+    this.get()
+    const error = this.loadError
+    this.loadError = null
+    return error
+  }
+
+  /**
+   * Written through a temporary file and renamed into place, so an interrupted
+   * write cannot leave a half-file that the next launch treats as corrupt.
+   *
+   * The outcome is returned rather than swallowed: a failed write meant the API key
+   * the user had just typed was kept in memory, reported as saved, and gone on the
+   * next launch.
+   */
+  set(patch: Partial<Settings>): { settings: Settings; persisted: boolean; error?: string } {
     const next: Settings = { ...this.get(), ...patch }
     this.cache = next
 
     const onDisk: Settings = { ...next, anthropicApiKey: this.encryptKey(next.anthropicApiKey) }
+    const temp = `${this.file}.tmp`
     try {
       mkdirSync(dirname(this.file), { recursive: true })
-      writeFileSync(this.file, JSON.stringify(onDisk, null, 2), 'utf8')
-    } catch {
-      // Keep the in-memory value so the session still works even if the disk
-      // write fails; the user just loses persistence.
+      writeFileSync(temp, JSON.stringify(onDisk, null, 2), 'utf8')
+      renameSync(temp, this.file)
+      return { settings: next, persisted: true }
+    } catch (err) {
+      // The in-memory value stands so the session still works; the caller is told
+      // that it will not outlive the window.
+      return {
+        settings: next,
+        persisted: false,
+        error: err instanceof Error ? err.message : 'Settings could not be saved.'
+      }
     }
-    return next
   }
 
   /**
@@ -62,7 +103,7 @@ export class SettingsStore {
     const rest = this.get().recentFolders.filter((f) => !same(f, folder))
     // Ten is enough to cover what someone moves between; past that it is a history
     // rather than a shortcut.
-    return this.set({ recentFolders: [folder, ...rest].slice(0, 10) })
+    return this.set({ recentFolders: [folder, ...rest].slice(0, 10) }).settings
   }
 
   /**

@@ -11,13 +11,34 @@ import { disposeController } from './terminal/controller'
 import { activateTheme, refreshThemeList } from './state/theming'
 import { useGitStatusPolling } from './state/git'
 import { useIdeBridge } from './state/ide'
-import { restore, useSessionAutosave } from './state/session'
+import { restore, unsavedWorkIsPreserved, useSessionAutosave } from './state/session'
 
 export function App(): React.JSX.Element {
   const tabs = useStore((s) => s.tabs)
   const panes = useStore((s) => s.panes)
   const activeTabId = useStore((s) => s.activeTabId)
   const sidebarOpen = useStore((s) => s.sidebarOpen)
+  const notice = useStore((s) => s.notice)
+  const setNotice = useStore((s) => s.setNotice)
+
+  // Kept current in main, which has to decide synchronously when the window is
+  // closing and cannot wait on an answer from here.
+  useEffect(() => {
+    const report = (): void => {
+      const s = useStore.getState()
+      let count = 0
+      for (const pane of Object.values(s.panes)) {
+        if (pane.kind !== 'editor') continue
+        for (const doc of pane.documents) if (doc.dirty) count += 1
+      }
+      // Only work that closing would actually lose. With session restore on and
+      // writing successfully, it comes back — warning about it would be a prompt
+      // for nothing several times a day.
+      window.ember.reportUnsaved(unsavedWorkIsPreserved() ? 0 : count)
+    }
+    report()
+    return useStore.subscribe(report)
+  }, [])
   const setProfiles = useStore((s) => s.setProfiles)
   const applySettings = useStore((s) => s.applySettings)
   const newTab = useStore((s) => s.newTab)
@@ -69,6 +90,19 @@ export function App(): React.JSX.Element {
       ])
       setProfiles(profiles)
       applySettings(settings)
+
+      // Settings that existed but could not be read were replaced with defaults in
+      // silence, which is indistinguishable from a first run right up until the
+      // next write makes it permanent.
+      const badSettings = await window.ember.settingsLoadError()
+      if (badSettings) {
+        useStore
+          .getState()
+          .setNotice(
+            `Your settings could not be read and have been reset. The old file was kept as settings.json.bad. (${badSettings})`,
+            'error'
+          )
+      }
 
       // Theme before the first pane, so no terminal is ever created with the
       // wrong palette and then repainted.
@@ -393,6 +427,17 @@ export function App(): React.JSX.Element {
         <HistorySearch />
         <Palette onOpenFile={(p) => void openPaths([p])} />
       </div>
+
+      {/* Things that failed away from any panel of their own — a background save,
+          the session file, writing settings — rather than being discarded. */}
+      {notice && (
+        <div className={`notice notice--${notice.tone}`} role="status">
+          <span>{notice.text}</span>
+          <button className="notice__close" aria-label="Dismiss" onClick={() => setNotice(null)}>
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   )
 }

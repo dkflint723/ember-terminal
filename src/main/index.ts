@@ -73,6 +73,10 @@ let startupFiles: string[] = []
 let startupFolders: string[] = []
 let ai: AiService
 let claudeCli: ClaudeCliService
+/** How many editor documents hold unsaved changes, as last reported by the renderer. */
+let unsavedCount = 0
+/** Set once the user has agreed to lose them, so the second close goes through. */
+let closingConfirmed = false
 let ptys: PtyManager
 
 /**
@@ -114,6 +118,31 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
+
+  /*
+   * Closing the window is the last chance to keep unsaved work.
+   *
+   * The renderer keeps this count current, because asking it at close time means
+   * an async round trip inside an event that has to decide synchronously. Session
+   * restore does preserve unsaved buffers, but it can be switched off, it has a
+   * size limit, and neither is something to bet someone's work on without asking.
+   */
+  mainWindow.on('close', (event) => {
+    if (unsavedCount === 0 || closingConfirmed || !mainWindow) return
+    event.preventDefault()
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'warning',
+      buttons: ['Cancel', 'Close without saving'],
+      defaultId: 0,
+      cancelId: 0,
+      message: `${unsavedCount} ${unsavedCount === 1 ? 'file has' : 'files have'} unsaved changes.`,
+      detail: 'Closing now discards them.'
+    })
+    if (choice === 1) {
+      closingConfirmed = true
+      mainWindow.close()
+    }
+  })
 
   const emitState = (): void =>
     sendToRenderer('window:state', { maximized: mainWindow?.isMaximized() ?? false })
@@ -350,6 +379,10 @@ function registerIpc(): void {
   ipcMain.handle('settings:get', () => settings.get())
   ipcMain.handle('settings:set', (_e, patch: Partial<Settings>) => settings.set(patch))
   ipcMain.handle('settings:noteFolder', (_e, folder: string) => settings.noteRecentFolder(folder))
+  ipcMain.handle('settings:loadError', () => settings.takeLoadError())
+  ipcMain.on('window:unsaved', (_e, count: number) => {
+    unsavedCount = Math.max(0, count)
+  })
   ipcMain.handle('settings:encryption', () => settings.encryptionAvailable())
 
   ipcMain.on('window:action', (_e, action: 'minimize' | 'maximize' | 'close') => {

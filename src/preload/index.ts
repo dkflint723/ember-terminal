@@ -139,7 +139,9 @@ const api: EmberApi = {
   keyEncryptionAvailable: (): Promise<boolean> => ipcRenderer.invoke('settings:encryption'),
   noteRecentFolder: (folder: string): Promise<Settings> =>
     ipcRenderer.invoke('settings:noteFolder', folder),
-  setSettings: (patch: Partial<Settings>): Promise<Settings> =>
+  settingsLoadError: (): Promise<string | null> => ipcRenderer.invoke('settings:loadError'),
+  reportUnsaved: (count: number) => ipcRenderer.send('window:unsaved', count),
+  setSettings: (patch: Partial<Settings>) =>
     ipcRenderer.invoke('settings:set', patch),
 
   windowAction: (action: 'minimize' | 'maximize' | 'close') =>
