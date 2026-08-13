@@ -133,6 +133,50 @@ export type FileReadResult = FileReadOk | { ok: false; error: string }
 export type FileOpenResult = FileReadOk | { ok: false; error?: string; canceled?: boolean }
 export type FileWriteResult = { ok: true } | { ok: false; error: string }
 
+/**
+ * One changed path. `status` is git's own single letter — M, A, D, R, C — plus `U`
+ * for untracked, which git reports as `?` but which reads better alongside the rest.
+ * A path modified in both the index and the working tree appears twice, once in each
+ * list, which is what lets it be staged and unstaged independently.
+ */
+export interface GitFileChange {
+  /** Repository-relative, forward slashes, as git reports it. */
+  path: string
+  /** Where a rename came from, else null. */
+  origPath: string | null
+  status: string
+  staged: boolean
+}
+
+export interface GitStatus {
+  root: string
+  /** Null on a detached HEAD, where `detached` is true instead. */
+  branch: string | null
+  detached: boolean
+  upstream: string | null
+  ahead: number
+  behind: number
+  staged: GitFileChange[]
+  changes: GitFileChange[]
+  conflicts: GitFileChange[]
+}
+
+export type GitStatusResult = { ok: true; status: GitStatus } | { ok: false; error: string }
+
+export interface GitDiffOk {
+  ok: true
+  path: string
+  /** Left-hand side; empty for a file that did not exist at that revision. */
+  original: string
+  modified: string
+  originalLabel: string
+  modifiedLabel: string
+}
+
+export type GitDiffResult = GitDiffOk | { ok: false; error: string }
+export type GitSimpleResult = { ok: true } | { ok: false; error: string }
+export type GitCommitResult = { ok: true; summary: string } | { ok: false; error: string }
+
 export interface LspEvent {
   type: 'message' | 'exit'
   language: string
@@ -170,6 +214,12 @@ export interface EmberApi {
   lspStart(language: string, root?: string): Promise<{ ok: boolean; error?: string }>
   lspSend(language: string, message: unknown): void
   onLspMessage(cb: (e: LspEvent) => void): () => void
+  gitStatus(cwd: string): Promise<GitStatusResult>
+  gitDiff(root: string, path: string, staged: boolean): Promise<GitDiffResult>
+  gitStage(root: string, paths: string[]): Promise<GitSimpleResult>
+  gitUnstage(root: string, paths: string[]): Promise<GitSimpleResult>
+  gitDiscard(root: string, paths: string[], untracked: string[]): Promise<GitSimpleResult>
+  gitCommit(root: string, message: string): Promise<GitCommitResult>
   writeFile(path: string, content: string): Promise<FileWriteResult>
   saveFileDialog(defaultPath?: string): Promise<string | null>
   complete(req: CompletionRequest): Promise<CompletionResult>

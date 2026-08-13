@@ -4,9 +4,11 @@ import { TitleBar } from './components/TitleBar'
 import { SplitView } from './components/SplitView'
 import { SettingsPanel } from './components/SettingsPanel'
 import { HistorySearch } from './components/HistorySearch'
-import { FileTree } from './components/FileTree'
+import { ActivityBar } from './components/ActivityBar'
+import { Sidebar } from './components/Sidebar'
 import { disposeController } from './terminal/controller'
 import { activateTheme, refreshThemeList } from './state/theming'
+import { useGitStatusPolling } from './state/git'
 
 export function App(): React.JSX.Element {
   const tabs = useStore((s) => s.tabs)
@@ -16,6 +18,22 @@ export function App(): React.JSX.Element {
   const setProfiles = useStore((s) => s.setProfiles)
   const applySettings = useStore((s) => s.applySettings)
   const newTab = useStore((s) => s.newTab)
+
+  // Mounted here rather than in the source-control view: the explorer colours its
+  // rows from the same status, and that has to work while the view is closed.
+  useGitStatusPolling()
+
+  // The workspace root defaults to the active terminal's directory, but does not
+  // follow it afterwards — re-rooting under someone mid-browse would be hostile.
+  // It lives here rather than in the explorer because source control needs a root
+  // too, and would otherwise have none until the explorer had been opened once.
+  const rootTab = tabs.find((t) => t.id === activeTabId)
+  const rootPane = rootTab ? panes[rootTab.activePaneId] : undefined
+  const terminalCwd = rootPane?.kind === 'terminal' ? rootPane.cwd : null
+  useEffect(() => {
+    const s = useStore.getState()
+    if (!s.treeRoot && terminalCwd) s.setTreeRoot(terminalCwd)
+  }, [terminalCwd])
 
   // Boot: discover shells, then open the first tab on the preferred one.
   useEffect(() => {
@@ -32,13 +50,23 @@ export function App(): React.JSX.Element {
       await Promise.all([activateTheme(settings.themeId), refreshThemeList()])
 
       if (profiles.length === 0) return
+
+      // Read before the first tab exists, so the workspace root can be seeded from
+      // a file argument. A new terminal reports the home directory until its shell
+      // says otherwise, and that placeholder would otherwise claim the root first.
+      const startup = await window.ember.startupFiles()
+      if (startup.length > 0) {
+        const dir = startup[0].replace(/[\\/][^\\/]*$/, '')
+        if (dir && dir !== startup[0]) useStore.getState().setTreeRoot(dir)
+      }
+
       const preferred =
         profiles.find((p) => p.id === settings.defaultProfileId)?.id ?? profiles[0].id
       if (useStore.getState().tabs.length === 0) newTab(preferred)
 
       // Files named on the command line open once the first tab exists, since an
       // editor pane is created beside an existing pane.
-      await openPaths(await window.ember.startupFiles())
+      await openPaths(startup)
     })()
   }, [newTab, setProfiles, applySettings])
 
@@ -55,6 +83,13 @@ export function App(): React.JSX.Element {
 
   const openPaths = async (paths: string[]): Promise<void> => {
     if (paths.length === 0) return
+    // A file named on the command line says more about where the user is working
+    // than the shell's start directory does, so it seeds the workspace root.
+    const s0 = useStore.getState()
+    if (!s0.treeRoot) {
+      const dir = paths[0].replace(/[\\/][^\\/]*$/, '')
+      if (dir && dir !== paths[0]) s0.setTreeRoot(dir)
+    }
     const { languageForPath } = await import('./editor/monaco')
     for (const filePath of paths) {
       const res = await window.ember.readFile(filePath)
@@ -126,10 +161,16 @@ export function App(): React.JSX.Element {
         return
       }
 
-      // Ctrl+B toggles the file tree, matching the editor convention.
+      // Ctrl+B and Ctrl+Shift+G select a sidebar view, matching the editor
+      // convention: pressing one twice collapses the sidebar again.
       if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'b') {
         e.preventDefault()
-        s.toggleSidebar()
+        s.showSidebarView('explorer')
+        return
+      }
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'g') {
+        e.preventDefault()
+        s.showSidebarView('scm')
         return
       }
 
@@ -165,7 +206,8 @@ export function App(): React.JSX.Element {
     <div className="app">
       <TitleBar />
       <div className="workspace">
-        {sidebarOpen && <FileTree onOpen={(p) => void openPaths([p])} />}
+        <ActivityBar />
+        {sidebarOpen && <Sidebar onOpen={(p) => void openPaths([p])} />}
         {activeTab ? (
           <SplitView
             tabId={activeTab.id}

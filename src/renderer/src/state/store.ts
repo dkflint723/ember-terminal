@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { DEFAULT_SETTINGS, type Settings, type ShellProfile } from '@shared/types'
+import { DEFAULT_SETTINGS, type GitStatus, type Settings, type ShellProfile } from '@shared/types'
 import type { ResolvedTheme, ThemeSummary } from '@shared/theme'
 import { DEFAULT_THEME } from '../terminal/theme'
 
@@ -23,7 +23,10 @@ export interface Block {
   interactive: boolean
 }
 
-export type PaneKind = 'terminal' | 'editor'
+export type PaneKind = 'terminal' | 'editor' | 'diff'
+
+/** Which view the sidebar is showing, chosen from the activity bar. */
+export type SidebarView = 'explorer' | 'scm'
 
 /**
  * Whether this pane's shell reports command boundaries.
@@ -71,7 +74,25 @@ export interface EditorPaneState extends BasePane {
   error: string | null
 }
 
-export type Pane = TerminalPaneState | EditorPaneState
+/**
+ * Two revisions of one file, side by side. Read-only: the content is a snapshot
+ * taken when the diff was opened, and editing a blob out of the object database is
+ * not a thing git can accept back.
+ */
+export interface DiffPaneState extends BasePane {
+  kind: 'diff'
+  /** Repository-relative, as git names it. */
+  filePath: string
+  title: string
+  original: string
+  modified: string
+  originalLabel: string
+  modifiedLabel: string
+  language: string
+  staged: boolean
+}
+
+export type Pane = TerminalPaneState | EditorPaneState | DiffPaneState
 
 export type LayoutNode =
   | { type: 'leaf'; paneId: string }
@@ -94,8 +115,15 @@ interface Store {
   settingsOpen: boolean
   historyOpen: boolean
   sidebarOpen: boolean
+  sidebarView: SidebarView
   /** Root of the file tree; null until a terminal reports a directory. */
   treeRoot: string | null
+  /**
+   * Last read of the repository containing the tree root, shared because both
+   * sidebar views need it: source control lists it, the explorer colours by it.
+   * Null when there is no repository, or before the first read.
+   */
+  gitStatus: GitStatus | null
   /** Command handed to a pane's input by history search, consumed on mount. */
   pendingInput: Record<string, string>
 
@@ -106,7 +134,10 @@ interface Store {
   toggleSettings(open?: boolean): void
   toggleHistory(open?: boolean): void
   toggleSidebar(open?: boolean): void
+  /** Show a view, opening the sidebar; picking the one already shown closes it. */
+  showSidebarView(view: SidebarView): void
   setTreeRoot(path: string): void
+  setGitStatus(status: GitStatus | null): void
   setPendingInput(paneId: string, text: string): void
   clearPendingInput(paneId: string): void
 
@@ -121,6 +152,8 @@ interface Store {
 
   editorPane(paneId: string): EditorPaneState | null
   patchEditorPane(paneId: string, patch: Partial<EditorPaneState>): void
+  /** Open (or re-focus) a read-only comparison of two revisions of one file. */
+  openDiffInSplit(tabId: string, diff: Omit<DiffPaneState, 'id' | 'kind'>): string | null
   /** Replace the active pane of a tab with an editor showing this file. */
   openFileInSplit(
     tabId: string,
@@ -246,7 +279,9 @@ export const useStore = create<Store>((set, get) => ({
   settingsOpen: false,
   historyOpen: false,
   sidebarOpen: false,
+  sidebarView: 'explorer',
   treeRoot: null,
+  gitStatus: null,
   pendingInput: {},
 
   setProfiles: (profiles) => set({ profiles }),
@@ -256,7 +291,17 @@ export const useStore = create<Store>((set, get) => ({
   toggleSettings: (open) => set((s) => ({ settingsOpen: open ?? !s.settingsOpen })),
   toggleHistory: (open) => set((s) => ({ historyOpen: open ?? !s.historyOpen })),
   toggleSidebar: (open) => set((s) => ({ sidebarOpen: open ?? !s.sidebarOpen })),
+
+  showSidebarView: (view) =>
+    set((s) => ({
+      // Clicking the icon of the view already showing collapses the sidebar, which
+      // is what makes the activity bar a toggle rather than only a selector.
+      sidebarOpen: !(s.sidebarOpen && s.sidebarView === view),
+      sidebarView: view
+    })),
+
   setTreeRoot: (treeRoot) => set({ treeRoot }),
+  setGitStatus: (gitStatus) => set({ gitStatus }),
   setPendingInput: (paneId, text) =>
     set((s) => ({ pendingInput: { ...s.pendingInput, [paneId]: text } })),
   clearPendingInput: (paneId) =>
@@ -410,6 +455,36 @@ export const useStore = create<Store>((set, get) => ({
 
     // Editors open beside the current pane, so the terminal stays visible — the
     // point of editing here rather than in a separate window.
+    set({
+      panes: { ...panes, [pane.id]: pane },
+      tabs: tabs.map((t) =>
+        t.id === tabId
+          ? { ...t, root: splitAt(t.root, tab.activePaneId, 'row', pane.id), activePaneId: pane.id }
+          : t
+      )
+    })
+    return pane.id
+  },
+
+  openDiffInSplit: (tabId, diff) => {
+    const { tabs, panes } = get()
+    const tab = tabs.find((t) => t.id === tabId)
+    if (!tab) return null
+
+    // One pane per file-and-side, refreshed in place. Opening the same diff twice
+    // should show the current content, not a second pane holding a stale snapshot.
+    const existing = Object.values(panes).find(
+      (p) => p.kind === 'diff' && p.filePath === diff.filePath && p.staged === diff.staged
+    )
+    if (existing) {
+      set({
+        panes: { ...panes, [existing.id]: { ...existing, ...diff } },
+        tabs: tabs.map((t) => (t.id === tabId ? { ...t, activePaneId: existing.id } : t))
+      })
+      return existing.id
+    }
+
+    const pane: DiffPaneState = { id: uid(), kind: 'diff', ...diff }
     set({
       panes: { ...panes, [pane.id]: pane },
       tabs: tabs.map((t) =>

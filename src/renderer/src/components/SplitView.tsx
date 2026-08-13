@@ -2,6 +2,7 @@ import { Fragment, useRef } from 'react'
 import { useStore, type LayoutNode } from '../state/store'
 import { TerminalPane } from './TerminalPane'
 import { EditorPane } from './EditorPane'
+import { DiffPane } from './DiffPane'
 
 interface Props {
   tabId: string
@@ -23,6 +24,15 @@ export function SplitView({ tabId, node, path, activePaneId }: Props): React.JSX
     if (pane.kind === 'editor') {
       return (
         <EditorPane
+          pane={pane}
+          active={pane.id === activePaneId}
+          onFocus={() => setActivePane(tabId, pane.id)}
+        />
+      )
+    }
+    if (pane.kind === 'diff') {
+      return (
+        <DiffPane
           pane={pane}
           active={pane.id === activePaneId}
           onFocus={() => setActivePane(tabId, pane.id)}

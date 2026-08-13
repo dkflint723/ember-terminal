@@ -16,7 +16,8 @@
     "package": "electron-vite build && electron-builder --win --dir",
     "dist": "electron-vite build && electron-builder --win",
     "verify:editor": "electron-vite build && node scripts/verify-editor.mjs",
-    "verify:lsp": "electron-vite build && node scripts/verify-lsp.mjs"
+    "verify:lsp": "electron-vite build && node scripts/verify-lsp.mjs",
+    "verify:git": "electron-vite build && node scripts/verify-git.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",

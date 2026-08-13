@@ -1,10 +1,21 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { DirEntry } from '@shared/types'
 import { useStore } from '../state/store'
+import { decorationFor, decorationsByPath, statusClass } from '../state/git'
 
 interface Props {
   /** Called with a file path when the user activates a row. */
   onOpen: (filePath: string) => void
+}
+
+/** Spelled out in the row's tooltip, since the letter alone is git's shorthand. */
+const STATUS_WORD: Record<string, string> = {
+  M: 'modified',
+  A: 'added',
+  D: 'deleted',
+  R: 'renamed',
+  C: 'conflicted',
+  U: 'untracked'
 }
 
 /**
@@ -26,9 +37,23 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState<Set<string>>(new Set())
 
+  const gitStatus = useStore((s) => s.gitStatus)
+
   const activeTab = tabs.find((t) => t.id === activeTabId)
   const activePane = activeTab ? panes[activeTab.activePaneId] : undefined
   const terminalCwd = activePane?.kind === 'terminal' ? activePane.cwd : null
+
+  // Rows are keyed by absolute path; git reports repository-relative ones.
+  const decorations = useMemo(
+    () =>
+      decorationsByPath(
+        gitStatus?.root ?? null,
+        gitStatus?.staged ?? [],
+        gitStatus?.changes ?? [],
+        gitStatus?.conflicts ?? []
+      ),
+    [gitStatus]
+  )
 
   const load = useCallback(async (dirPath: string): Promise<void> => {
     setLoading((prev) => new Set(prev).add(dirPath))
@@ -45,12 +70,6 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
     setError(null)
     setChildren((prev) => ({ ...prev, [res.path]: res.entries }))
   }, [])
-
-  // The root defaults to the active terminal's directory, but does not follow it
-  // afterwards: re-rooting under someone mid-browse would be hostile.
-  useEffect(() => {
-    if (!root && terminalCwd) setRoot(terminalCwd)
-  }, [root, terminalCwd, setRoot])
 
   useEffect(() => {
     if (root && !children[root]) void load(root)
@@ -74,12 +93,16 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
 
     for (const entry of entries) {
       const open = expanded.has(entry.path)
+      const status = decorationFor(decorations, entry.path)
       out.push(
         <button
           key={entry.path}
-          className={`tree__row ${entry.hidden ? 'tree__row--hidden' : ''}`}
+          className={`tree__row ${entry.hidden ? 'tree__row--hidden' : ''} ${
+            status ? statusClass(status) : ''
+          }`}
           style={{ paddingLeft: 6 + depth * 12 }}
-          title={entry.path}
+          title={status ? `${entry.path} — ${STATUS_WORD[status] ?? status}` : entry.path}
+          data-git={status ?? ''}
           onClick={() => (entry.isDirectory ? toggle(entry.path) : onOpen(entry.path))}
         >
           <span className="tree__twisty">
@@ -87,6 +110,7 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
           </span>
           <span className="tree__label">{entry.name}</span>
           {loading.has(entry.path) && <span className="tree__loading">…</span>}
+          {status && <span className="tree__git">{status}</span>}
         </button>
       )
       if (entry.isDirectory && open) out.push(...rows(entry.path, depth + 1))
@@ -103,7 +127,15 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
           {shortRoot ?? 'No folder'}
         </span>
         <button
-          className="block__action"
+          className="icon-btn"
+          title="Collapse all"
+          disabled={expanded.size === 0}
+          onClick={() => setExpanded(new Set())}
+        >
+          ⊟
+        </button>
+        <button
+          className="icon-btn"
           title={terminalCwd ? `Use ${terminalCwd}` : 'No terminal directory'}
           disabled={!terminalCwd || terminalCwd === root}
           onClick={() => {
@@ -113,11 +145,11 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
             setExpanded(new Set())
           }}
         >
-          use cwd
+          ⌂
         </button>
         <button
-          className="block__action"
-          title="Reload"
+          className="icon-btn"
+          title="Refresh"
           onClick={() => {
             setChildren({})
             setExpanded(new Set())

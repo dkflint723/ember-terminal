@@ -1,0 +1,231 @@
+import { useState } from 'react'
+import type { GitFileChange } from '@shared/types'
+import { useStore } from '../state/store'
+import { refreshGitStatus, statusClass } from '../state/git'
+
+/**
+ * The source-control panel: what has changed, what is staged, and a commit box.
+ *
+ * Nothing here caches state of its own. Every action runs git and then re-reads the
+ * status, because the terminal in the next pane shares this working tree — a panel
+ * that trusted its own model of the index would be wrong the moment someone typed
+ * `git add` themselves.
+ */
+export function SourceControl(): React.JSX.Element {
+  const status = useStore((s) => s.gitStatus)
+  const treeRoot = useStore((s) => s.treeRoot)
+  const tabs = useStore((s) => s.tabs)
+  const activeTabId = useStore((s) => s.activeTabId)
+  const openDiff = useStore((s) => s.openDiffInSplit)
+
+  const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [note, setNote] = useState<string | null>(null)
+
+  const root = status?.root ?? null
+
+  /** Run a mutation, then re-read: git is the state, this component is a view of it. */
+  const act = async (fn: () => Promise<{ ok: boolean; error?: string }>): Promise<boolean> => {
+    setBusy(true)
+    setError(null)
+    const res = await fn()
+    if (!res.ok) setError(res.error ?? 'git failed.')
+    await refreshGitStatus()
+    setBusy(false)
+    return res.ok
+  }
+
+  const show = async (change: GitFileChange, staged: boolean): Promise<void> => {
+    if (!root) return
+    const tab = tabs.find((t) => t.id === activeTabId)
+    if (!tab) return
+
+    const res = await window.ember.gitDiff(root, change.path, staged)
+    if (!res.ok) {
+      setError(res.error)
+      return
+    }
+    const { languageForPath } = await import('../editor/monaco')
+    openDiff(tab.id, {
+      filePath: res.path,
+      title: res.path.split('/').pop() ?? res.path,
+      original: res.original,
+      modified: res.modified,
+      originalLabel: res.originalLabel,
+      modifiedLabel: res.modifiedLabel,
+      language: languageForPath(res.path),
+      staged
+    })
+  }
+
+  const discard = async (change: GitFileChange): Promise<void> => {
+    if (!root) return
+    const untracked = change.status === 'U'
+    const ok = window.confirm(
+      untracked
+        ? `Delete ${change.path}? It is untracked, so this cannot be undone.`
+        : `Discard changes to ${change.path}? This cannot be undone.`
+    )
+    if (!ok) return
+    await act(() =>
+      window.ember.gitDiscard(root, untracked ? [] : [change.path], untracked ? [change.path] : [])
+    )
+  }
+
+  const commit = async (): Promise<void> => {
+    if (!root) return
+    setBusy(true)
+    setError(null)
+    const res = await window.ember.gitCommit(root, message)
+    if (res.ok) {
+      setMessage('')
+      setNote(res.summary)
+      window.setTimeout(() => setNote(null), 4000)
+    } else {
+      setError(res.error)
+    }
+    await refreshGitStatus()
+    setBusy(false)
+  }
+
+  if (!treeRoot) {
+    return <div className="scm scm--empty">Open a folder to see source control.</div>
+  }
+  if (!status) {
+    return <div className="scm scm--empty">{treeRoot} is not a git repository.</div>
+  }
+
+  const section = (
+    label: string,
+    items: GitFileChange[],
+    staged: boolean,
+    actions: (c: GitFileChange) => React.JSX.Element
+  ): React.JSX.Element | null => {
+    if (items.length === 0) return null
+    return (
+      <div className="scm__section">
+        <div className="scm__section-head">
+          <span>{label}</span>
+          <span className="scm__count">{items.length}</span>
+        </div>
+        {items.map((change) => (
+          <div key={`${label}:${change.path}`} className="scm__row">
+            <button
+              className={`scm__file ${statusClass(change.status)}`}
+              title={change.origPath ? `${change.origPath} → ${change.path}` : change.path}
+              onClick={() => void show(change, staged)}
+            >
+              <span className="scm__name">{change.path.split('/').pop()}</span>
+              <span className="scm__dir">{change.path.split('/').slice(0, -1).join('/')}</span>
+            </button>
+            <span className="scm__actions">{actions(change)}</span>
+            <span className={`scm__status ${statusClass(change.status)}`}>{change.status}</span>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  const ahead = status.ahead > 0 ? `↑${status.ahead}` : ''
+  const behind = status.behind > 0 ? `↓${status.behind}` : ''
+
+  return (
+    <div className="scm">
+      <div className="scm__head">
+        <span className="scm__branch" title={status.upstream ?? 'No upstream'}>
+          {/* Drawn rather than typed: the obvious branch characters are missing from
+              the monospace fonts this app ships with and render as a blank box. */}
+          <svg viewBox="0 0 16 16" className="scm__branch-icon" aria-hidden="true">
+            <circle cx="4.5" cy="3.5" r="1.8" />
+            <circle cx="4.5" cy="12.5" r="1.8" />
+            <circle cx="11.5" cy="3.5" r="1.8" />
+            <path d="M4.5 5.3v5.4M11.5 5.3v1.2a3 3 0 0 1-3 3H4.5" />
+          </svg>
+          {status.detached ? 'detached' : status.branch}
+        </span>
+        {(ahead || behind) && (
+          <span className="scm__track" title={`${status.ahead} ahead, ${status.behind} behind`}>
+            {ahead}
+            {behind}
+          </span>
+        )}
+        <button className="icon-btn" title="Refresh" disabled={busy} onClick={() => void refreshGitStatus()}>
+          ↻
+        </button>
+      </div>
+
+      <div className="scm__commit">
+        <textarea
+          className="scm__message"
+          placeholder="Message (Ctrl+Enter to commit)"
+          rows={2}
+          value={message}
+          disabled={busy}
+          onChange={(e) => setMessage(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.ctrlKey && e.key === 'Enter') {
+              e.preventDefault()
+              void commit()
+            }
+          }}
+        />
+        <button
+          className="scm__commit-btn"
+          disabled={busy || !message.trim() || status.staged.length === 0}
+          title={
+            status.staged.length === 0 ? 'Stage something first' : 'Commit staged changes'
+          }
+          onClick={() => void commit()}
+        >
+          ✓ Commit
+        </button>
+      </div>
+
+      {error && <div className="scm__error">{error}</div>}
+      {note && <div className="scm__note">{note}</div>}
+
+      <div className="scm__body">
+        {section('Merge conflicts', status.conflicts, false, () => (
+          <span className="scm__hint">resolve in editor</span>
+        ))}
+
+        {section('Staged changes', status.staged, true, (change) => (
+          <button
+            className="icon-btn"
+            title="Unstage"
+            disabled={busy}
+            onClick={() => void act(() => window.ember.gitUnstage(root!, [change.path]))}
+          >
+            −
+          </button>
+        ))}
+
+        {section('Changes', status.changes, false, (change) => (
+          <>
+            <button
+              className="icon-btn"
+              title="Discard changes"
+              disabled={busy}
+              onClick={() => void discard(change)}
+            >
+              ↺
+            </button>
+            <button
+              className="icon-btn"
+              title="Stage"
+              disabled={busy}
+              onClick={() => void act(() => window.ember.gitStage(root!, [change.path]))}
+            >
+              +
+            </button>
+          </>
+        ))}
+
+        {status.staged.length === 0 &&
+          status.changes.length === 0 &&
+          status.conflicts.length === 0 && <div className="scm__clean">No changes</div>}
+      </div>
+    </div>
+  )
+}

@@ -8,6 +8,7 @@ import { CompletionService } from './completion.js'
 import { HistoryStore } from './history.js'
 import { FileService, fileArgs } from './files.js'
 import { LspService } from './lsp.js'
+import { GitService } from './git.js'
 import { AiService } from './ai.js'
 import {
   DEFAULT_SETTINGS,
@@ -28,6 +29,7 @@ let completion: CompletionService
 let history: HistoryStore
 let files: FileService
 let lsp: LspService
+let git: GitService
 /** Drained once by the renderer at boot; refilled when a second instance starts. */
 let startupFiles: string[] = []
 let ai: AiService
@@ -127,6 +129,17 @@ function registerIpc(): void {
 
   ipcMain.handle('lsp:start', (_e, language: string, root?: string) => lsp.start(language, root))
   ipcMain.on('lsp:send', (_e, language: string, message: unknown) => lsp.post(language, message))
+
+  ipcMain.handle('git:status', (_e, cwd: string) => git.status(cwd))
+  ipcMain.handle('git:diff', (_e, root: string, path: string, staged: boolean) =>
+    git.diff(root, path, staged)
+  )
+  ipcMain.handle('git:stage', (_e, root: string, paths: string[]) => git.stage(root, paths))
+  ipcMain.handle('git:unstage', (_e, root: string, paths: string[]) => git.unstage(root, paths))
+  ipcMain.handle('git:discard', (_e, root: string, paths: string[], untracked: string[]) =>
+    git.discard(root, paths, untracked)
+  )
+  ipcMain.handle('git:commit', (_e, root: string, message: string) => git.commit(root, message))
   ipcMain.handle('file:write', (_e, filePath: string, content: string) =>
     files.write(filePath, content)
   )
@@ -202,6 +215,7 @@ if (!app.requestSingleInstanceLock()) {
     history = new HistoryStore()
     files = new FileService()
     lsp = new LspService((payload) => sendToRenderer('lsp:message', payload))
+    git = new GitService()
     startupFiles = fileArgs(process.argv, app.getAppPath())
     ai = new AiService(settings)
     ptys = new PtyManager(

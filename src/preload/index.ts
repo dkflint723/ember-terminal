@@ -36,6 +36,14 @@ const api: EmberApi = {
     ipcRenderer.on('lsp:message', listener)
     return () => ipcRenderer.removeListener('lsp:message', listener)
   },
+  gitStatus: (cwd: string) => ipcRenderer.invoke('git:status', cwd),
+  gitDiff: (root: string, path: string, staged: boolean) =>
+    ipcRenderer.invoke('git:diff', root, path, staged),
+  gitStage: (root: string, paths: string[]) => ipcRenderer.invoke('git:stage', root, paths),
+  gitUnstage: (root: string, paths: string[]) => ipcRenderer.invoke('git:unstage', root, paths),
+  gitDiscard: (root: string, paths: string[], untracked: string[]) =>
+    ipcRenderer.invoke('git:discard', root, paths, untracked),
+  gitCommit: (root: string, message: string) => ipcRenderer.invoke('git:commit', root, message),
   writeFile: (path: string, content: string) => ipcRenderer.invoke('file:write', path, content),
   saveFileDialog: (defaultPath?: string) => ipcRenderer.invoke('file:saveDialog', defaultPath),
   complete: (req: CompletionRequest) => ipcRenderer.invoke('completion:request', req),
