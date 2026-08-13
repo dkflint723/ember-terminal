@@ -173,6 +173,13 @@ export interface GitDiffOk {
   modifiedLabel: string
 }
 
+/** A Claude Code tool call, forwarded from the socket in main to the editors here. */
+export interface IdeCall {
+  id: number
+  name: string
+  args: Record<string, unknown>
+}
+
 export type GitDiffResult = GitDiffOk | { ok: false; error: string }
 export type GitSimpleResult = { ok: true } | { ok: false; error: string }
 export type GitCommitResult = { ok: true; summary: string } | { ok: false; error: string }
@@ -214,6 +221,10 @@ export interface EmberApi {
   lspStart(language: string, root?: string): Promise<{ ok: boolean; error?: string }>
   lspSend(language: string, message: unknown): void
   onLspMessage(cb: (e: LspEvent) => void): () => void
+  onIdeCall(cb: (call: IdeCall) => void): () => void
+  ideResult(id: number, result: unknown): void
+  ideWorkspace(folders: string[]): void
+  ideNotify(method: string, params: unknown): void
   gitStatus(cwd: string): Promise<GitStatusResult>
   gitDiff(root: string, path: string, staged: boolean): Promise<GitDiffResult>
   gitStage(root: string, paths: string[]): Promise<GitSimpleResult>

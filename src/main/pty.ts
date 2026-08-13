@@ -21,7 +21,13 @@ export class PtyManager {
 
   constructor(
     private onData: DataSink,
-    private onExit: ExitSink
+    private onExit: ExitSink,
+    /**
+     * Extra environment for every shell. Used to tell a Claude Code CLI started in
+     * one of these panes which IDE it is inside — read lazily, because the port is
+     * only known once the server is listening, and panes outlive a restart of it.
+     */
+    private extraEnv: () => Record<string, string> = () => ({})
   ) {}
 
   private resourcePath(...parts: string[]): string {
@@ -43,6 +49,7 @@ export class PtyManager {
     env.COLORTERM = 'truecolor'
     env.TERM_PROGRAM = 'Ember'
     env.TERM_PROGRAM_VERSION = app.getVersion()
+    Object.assign(env, this.extraEnv())
 
     const pty = ptySpawn(profile.path, profile.args, {
       cols: Math.max(req.cols, 2),

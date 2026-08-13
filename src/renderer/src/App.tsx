@@ -9,6 +9,7 @@ import { Sidebar } from './components/Sidebar'
 import { disposeController } from './terminal/controller'
 import { activateTheme, refreshThemeList } from './state/theming'
 import { useGitStatusPolling } from './state/git'
+import { useIdeBridge } from './state/ide'
 
 export function App(): React.JSX.Element {
   const tabs = useStore((s) => s.tabs)
@@ -22,6 +23,8 @@ export function App(): React.JSX.Element {
   // Mounted here rather than in the source-control view: the explorer colours its
   // rows from the same status, and that has to work while the view is closed.
   useGitStatusPolling()
+  // Answers Claude Code's tool calls, and keeps the published workspace root current.
+  useIdeBridge()
 
   // The workspace root defaults to the active terminal's directory, but does not
   // follow it afterwards — re-rooting under someone mid-browse would be hostile.

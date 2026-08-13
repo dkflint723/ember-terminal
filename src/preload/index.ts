@@ -4,6 +4,7 @@ import type {
   AiRequest,
   CompletionRequest,
   HistoryQuery,
+  IdeCall,
   LspEvent,
   HistoryRecord,
   AiResponse,
@@ -36,6 +37,15 @@ const api: EmberApi = {
     ipcRenderer.on('lsp:message', listener)
     return () => ipcRenderer.removeListener('lsp:message', listener)
   },
+  onIdeCall: (cb: (call: IdeCall) => void) => {
+    const listener = (_: unknown, call: IdeCall): void => cb(call)
+    ipcRenderer.on('ide:call', listener)
+    return () => ipcRenderer.removeListener('ide:call', listener)
+  },
+  ideResult: (id: number, result: unknown) => ipcRenderer.send('ide:result', id, result),
+  ideWorkspace: (folders: string[]) => ipcRenderer.send('ide:workspace', folders),
+  ideNotify: (method: string, params: unknown) => ipcRenderer.send('ide:notify', method, params),
+
   gitStatus: (cwd: string) => ipcRenderer.invoke('git:status', cwd),
   gitDiff: (root: string, path: string, staged: boolean) =>
     ipcRenderer.invoke('git:diff', root, path, staged),

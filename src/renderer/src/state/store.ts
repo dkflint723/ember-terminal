@@ -90,6 +90,12 @@ export interface DiffPaneState extends BasePane {
   modifiedLabel: string
   language: string
   staged: boolean
+  /**
+   * Set when Claude Code proposed this change and is blocked on a verdict. The
+   * right-hand side is then not a revision that exists anywhere — it is what the
+   * file would become — and the pane grows accept and reject controls.
+   */
+  proposal?: { tabName: string; targetPath: string }
 }
 
 export type Pane = TerminalPaneState | EditorPaneState | DiffPaneState

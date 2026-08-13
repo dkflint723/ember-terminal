@@ -9,6 +9,7 @@ import { HistoryStore } from './history.js'
 import { FileService, fileArgs } from './files.js'
 import { LspService } from './lsp.js'
 import { GitService } from './git.js'
+import { IdeServer } from './ide.js'
 import { AiService } from './ai.js'
 import {
   DEFAULT_SETTINGS,
@@ -30,6 +31,29 @@ let history: HistoryStore
 let files: FileService
 let lsp: LspService
 let git: GitService
+let ide: IdeServer
+
+/**
+ * Tool calls arrive on a socket owned by main, but every one of them is a question
+ * about editors, which only the renderer knows. Each is forwarded with an id and
+ * parked until the answer comes back on `ide:result`.
+ *
+ * `openDiff` is why these are promises rather than a synchronous read: it is
+ * answered when the user accepts or rejects the change, which may be minutes, and
+ * the CLI is waiting on that answer to decide what to do next. Hence no timeout —
+ * a call is settled by the user, or by the window going away.
+ */
+let nextIdeCall = 0
+const pendingIdeCalls = new Map<number, (result: unknown) => void>()
+
+function callRenderer(name: string, args: Record<string, unknown>): Promise<unknown> {
+  if (!mainWindow) return Promise.resolve({ success: false, message: 'No window is open.' })
+  const id = ++nextIdeCall
+  return new Promise((resolve) => {
+    pendingIdeCalls.set(id, resolve)
+    sendToRenderer('ide:call', { id, name, args })
+  })
+}
 /** Drained once by the renderer at boot; refilled when a second instance starts. */
 let startupFiles: string[] = []
 let ai: AiService
@@ -130,6 +154,15 @@ function registerIpc(): void {
   ipcMain.handle('lsp:start', (_e, language: string, root?: string) => lsp.start(language, root))
   ipcMain.on('lsp:send', (_e, language: string, message: unknown) => lsp.post(language, message))
 
+  ipcMain.on('ide:result', (_e, id: number, result: unknown) => {
+    const resolve = pendingIdeCalls.get(id)
+    if (!resolve) return
+    pendingIdeCalls.delete(id)
+    resolve(result)
+  })
+  ipcMain.on('ide:workspace', (_e, folders: string[]) => ide.setWorkspaceFolders(folders))
+  ipcMain.on('ide:notify', (_e, method: string, params: unknown) => ide.notify(method, params))
+
   ipcMain.handle('git:status', (_e, cwd: string) => git.status(cwd))
   ipcMain.handle('git:diff', (_e, root: string, path: string, staged: boolean) =>
     git.diff(root, path, staged)
@@ -218,9 +251,12 @@ if (!app.requestSingleInstanceLock()) {
     git = new GitService()
     startupFiles = fileArgs(process.argv, app.getAppPath())
     ai = new AiService(settings)
+    ide = new IdeServer((name, args) => callRenderer(name, args))
+    ide.start([])
     ptys = new PtyManager(
       (paneId, data) => sendToRenderer('pty:data', { paneId, data }),
-      (paneId, exitCode) => sendToRenderer('pty:exit', { paneId, exitCode })
+      (paneId, exitCode) => sendToRenderer('pty:exit', { paneId, exitCode }),
+      () => ide.env()
     )
 
     registerIpc()
@@ -241,5 +277,8 @@ if (!app.requestSingleInstanceLock()) {
     completion?.dispose()
     history?.close()
     lsp?.dispose()
+    // Before the process goes, so no lockfile is left naming a dead port for the
+    // next CLI that goes looking for an IDE.
+    ide?.stop()
   })
 }

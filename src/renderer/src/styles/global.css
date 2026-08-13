@@ -1458,3 +1458,36 @@ kbd {
   stroke-width: 1.3;
   stroke-linecap: round;
 }
+
+/* ---------- proposed-change diff ---------- */
+
+/*
+ * A diff Claude Code is blocked on reads differently from one that is only being
+ * looked at: something is waiting on the answer, so the pane says so and the two
+ * verdicts are the only controls on it.
+ */
+.diff__waiting {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: var(--info-bg);
+  border: 1px solid var(--info-border);
+  color: var(--info-fg);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.diff__accept,
+.diff__reject {
+  font-weight: 600;
+}
+
+.diff__accept {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.diff__reject {
+  color: var(--fail);
+  border-color: var(--fail-border);
+}

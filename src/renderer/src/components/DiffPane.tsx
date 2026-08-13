@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useStore, type DiffPaneState } from '../state/store'
 import { monaco } from '../editor/monaco'
 import { applyMonacoTheme, MONACO_THEME_ID } from '../editor/theme'
+import { resolveProposal } from '../state/ide'
 
 interface Props {
   pane: DiffPaneState
@@ -39,7 +40,10 @@ export function DiffPane({ pane, active, onFocus }: Props): React.JSX.Element {
       renderSideBySide: true,
       ignoreTrimWhitespace: false,
       renderOverviewRuler: false,
-      scrollBeyondLastLine: false
+      scrollBeyondLastLine: false,
+      // Matching the editor pane: the same file should not look different depending
+      // on which kind of pane it happens to be in.
+      guides: { indentation: true, highlightActiveIndentation: true, bracketPairs: false }
     })
     editorRef.current = editor
 
@@ -92,6 +96,25 @@ export function DiffPane({ pane, active, onFocus }: Props): React.JSX.Element {
         <span className="editor__lang">
           {pane.originalLabel} ↔ {pane.modifiedLabel}
         </span>
+        {pane.proposal && (
+          <>
+            {/* Claude Code is blocked on this answer, so the pane says so rather
+                than looking like an ordinary read-only diff. */}
+            <span className="diff__waiting">waiting on you</span>
+            <button
+              className="block__action diff__reject"
+              onClick={() => void resolveProposal(pane.proposal!.tabName, 'reject')}
+            >
+              reject
+            </button>
+            <button
+              className="block__action diff__accept"
+              onClick={() => void resolveProposal(pane.proposal!.tabName, 'accept')}
+            >
+              accept
+            </button>
+          </>
+        )}
       </div>
       <div className="editor__host" ref={host} />
     </div>

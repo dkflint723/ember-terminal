@@ -3,6 +3,7 @@ import { useStore, type EditorPaneState } from '../state/store'
 import { monaco } from '../editor/monaco'
 import { applyMonacoTheme, MONACO_THEME_ID } from '../editor/theme'
 import { ensureLanguageServer } from '../editor/lsp'
+import { recordSelection } from '../state/ide'
 
 interface Props {
   pane: EditorPaneState
@@ -57,6 +58,9 @@ export function EditorPane({ pane, active, onFocus }: Props): React.JSX.Element 
       minimap: { enabled: true, size: 'proportional' },
       scrollBeyondLastLine: false,
       renderWhitespace: 'selection',
+      // Indentation lines, with the level the cursor is inside picked out. Nesting
+      // in a narrow pane beside a terminal is otherwise hard to follow.
+      guides: { indentation: true, highlightActiveIndentation: true, bracketPairs: false },
       smoothScrolling: true,
       tabSize: 2,
       // The pane is narrow by design; a ruler would mostly be noise.
@@ -67,6 +71,22 @@ export function EditorPane({ pane, active, onFocus }: Props): React.JSX.Element 
     editor.getModel()?.setEOL(
       pane.eol === 'crlf' ? monaco.editor.EndOfLineSequence.CRLF : monaco.editor.EndOfLineSequence.LF
     )
+
+    // Reported as it changes rather than read on demand: a tool call arrives from
+    // a socket, and by then the editor may not be the focused thing on screen.
+    const selectionSub = editor.onDidChangeCursorSelection((e) => {
+      const model = editor.getModel()
+      if (!model) return
+      recordSelection({
+        filePath: pane.filePath,
+        text: model.getValueInRange(e.selection),
+        start: {
+          line: e.selection.startLineNumber - 1,
+          character: e.selection.startColumn - 1
+        },
+        end: { line: e.selection.endLineNumber - 1, character: e.selection.endColumn - 1 }
+      })
+    })
 
     const sub = editor.onDidChangeModelContent(() => {
       const current = editor.getValue()
@@ -79,6 +99,7 @@ export function EditorPane({ pane, active, onFocus }: Props): React.JSX.Element 
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void save())
 
     return () => {
+      selectionSub.dispose()
       sub.dispose()
       // The model is deliberately kept: it is keyed by file URI and shared, so
       // disposing it here would discard undo history on reopen and desync the
