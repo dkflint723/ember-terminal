@@ -1,6 +1,41 @@
 import { useEffect, useState } from 'react'
 import { activeDocument, useStore } from '../state/store'
 
+/**
+ * The three splits worth a button.
+ *
+ * Left and right are genuinely different — one puts the new shell before the
+ * current one, the other after — which is why the store takes a side rather than
+ * only a direction. Splitting upward exists as well but nobody reaches for it, so
+ * it stays in the palette rather than taking a fourth slot here.
+ */
+const SPLITS = [
+  {
+    id: 'left',
+    label: 'Split left',
+    hint: 'new pane on the left',
+    direction: 'row' as const,
+    before: true,
+    fill: { x: 2.5, y: 3.5, width: 5.5, height: 9 }
+  },
+  {
+    id: 'right',
+    label: 'Split right',
+    hint: 'Ctrl+Shift+D',
+    direction: 'row' as const,
+    before: false,
+    fill: { x: 8, y: 3.5, width: 5.5, height: 9 }
+  },
+  {
+    id: 'down',
+    label: 'Split down',
+    hint: 'Ctrl+Shift+E',
+    direction: 'column' as const,
+    before: false,
+    fill: { x: 2.5, y: 8.5, width: 11, height: 4 }
+  }
+]
+
 export function TitleBar(): React.JSX.Element {
   const tabs = useStore((s) => s.tabs)
   const panes = useStore((s) => s.panes)
@@ -9,6 +44,7 @@ export function TitleBar(): React.JSX.Element {
   const setActiveTab = useStore((s) => s.setActiveTab)
   const closeTab = useStore((s) => s.closeTab)
   const newTab = useStore((s) => s.newTab)
+  const splitPane = useStore((s) => s.splitPane)
   const toggleSettings = useStore((s) => s.toggleSettings)
 
   const [maximized, setMaximized] = useState(false)
@@ -145,6 +181,41 @@ export function TitleBar(): React.JSX.Element {
       </div>
 
       <div className="titlebar__spacer" />
+
+      {/*
+        Split controls, in the layout-icon idiom every editor uses: a box with the
+        new pane's share filled in, so the picture says where it lands rather than
+        relying on the tooltip.
+      */}
+      <div className="titlebar__layout">
+        {SPLITS.map((s) => (
+          <button
+            key={s.id}
+            className="titlebar__split"
+            aria-label={s.label}
+            title={`${s.label} (${s.hint})`}
+            disabled={!activeTabId}
+            onClick={() => {
+              const tab = tabs.find((t) => t.id === activeTabId)
+              if (tab) splitPane(tab.id, tab.activePaneId, s.direction, s.before)
+            }}
+          >
+            <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+              <rect
+                x="1.5"
+                y="2.5"
+                width="13"
+                height="11"
+                rx="1.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.2"
+              />
+              <rect {...s.fill} fill="currentColor" opacity="0.85" />
+            </svg>
+          </button>
+        ))}
+      </div>
 
       {/* Named, because the glyphs are drawing characters that a screen reader
           announces as nothing useful. */}

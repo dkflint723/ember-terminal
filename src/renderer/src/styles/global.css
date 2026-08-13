@@ -89,7 +89,11 @@ button {
   display: flex;
   align-items: stretch;
   min-width: 0;
-  flex: 1 1 auto;
+  /* Only as wide as the tabs themselves, shrinking when there are too many. It
+     used to grow to fill the bar, which pushed the new-tab button out into the
+     middle of the window instead of leaving it beside the last tab. The spacer
+     after it takes the slack. */
+  flex: 0 1 auto;
   overflow-x: auto;
   scrollbar-width: none;
   -webkit-app-region: no-drag;
@@ -143,6 +147,39 @@ button {
 .titlebar__new:hover {
   background: var(--border-strong);
   color: var(--fg);
+}
+
+/* Split controls, sitting with the window buttons rather than the tabs — they act
+   on the layout, not on any one tab. */
+.titlebar__layout {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 6px;
+  flex: 0 0 auto;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar__split {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  border-radius: 4px;
+  color: var(--fg-faint);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.titlebar__split:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.titlebar__split:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 /* Holds the new-tab button and its menu, beside the scrolling strip rather than

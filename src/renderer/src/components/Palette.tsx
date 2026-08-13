@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { collectPaneIds, useStore } from '../state/store'
+import { useStore } from '../state/store'
 import { QuickPick, type QuickPickItem } from './QuickPick'
 
 interface Props {
@@ -140,24 +140,10 @@ function commands(): Command[] {
   const s = useStore.getState()
   const tab = s.tabs.find((t) => t.id === s.activeTabId)
 
-  /**
-   * Split from a terminal, whichever one that is.
-   *
-   * A split duplicates a shell, so it can only be made from a terminal pane. Run
-   * with an editor pane active it did nothing at all and said nothing either — the
-   * command was in the list, the user picked it, and the app ignored them. Falling
-   * back to the tab's own terminal is what they meant.
-   */
-  const splitFromATerminal = (direction: 'row' | 'column'): void => {
-    if (!tab) return
-    const active = s.panes[tab.activePaneId]
-    if (active?.kind === 'terminal') {
-      s.splitPane(tab.id, active.id, direction)
-      return
-    }
-    const here = new Set(collectPaneIds(tab.root))
-    const terminal = Object.values(s.panes).find((p) => p.kind === 'terminal' && here.has(p.id))
-    if (terminal) s.splitPane(tab.id, terminal.id, direction)
+  // splitPane falls back to the tab's own terminal when an editor is active, so
+  // these no longer have to work that out for themselves.
+  const split = (direction: 'row' | 'column', before = false): void => {
+    if (tab) s.splitPane(tab.id, tab.activePaneId, direction, before)
   }
 
   // Editor commands are offered only when there is an editor to run them against,
@@ -279,13 +265,23 @@ function commands(): Command[] {
       id: 'terminal.splitRight',
       label: 'Terminal: Split Right',
       hint: 'Ctrl+Shift+D',
-      run: () => splitFromATerminal('row')
+      run: () => split('row')
+    },
+    {
+      id: 'terminal.splitLeft',
+      label: 'Terminal: Split Left',
+      run: () => split('row', true)
     },
     {
       id: 'terminal.splitDown',
       label: 'Terminal: Split Down',
       hint: 'Ctrl+Shift+E',
-      run: () => splitFromATerminal('column')
+      run: () => split('column')
+    },
+    {
+      id: 'terminal.splitUp',
+      label: 'Terminal: Split Up',
+      run: () => split('column', true)
     },
     {
       id: 'pane.close',

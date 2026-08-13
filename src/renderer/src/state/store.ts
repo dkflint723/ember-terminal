@@ -180,7 +180,13 @@ interface Store {
   setActiveTab(tabId: string): void
   setActivePane(tabId: string, paneId: string): void
 
-  splitPane(tabId: string, paneId: string, direction: 'row' | 'column'): string | null
+  /** `before` puts the new pane on the leading side: left of, or above, the source. */
+  splitPane(
+    tabId: string,
+    paneId: string,
+    direction: 'row' | 'column',
+    before?: boolean
+  ): string | null
   closePane(tabId: string, paneId: string): void
   /** The tab whose layout contains this pane, which is not always the active one. */
   tabIdForPane(paneId: string): string | null
@@ -282,19 +288,27 @@ export function collectPaneIds(node: LayoutNode, out: string[] = []): string[] {
   return out
 }
 
-/** Insert `newPaneId` beside `paneId`, reusing the parent split when directions match. */
+/**
+ * Insert `newPaneId` beside `paneId`, reusing the parent split when directions
+ * match. `before` puts the new pane on the leading side — which is what makes
+ * "split left" and "split up" different from their opposites rather than just
+ * differently worded.
+ */
 function splitAt(
   node: LayoutNode,
   paneId: string,
   direction: 'row' | 'column',
-  newPaneId: string
+  newPaneId: string,
+  before = false
 ): LayoutNode {
   if (node.type === 'leaf') {
     if (node.paneId !== paneId) return node
+    const self: LayoutNode = { type: 'leaf', paneId }
+    const added: LayoutNode = { type: 'leaf', paneId: newPaneId }
     return {
       type: 'split',
       direction,
-      children: [{ type: 'leaf', paneId }, { type: 'leaf', paneId: newPaneId }],
+      children: before ? [added, self] : [self, added],
       sizes: [0.5, 0.5]
     }
   }
@@ -303,12 +317,15 @@ function splitAt(
   if (idx !== -1 && node.direction === direction) {
     // Same orientation: add a sibling and give it an even share.
     const children = [...node.children]
-    children.splice(idx + 1, 0, { type: 'leaf', paneId: newPaneId })
+    children.splice(before ? idx : idx + 1, 0, { type: 'leaf', paneId: newPaneId })
     const share = 1 / children.length
     return { ...node, children, sizes: children.map(() => share) }
   }
 
-  return { ...node, children: node.children.map((c) => splitAt(c, paneId, direction, newPaneId)) }
+  return {
+    ...node,
+    children: node.children.map((c) => splitAt(c, paneId, direction, newPaneId, before))
+  }
 }
 
 function replaceNode(node: LayoutNode, path: number[], next: LayoutNode): LayoutNode {
@@ -423,10 +440,16 @@ export const useStore = create<Store>((set, get) => ({
       tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, activePaneId: paneId } : t))
     })),
 
-  splitPane: (tabId, paneId, direction) => {
+  splitPane: (tabId, paneId, direction, before = false) => {
     const { tabs, panes } = get()
     const tab = tabs.find((t) => t.id === tabId)
-    const source = panes[paneId]
+    // A split duplicates a shell, so it is made from a terminal. Asked for from an
+    // editor, fall back to the tab's own terminal rather than doing nothing at all.
+    const here = new Set(collectPaneIds(tab?.root ?? { type: 'leaf', paneId: '' }))
+    const source =
+      panes[paneId]?.kind === 'terminal'
+        ? panes[paneId]
+        : Object.values(panes).find((p) => p.kind === 'terminal' && here.has(p.id))
     if (!tab || !source || source.kind !== 'terminal') return null
 
     // Inherit the source pane's shell and directory: splitting is almost always
@@ -436,7 +459,11 @@ export const useStore = create<Store>((set, get) => ({
       panes: { ...panes, [pane.id]: pane },
       tabs: tabs.map((t) =>
         t.id === tabId
-          ? { ...t, root: splitAt(t.root, paneId, direction, pane.id), activePaneId: pane.id }
+          ? {
+              ...t,
+              root: splitAt(t.root, source.id, direction, pane.id, before),
+              activePaneId: pane.id
+            }
           : t
       )
     })

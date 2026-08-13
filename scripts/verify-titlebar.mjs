@@ -40,6 +40,21 @@ const tabCount = () => page.locator('.tab').count()
 const profiles = await page.evaluate(() => window.ember.listProfiles())
 const before = await tabCount()
 
+// --- the new-tab button sits with the tabs ------------------------------------
+// The strip used to grow to fill the window, which left + stranded in the middle
+// of the title bar with empty space on both sides of it.
+const placement = await page.evaluate(() => {
+  const tabs = Array.from(document.querySelectorAll('.tab'))
+  const last = tabs[tabs.length - 1]?.getBoundingClientRect()
+  const plus = document.querySelector('.titlebar__new')?.getBoundingClientRect()
+  return last && plus ? { gap: Math.round(plus.left - last.right), width: window.innerWidth } : null
+})
+check(
+  'the new-tab button sits beside the last tab',
+  placement !== null && placement.gap >= 0 && placement.gap < 40,
+  JSON.stringify(placement)
+)
+
 // --- the button opens a tab --------------------------------------------------
 await page.locator('.titlebar__new').click()
 await sleep(700)
@@ -81,6 +96,50 @@ if (profiles.length > 1) {
     (await page.locator('.titlebar__newwrap .block__action').count()) === 0
   )
 }
+
+// --- the split controls ------------------------------------------------------
+// Left and right are only worth two buttons if they land on different sides, so
+// the geometry is measured rather than the pane count trusted.
+const paneBoxes = () =>
+  page.evaluate(() =>
+    Array.from(document.querySelectorAll('.pane')).map((p) => {
+      const r = p.getBoundingClientRect()
+      return { left: Math.round(r.left), top: Math.round(r.top) }
+    })
+  )
+
+const beforeSplit = (await paneBoxes()).length
+await page.locator('.titlebar__split[aria-label="Split right"]').click()
+await sleep(1500)
+const afterRight = await paneBoxes()
+check('split right adds a pane', afterRight.length === beforeSplit + 1, `${beforeSplit} -> ${afterRight.length}`)
+check(
+  'and puts it beside, not below',
+  new Set(afterRight.map((b) => b.left)).size > 1,
+  JSON.stringify(afterRight)
+)
+
+// The newly split pane is active, so splitting left of it lands to its left.
+const leftmostBefore = Math.min(...afterRight.map((b) => b.left))
+await page.locator('.titlebar__split[aria-label="Split left"]').click()
+await sleep(1500)
+const afterLeft = await paneBoxes()
+check('split left adds a pane', afterLeft.length === afterRight.length + 1, `${afterRight.length} -> ${afterLeft.length}`)
+check(
+  'and the new pane is left of where the old one started',
+  Math.min(...afterLeft.map((b) => b.left)) <= leftmostBefore,
+  `${leftmostBefore} -> ${Math.min(...afterLeft.map((b) => b.left))}`
+)
+
+await page.locator('.titlebar__split[aria-label="Split down"]').click()
+await sleep(1500)
+const afterDown = await paneBoxes()
+check('split down adds a pane', afterDown.length === afterLeft.length + 1, `${afterLeft.length} -> ${afterDown.length}`)
+check(
+  'and it sits below something',
+  new Set(afterDown.map((b) => b.top)).size > 1,
+  JSON.stringify(afterDown)
+)
 
 // --- the window controls can be named ----------------------------------------
 const named = await page.evaluate(() =>
