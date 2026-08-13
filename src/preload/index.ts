@@ -99,6 +99,7 @@ const api: EmberApi = {
   listThemes: () => ipcRenderer.invoke('themes:list'),
   getTheme: (id: string) => ipcRenderer.invoke('themes:get', id),
   importTheme: () => ipcRenderer.invoke('themes:import'),
+  importThemeFrom: (file: string) => ipcRenderer.invoke('themes:importFrom', file),
   openThemeFolder: () => ipcRenderer.send('themes:openFolder'),
 
   spawn: (req: SpawnRequest) => ipcRenderer.invoke('pty:spawn', req),

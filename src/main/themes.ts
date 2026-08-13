@@ -1,5 +1,6 @@
 import { app } from 'electron'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
+import AdmZip from 'adm-zip'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { basename, dirname, extname, join, resolve } from 'node:path'
 import {
   parseThemeJson,
@@ -119,6 +120,105 @@ export class ThemeStore {
     }
   }
 
+  /**
+   * Import from a `.vsix`, which is a zip with an extension manifest inside.
+   *
+   * Only `contributes.themes` is read. An extension's themes are plain JSON in the
+   * format this app already understands, so they work with no host to run them —
+   * unlike the rest of an extension, which needs code executing to mean anything.
+   * Extensions that ship themes alongside code are common (the C# and PowerShell
+   * extensions both do), so having code is not a reason to refuse the themes.
+   *
+   * Each theme is flattened on the way in. A theme may `include` a sibling file,
+   * and once it is out of the archive that sibling is not there to include, so the
+   * inheritance is resolved while the whole archive is still readable.
+   */
+  installVsix(sourcePath: string): { ok: boolean; ids?: string[]; error?: string } {
+    try {
+      const zip = new AdmZip(sourcePath)
+      const entries = zip.getEntries()
+      const read = (path: string): string | null => {
+        const normalized = path.replace(/\\/g, '/').replace(/^\.\//, '')
+        const found = entries.find((e) => e.entryName.replace(/\\/g, '/') === normalized)
+        return found ? found.getData().toString('utf8') : null
+      }
+
+      const manifestText = read('extension/package.json')
+      if (!manifestText) return { ok: false, error: 'That does not look like a .vsix.' }
+
+      const manifest = JSON.parse(manifestText) as {
+        name?: string
+        contributes?: { themes?: { label?: string; uiTheme?: string; path?: string }[] }
+      }
+      const contributed = manifest.contributes?.themes ?? []
+      if (contributed.length === 0) {
+        return { ok: false, error: 'That extension contributes no colour themes.' }
+      }
+
+      const ids: string[] = []
+      for (const theme of contributed) {
+        if (!theme.path) continue
+        // Paths in the manifest are relative to the extension root inside the zip.
+        const inside = `extension/${theme.path.replace(/^\.\//, '')}`
+        const body = read(inside)
+        if (!body) continue
+
+        const resolved = this.flattenFromArchive(body, inside, read)
+        if (!resolved) continue
+
+        const slug = safeName(theme.label ?? basename(inside, extname(inside)))
+        const target = join(this.userDir(), `${slug}.json`)
+        writeFileSync(target, JSON.stringify(resolved, null, 2), 'utf8')
+        ids.push(`user:${slug}`)
+      }
+
+      if (ids.length === 0) return { ok: false, error: 'No usable themes in that extension.' }
+      this.cache.clear()
+      return { ok: true, ids }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'Could not read that .vsix.' }
+    }
+  }
+
+  /**
+   * Resolve a theme's `include` chain while the archive is still open, since the
+   * files it points at do not travel with it.
+   */
+  private flattenFromArchive(
+    body: string,
+    path: string,
+    read: (path: string) => string | null,
+    depth = 0
+  ): Record<string, unknown> | null {
+    // Bounded: a theme that includes itself would otherwise recurse forever.
+    if (depth > 8) return null
+    const self = parseThemeJson(body) as Record<string, unknown> & {
+      include?: string
+      colors?: Record<string, string>
+      tokenColors?: unknown[]
+    }
+    if (!self.include) return self
+
+    const parentPath = `${dirname(path)}/${self.include}`.replace(/\/\.\//g, '/')
+    const parentBody = read(parentPath)
+    if (!parentBody) return self
+
+    const parent = this.flattenFromArchive(parentBody, parentPath, read, depth + 1)
+    if (!parent) return self
+
+    const merged = { ...parent, ...self }
+    delete merged.include
+    merged.colors = {
+      ...((parent.colors as Record<string, string>) ?? {}),
+      ...(self.colors ?? {})
+    }
+    merged.tokenColors = [
+      ...((parent.tokenColors as unknown[]) ?? []),
+      ...(self.tokenColors ?? [])
+    ]
+    return merged
+  }
+
   /** Copy a theme file the user picked into their themes folder. */
   install(sourcePath: string): { ok: boolean; id?: string; error?: string } {
     if (extname(sourcePath).toLowerCase() !== '.json') {
@@ -143,4 +243,14 @@ export class ThemeStore {
   refresh(): void {
     this.cache.clear()
   }
+}
+
+/** A theme label turned into something safe to use as a file name and an id. */
+function safeName(label: string): string {
+  return (
+    label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "theme"
+  )
 }

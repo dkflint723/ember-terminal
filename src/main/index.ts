@@ -270,12 +270,29 @@ function registerIpc(): void {
   ipcMain.handle('themes:import', async () => {
     if (!mainWindow) return { ok: false, error: 'No window.' }
     const picked = await dialog.showOpenDialog(mainWindow, {
-      title: 'Import a VS Code theme',
-      filters: [{ name: 'VS Code theme', extensions: ['json'] }],
+      title: 'Import a VS Code theme or .vsix extension',
+      filters: [{ name: 'VS Code theme or extension', extensions: ['json', 'vsix'] }],
       properties: ['openFile']
     })
     if (picked.canceled || picked.filePaths.length === 0) return { ok: false }
-    return themes.install(picked.filePaths[0])
+    const chosen = picked.filePaths[0]
+    // A .vsix may carry several themes, so it reports how many it installed.
+    if (chosen.toLowerCase().endsWith('.vsix')) {
+      const res = themes.installVsix(chosen)
+      return res.ok ? { ok: true, id: res.ids?.[0], count: res.ids?.length } : res
+    }
+    return themes.install(chosen)
+  })
+
+  // Takes a path directly, rather than opening a picker. The dialog handler above
+  // is a thin wrapper over this, and having it separately reachable is what makes
+  // importing scriptable and testable.
+  ipcMain.handle('themes:importFrom', (_e, file: string) => {
+    if (file.toLowerCase().endsWith('.vsix')) {
+      const res = themes.installVsix(file)
+      return res.ok ? { ok: true, id: res.ids?.[0], count: res.ids?.length } : res
+    }
+    return themes.install(file)
   })
 
   ipcMain.on('themes:openFolder', () => void shell.openPath(themes.userDir()))

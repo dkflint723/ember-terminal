@@ -385,6 +385,7 @@ export interface EmberApi {
   listThemes(): Promise<ThemeSummary[]>
   /** Null when the id names a theme that has since been removed. */
   getTheme(id: string): Promise<ResolvedTheme | null>
+  importThemeFrom(file: string): Promise<{ ok: boolean; id?: string; count?: number; error?: string }>
   importTheme(): Promise<{ ok: boolean; id?: string; error?: string }>
   openThemeFolder(): void
   spawn(req: SpawnRequest): Promise<{ ok: boolean; error?: string }>

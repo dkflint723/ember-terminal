@@ -20,7 +20,7 @@
     "verify:git": "electron-vite build && node scripts/verify-git.mjs",
     "verify:ide": "electron-vite build && node scripts/verify-ide.mjs",
     "verify:tabs": "electron-vite build && node scripts/verify-tabs.mjs",
-    "verify:all": "npm run verify && node scripts/verify-editor.mjs && node scripts/verify-tabs.mjs && node scripts/verify-lsp.mjs && node scripts/verify-git.mjs && node scripts/verify-ide.mjs && node scripts/verify-github.mjs && node scripts/verify-explorer.mjs && node scripts/verify-session.mjs && node scripts/verify-notify.mjs && node scripts/verify-settings.mjs && node scripts/verify-search.mjs && node scripts/verify-palette.mjs && node scripts/verify-fileops.mjs && node scripts/verify-problems.mjs",
+    "verify:all": "npm run verify && node scripts/verify-editor.mjs && node scripts/verify-tabs.mjs && node scripts/verify-lsp.mjs && node scripts/verify-git.mjs && node scripts/verify-ide.mjs && node scripts/verify-github.mjs && node scripts/verify-explorer.mjs && node scripts/verify-session.mjs && node scripts/verify-notify.mjs && node scripts/verify-settings.mjs && node scripts/verify-search.mjs && node scripts/verify-palette.mjs && node scripts/verify-fileops.mjs && node scripts/verify-problems.mjs && node scripts/verify-vsix.mjs",
     "verify:github": "electron-vite build && node scripts/verify-github.mjs",
     "verify:explorer": "electron-vite build && node scripts/verify-explorer.mjs",
     "icon": "node scripts/build-icon.mjs",
@@ -30,12 +30,14 @@
     "verify:search": "electron-vite build && node scripts/verify-search.mjs",
     "verify:palette": "electron-vite build && node scripts/verify-palette.mjs",
     "verify:fileops": "electron-vite build && node scripts/verify-fileops.mjs",
-    "verify:problems": "electron-vite build && node scripts/verify-problems.mjs"
+    "verify:problems": "electron-vite build && node scripts/verify-problems.mjs",
+    "verify:vsix": "electron-vite build && node scripts/verify-vsix.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
     "@lydell/node-pty": "1.2.0-beta.15",
     "@vscode/ripgrep": "^1.18.0",
+    "adm-zip": "^0.6.0",
     "bash-language-server": "^5.6.0",
     "monaco-editor": "^0.56.0",
     "pyright": "^1.1.412",
@@ -45,6 +47,7 @@
     "yaml-language-server": "^1.24.0"
   },
   "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
