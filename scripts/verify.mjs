@@ -1,6 +1,7 @@
 // Launches the built app and drives it the way a user would, then reports what
 // actually happened. Windows has a real display, so no xvfb wrapper is needed.
 import { _electron as electron } from 'playwright-core'
+import { placeTopRight } from './place-window.mjs'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
@@ -26,6 +27,7 @@ const app = await electron.launch({
 
 const consoleErrors = []
 const page = await app.firstWindow()
+await placeTopRight(app)
 
 page.on('console', (m) => {
   if (m.type() === 'error' || m.type() === 'warning') {

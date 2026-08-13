@@ -2,6 +2,7 @@
 // the app with a file argument, and because loading Monaco makes it slow.
 // Run: node scripts/verify-editor.mjs
 import { _electron as electron } from 'playwright-core'
+import { placeTopRight } from './place-window.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -47,6 +48,7 @@ const record = (message) => {
   if (!KNOWN_BENIGN.some((re) => re.test(message))) errors.push(message)
 }
 const page = await app.firstWindow()
+await placeTopRight(app)
 page.on('pageerror', (e) => record(e.message))
 page.on('console', (m) => {
   if (m.type() === 'error') record(`[console] ${m.text()}`)

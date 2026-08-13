@@ -5,6 +5,7 @@
 //
 // Run: node scripts/verify-lsp.mjs [language...]
 import { _electron as electron } from 'playwright-core'
+import { placeTopRight } from './place-window.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -79,6 +80,7 @@ async function run(language) {
   })
 
   const page = await app.firstWindow()
+  await placeTopRight(app)
   await page.waitForSelector('.monaco-editor', { timeout: 30_000 })
 
   // Indexing, then a hover so at least one request is made under user conditions.

@@ -6,6 +6,7 @@
 //
 // Run: node scripts/verify-git.mjs
 import { _electron as electron } from 'playwright-core'
+import { placeTopRight } from './place-window.mjs'
 import { execFileSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
@@ -47,6 +48,7 @@ const errors = []
 // is already treated as benign by the editor checks for the same reason.
 const BENIGN = [/textDocument\/foldingRange failed/]
 const page = await app.firstWindow()
+await placeTopRight(app)
 page.on('pageerror', (e) => {
   if (!BENIGN.some((re) => re.test(e.message))) errors.push(e.message)
 })
