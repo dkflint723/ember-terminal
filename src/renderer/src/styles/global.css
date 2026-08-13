@@ -1851,10 +1851,62 @@ kbd {
   border-color: var(--border-strong);
 }
 
+.find__row {
+  display: flex;
+  gap: 5px;
+  align-items: stretch;
+}
+
+.find__replace {
+  flex: 0 0 auto;
+  padding: 0 8px;
+  white-space: nowrap;
+  color: var(--fg-dim);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.find__replace:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.find__replace:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Shown on the file it belongs to rather than on every row at once, so the list
+   stays a list of results. */
+.find__replace--file {
+  padding: 0 6px;
+  margin-right: 8px;
+  visibility: hidden;
+}
+
+.find__filerow {
+  display: flex;
+  align-items: center;
+}
+
+.find__filerow:hover .find__replace--file {
+  visibility: visible;
+}
+
 .find__summary {
   padding: 0 12px 6px;
   color: var(--fg-faint);
   font-size: 11px;
+}
+
+.find__note {
+  display: block;
+  margin-top: 3px;
+  color: var(--fg-dim);
 }
 
 .find__error {

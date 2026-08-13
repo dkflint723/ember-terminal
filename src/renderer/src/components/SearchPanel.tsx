@@ -28,11 +28,32 @@ export function SearchPanel({ onOpen }: Props): React.JSX.Element {
   const [truncated, setTruncated] = useState(false)
   const [searching, setSearching] = useState(false)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [replacement, setReplacement] = useState('')
+  const [replacing, setReplacing] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
   const box = useRef<HTMLInputElement>(null)
+  const panes = useStore((s) => s.panes)
+  const reloadFromDisk = useStore((s) => s.reloadFromDisk)
+
+  // Files with unsaved edits are not replaced in. The edit is made on disk, and a
+  // file whose editor holds newer text would either lose that text or silently
+  // disagree with what is on screen.
+  const unsaved = useMemo(() => {
+    const set = new Set<string>()
+    for (const pane of Object.values(panes)) {
+      if (pane.kind !== 'editor') continue
+      for (const doc of pane.documents) if (doc.dirty && doc.filePath) set.add(doc.filePath)
+    }
+    return set
+  }, [panes])
 
   useEffect(() => {
     box.current?.focus()
   }, [])
+
+  // A report of the last replacement describes results that no longer exist once
+  // the query moves on.
+  useEffect(() => setNote(null), [text, include, caseSensitive, wholeWord, regex])
 
   const run = useCallback(async (): Promise<void> => {
     if (!treeRoot || !text.trim()) {
@@ -66,6 +87,54 @@ export function SearchPanel({ onOpen }: Props): React.JSX.Element {
     const timer = window.setTimeout(() => void run(), DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
   }, [run])
+
+  /**
+   * Replace the matches in `scope`, or every match when no file is named.
+   *
+   * The hits are sent as they are: they are what the user is looking at, and the
+   * results they were found in are the only description of the change that is
+   * guaranteed to agree with what is on screen.
+   */
+  const replaceIn = async (scope?: string): Promise<void> => {
+    const targets = hits.filter((h) => (!scope || h.path === scope) && !unsaved.has(h.path))
+    const held = new Set(
+      hits.filter((h) => (!scope || h.path === scope) && unsaved.has(h.path)).map((h) => h.path)
+    )
+    if (targets.length === 0) {
+      setNote(
+        held.size > 0 ? 'Save those files first — they have unsaved changes.' : 'Nothing to replace.'
+      )
+      return
+    }
+
+    setReplacing(true)
+    const res = await window.ember.replaceInFiles({
+      hits: targets,
+      replacement,
+      pattern: text,
+      regex,
+      caseSensitive
+    })
+    setReplacing(false)
+
+    if (!res.ok) {
+      setNote(res.error ?? 'The replacement could not be completed.')
+      return
+    }
+
+    await reloadFromDisk([...new Set(targets.map((h) => h.path))])
+    const parts = [
+      `Replaced ${res.replaced} ${res.replaced === 1 ? 'match' : 'matches'} in ${res.files} ${
+        res.files === 1 ? 'file' : 'files'
+      }`
+    ]
+    // Both of these are the user's to know about: one is work not done, and the
+    // other is a result that had gone out of date before it was acted on.
+    if (held.size > 0) parts.push(`${held.size} with unsaved changes skipped`)
+    if (res.stale > 0) parts.push(`${res.stale} no longer matched`)
+    setNote(`${parts.join(', ')}.`)
+    await run()
+  }
 
   // Grouped by file, in the order ripgrep found them, so results stay stable as
   // more arrive rather than reshuffling under the pointer.
@@ -124,6 +193,26 @@ export function SearchPanel({ onOpen }: Props): React.JSX.Element {
             .*
           </button>
         </div>
+        <div className="find__row">
+          <input
+            className="find__box"
+            placeholder="Replace"
+            value={replacement}
+            spellCheck={false}
+            onChange={(e) => setReplacement(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void replaceIn()
+            }}
+          />
+          <button
+            className="find__replace"
+            title="Replace all"
+            disabled={replacing || hits.length === 0}
+            onClick={() => void replaceIn()}
+          >
+            {replacing ? '…' : 'Replace All'}
+          </button>
+        </div>
         <input
           className="find__box find__box--glob"
           placeholder="Files to include, e.g. *.ts"
@@ -146,6 +235,7 @@ export function SearchPanel({ onOpen }: Props): React.JSX.Element {
             {truncated && ' (showing the first 2000)'}
           </span>
         )}
+        {note && <span className="find__note">{note}</span>}
       </div>
 
       <div className="find__body">
@@ -153,23 +243,37 @@ export function SearchPanel({ onOpen }: Props): React.JSX.Element {
           const shut = collapsed.has(file)
           return (
             <div key={file} className="find__group">
-              <button
-                className="find__file"
-                title={file}
-                onClick={() =>
-                  setCollapsed((prev) => {
-                    const next = new Set(prev)
-                    if (next.has(file)) next.delete(file)
-                    else next.add(file)
-                    return next
-                  })
-                }
-              >
-                <span className="tree__twisty">{shut ? '▸' : '▾'}</span>
-                <span className="find__name">{relative(file).split('/').pop()}</span>
-                <span className="find__dir">{relative(file).split('/').slice(0, -1).join('/')}</span>
-                <span className="scm__count">{fileHits.length}</span>
-              </button>
+              {/* Two siblings rather than one nested inside the other: a button
+                  inside a button is not something a browser will lay out. */}
+              <div className="find__filerow">
+                <button
+                  className="find__file"
+                  title={file}
+                  onClick={() =>
+                    setCollapsed((prev) => {
+                      const next = new Set(prev)
+                      if (next.has(file)) next.delete(file)
+                      else next.add(file)
+                      return next
+                    })
+                  }
+                >
+                  <span className="tree__twisty">{shut ? '▸' : '▾'}</span>
+                  <span className="find__name">{relative(file).split('/').pop()}</span>
+                  <span className="find__dir">
+                    {relative(file).split('/').slice(0, -1).join('/')}
+                  </span>
+                  <span className="scm__count">{fileHits.length}</span>
+                </button>
+                <button
+                  className="find__replace find__replace--file"
+                  title={unsaved.has(file) ? 'Save this file first' : 'Replace in this file'}
+                  disabled={replacing || unsaved.has(file)}
+                  onClick={() => void replaceIn(file)}
+                >
+                  Replace
+                </button>
+              </div>
 
               {!shut &&
                 fileHits.map((hit, i) => (

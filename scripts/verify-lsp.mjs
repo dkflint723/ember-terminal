@@ -66,6 +66,46 @@ const selected = process.argv.slice(2)
 const languages = selected.length ? selected : Object.keys(CASES)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+const readLines = (logPath) =>
+  fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8').split('\n').filter(Boolean) : []
+
+/**
+ * The traffic in order and with its direction, because a message is not identified
+ * by its id alone: client and server number their own requests independently, so
+ * both can have a request numbered 1 in flight at the same time.
+ */
+function parseTraffic(lines) {
+  const traffic = []
+  for (const line of lines) {
+    const body = line.slice(line.indexOf('] ') + 2)
+    let msg
+    try {
+      msg = JSON.parse(body)
+    } catch {
+      continue
+    }
+    traffic.push({ msg, fromClient: line.startsWith('-->') })
+  }
+  return traffic
+}
+
+/**
+ * The server's response to the client's request of this method.
+ *
+ * It is the first thing arriving *after* that request carrying the same id and no
+ * method of its own. Searching by id alone instead matched PowerShell Editor
+ * Services' own `client/registerCapability`, which is a request rather than a
+ * response and so has no result — a working server read as a failing one.
+ */
+function findAnswer(traffic, method) {
+  const at = traffic.findIndex((t) => t.fromClient && t.msg?.method === method)
+  if (at === -1) return undefined
+  return traffic
+    .slice(at + 1)
+    .find((t) => !t.fromClient && t.msg?.id === traffic[at].msg.id && t.msg?.method === undefined)
+    ?.msg
+}
+
 async function run(language) {
   const spec = CASES[language]
   if (!spec) throw new Error(`No case for ${language}`)
@@ -109,6 +149,19 @@ async function run(language) {
     await sleep(2500)
   }
 
+  // Waited for rather than slept through. PowerShell Editor Services boots a whole
+  // PowerShell host before it answers anything, which no fixed sleep can safely
+  // assume — least of all with the rest of the suite competing for the machine.
+  if (spec.answersNonEmpty) {
+    const deadline = Date.now() + 60_000
+    while (
+      Date.now() < deadline &&
+      !findAnswer(parseTraffic(readLines(logPath)), spec.answersNonEmpty)
+    ) {
+      await sleep(500)
+    }
+  }
+
   const ui = await page.evaluate(() => ({
     language: document.querySelector('.editor__lang')?.textContent ?? null,
     // A marker reaches the user as a squiggle, so that is what gets asserted.
@@ -118,27 +171,16 @@ async function run(language) {
 
   await app.close()
 
-  const lines = fs.existsSync(logPath)
-    ? fs.readFileSync(logPath, 'utf8').split('\n').filter(Boolean)
-    : []
+  const lines = readLines(logPath)
   fs.rmSync(work, { recursive: true, force: true })
   return { spec, ui, lines }
 }
 
 function check(language, { spec, ui, lines }) {
   const failures = []
-  const sent = []
-  const received = []
-  for (const line of lines) {
-    const body = line.slice(line.indexOf('] ') + 2)
-    let msg
-    try {
-      msg = JSON.parse(body)
-    } catch {
-      continue
-    }
-    ;(line.startsWith('-->') ? sent : received).push(msg)
-  }
+  const traffic = parseTraffic(lines)
+  const sent = traffic.filter((t) => t.fromClient).map((t) => t.msg)
+  const received = traffic.filter((t) => !t.fromClient).map((t) => t.msg)
 
   // An optional server is one this app does not ship — PowerShell Editor Services
   // is used if the machine already has a copy. Its absence is a fact about the
@@ -157,6 +199,14 @@ function check(language, { spec, ui, lines }) {
   const notFound = sent.filter((m) => m?.error?.code === -32601)
   if (notFound.length) {
     failures.push(`replied "method not found" to ${notFound.length} server request(s)`)
+  }
+
+  // A handler that throws is the quieter version of the same failure: the client
+  // aborts a batch of dynamic registrations partway through, so every provider
+  // behind the entry it could not map is dropped without anything being logged.
+  const threw = sent.filter((m) => m?.error?.code === -32000)
+  if (threw.length) {
+    failures.push(`the client threw while answering ${threw.length} server request(s)`)
   }
 
   // Every spelling of the document's URI must be identical, or a server keyed by
@@ -190,9 +240,7 @@ function check(language, { spec, ui, lines }) {
   }
 
   if (spec.answersNonEmpty) {
-    const request = sent.find((m) => m.method === spec.answersNonEmpty)
-    const reply = request && received.find((m) => m.id === request.id)
-    const items = reply?.result
+    const items = findAnswer(traffic, spec.answersNonEmpty)?.result
     if (!Array.isArray(items) || items.length === 0) {
       failures.push(`${spec.answersNonEmpty} returned ${JSON.stringify(items)}, expected a non-empty result`)
     }

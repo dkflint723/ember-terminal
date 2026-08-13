@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Settings } from '@shared/types'
 
 /** A quick read on the selected theme without leaving the dialog. */
@@ -85,6 +85,29 @@ export function SettingsPanel(): React.JSX.Element | null {
     void refreshThemeList()
   }, [open])
 
+  /*
+   * Escape closes the dialog, the same way it dismisses everything else here.
+   *
+   * On the capture phase and holding the event: the dialog is the thing on top, so
+   * it should answer first, and letting Escape carry on afterwards would reach the
+   * app's own handler and dismiss something behind the scrim as well.
+   *
+   * Held in a ref because the handler is registered before `close` is in scope —
+   * the dialog renders nothing until its settings have loaded.
+   */
+  const closeRef = useRef<() => void>(() => toggle(false))
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
+      closeRef.current()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [open])
+
   if (!open || !draft) return null
 
   const close = (): void => {
@@ -92,6 +115,7 @@ export function SettingsPanel(): React.JSX.Element | null {
     if (saved && saved.themeId !== draft.themeId) void activateTheme(saved.themeId)
     toggle(false)
   }
+  closeRef.current = close
 
   const save = async (): Promise<void> => {
     // Panes pick the new font up by re-rendering off the store.

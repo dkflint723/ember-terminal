@@ -97,11 +97,91 @@ interface Command {
   run: () => void
 }
 
+/**
+ * Run one of Monaco's own actions against the editor the user is in.
+ *
+ * Driven through the action registry rather than reimplemented: formatting,
+ * renaming and go-to-definition are all served by the language server through
+ * providers the editor already knows about, so the work is in reaching the right
+ * editor, not in doing the thing.
+ *
+ * The palette has closed by the time this runs, so focus is put back first —
+ * several of these act on the cursor, and an action run against an editor that
+ * does not have focus lands in the wrong place or nowhere at all.
+ */
+function runEditorAction(actionId: string): void {
+  void (async () => {
+    const { monaco } = await import('../editor/monaco')
+    const editors = monaco.editor.getEditors()
+    const editor = editors.find((e) => e.hasTextFocus()) ?? editors[0]
+    if (!editor) return
+    editor.focus()
+    await editor.getAction(actionId)?.run()
+  })()
+}
+
 function commands(): Command[] {
   const s = useStore.getState()
   const tab = s.tabs.find((t) => t.id === s.activeTabId)
 
+  // Editor commands are offered only when there is an editor to run them against,
+  // rather than listed always and failing quietly when there is not.
+  const hasEditor = Object.values(s.panes).some((p) => p.kind === 'editor')
+  const editorCommands: Command[] = hasEditor
+    ? [
+        {
+          id: 'editor.format',
+          label: 'Format Document',
+          hint: 'Shift+Alt+F',
+          run: () => runEditorAction('editor.action.formatDocument')
+        },
+        {
+          id: 'editor.gotoLine',
+          label: 'Go to Line/Column',
+          hint: 'Ctrl+G',
+          run: () => runEditorAction('editor.action.gotoLine')
+        },
+        {
+          id: 'editor.gotoSymbol',
+          label: 'Go to Symbol in Editor',
+          hint: 'Ctrl+Shift+O',
+          run: () => runEditorAction('editor.action.quickOutline')
+        },
+        {
+          id: 'editor.definition',
+          label: 'Go to Definition',
+          hint: 'F12',
+          run: () => runEditorAction('editor.action.revealDefinition')
+        },
+        {
+          id: 'editor.references',
+          label: 'Go to References',
+          hint: 'Shift+F12',
+          run: () => runEditorAction('editor.action.goToReferences')
+        },
+        {
+          id: 'editor.rename',
+          label: 'Rename Symbol',
+          hint: 'F2',
+          run: () => runEditorAction('editor.action.rename')
+        },
+        {
+          id: 'editor.comment',
+          label: 'Toggle Line Comment',
+          hint: 'Ctrl+/',
+          run: () => runEditorAction('editor.action.commentLine')
+        },
+        {
+          id: 'editor.wordWrap',
+          label: 'View: Toggle Word Wrap',
+          hint: 'Alt+Z',
+          run: () => runEditorAction('editor.action.toggleWordWrap')
+        }
+      ]
+    : []
+
   return [
+    ...editorCommands,
     { id: 'view.explorer', label: 'View: Explorer', hint: 'Ctrl+B', run: () => s.showSidebarView('explorer') },
     { id: 'view.search', label: 'View: Search', hint: 'Ctrl+Shift+F', run: () => s.showSidebarView('search') },
     { id: 'view.scm', label: 'View: Source Control', hint: 'Ctrl+Shift+G', run: () => s.showSidebarView('scm') },

@@ -113,9 +113,11 @@ export async function resolveProposal(
   }
 
   // The pane has served its purpose either way; leaving it would accumulate one
-  // stale diff per proposal.
-  const tab = state.tabs.find((t) => t.id === state.activeTabId)
-  if (tab) state.closePane(tab.id, pending.paneId)
+  // stale diff per proposal. It is closed through the tab that actually holds it:
+  // a proposal can outlive the user's attention, and by the time they accept or
+  // reject it the tab in front of them may not be the one Claude opened it in.
+  const owner = state.tabIdForPane(pending.paneId)
+  if (owner) state.closePane(owner, pending.paneId)
 }
 
 async function handle(call: IdeCall): Promise<unknown> {
@@ -228,8 +230,8 @@ async function handle(call: IdeCall): Promise<unknown> {
       if (pending) {
         pendingProposals.delete(tabName)
         pending.settle({ __content: [{ type: 'text', text: 'TAB_CLOSED' }] })
-        const tab = state.tabs.find((t) => t.id === state.activeTabId)
-        if (tab) state.closePane(tab.id, pending.paneId)
+        const owner = state.tabIdForPane(pending.paneId)
+        if (owner) state.closePane(owner, pending.paneId)
       }
       return { success: true }
     }
@@ -240,8 +242,12 @@ async function handle(call: IdeCall): Promise<unknown> {
         pending.settle({ __content: [{ type: 'text', text: 'TAB_CLOSED' }] })
         pendingProposals.delete(tabName)
       }
-      const tab = state.tabs.find((t) => t.id === state.activeTabId)
-      if (tab) for (const pane of panes) state.closePane(tab.id, pane.id)
+      // Diff panes can be spread across several tabs, so each is closed through
+      // whichever tab holds it.
+      for (const pane of panes) {
+        const owner = state.tabIdForPane(pane.id)
+        if (owner) state.closePane(owner, pane.id)
+      }
       return { success: true, closed: panes.length }
     }
 

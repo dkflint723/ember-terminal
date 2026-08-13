@@ -7,6 +7,16 @@ import { pathToFileURL } from 'node:url'
 
 type Send = (payload: unknown) => void
 
+/** One `client/registerCapability` request, offered to the client a part at a time. */
+interface RegistrationBatch {
+  language: string
+  serverId: unknown
+  remaining: number
+  ids: number[]
+  timer: NodeJS.Timeout
+  answered?: boolean
+}
+
 /**
  * Every message between the renderer's LSP client and a server passes through
  * post() and onData(), so this is the one place the whole conversation is visible.
@@ -347,7 +357,11 @@ export class LspService {
       try {
         const parsed = normalizeUris(JSON.parse(body))
         trace('<--', language, parsed)
-        if (!this.settleDirect(parsed) && !this.answerClientRequest(language, parsed)) {
+        if (
+          !this.settleDirect(parsed) &&
+          !this.splitRegistrations(language, parsed) &&
+          !this.answerClientRequest(language, parsed)
+        ) {
           this.send({ type: 'message', language, message: parsed })
         }
       } catch {
@@ -375,6 +389,9 @@ export class LspService {
    */
   post(language: string, message: unknown): void {
     if (!this.servers.has(language)) return
+    // Answers to the parts of a split registration batch stop here: the server sent
+    // one request and must see exactly one response to it, not one per part.
+    if (this.settleRegistration(message)) return
 
     let outgoing = message
     if (this.isInitialize(message)) {
@@ -456,6 +473,89 @@ export class LspService {
     this.pendingDirect.delete(reply.id)
     resolve(reply.result ?? null)
     return true
+  }
+
+  /**
+   * Offer a batch of dynamic registrations to the client one at a time.
+   *
+   * The client looks each registration's method up in its capability table and
+   * throws on the first one it does not recognise, with no guard around the loop.
+   * A single unusable entry therefore rejects the whole batch and silently drops
+   * every registration behind it. PowerShell Editor Services registers document
+   * synchronisation — `textDocument/didOpen` and its siblings — dynamically and in
+   * the same batch as its real providers; those are notifications rather than
+   * capabilities, so the batch died on them and the language was left with almost
+   * none of the features the server actually offers.
+   *
+   * Split up, an unusable registration costs only itself. The server asked one
+   * question and gets one answer, once every part has been offered.
+   */
+  private static readonly CLIENT_ID_BASE = 2_000_000
+  private nextClientId = LspService.CLIENT_ID_BASE
+  private pendingRegistrations = new Map<number, RegistrationBatch>()
+
+  private splitRegistrations(language: string, message: unknown): boolean {
+    if (typeof message !== 'object' || message === null) return false
+    const request = message as { id?: unknown; method?: unknown; params?: unknown }
+    if (request.method !== 'client/registerCapability' || request.id === undefined) return false
+
+    const params = request.params as { registrations?: unknown[] } | undefined
+    const registrations = params?.registrations
+    // A single registration is already isolated; forwarding it untouched keeps the
+    // common case on the client's own path.
+    if (!Array.isArray(registrations) || registrations.length < 2) return false
+
+    const batch: RegistrationBatch = {
+      language,
+      serverId: request.id,
+      remaining: registrations.length,
+      ids: [],
+      // A client that never answers would otherwise leave the server waiting on an
+      // acknowledgement forever, which is how a handshake stalls.
+      timer: setTimeout(() => this.finishRegistrations(batch), 10_000)
+    }
+
+    for (const registration of registrations) {
+      const id = ++this.nextClientId
+      batch.ids.push(id)
+      this.pendingRegistrations.set(id, batch)
+      this.send({
+        type: 'message',
+        language,
+        message: {
+          jsonrpc: '2.0',
+          id,
+          method: 'client/registerCapability',
+          params: { registrations: [registration] }
+        }
+      })
+    }
+    return true
+  }
+
+  /** True when this was the client's answer to one part of a split batch. */
+  private settleRegistration(message: unknown): boolean {
+    if (typeof message !== 'object' || message === null) return false
+    const reply = message as { id?: unknown; method?: unknown }
+    if (typeof reply.id !== 'number' || reply.method !== undefined) return false
+    if (reply.id < LspService.CLIENT_ID_BASE) return false
+
+    const batch = this.pendingRegistrations.get(reply.id)
+    if (!batch) return false
+    this.pendingRegistrations.delete(reply.id)
+    // A registration the client could not use is not the server's problem: the
+    // consequence is that it will never be asked for that feature.
+    batch.remaining -= 1
+    if (batch.remaining <= 0) this.finishRegistrations(batch)
+    return true
+  }
+
+  private finishRegistrations(batch: RegistrationBatch): void {
+    clearTimeout(batch.timer)
+    for (const id of batch.ids) this.pendingRegistrations.delete(id)
+    if (batch.answered) return
+    batch.answered = true
+    this.write(batch.language, { jsonrpc: '2.0', id: batch.serverId, result: null })
   }
 
   /** Frame one message onto a server's stdin. */

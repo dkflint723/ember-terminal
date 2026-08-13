@@ -134,6 +134,13 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     // focused editor and nothing else.
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void save())
 
+    // Format Document, on the binding VS Code uses. Added explicitly rather than
+    // relied on: the formatting itself comes from the language server, and the
+    // standalone editor does not ship every workbench binding.
+    editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF, () => {
+      void editor.getAction('editor.action.formatDocument')?.run()
+    })
+
     // Claiming Ctrl+K stops Monaco starting one of its chords, which would eat the
     // next keystroke and look like a freeze. The global handler does the rest, so
     // this only has to prevent the chord.

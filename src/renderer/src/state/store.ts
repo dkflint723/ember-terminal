@@ -179,6 +179,8 @@ interface Store {
 
   splitPane(tabId: string, paneId: string, direction: 'row' | 'column'): string | null
   closePane(tabId: string, paneId: string): void
+  /** The tab whose layout contains this pane, which is not always the active one. */
+  tabIdForPane(paneId: string): string | null
   setSizes(tabId: string, path: number[], sizes: number[]): void
 
   editorPane(paneId: string): EditorPaneState | null
@@ -188,6 +190,8 @@ interface Store {
   setActiveDocument(paneId: string, index: number): void
   /** Close a tab; closing the last one closes the pane with it. */
   closeDocument(tabId: string, paneId: string, index: number): void
+  /** Re-read these files into any editor showing them, leaving edited ones alone. */
+  reloadFromDisk(paths: string[]): Promise<void>
   /** Open (or re-focus) a read-only comparison of two revisions of one file. */
   openDiffInSplit(tabId: string, diff: Omit<DiffPaneState, 'id' | 'kind'>): string | null
   /** Replace the active pane of a tab with an editor showing this file. */
@@ -417,10 +421,17 @@ export const useStore = create<Store>((set, get) => ({
     return pane.id
   },
 
+  tabIdForPane: (paneId) =>
+    get().tabs.find((t) => collectPaneIds(t.root).includes(paneId))?.id ?? null,
+
   closePane: (tabId, paneId) => {
     const { tabs, panes } = get()
     const tab = tabs.find((t) => t.id === tabId)
     if (!tab) return
+    // Closing a pane through the wrong tab used to remove it from the pane map and
+    // kill its process while the tab that really owns it kept a leaf pointing at it,
+    // leaving that tab with a hole where a pane should be.
+    if (!collectPaneIds(tab.root).includes(paneId)) return
 
     const nextRoot = removeLeaf(tab.root, paneId)
     if (!nextRoot) {
@@ -483,17 +494,30 @@ export const useStore = create<Store>((set, get) => ({
       eol: file.eol
     }
 
-    // An editor already showing this file wins, wherever it is: opening the same
-    // path twice should go to it rather than make a second copy that can diverge.
-    for (const pane of Object.values(panes)) {
-      if (pane.kind !== 'editor') continue
-      const index = pane.documents.findIndex((d) => d.filePath === file.path)
-      if (index === -1) continue
-      set({
-        panes: { ...panes, [pane.id]: { ...pane, activeIndex: index } },
-        tabs: tabs.map((t) => (t.id === tabId ? { ...t, activePaneId: pane.id } : t))
-      })
-      return pane.id
+    /**
+     * An editor already showing this file wins: opening the same path twice should
+     * go to it rather than make a second copy that can diverge.
+     *
+     * Which tab it is in matters. Marking a pane active in a tab whose layout does
+     * not contain it leaves that tab pointing at something it cannot render — the
+     * file appears not to open at all, and the tab can no longer be split, because
+     * splitting works from the active pane. So a pane found elsewhere is revealed
+     * by switching to its own tab. The current tab is searched first so a file open
+     * in two tabs reveals the copy already in front of the user.
+     */
+    for (const candidate of [tab, ...tabs.filter((t) => t.id !== tabId)]) {
+      const here = new Set(collectPaneIds(candidate.root))
+      for (const pane of Object.values(panes)) {
+        if (pane.kind !== 'editor' || !here.has(pane.id)) continue
+        const index = pane.documents.findIndex((d) => d.filePath === file.path)
+        if (index === -1) continue
+        set({
+          panes: { ...panes, [pane.id]: { ...pane, activeIndex: index } },
+          tabs: tabs.map((t) => (t.id === candidate.id ? { ...t, activePaneId: pane.id } : t)),
+          activeTabId: candidate.id
+        })
+        return pane.id
+      }
     }
 
     // Otherwise it becomes a tab in this tab's editor pane if there is one. Only
@@ -531,6 +555,36 @@ export const useStore = create<Store>((set, get) => ({
       )
     })
     return pane.id
+  },
+
+  /**
+   * Pull these files back off disk into the editors showing them.
+   *
+   * A document with unsaved edits is left exactly as it is: the user's own work is
+   * worth more than whatever changed underneath it, and overwriting it to reflect
+   * a replacement would destroy the thing they had not saved yet.
+   *
+   * The saved content is updated before the model, because dirtiness is derived by
+   * comparing the two — the other order would mark a freshly reloaded file dirty.
+   */
+  reloadFromDisk: async (paths) => {
+    const key = (p: string): string => p.replace(/\\/g, '/').toLowerCase()
+    const wanted = new Set(paths.map(key))
+    const { monaco } = await import('../editor/monaco')
+
+    for (const pane of Object.values(get().panes)) {
+      if (pane.kind !== 'editor') continue
+      for (let index = 0; index < pane.documents.length; index++) {
+        const doc = pane.documents[index]
+        if (!doc.filePath || doc.dirty || !wanted.has(key(doc.filePath))) continue
+
+        const res = await window.ember.readFile(doc.filePath)
+        if (!res.ok) continue
+        get().patchDocument(pane.id, { savedContent: res.content }, index)
+        const model = monaco.editor.getModel(monaco.Uri.file(doc.filePath))
+        if (model && model.getValue() !== res.content) model.setValue(res.content)
+      }
+    }
   },
 
   patchDocument: (paneId, patch, index) =>
@@ -576,13 +630,22 @@ export const useStore = create<Store>((set, get) => ({
 
     // One pane per file-and-side, refreshed in place. Opening the same diff twice
     // should show the current content, not a second pane holding a stale snapshot.
-    const existing = Object.values(panes).find(
-      (p) => p.kind === 'diff' && p.filePath === diff.filePath && p.staged === diff.staged
-    )
-    if (existing) {
+    // Found by tab, for the same reason as openFileInSplit: a pane can only be made
+    // active in the tab that actually contains it.
+    for (const candidate of [tab, ...tabs.filter((t) => t.id !== tabId)]) {
+      const here = new Set(collectPaneIds(candidate.root))
+      const existing = Object.values(panes).find(
+        (p) =>
+          p.kind === 'diff' &&
+          here.has(p.id) &&
+          p.filePath === diff.filePath &&
+          p.staged === diff.staged
+      )
+      if (!existing) continue
       set({
         panes: { ...panes, [existing.id]: { ...existing, ...diff } },
-        tabs: tabs.map((t) => (t.id === tabId ? { ...t, activePaneId: existing.id } : t))
+        tabs: tabs.map((t) => (t.id === candidate.id ? { ...t, activePaneId: existing.id } : t)),
+        activeTabId: candidate.id
       })
       return existing.id
     }

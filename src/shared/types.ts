@@ -234,6 +234,30 @@ export type SearchResult =
   | { ok: true; hits: SearchHit[]; truncated: boolean }
   | { ok: false; error: string }
 
+/**
+ * A replacement driven by hits that have already been found, rather than by running
+ * the search again. What the user is about to change is exactly what they were
+ * shown, and there is no second matcher whose idea of the query could differ from
+ * ripgrep's.
+ */
+export interface ReplaceRequest {
+  hits: SearchHit[]
+  replacement: string
+  /** Needed only so `$1` in the replacement can mean what it does in the pattern. */
+  pattern: string
+  regex: boolean
+  caseSensitive: boolean
+}
+
+export interface ReplaceOutcome {
+  ok: boolean
+  files: number
+  replaced: number
+  /** Hits whose line no longer holds the text that was found there. */
+  stale: number
+  error?: string
+}
+
 /** A finished command worth telling the user about. */
 export interface CommandNotice {
   command: string
@@ -369,6 +393,7 @@ export interface EmberApi {
   openExternal(url: string): void
   search(query: SearchQuery): Promise<SearchResult>
   listFiles(root: string): Promise<string[]>
+  replaceInFiles(request: ReplaceRequest): Promise<ReplaceOutcome>
   cancelSearch(): void
   gitStatus(cwd: string): Promise<GitStatusResult>
   gitDiff(root: string, path: string, staged: boolean): Promise<GitDiffResult>

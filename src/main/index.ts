@@ -13,7 +13,7 @@ import { IdeServer } from './ide.js'
 import { GitHubService } from './github.js'
 import { ExplorerMenu } from './explorer.js'
 import { SessionStore } from './session.js'
-import { SearchService } from './search.js'
+import { applyReplacement, SearchService } from './search.js'
 import { Notifier, focusWindow } from './notify.js'
 import { AiService } from './ai.js'
 import {
@@ -22,6 +22,7 @@ import {
   type CompletionRequest,
   type HistoryQuery,
   type HistoryRecord,
+  type ReplaceRequest,
   type Settings,
   type SpawnRequest
 } from '../shared/types.js'
@@ -177,10 +178,23 @@ function registerIpc(): void {
   ipcMain.handle('session:save', (_e, snapshot) => session.save(snapshot))
   ipcMain.on('session:clear', () => session.clear())
   ipcMain.on('notify:command', (_e, notice) => {
-    // The window is the only thing that reliably knows whether it has focus:
-    // `document.hasFocus()` in the renderer reports true even when minimized,
-    // which would suppress precisely the notifications worth sending.
-    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()) return
+    /*
+     * Suppressed only when the user can actually see the window.
+     *
+     * Focus alone does not mean that. A minimized window here reports
+     * `isFocused()` true while `isVisible()` is false, so testing focus by itself
+     * threw away every notification sent while the window was minimized — which is
+     * the case the whole feature exists for. It is the same trap as
+     * `document.hasFocus()` in the renderer, one layer down: asking who has the
+     * keyboard rather than what is on screen.
+     */
+    const watching =
+      mainWindow &&
+      !mainWindow.isDestroyed() &&
+      mainWindow.isFocused() &&
+      mainWindow.isVisible() &&
+      !mainWindow.isMinimized()
+    if (watching) return
     notifier.show(notice)
   })
   ipcMain.handle('notify:supported', () => notifier.supported)
@@ -231,6 +245,7 @@ function registerIpc(): void {
   ipcMain.handle('search:run', (_e, query) => search.run(query))
   ipcMain.on('search:cancel', () => search.cancel())
   ipcMain.handle('search:files', (_e, root: string) => search.files(root))
+  ipcMain.handle('search:replace', (_e, request: ReplaceRequest) => applyReplacement(request))
 
   ipcMain.handle('git:status', (_e, cwd: string) => git.status(cwd))
   ipcMain.handle('git:diff', (_e, root: string, path: string, staged: boolean) =>

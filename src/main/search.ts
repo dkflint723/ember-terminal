@@ -1,5 +1,12 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import type { SearchHit, SearchQuery, SearchResult } from '../shared/types.js'
+import { readFileSync, writeFileSync } from 'node:fs'
+import type {
+  ReplaceOutcome,
+  ReplaceRequest,
+  SearchHit,
+  SearchQuery,
+  SearchResult
+} from '../shared/types.js'
 
 /**
  * Search across the workspace, using the same tool VS Code uses.
@@ -173,6 +180,111 @@ export class SearchService {
       })
     })
   }
+}
+
+/**
+ * Apply a replacement to hits that have already been found.
+ *
+ * The edits are made at the positions ripgrep reported rather than by matching the
+ * pattern a second time. Rust's regex crate and JavaScript's do not agree on
+ * everything, and a second matcher that disagreed with the first would quietly
+ * change text the user never saw in the results.
+ *
+ * A pattern is still compiled in regex mode, but only to expand `$1` against the
+ * matched text itself — so a group reference means what it meant in the search.
+ * Nothing is decided by it: if it will not compile, the replacement goes in
+ * literally, which is what a search without groups wanted anyway.
+ *
+ * Each hit is checked against the line as it is on disk now, and one that no longer
+ * matches is left alone and counted. Results can be minutes old, and silently
+ * editing a line that has moved on since is the one outcome worth ruling out.
+ */
+export function applyReplacement(request: ReplaceRequest): ReplaceOutcome {
+  const byFile = new Map<string, SearchHit[]>()
+  for (const hit of request.hits) {
+    const list = byFile.get(hit.path) ?? []
+    list.push(hit)
+    byFile.set(hit.path, list)
+  }
+
+  let expander: RegExp | null = null
+  if (request.regex) {
+    try {
+      expander = new RegExp(request.pattern, request.caseSensitive ? '' : 'i')
+    } catch {
+      expander = null
+    }
+  }
+
+  let files = 0
+  let replaced = 0
+  let stale = 0
+
+  for (const [path, hits] of byFile) {
+    let text: string
+    try {
+      text = readFileSync(path, 'utf8')
+    } catch {
+      stale += hits.length
+      continue
+    }
+
+    // Split on the newline only: a `\r` stays on the end of the line it belongs to,
+    // so rejoining cannot turn a CRLF file into an LF one.
+    const lines = text.split('\n')
+    let touched = false
+
+    // Latest first. An edit changes the offsets after it on the same line, so
+    // applying them in reverse leaves every other position still correct.
+    const ordered = [...hits].sort((a, b) => b.line - a.line || b.column - a.column)
+    for (const hit of ordered) {
+      const line = lines[hit.line - 1]
+      if (line === undefined) {
+        stale += 1
+        continue
+      }
+
+      const found = line.slice(hit.column, hit.column + hit.length)
+      if (found.length !== hit.length || !stillMatches(found, hit, request)) {
+        stale += 1
+        continue
+      }
+
+      const insert = expander ? found.replace(expander, request.replacement) : request.replacement
+      lines[hit.line - 1] = line.slice(0, hit.column) + insert + line.slice(hit.column + hit.length)
+      replaced += 1
+      touched = true
+    }
+
+    if (!touched) continue
+    try {
+      writeFileSync(path, lines.join('\n'), 'utf8')
+      files += 1
+    } catch (err) {
+      return {
+        ok: false,
+        files,
+        replaced,
+        stale,
+        error: err instanceof Error ? err.message : `Could not write ${path}.`
+      }
+    }
+  }
+
+  return { ok: true, files, replaced, stale }
+}
+
+/**
+ * Whether the text at a hit's position is still the text that was found there.
+ *
+ * The preview carries the whole line as it was, so comparing against it catches a
+ * file edited since the search even when the replacement text would have been
+ * valid — which is the case that would otherwise corrupt a file silently.
+ */
+function stillMatches(found: string, hit: SearchHit, request: ReplaceRequest): boolean {
+  const was = hit.preview.slice(hit.column, hit.column + hit.length)
+  if (was.length !== found.length) return false
+  return request.caseSensitive ? was === found : was.toLowerCase() === found.toLowerCase()
 }
 
 /** Byte offset to character offset, for a line that may not be ASCII. */
