@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!--
+    Ember's mark: a prompt chevron cut out of a glowing coal.
+
+    The chevron is the one symbol that means "terminal" at any size, and cutting it
+    out rather than drawing it on top means the glow shows through it — the shape
+    reads as heat escaping through a crack rather than an icon with a symbol
+    stuck on. At 16px the cutout survives when fine detail would not.
+  -->
+  <defs>
+    <radialGradient id="coal" cx="38%" cy="30%" r="85%">
+      <stop offset="0%" stop-color="#ffd9a0" />
+      <stop offset="28%" stop-color="#ff9d5c" />
+      <stop offset="62%" stop-color="#e2532a" />
+      <stop offset="100%" stop-color="#7a1f10" />
+    </radialGradient>
+
+    <radialGradient id="heat" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ff8a3d" stop-opacity="0.55" />
+      <stop offset="70%" stop-color="#ff6a1f" stop-opacity="0.12" />
+      <stop offset="100%" stop-color="#ff6a1f" stop-opacity="0" />
+    </radialGradient>
+
+    <linearGradient id="rim" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#ffcf95" stop-opacity="0.85" />
+      <stop offset="45%" stop-color="#ff8f4a" stop-opacity="0.25" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.35" />
+    </linearGradient>
+
+    <!-- A soft shadow under the mark, so it holds against the lit top-left. -->
+    <filter id="press" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#5c1608" flood-opacity="0.5" />
+    </filter>
+  </defs>
+
+  <!-- Heat bleeding past the coal, so the mark is not a hard disc on dark chrome. -->
+  <circle cx="256" cy="268" r="250" fill="url(#heat)" />
+
+  <!--
+    A rounded lozenge rather than a circle: it sits better beside the square icons
+    Windows puts in a taskbar, and gives the chevron room without shrinking it.
+  -->
+  <rect x="56" y="56" width="400" height="400" rx="132" fill="url(#coal)" />
+  <rect x="56" y="56" width="400" height="400" rx="132" fill="url(#rim)" />
+
+  <!-- A thin bright edge on the lit side, which is what makes it read as ember. -->
+  <rect
+    x="56" y="56" width="400" height="400" rx="132"
+    fill="none" stroke="#ffb877" stroke-opacity="0.55" stroke-width="4"
+  />
+
+  <!--
+    The prompt, drawn rather than cut out. A cutout let the desktop through, which
+    reads well on a dark taskbar and disappears on a light one; a filled mark has
+    the same contrast wherever the icon lands. Warm off-white rather than pure
+    white, so it belongs to the same fire as everything behind it.
+  -->
+  <g fill="#fff4e6" filter="url(#press)">
+    <path d="M188 168 L188 232 L246 262 L188 292 L188 356 L300 296 L300 228 Z" />
+    <rect x="252" y="316" width="112" height="40" rx="14" />
+  </g>
+</svg>

@@ -82,6 +82,14 @@ function createWindow(): void {
     minHeight: 360,
     show: false,
     backgroundColor: '#0c0c0c',
+    // Set explicitly rather than left to the packager: without it the window and
+    // taskbar show Electron's own icon in development, and the Explorer context
+    // menu entry — which reads its icon from this executable — would too.
+    icon: join(
+      app.isPackaged ? process.resourcesPath : app.getAppPath(),
+      'resources',
+      'icon.png'
+    ),
     // Frameless so the tab strip can live in the title bar, the way Windows
     // Terminal does. The renderer draws its own caption buttons.
     frame: false,
