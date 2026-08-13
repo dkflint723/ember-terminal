@@ -145,6 +145,17 @@ button {
   color: var(--fg);
 }
 
+/* Holds the new-tab button and its menu, beside the scrolling strip rather than
+   inside it, so the menu is not clipped by the strip's overflow. */
+.titlebar__newwrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding-left: 4px;
+  -webkit-app-region: no-drag;
+}
+
 .titlebar__new {
   align-self: center;
   margin: 0 6px;

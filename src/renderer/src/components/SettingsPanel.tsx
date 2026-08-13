@@ -149,9 +149,11 @@ export function SettingsPanel(): React.JSX.Element | null {
    */
   const signIn = (): void => {
     const s = useStore.getState()
-    const tabId = s.newTab(s.settings.defaultProfileId ?? s.profiles[0]?.id ?? '')
-    const tab = useStore.getState().tabs.find((t) => t.id === tabId)
-    if (tab) s.setPendingInput(tab.activePaneId, 'claude auth login')
+    // newTab hands back the pane id, not the tab id. Looking a tab up by it found
+    // nothing, the guard swallowed that, and the button opened an empty terminal and
+    // did nothing else — the whole point of the feature, inert and silent.
+    const paneId = s.newTab(s.settings.defaultProfileId ?? s.profiles[0]?.id ?? '')
+    s.setPendingInput(paneId, 'claude auth login')
     toggle(false)
   }
 

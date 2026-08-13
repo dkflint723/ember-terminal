@@ -16,6 +16,28 @@ export function TitleBar(): React.JSX.Element {
 
   useEffect(() => window.ember.onWindowState((s) => setMaximized(s.maximized)), [])
 
+  /*
+   * Escape or a click anywhere else closes the profile menu.
+   *
+   * It only closed when the pointer happened to leave it, so a menu opened and left
+   * alone stayed on screen over the app with no way to dismiss it from the keyboard
+   * at all.
+   */
+  useEffect(() => {
+    if (!menuOpen) return
+    const dismiss = (e: Event): void => {
+      if (e instanceof KeyboardEvent && e.key !== 'Escape') return
+      if (e instanceof MouseEvent && (e.target as HTMLElement)?.closest('.titlebar__newwrap')) return
+      setMenuOpen(false)
+    }
+    window.addEventListener('keydown', dismiss, true)
+    window.addEventListener('mousedown', dismiss, true)
+    return () => {
+      window.removeEventListener('keydown', dismiss, true)
+      window.removeEventListener('mousedown', dismiss, true)
+    }
+  }, [menuOpen])
+
   const titleFor = (tabId: string): string => {
     const tab = tabs.find((t) => t.id === tabId)
     if (!tab) return 'Shell'
@@ -55,8 +77,17 @@ export function TitleBar(): React.JSX.Element {
             </button>
           </div>
         ))}
+      </div>
 
-        <div style={{ position: 'relative' }}>
+      {/*
+        Outside the tab strip, deliberately.
+
+        The strip scrolls horizontally, and a box that scrolls in one axis clips in
+        both — so this menu, which hangs below a 36px-tall strip, was rendered and
+        then clipped entirely out of view. The button appeared to do nothing at all.
+        Out here it is also still reachable once there are more tabs than fit.
+      */}
+      <div className="titlebar__newwrap">
           <button
             className="titlebar__new"
             title="New tab"
@@ -111,20 +142,33 @@ export function TitleBar(): React.JSX.Element {
               </button>
             </div>
           )}
-        </div>
       </div>
 
       <div className="titlebar__spacer" />
 
+      {/* Named, because the glyphs are drawing characters that a screen reader
+          announces as nothing useful. */}
       <div className="titlebar__controls">
-        <button className="caption-btn" onClick={() => window.ember.windowAction('minimize')}>
+        <button
+          className="caption-btn"
+          aria-label="Minimize"
+          title="Minimize"
+          onClick={() => window.ember.windowAction('minimize')}
+        >
           ─
         </button>
-        <button className="caption-btn" onClick={() => window.ember.windowAction('maximize')}>
+        <button
+          className="caption-btn"
+          aria-label={maximized ? 'Restore' : 'Maximize'}
+          title={maximized ? 'Restore' : 'Maximize'}
+          onClick={() => window.ember.windowAction('maximize')}
+        >
           {maximized ? '❐' : '□'}
         </button>
         <button
           className="caption-btn caption-btn--close"
+          aria-label="Close window"
+          title="Close"
           onClick={() => window.ember.windowAction('close')}
         >
           ✕

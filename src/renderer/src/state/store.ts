@@ -172,6 +172,7 @@ interface Store {
   openPalette(mode: 'files' | 'commands'): void
   closePalette(): void
 
+  /** Opens a tab and returns its *pane* id, which is what callers need to write to. */
   newTab(profileId: string, cwd?: string): string
   closeTab(tabId: string): void
   setActiveTab(tabId: string): void

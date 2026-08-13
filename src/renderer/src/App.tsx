@@ -28,6 +28,10 @@ export function App(): React.JSX.Element {
   useGitStatusPolling()
   // Answers Claude Code's tool calls, and keeps the published workspace root current.
   useIdeBridge()
+  const isHomeDirectory = (dir: string): boolean =>
+    dir.replace(/[\\/]+$/, '').toLowerCase() ===
+    window.ember.homeDir.replace(/[\\/]+$/, '').toLowerCase()
+
   // Reads the applied setting, so turning restore off stops the writing too.
   useSessionAutosave(restoreEnabled)
 
@@ -38,9 +42,22 @@ export function App(): React.JSX.Element {
   const rootTab = tabs.find((t) => t.id === activeTabId)
   const rootPane = rootTab ? panes[rootTab.activePaneId] : undefined
   const terminalCwd = rootPane?.kind === 'terminal' ? rootPane.cwd : null
+  /*
+   * Never the home directory, though.
+   *
+   * A new terminal reports home until its shell says otherwise, so launching
+   * without a folder adopted the user's entire profile as the workspace before they
+   * had done anything: the explorer listed .ssh and AppData, quick open and search
+   * indexed and grepped the lot — one search for "password" turned up real
+   * credentials in unrelated files — and Replace All was armed across all of it.
+   *
+   * Declining also makes the "Open a folder to…" empty states reachable, which is
+   * the one place the app tells a new user that opening a folder is a thing to do.
+   * Someone who genuinely wants their home directory can still choose it.
+   */
   useEffect(() => {
     const s = useStore.getState()
-    if (!s.treeRoot && terminalCwd) s.setTreeRoot(terminalCwd)
+    if (!s.treeRoot && terminalCwd && !isHomeDirectory(terminalCwd)) s.setTreeRoot(terminalCwd)
   }, [terminalCwd])
 
   // Boot: discover shells, then open the first tab on the preferred one.
