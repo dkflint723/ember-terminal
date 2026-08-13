@@ -1857,6 +1857,42 @@ kbd {
   border-color: var(--border-strong);
 }
 
+/* Which credential is in effect, stated rather than implied. */
+.access {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 3px;
+  background: var(--bg-elevated);
+  font-size: 12px;
+}
+
+.access--ok {
+  border-left-color: var(--ok);
+}
+
+.access--warn {
+  border-left-color: var(--accent);
+}
+
+.access--off,
+.access--unknown {
+  border-left-color: var(--border-strong);
+}
+
+.access__state {
+  color: var(--fg);
+}
+
+.access__detail {
+  color: var(--fg-faint);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
 .find__row {
   display: flex;
   gap: 5px;

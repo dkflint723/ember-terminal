@@ -211,6 +211,22 @@ export interface SessionSnapshot {
   panes: SessionPane[]
 }
 
+/** What the Claude Code CLI can tell us about how, or whether, the user is signed in. */
+export interface ClaudeAccess {
+  installed: boolean
+  signedIn: boolean
+  account: string | null
+  plan: string | null
+  /** Present when the CLI is there but could not answer. */
+  error: string | null
+}
+
+/** Where Ember's AI features get their credentials from, in the order tried. */
+export interface AiCredential {
+  source: 'settings-key' | 'environment-key' | 'claude-code' | 'none'
+  detail: string | null
+}
+
 /** One editor snippet, in the form the completion list needs it. */
 export interface Snippet {
   label: string
@@ -401,6 +417,10 @@ export interface EmberApi {
   revealPath(target: string): void
   lspStart(language: string, root?: string): Promise<{ ok: boolean; error?: string }>
   noteRecentFolder(folder: string): Promise<Settings>
+  /** Which credential AI requests would use right now. */
+  aiCredential(): Promise<AiCredential>
+  /** Re-probe the Claude Code CLI, after the user has signed in or out. */
+  claudeAccess(): Promise<ClaudeAccess>
   /** Tell every running server the workspace moved. */
   lspSetRoot(root: string): void
   lspSend(language: string, message: unknown): void

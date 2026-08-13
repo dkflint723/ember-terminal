@@ -7,6 +7,8 @@ import type {
   HistoryQuery,
   IdeCall,
   LspEvent,
+  AiCredential,
+  ClaudeAccess,
   ReplaceRequest,
   SearchQuery,
   SessionSnapshot,
@@ -131,6 +133,8 @@ const api: EmberApi = {
 
   listProfiles: (): Promise<ShellProfile[]> => ipcRenderer.invoke('profiles:list'),
   ai: (req: AiRequest): Promise<AiResponse> => ipcRenderer.invoke('ai:run', req),
+  aiCredential: (): Promise<AiCredential> => ipcRenderer.invoke('ai:credential'),
+  claudeAccess: (): Promise<ClaudeAccess> => ipcRenderer.invoke('ai:claudeAccess'),
   getSettings: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),
   noteRecentFolder: (folder: string): Promise<Settings> =>
     ipcRenderer.invoke('settings:noteFolder', folder),

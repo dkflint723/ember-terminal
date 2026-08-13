@@ -1,5 +1,47 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Settings } from '@shared/types'
+import type { AiCredential, ClaudeAccess, Settings } from '@shared/types'
+
+/**
+ * How Claude access reads to the user, in one line.
+ *
+ * Deliberately says which credential is in effect rather than whether one exists:
+ * with a key, an environment variable and a CLI login all possible at once, "it
+ * works" is not enough to explain why an answer came back the way it did.
+ */
+function credentialLabel(credential: AiCredential | null, claude: ClaudeAccess | null): string {
+  if (!credential) return 'Checking…'
+  switch (credential.source) {
+    case 'settings-key':
+      return 'Using the API key saved here'
+    case 'environment-key':
+      return 'Using ANTHROPIC_API_KEY from the environment'
+    case 'claude-code':
+      return 'Signed in through Claude Code'
+    default:
+      return claude?.installed ? 'Claude Code is installed, but signed out' : 'Not set up'
+  }
+}
+
+function credentialTone(credential: AiCredential | null, claude: ClaudeAccess | null): string {
+  if (!credential) return 'unknown'
+  if (credential.source === 'none') return claude?.installed ? 'warn' : 'off'
+  return 'ok'
+}
+
+function credentialNote(credential: AiCredential | null, claude: ClaudeAccess | null): string {
+  if (credential?.source === 'claude-code') {
+    return `Requests go through the Claude Code CLI using the browser sign-in you already have${
+      claude?.plan ? `, on your ${claude.plan} plan` : ''
+    }. They count against that subscription rather than API credits, and are a little slower than a direct API call.`
+  }
+  if (credential?.source === 'none' && !claude?.installed) {
+    return 'Ask Claude needs either the Claude Code CLI, which you sign into with a browser, or an Anthropic API key below.'
+  }
+  if (credential?.source === 'none') {
+    return claude?.error ?? 'Sign in to Claude Code, or add an API key below.'
+  }
+  return 'An API key takes precedence over signing in through Claude Code.'
+}
 
 /** A quick read on the selected theme without leaving the dialog. */
 const SWATCH_TOKENS = ['bg', 'fg', 'accent', 'ok', 'fail', 'info', 'bg-elevated', 'border-strong']
@@ -77,6 +119,38 @@ export function SettingsPanel(): React.JSX.Element | null {
   const [saved, setSaved] = useState<Settings | null>(null)
   const [themeError, setThemeError] = useState<string | null>(null)
   const [snippetError, setSnippetError] = useState<string | null>(null)
+  const [credential, setCredential] = useState<AiCredential | null>(null)
+  const [claude, setClaude] = useState<ClaudeAccess | null>(null)
+  const [probing, setProbing] = useState(false)
+
+  const refreshAccess = async (): Promise<void> => {
+    setProbing(true)
+    // The CLI probe first, since the credential answer depends on it.
+    setClaude(await window.ember.claudeAccess())
+    setCredential(await window.ember.aiCredential())
+    setProbing(false)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    void refreshAccess()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  /**
+   * Sign in by putting the command in a terminal, ready to run.
+   *
+   * Not run automatically: `claude auth login` opens a browser and takes over the
+   * terminal while it waits, and starting that behind a settings dialog without
+   * being asked would be a surprise. The user presses Enter.
+   */
+  const signIn = (): void => {
+    const s = useStore.getState()
+    const tabId = s.newTab(s.settings.defaultProfileId ?? s.profiles[0]?.id ?? '')
+    const tab = useStore.getState().tabs.find((t) => t.id === tabId)
+    if (tab) s.setPendingInput(tab.activePaneId, 'claude auth login')
+    toggle(false)
+  }
 
   useEffect(() => {
     if (!open) return
@@ -270,8 +344,32 @@ export function SettingsPanel(): React.JSX.Element | null {
           />
         </div>
 
+        {/* Claude access, shown as what is actually in effect rather than as a field
+            to fill in. Signing in through the browser is the common case; the key is
+            for people who would rather bring their own. */}
         <div className="field">
-          <label>Anthropic API key</label>
+          <label>Claude access</label>
+          <div className={`access access--${credentialTone(credential, claude)}`}>
+            <span className="access__state">{credentialLabel(credential, claude)}</span>
+            {credential?.source === 'claude-code' && credential.detail && (
+              <span className="access__detail">{credential.detail}</span>
+            )}
+          </div>
+          <div className="field__note">{credentialNote(credential, claude)}</div>
+          <div className="composer__proposal-actions">
+            {claude?.installed && !claude.signedIn && (
+              <button className="btn btn--primary" onClick={() => signIn()}>
+                Sign in with your browser
+              </button>
+            )}
+            <button className="btn" onClick={() => void refreshAccess()} disabled={probing}>
+              {probing ? 'Checking…' : 'Re-check'}
+            </button>
+          </div>
+        </div>
+
+        <details className="field">
+          <summary>Use an API key instead</summary>
           <input
             type="password"
             placeholder="sk-ant-…"
@@ -280,10 +378,13 @@ export function SettingsPanel(): React.JSX.Element | null {
             spellCheck={false}
           />
           <div className="field__note">
-            Encrypted at rest with the Windows credential store. Leave blank to use the
-            ANTHROPIC_API_KEY environment variable instead.
+            Encrypted at rest with the Windows credential store. A key takes precedence
+            over signing in, and buys slightly better results for command generation —
+            it can hold the model to a schema, which going through Claude Code cannot.
+            Leave blank to use the ANTHROPIC_API_KEY environment variable, or your Claude
+            Code sign-in.
           </div>
-        </div>
+        </details>
 
         <div className="field">
           <label>On launch</label>

@@ -17,6 +17,7 @@ import { applyReplacement, SearchService } from './search.js'
 import { SnippetStore } from './snippets.js'
 import { Notifier, focusWindow } from './notify.js'
 import { AiService } from './ai.js'
+import { ClaudeCliService } from './claude-cli.js'
 import {
   DEFAULT_SETTINGS,
   type AiRequest,
@@ -71,6 +72,7 @@ function callRenderer(name: string, args: Record<string, unknown>): Promise<unkn
 let startupFiles: string[] = []
 let startupFolders: string[] = []
 let ai: AiService
+let claudeCli: ClaudeCliService
 let ptys: PtyManager
 
 /**
@@ -160,6 +162,13 @@ function registerIpc(): void {
   ipcMain.on('pty:kill', (_e, paneId: string) => ptys.kill(paneId))
 
   ipcMain.handle('ai:run', (_e, req: AiRequest) => ai.run(req))
+  ipcMain.handle('ai:credential', () => ai.credential())
+  // Refreshed rather than cached, because this is asked right after the user has
+  // gone away and signed in.
+  ipcMain.handle('ai:claudeAccess', () => {
+    claudeCli.forget()
+    return claudeCli.access(true)
+  })
 
   ipcMain.handle('file:startupFiles', () => {
     const pending = startupFiles
@@ -383,7 +392,8 @@ if (!app.requestSingleInstanceLock()) {
     const startup = pathArgs(process.argv, app.getAppPath())
     startupFiles = startup.files
     startupFolders = startup.folders
-    ai = new AiService(settings)
+    claudeCli = new ClaudeCliService()
+    ai = new AiService(settings, claudeCli)
     ide = new IdeServer((name, args) => callRenderer(name, args))
     ide.start([])
     ptys = new PtyManager(

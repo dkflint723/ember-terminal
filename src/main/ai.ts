@@ -1,6 +1,24 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { AiRequest, AiResponse } from '../shared/types.js'
+import type { AiCredential, AiRequest, AiResponse } from '../shared/types.js'
 import type { SettingsStore } from './settings.js'
+import type { ClaudeCliService } from './claude-cli.js'
+
+/**
+ * What the schema says, said in words, for the path that cannot enforce a schema.
+ *
+ * The fences are called out because models add them by habit: asked for JSON, a
+ * model reliably returns it wrapped in a ```json block. The parser strips them
+ * anyway, since asking nicely does not actually stop it.
+ */
+const JSON_INSTRUCTION = [
+  'Reply with a single JSON object and nothing else — no prose, no explanation around it,',
+  'and no markdown code fences.',
+  '',
+  'Keys:',
+  '  command      string   the one command line to run',
+  '  note         string   one short sentence on what it does, or the risk if destructive',
+  '  destructive  boolean  true when it deletes, overwrites, or is otherwise hard to undo'
+].join('\n')
 
 /**
  * Command generation is latency-sensitive and produces a couple of lines of
@@ -68,6 +86,24 @@ function explainSystemPrompt(shell: string): string {
   ].join('\n')
 }
 
+/**
+ * The JSON object out of a reply that may be wrapped in prose or a code fence.
+ *
+ * The API path returns bare JSON because the schema is enforced, so this changes
+ * nothing there. The CLI path has no schema to enforce, and a model asked for JSON
+ * returns it fenced regardless of being told not to — measured, not assumed.
+ */
+function unwrapJson(text: string): string {
+  const trimmed = text.trim()
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  const body = (fenced ? fenced[1] : trimmed).trim()
+
+  // Still tolerant of a sentence either side, which fences alone would not catch.
+  const start = body.indexOf('{')
+  const end = body.lastIndexOf('}')
+  return start !== -1 && end > start ? body.slice(start, end + 1) : body
+}
+
 function buildUserMessage(req: AiRequest): string {
   const parts: string[] = []
 
@@ -86,17 +122,69 @@ function buildUserMessage(req: AiRequest): string {
 }
 
 export class AiService {
-  constructor(private settings: SettingsStore) {}
+  constructor(
+    private settings: SettingsStore,
+    private claude: ClaudeCliService
+  ) {}
 
-  async run(req: AiRequest): Promise<AiResponse> {
-    const apiKey = this.settings.resolveApiKey()
-    if (!apiKey) {
+  /** Which credential a request would use right now, for the settings dialog. */
+  async credential(): Promise<AiCredential> {
+    const fromSettings = this.settings.get().anthropicApiKey
+    if (fromSettings && fromSettings.trim()) return { source: 'settings-key', detail: null }
+    if (process.env.ANTHROPIC_API_KEY?.trim()) {
+      return { source: 'environment-key', detail: 'ANTHROPIC_API_KEY' }
+    }
+    const access = await this.claude.access()
+    if (access.installed && access.signedIn) {
+      return { source: 'claude-code', detail: access.account }
+    }
+    return { source: 'none', detail: access.installed ? access.error : null }
+  }
+
+  /**
+   * The same question, asked through the Claude Code CLI.
+   *
+   * Structured outputs are not available here — the CLI has no equivalent flag — so
+   * the schema becomes an instruction and the answer is parsed defensively. That is
+   * a genuine step down in reliability for command generation, which is why an
+   * explicit API key still takes precedence over this path.
+   */
+  private async runThroughClaudeCode(req: AiRequest): Promise<AiResponse> {
+    const access = await this.claude.access()
+    if (!access.installed) {
       return {
         ok: false,
         error:
-          'No Anthropic API key. Set one in Settings, or export ANTHROPIC_API_KEY before launching.'
+          'No API key, and Claude Code is not installed. Add a key in Settings, or install Claude Code and sign in.'
       }
     }
+    if (!access.signedIn) {
+      return {
+        ok: false,
+        error: 'Not signed in. Run `claude auth login`, or add an API key in Settings.'
+      }
+    }
+
+    const system =
+      req.mode === 'command'
+        ? `${commandSystemPrompt(req.shell, req.cwd)}\n\n${JSON_INSTRUCTION}`
+        : explainSystemPrompt(req.shell)
+
+    const answer = await this.claude.ask(
+      system,
+      buildUserMessage(req),
+      this.settings.get().aiModel
+    )
+    if (!answer.ok) return { ok: false, error: answer.error }
+    if (req.mode === 'explain') return { ok: true, explanation: answer.text.trim() }
+    return this.parseCommand(answer.text)
+  }
+
+  async run(req: AiRequest): Promise<AiResponse> {
+    const apiKey = this.settings.resolveApiKey()
+    // No key is no longer the end of it: the user may be signed into Claude Code,
+    // which is the browser login this app can actually reuse.
+    if (!apiKey) return this.runThroughClaudeCode(req)
 
     // Bounded on purpose. Someone waiting on a one-line command has given up long
     // before a default timeout would fire, and the composer is disabled while the
@@ -191,7 +279,11 @@ export class AiService {
 
   private parseCommand(text: string): AiResponse {
     try {
-      const parsed = JSON.parse(text) as { command?: string; note?: string; destructive?: boolean }
+      const parsed = JSON.parse(unwrapJson(text)) as {
+        command?: string
+        note?: string
+        destructive?: boolean
+      }
       if (typeof parsed.command !== 'string' || parsed.command.trim().length === 0) {
         return { ok: false, error: 'Claude did not return a command.' }
       }
