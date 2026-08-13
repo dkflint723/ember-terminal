@@ -107,6 +107,24 @@ export function SearchPanel({ onOpen }: Props): React.JSX.Element {
       return
     }
 
+    /*
+     * Asked before, not after.
+     *
+     * This writes to every matching file at once and there is no undo for it: the
+     * files are on disk, most of them are not open in an editor, and Ctrl+Z reaches
+     * none of them. Editing one file without being asked is fine; editing forty is
+     * the kind of thing people want to have agreed to.
+     */
+    const files = new Set(targets.map((h) => h.path)).size
+    const scale = scope
+      ? `Replace ${targets.length} ${targets.length === 1 ? 'match' : 'matches'} in ${scope
+          .split(/[\\/]/)
+          .pop()}?`
+      : `Replace ${targets.length} ${targets.length === 1 ? 'match' : 'matches'} across ${files} ${
+          files === 1 ? 'file' : 'files'
+        }?`
+    if (!window.confirm(`${scale} This writes to disk and cannot be undone.`)) return
+
     setReplacing(true)
     const res = await window.ember.replaceInFiles({
       hits: targets,

@@ -269,7 +269,7 @@ function removeLeaf(node: LayoutNode, paneId: string): LayoutNode | null {
   }
 }
 
-function collectPaneIds(node: LayoutNode, out: string[] = []): string[] {
+export function collectPaneIds(node: LayoutNode, out: string[] = []): string[] {
   if (node.type === 'leaf') out.push(node.paneId)
   else node.children.forEach((c) => collectPaneIds(c, out))
   return out

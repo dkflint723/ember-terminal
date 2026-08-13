@@ -417,6 +417,8 @@ export interface EmberApi {
   revealPath(target: string): void
   lspStart(language: string, root?: string): Promise<{ ok: boolean; error?: string }>
   noteRecentFolder(folder: string): Promise<Settings>
+  /** Whether a saved API key would really be encrypted at rest. */
+  keyEncryptionAvailable(): Promise<boolean>
   /** Which credential AI requests would use right now. */
   aiCredential(): Promise<AiCredential>
   /** Re-probe the Claude Code CLI, after the user has signed in or out. */

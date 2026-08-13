@@ -82,9 +82,24 @@ export class SettingsStore {
     return (!fromSettings || fromSettings.trim().length === 0) && !!process.env.ANTHROPIC_API_KEY
   }
 
+  /**
+   * Whether a key saved now would actually be encrypted.
+   *
+   * Asked so the dialog can say what is true rather than promising a credential
+   * store that may not be there: falling back to plaintext is defensible, telling
+   * someone their key is encrypted when it is sitting in a JSON file is not.
+   */
+  encryptionAvailable(): boolean {
+    try {
+      return safeStorage.isEncryptionAvailable()
+    } catch {
+      return false
+    }
+  }
+
   private encryptKey(key: string | null): string | null {
     if (!key) return null
-    if (!safeStorage.isEncryptionAvailable()) return key
+    if (!this.encryptionAvailable()) return key
     try {
       return ENC_PREFIX + safeStorage.encryptString(key).toString('base64')
     } catch {

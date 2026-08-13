@@ -51,6 +51,14 @@ const app = await electron.launch({
 })
 const page = await app.firstWindow()
 await placeTopRight(app)
+// Replacing across files asks before writing, since there is no undo for it.
+// Recorded and accepted; Playwright would otherwise dismiss the prompt and the
+// replacement would look as though it silently did nothing.
+const prompts = []
+page.on('dialog', (d) => {
+  prompts.push(d.message())
+  void d.accept()
+})
 const errors = []
 const BENIGN = [/textDocument\/foldingRange failed/]
 page.on('pageerror', (e) => {
@@ -124,6 +132,12 @@ check(
     Buffer.concat([Buffer.from('needle caf'), Buffer.from([0xe9, 0x0a])])
   ) === 0,
   fs.readFileSync(latin1).toString('hex')
+)
+
+check(
+  'it asked before writing to disk',
+  prompts.some((p) => /cannot be undone/i.test(p)),
+  JSON.stringify(prompts)
 )
 
 const said = (await summary()) ?? ''

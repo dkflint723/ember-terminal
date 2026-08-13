@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useStore } from '../state/store'
+import { collectPaneIds, useStore } from '../state/store'
 import { QuickPick, type QuickPickItem } from './QuickPick'
 
 interface Props {
@@ -20,6 +20,9 @@ export function Palette({ onOpenFile }: Props): React.JSX.Element | null {
   const treeRoot = useStore((s) => s.treeRoot)
   const [files, setFiles] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
+
+  // Handed to the command list, which is not a component and so has no props.
+  useEffect(() => setPaletteFileOpener(onOpenFile), [onOpenFile])
 
   // Listed when the palette opens rather than kept current: a workspace file list
   // goes stale slowly, and walking the tree in the background forever to keep it
@@ -120,9 +123,42 @@ function runEditorAction(actionId: string): void {
   })()
 }
 
+/**
+ * How a command opens a file, supplied by the app.
+ *
+ * The command list is a plain function rather than a component, so the one thing it
+ * cannot do for itself is reach the app's own file-opening path — which knows about
+ * language detection and where a new editor pane goes.
+ */
+let openFile: (filePath: string) => void = () => {}
+
+export function setPaletteFileOpener(fn: (filePath: string) => void): void {
+  openFile = fn
+}
+
 function commands(): Command[] {
   const s = useStore.getState()
   const tab = s.tabs.find((t) => t.id === s.activeTabId)
+
+  /**
+   * Split from a terminal, whichever one that is.
+   *
+   * A split duplicates a shell, so it can only be made from a terminal pane. Run
+   * with an editor pane active it did nothing at all and said nothing either — the
+   * command was in the list, the user picked it, and the app ignored them. Falling
+   * back to the tab's own terminal is what they meant.
+   */
+  const splitFromATerminal = (direction: 'row' | 'column'): void => {
+    if (!tab) return
+    const active = s.panes[tab.activePaneId]
+    if (active?.kind === 'terminal') {
+      s.splitPane(tab.id, active.id, direction)
+      return
+    }
+    const here = new Set(collectPaneIds(tab.root))
+    const terminal = Object.values(s.panes).find((p) => p.kind === 'terminal' && here.has(p.id))
+    if (terminal) s.splitPane(tab.id, terminal.id, direction)
+  }
 
   // Editor commands are offered only when there is an editor to run them against,
   // rather than listed always and failing quietly when there is not.
@@ -217,6 +253,20 @@ function commands(): Command[] {
     { id: 'view.search', label: 'View: Search', hint: 'Ctrl+Shift+F', run: () => s.showSidebarView('search') },
     { id: 'view.scm', label: 'View: Source Control', hint: 'Ctrl+Shift+G', run: () => s.showSidebarView('scm') },
     { id: 'view.github', label: 'View: GitHub', hint: 'Ctrl+Shift+H', run: () => s.showSidebarView('github') },
+    // Ctrl+O worked but was reachable only by knowing about it. A command that
+    // exists and cannot be found is close to one that does not exist.
+    {
+      id: 'file.open',
+      label: 'File: Open File…',
+      hint: 'Ctrl+O',
+      run: () => {
+        void (async () => {
+          const res = await window.ember.openFileDialog()
+          if (res.ok) openFile(res.path)
+        })()
+      }
+    },
+    { id: 'view.problems', label: 'View: Problems', hint: 'Ctrl+Shift+M', run: () => s.showSidebarView('problems') },
     { id: 'view.settings', label: 'Preferences: Settings', hint: 'Ctrl+,', run: () => s.toggleSettings(true) },
     { id: 'view.history', label: 'Terminal: Search History', hint: 'Ctrl+R', run: () => s.toggleHistory(true) },
     {
@@ -229,13 +279,13 @@ function commands(): Command[] {
       id: 'terminal.splitRight',
       label: 'Terminal: Split Right',
       hint: 'Ctrl+Shift+D',
-      run: () => tab && s.splitPane(tab.id, tab.activePaneId, 'row')
+      run: () => splitFromATerminal('row')
     },
     {
       id: 'terminal.splitDown',
       label: 'Terminal: Split Down',
       hint: 'Ctrl+Shift+E',
-      run: () => tab && s.splitPane(tab.id, tab.activePaneId, 'column')
+      run: () => splitFromATerminal('column')
     },
     {
       id: 'pane.close',

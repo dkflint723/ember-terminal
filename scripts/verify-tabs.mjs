@@ -40,6 +40,14 @@ await placeTopRight(app)
 
 const errors = []
 const BENIGN = [/textDocument\/foldingRange failed/]
+// Closing a tab with unsaved changes asks first, so the prompts are recorded and
+// accepted. Playwright dismisses them by default, which reads as the close being
+// ignored.
+const prompts = []
+page.on('dialog', (d) => {
+  prompts.push(d.message())
+  void d.accept()
+})
 page.on('pageerror', (e) => {
   if (!BENIGN.some((re) => re.test(e.message))) errors.push(e.message)
 })
@@ -163,7 +171,15 @@ check('closing a tab removes it', closed.tabs.length === 2, JSON.stringify(close
 check('and leaves the pane', closed.editorPanes === 1, `saw ${closed.editorPanes}`)
 
 // Closing the last tab should take the pane with it, leaving the terminal alone.
+// alpha.ts still holds the unsaved edit from earlier, so this also exercises the
+// prompt: closing unsaved work without being asked is how work disappears.
+const promptsBefore = prompts.length
 for (const name of ['alpha.ts', 'beta.ts']) await closeTab(name)
+check(
+  'closing a tab with unsaved changes asks first',
+  prompts.length > promptsBefore && /unsaved/i.test(prompts[promptsBefore] ?? ''),
+  JSON.stringify(prompts)
+)
 const emptied = await state()
 check('closing the last tab closes the pane', emptied.editorPanes === 0, `saw ${emptied.editorPanes}`)
 check('the terminal is still there', emptied.terminalStillThere)

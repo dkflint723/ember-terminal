@@ -215,6 +215,18 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     const model = modelFor(document)
     if (editor.getModel() !== model) editor.setModel(model)
 
+    /*
+     * Reconcile the tab with the model it just attached to.
+     *
+     * A model outlives its tab on purpose — that is what keeps undo history and the
+     * language server's view of the document intact — so reopening a file can hand
+     * back one that still holds edits the store has no record of. Left alone the
+     * editor showed that unsaved text with no unsaved marker, which is the one state
+     * where someone reasonably believes their work is on disk when it is not.
+     */
+    const dirty = model.getValue() !== document.savedContent
+    if (dirty !== document.dirty) patchDocument(pane.id, { dirty }, pane.activeIndex)
+
     const treeRoot = useStore.getState().treeRoot
     const fileDir = document.filePath?.replace(/[\\/][^\\/]*$/, '')
     void ensureLanguageServer(document.language, treeRoot ?? fileDir ?? undefined)
@@ -293,9 +305,29 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     patchDocument(pane.id, { savedContent: content, dirty: false }, index)
   }
 
+  /**
+   * Close a tab, asking first when it holds unsaved work.
+   *
+   * The text is not actually destroyed — the model keeps it, and reopening the file
+   * now shows it and marks it unsaved — but closing is still the moment someone
+   * expects to be asked, and being asked is what tells them the work exists.
+   */
+  const requestClose = (index: number): void => {
+    const doc = pane.documents[index]
+    if (doc?.dirty && !window.confirm(`${doc.title} has unsaved changes. Close it anyway?`)) return
+    closeDocument(tabId, pane.id, index)
+  }
+
   const revert = async (): Promise<void> => {
     const path = document.filePath
     if (!path) return
+    // Throwing away edits and the undo history with them, so it gets asked.
+    if (
+      document.dirty &&
+      !window.confirm(`Discard unsaved changes to ${document.title} and reload it from disk?`)
+    ) {
+      return
+    }
     const res = await window.ember.readFile(path)
     if (!res.ok) {
       setMessage(res.error)
@@ -354,7 +386,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
               // Middle-click closes, as everywhere else that has tabs.
               if (e.button === 1) {
                 e.preventDefault()
-                closeDocument(tabId, pane.id, i)
+                requestClose(i)
               } else if (e.button === 0) {
                 setActiveDocument(pane.id, i)
               }
@@ -367,7 +399,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation()
-                closeDocument(tabId, pane.id, i)
+                requestClose(i)
               }}
             >
               {doc.dirty ? '●' : '×'}

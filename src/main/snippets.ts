@@ -127,6 +127,7 @@ export class SnippetStore {
       if (!manifestText) return { ok: false, error: 'That does not look like a .vsix.' }
 
       const manifest = JSON.parse(manifestText) as {
+        name?: string
         contributes?: { snippets?: { language?: string; path?: string }[] }
       }
       const contributed = manifest.contributes?.snippets ?? []
@@ -134,20 +135,39 @@ export class SnippetStore {
         return { ok: false, error: 'That extension contributes no snippets.' }
       }
 
+      const from = safeName(manifest.name ?? basename(sourcePath, extname(sourcePath)))
       let count = 0
       for (const entry of contributed) {
         if (!entry.path || !entry.language) continue
         const body = read(`extension/${entry.path.replace(/^\.\//, '')}`)
         if (!body) continue
+
+        let parsed: Record<string, unknown>
         try {
-          parseThemeJson(body)
+          parsed = parseThemeJson(body) as Record<string, unknown>
         } catch {
           continue
         }
-        // Named for the language so the file itself says which language it is for,
-        // the same way a hand-written one would.
-        const target = join(this.dir(), `${entry.language.toLowerCase()}.json`)
-        writeFileSync(target, body, 'utf8')
+
+        /*
+         * Written as a scoped `.code-snippets` file named after the extension, not
+         * as `<language>.json`.
+         *
+         * Naming it for the language would have been tidier and would have silently
+         * overwritten a file the user wrote themselves — importing a TypeScript
+         * extension destroying your own typescript.json is not a trade anyone would
+         * accept. The language moves onto each entry as a scope instead, which is
+         * the format's own way of saying the same thing.
+         */
+        const scoped: Record<string, unknown> = {}
+        for (const [label, snippet] of Object.entries(parsed)) {
+          if (typeof snippet !== 'object' || snippet === null) continue
+          scoped[label] = { ...(snippet as object), scope: entry.language.toLowerCase() }
+        }
+        if (Object.keys(scoped).length === 0) continue
+
+        const target = join(this.dir(), `${from}-${safeName(entry.language)}.code-snippets`)
+        writeFileSync(target, JSON.stringify(scoped, null, 2), 'utf8')
         count += 1
       }
 
@@ -177,6 +197,16 @@ function scopeList(body: unknown, fromFileName: string | null): string[] {
       .filter(Boolean)
   }
   return [fromFileName ?? ANY_LANGUAGE]
+}
+
+/** A name safe to use as a file name, so an extension cannot pick its own path. */
+function safeName(label: string): string {
+  return (
+    label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'snippets'
+  )
 }
 
 function toSnippet(label: string, body: unknown): Snippet | null {

@@ -122,12 +122,15 @@ export function SettingsPanel(): React.JSX.Element | null {
   const [credential, setCredential] = useState<AiCredential | null>(null)
   const [claude, setClaude] = useState<ClaudeAccess | null>(null)
   const [probing, setProbing] = useState(false)
+  /** Null until asked; false means a saved key would sit in plain text. */
+  const [encrypted, setEncrypted] = useState<boolean | null>(null)
 
   const refreshAccess = async (): Promise<void> => {
     setProbing(true)
     // The CLI probe first, since the credential answer depends on it.
     setClaude(await window.ember.claudeAccess())
     setCredential(await window.ember.aiCredential())
+    setEncrypted(await window.ember.keyEncryptionAvailable())
     setProbing(false)
   }
 
@@ -171,6 +174,49 @@ export function SettingsPanel(): React.JSX.Element | null {
    * Held in a ref because the handler is registered before `close` is in scope —
    * the dialog renders nothing until its settings have loaded.
    */
+  /*
+   * The dialog has to take focus when it opens.
+   *
+   * Without this, focus stays wherever it was — which is the terminal composer —
+   * so opening Settings and starting to type sent the keystrokes to the shell
+   * behind the scrim, and Enter ran them as a command. Every check here drove the
+   * fields by setting their values directly, which is exactly the thing that never
+   * notices a focus bug.
+   *
+   * The dialog itself takes focus rather than the first field: landing on a text
+   * input would let a stray keystroke edit a setting before the user has even
+   * looked at it.
+   */
+  const modalRef = useRef<HTMLDivElement>(null)
+  const ready = open && draft !== null
+  useEffect(() => {
+    if (!ready) return
+    const frame = window.requestAnimationFrame(() => modalRef.current?.focus())
+    return () => window.cancelAnimationFrame(frame)
+  }, [ready])
+
+  /** Keep Tab inside the dialog, so it cannot walk out into the app behind it. */
+  const trapTab = (e: React.KeyboardEvent): void => {
+    if (e.key !== 'Tab' || !modalRef.current) return
+    const focusable = Array.from(
+      modalRef.current.querySelectorAll<HTMLElement>(
+        'button, input, select, textarea, summary, a[href], [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null)
+    if (focusable.length === 0) return
+
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    const active = document.activeElement
+    if (e.shiftKey && (active === first || active === modalRef.current)) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }
+
   const closeRef = useRef<() => void>(() => toggle(false))
   useEffect(() => {
     if (!open) return
@@ -244,7 +290,16 @@ export function SettingsPanel(): React.JSX.Element | null {
 
   return (
     <div className="modal-scrim" onMouseDown={close}>
-      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        className="modal"
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Settings"
+        tabIndex={-1}
+        onKeyDown={trapTab}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <h2>Settings</h2>
 
         <div className="field">
@@ -378,11 +433,13 @@ export function SettingsPanel(): React.JSX.Element | null {
             spellCheck={false}
           />
           <div className="field__note">
-            Encrypted at rest with the Windows credential store. A key takes precedence
-            over signing in, and buys slightly better results for command generation —
-            it can hold the model to a schema, which going through Claude Code cannot.
-            Leave blank to use the ANTHROPIC_API_KEY environment variable, or your Claude
-            Code sign-in.
+            {encrypted === false
+              ? 'Windows is not offering a credential store, so this would be saved as plain text in your settings file. Consider the ANTHROPIC_API_KEY environment variable instead.'
+              : 'Encrypted at rest with the Windows credential store.'}{' '}
+            A key takes precedence over signing in, and buys slightly better results for
+            command generation — it can hold the model to a schema, which going through
+            Claude Code cannot. Leave blank to use the ANTHROPIC_API_KEY environment
+            variable, or your Claude Code sign-in.
           </div>
         </details>
 

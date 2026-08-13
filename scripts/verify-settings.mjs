@@ -48,14 +48,22 @@ check('clicking it opens settings', true)
 const fields = await page.evaluate(() =>
   Array.from(document.querySelectorAll('.field > label:first-child')).map((l) => l.textContent)
 )
-for (const wanted of ['Theme', 'Default shell', 'Anthropic API key', 'On launch', 'Notify after']) {
+for (const wanted of ['Theme', 'Default shell', 'Claude access', 'On launch', 'Notify after']) {
   check(`it offers ${wanted}`, fields.some((f) => f?.includes(wanted)), fields.join(' | '))
 }
+// The key moved behind a disclosure when signing in became the common case, so it
+// is checked as a disclosure rather than as a labelled field.
+check(
+  'and an API key is still available under a disclosure',
+  (await page.locator('details.field summary').count()) >= 1
+)
 await page.screenshot({ path: path.join(SHOT_DIR, '97-settings.png') })
 
 // --- the API key field actually persists ------------------------------------
 const KEY = 'sk-ant-verify-not-a-real-key'
-await page.locator('.field', { hasText: 'Anthropic API key' }).locator('input').fill(KEY)
+await page.locator('details.field').first().locator('summary').click()
+await sleep(400)
+await page.locator('details.field').first().locator('input[type="password"]').fill(KEY)
 await page.evaluate(() => {
   const save = [...document.querySelectorAll('.modal__actions .btn')].find((b) =>
     b.textContent?.includes('Save')
@@ -111,6 +119,41 @@ await page.keyboard.type('echo alive', { delay: 6 })
 await sleep(300)
 const recovered = await page.evaluate(() => document.querySelector('.composer__input')?.value ?? '')
 check('and typing works afterwards', recovered.includes('echo alive'), recovered)
+
+/*
+ * --- the dialog has to take the keyboard ------------------------------------
+ *
+ * Typed, not filled. Every other check here sets input values directly, which is
+ * exactly what cannot notice a focus bug — and there was one: opening Settings left
+ * focus in the terminal composer, so typing went to the shell behind the scrim and
+ * Enter ran it as a command.
+ */
+await page.keyboard.press('Control+Comma')
+await page.waitForSelector('.modal', { timeout: 10_000 })
+await sleep(900)
+
+const focused = await page.evaluate(() => {
+  const active = document.activeElement
+  return { inDialog: !!active?.closest('.modal'), what: active?.tagName ?? 'none' }
+})
+check('the dialog takes focus when it opens', focused.inDialog, JSON.stringify(focused))
+
+await page.keyboard.type('whoami')
+await sleep(600)
+const leaked = await page.evaluate(
+  () => document.querySelector('.composer__input')?.value ?? ''
+)
+check('and typing cannot reach the shell behind it', !leaked.includes('whoami'), leaked)
+
+// Tab must not walk out of the dialog into the app underneath.
+await page.keyboard.press('Tab')
+await page.keyboard.press('Tab')
+await sleep(400)
+const stillInside = await page.evaluate(() => !!document.activeElement?.closest('.modal'))
+check('and Tab stays inside it', stillInside)
+
+await page.keyboard.press('Escape')
+await sleep(400)
 
 await app.close()
 profile.cleanup()

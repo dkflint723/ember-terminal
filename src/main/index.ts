@@ -350,6 +350,7 @@ function registerIpc(): void {
   ipcMain.handle('settings:get', () => settings.get())
   ipcMain.handle('settings:set', (_e, patch: Partial<Settings>) => settings.set(patch))
   ipcMain.handle('settings:noteFolder', (_e, folder: string) => settings.noteRecentFolder(folder))
+  ipcMain.handle('settings:encryption', () => settings.encryptionAvailable())
 
   ipcMain.on('window:action', (_e, action: 'minimize' | 'maximize' | 'close') => {
     if (!mainWindow) return
