@@ -1869,6 +1869,13 @@ kbd {
 }
 
 /* Which credential is in effect, stated rather than implied. */
+/* Output that was dropped rather than never produced. Says so, instead of
+   presenting a block that quietly begins in the middle of itself. */
+.block__elided {
+  color: var(--fg-faint);
+  font-style: italic;
+}
+
 .access {
   display: flex;
   align-items: baseline;

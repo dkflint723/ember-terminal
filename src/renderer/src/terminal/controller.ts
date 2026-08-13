@@ -47,6 +47,10 @@ export class TerminalController {
 
   private capture = ''
   private capturing = false
+  /** Set when output was dropped, so the block can say so rather than just lose it. */
+  private captureTrimmed = false
+  /** Lines one block can keep. Generous: a build log is the normal case, not the extreme. */
+  private static readonly RENDER_SCROLLBACK = 50_000
   /** Holds back a few bytes so a marker split across pty chunks is still found. */
   private carry = ''
   private currentBlockId: string | null = null
@@ -119,7 +123,10 @@ export class TerminalController {
       allowProposedApi: true,
       cols: 120,
       rows: 200,
-      scrollback: 5000,
+      // Deep enough that an ordinary build log survives intact. It used to cut off
+      // at ~5200 lines with nothing to say it had, so a long block quietly began in
+      // the middle of itself.
+      scrollback: TerminalController.RENDER_SCROLLBACK,
       theme: toXtermTheme(palette)
     })
 
@@ -203,6 +210,7 @@ export class TerminalController {
           return
         }
         this.capture = ''
+        this.captureTrimmed = false
         this.capturing = true
         s = rest.slice(end + (end === st ? 2 : 1))
         continue
@@ -223,11 +231,48 @@ export class TerminalController {
     }
   }
 
+  /**
+   * A full-screen repaint arriving in the middle of one command's output.
+   *
+   * ConPTY keeps its own console screen buffer, and when it decides to redraw —
+   * a large scroll, a resize — it emits the entire screen from home. Those bytes
+   * land inside whatever capture is open, and replaying them into the offscreen
+   * terminal paints earlier commands' text over this block's real output. Blocks
+   * ended up showing lines that belonged to something run minutes ago.
+   *
+   * Home-and-erase is the giveaway: nothing a normal command prints moves the
+   * cursor to the top of the screen and clears it. Everything before it in this
+   * capture was overpainted on the real screen too, so the capture is restarted
+   * from that point, which is what the user actually saw.
+   */
+  private static readonly REPAINT = /\x1b\[(?:H|1;1H|2J|3J)/g
+
   private appendCapture(chunk: string): void {
     if (chunk.length === 0) return
     this.capture += chunk
+
+    // Only mid-capture: a repaint at the very start is the command's own doing.
+    if (this.capture.length > chunk.length) {
+      let last = -1
+      TerminalController.REPAINT.lastIndex = 0
+      for (
+        let m = TerminalController.REPAINT.exec(this.capture);
+        m !== null;
+        m = TerminalController.REPAINT.exec(this.capture)
+      ) {
+        if (m.index >= this.capture.length - chunk.length) last = m.index
+      }
+      if (last > 0) this.capture = this.capture.slice(last)
+    }
+
     // Bound one command's output; a huge log would blow up the serialize pass.
-    if (this.capture.length > 2_000_000) this.capture = this.capture.slice(-2_000_000)
+    // Trimmed on a line boundary, so the block does not begin mid-escape.
+    if (this.capture.length > 2_000_000) {
+      const cut = this.capture.slice(-2_000_000)
+      const nl = cut.indexOf('\n')
+      this.capture = nl === -1 ? cut : cut.slice(nl + 1)
+      this.captureTrimmed = true
+    }
   }
 
   /**
@@ -339,7 +384,22 @@ export class TerminalController {
     await new Promise<void>((resolve) => this.renderTerm.write(bytes, resolve))
 
     try {
-      return renderBufferAsHtml(this.renderTerm, this.palette)
+      const html = renderBufferAsHtml(this.renderTerm, this.palette)
+      /*
+       * Say when output was dropped rather than simply not having it.
+       *
+       * The offscreen terminal's scrollback is a hard ceiling, and the byte cap is
+       * another, so a long command silently lost its beginning — the block looked
+       * complete and started in the middle. A line at the top is not the missing
+       * output, but it is the difference between truncated and wrong.
+       */
+      const overflowed =
+        this.captureTrimmed ||
+        this.renderTerm.buffer.active.length >=
+          this.renderTerm.rows + TerminalController.RENDER_SCROLLBACK
+      return overflowed
+        ? `<span class="block__elided">… earlier output not kept</span>\n${html}`
+        : html
     } catch {
       // Rendering must never lose the block; fall back to plain text.
       return `<span>${escapeHtml(this.renderTerm.buffer.active.getLine(0)?.translateToString(true) ?? '')}</span>`
@@ -530,7 +590,14 @@ export class TerminalController {
     try {
       const dims = this.fit.proposeDimensions()
       const cols = Math.max(Number.isFinite(dims?.cols) ? (dims?.cols as number) : 0, 40)
-      const rows = Math.max(Number.isFinite(dims?.rows) ? (dims?.rows as number) : 0, 24)
+      /*
+       * The floor is also the ceiling in practice, because the live view is
+       * collapsed while the shell is idle — so the pty ran on a 24-row console
+       * buffer almost all of the time. A single line longer than 24 wrapped rows
+       * scrolled off conpty's own screen before it could be captured, and the block
+       * showed only its tail. Deep enough that ordinary long lines survive.
+       */
+      const rows = Math.max(Number.isFinite(dims?.rows) ? (dims?.rows as number) : 0, 120)
       if (cols !== this.term.cols || rows !== this.term.rows) this.term.resize(cols, rows)
       window.ember.resize(this.paneId, cols, rows)
     } catch {
