@@ -268,6 +268,11 @@ export function App(): React.JSX.Element {
         s.showSidebarView('github')
         return
       }
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'm') {
+        e.preventDefault()
+        s.showSidebarView('problems')
+        return
+      }
       if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'f') {
         e.preventDefault()
         s.showSidebarView('search')

@@ -1,4 +1,5 @@
 import { useStore, type SidebarView } from '../state/store'
+import { useProblems } from './ProblemsPanel'
 
 /**
  * The icon rail down the left edge, which chooses what the sidebar shows.
@@ -60,6 +61,19 @@ const ENTRIES: Entry[] = [
         <path d="M6 6.5v6.5M14 11v1.5a2 2 0 0 1-2 2H8M14 7V5.5a2 2 0 0 0-2-2H8.2" />
       </>
     )
+  },
+  {
+    view: 'problems',
+    label: 'Problems',
+    hint: 'Problems (Ctrl+Shift+M)',
+    icon: (
+      // A warning triangle: the one shape that means "something is wrong here"
+      // without needing a colour to say it.
+      <>
+        <path d="M10 3.4 17.4 16.2H2.6Z" />
+        <path d="M10 8v3.4M10 13.6v.1" />
+      </>
+    )
   }
 ]
 
@@ -69,6 +83,7 @@ export function ActivityBar(): React.JSX.Element {
   const show = useStore((s) => s.showSidebarView)
   const status = useStore((s) => s.gitStatus)
   const toggleSettings = useStore((s) => s.toggleSettings)
+  const errorCount = useProblems().filter((p) => p.severity === 8).length
 
   // One badge per changed path, not per list entry: a file that is both staged and
   // modified again is one thing needing attention, and VS Code counts it once.
@@ -98,6 +113,13 @@ export function ActivityBar(): React.JSX.Element {
             </svg>
             {entry.view === 'scm' && pending > 0 && (
               <span className="activity__badge">{pending > 99 ? '99+' : pending}</span>
+            )}
+            {/* Errors only. Warnings are worth reading but not worth a badge that
+                never clears on a codebase that has always had a few. */}
+            {entry.view === 'problems' && errorCount > 0 && (
+              <span className="activity__badge activity__badge--bad">
+                {errorCount > 99 ? '99+' : errorCount}
+              </span>
             )}
           </button>
         )

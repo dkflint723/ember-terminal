@@ -3,6 +3,7 @@ import { FileTree } from './FileTree'
 import { SourceControl } from './SourceControl'
 import { GitHubPanel } from './GitHubPanel'
 import { SearchPanel } from './SearchPanel'
+import { ProblemsPanel } from './ProblemsPanel'
 
 interface Props {
   onOpen: (filePath: string) => void
@@ -14,7 +15,8 @@ const TITLES: Record<string, string> = {
   explorer: 'Explorer',
   search: 'Search',
   scm: 'Source Control',
-  github: 'GitHub'
+  github: 'GitHub',
+  problems: 'Problems'
 }
 
 /**
@@ -30,6 +32,7 @@ export function Sidebar({ onOpen, onOpenAt }: Props): React.JSX.Element {
       {view === 'search' && <SearchPanel onOpen={onOpenAt} />}
       {view === 'scm' && <SourceControl />}
       {view === 'github' && <GitHubPanel />}
+      {view === 'problems' && <ProblemsPanel onOpen={onOpenAt} />}
       {view === 'explorer' && <FileTree onOpen={onOpen} />}
     </div>
   )

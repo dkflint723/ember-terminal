@@ -205,7 +205,7 @@ export interface SessionSnapshot {
   version: 1
   treeRoot: string | null
   sidebarOpen: boolean
-  sidebarView: 'explorer' | 'search' | 'scm' | 'github'
+  sidebarView: 'explorer' | 'search' | 'scm' | 'github' | 'problems'
   activeTabId: string | null
   tabs: { id: string; root: SessionLayout; activePaneId: string }[]
   panes: SessionPane[]

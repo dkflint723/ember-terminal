@@ -2116,3 +2116,90 @@ kbd {
   margin: 4px 0;
   background: var(--border);
 }
+
+/* ---------- problems ---------- */
+
+.probs {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.probs--empty {
+  padding: 10px 12px;
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+.probs__summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 6px;
+  font-size: 11px;
+}
+
+.probs__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 8px;
+}
+
+.probs__row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 8px 2px 24px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.probs__row:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.probs__dot {
+  flex: 0 0 auto;
+  font-size: 8px;
+}
+
+.probs__dot--error {
+  color: var(--fail);
+}
+
+.probs__dot--warning {
+  color: var(--accent);
+}
+
+.probs__dot--info {
+  color: var(--info-fg);
+}
+
+.probs__message {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.probs__where {
+  flex: 0 0 auto;
+  color: var(--fg-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+/* Errors earn a red badge rather than the accent one used for pending changes. */
+.activity__badge--bad {
+  background: var(--fail);
+  color: var(--bg);
+}

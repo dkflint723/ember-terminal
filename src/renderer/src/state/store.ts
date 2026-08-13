@@ -26,7 +26,7 @@ export interface Block {
 export type PaneKind = 'terminal' | 'editor' | 'diff'
 
 /** Which view the sidebar is showing, chosen from the activity bar. */
-export type SidebarView = 'explorer' | 'search' | 'scm' | 'github'
+export type SidebarView = 'explorer' | 'search' | 'scm' | 'github' | 'problems'
 
 /**
  * Whether this pane's shell reports command boundaries.
