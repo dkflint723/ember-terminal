@@ -49,6 +49,11 @@ const api: EmberApi = {
   readFile: (path: string) => ipcRenderer.invoke('file:read', path),
   readDir: (path: string) => ipcRenderer.invoke('file:readDir', path),
   directoryExists: (path: string) => ipcRenderer.invoke('file:dirExists', path),
+  createPath: (target: string, kind: 'file' | 'directory') =>
+    ipcRenderer.invoke('file:create', target, kind),
+  renamePath: (from: string, to: string) => ipcRenderer.invoke('file:rename', from, to),
+  trashPath: (target: string) => ipcRenderer.invoke('file:trash', target),
+  revealPath: (target: string) => ipcRenderer.send('file:reveal', target),
   lspStart: (language: string, root?: string) => ipcRenderer.invoke('lsp:start', language, root),
   lspSend: (language: string, message: unknown) => ipcRenderer.send('lsp:send', language, message),
   onLspMessage: (cb: (e: LspEvent) => void) => {

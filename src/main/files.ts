@@ -1,7 +1,7 @@
-import { dialog, type BrowserWindow } from 'electron'
+import { dialog, shell, type BrowserWindow } from 'electron'
 import { existsSync, statSync } from 'node:fs'
-import { readdir, readFile, stat, writeFile } from 'node:fs/promises'
-import { basename, join, resolve } from 'node:path'
+import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { basename, dirname, join, resolve } from 'node:path'
 import type {
   DirEntry,
   DirReadResult,
@@ -142,6 +142,64 @@ export class FileService {
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : 'Could not read that file.' }
     }
+  }
+
+  /**
+   * Create an empty file, or a directory.
+   *
+   * Refuses to overwrite. A "new file" that silently truncated an existing one
+   * would be a data-loss bug wearing the costume of a convenience.
+   */
+  async create(target: string, kind: 'file' | 'directory'): Promise<FileWriteResult> {
+    try {
+      if (existsSync(target)) return { ok: false, error: 'That name is already taken.' }
+      if (kind === 'directory') {
+        await mkdir(target, { recursive: true })
+      } else {
+        await mkdir(dirname(target), { recursive: true })
+        // `wx` fails rather than truncates if something appeared in between.
+        await writeFile(target, '', { encoding: 'utf8', flag: 'wx' })
+      }
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'Could not create that.' }
+    }
+  }
+
+  async rename(from: string, to: string): Promise<FileWriteResult> {
+    try {
+      if (from === to) return { ok: true }
+      // On Windows a rename that differs only in case is the same path, and has to
+      // be allowed through — but anything else already there must not be clobbered.
+      if (existsSync(to) && from.toLowerCase() !== to.toLowerCase()) {
+        return { ok: false, error: 'That name is already taken.' }
+      }
+      await rename(from, to)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'Could not rename that.' }
+    }
+  }
+
+  /**
+   * Delete to the recycle bin rather than unlinking.
+   *
+   * A tree with a delete key in it will eventually delete something the user
+   * wanted, and the difference between "restore it" and "restore from backup" is
+   * the whole reason to prefer the shell's own trash.
+   */
+  async trash(target: string): Promise<FileWriteResult> {
+    try {
+      await shell.trashItem(target)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'Could not delete that.' }
+    }
+  }
+
+  /** Show a path in the OS file manager, for "reveal in Explorer". */
+  reveal(target: string): void {
+    shell.showItemInFolder(target)
   }
 
   async write(filePath: string, content: string): Promise<FileWriteResult> {

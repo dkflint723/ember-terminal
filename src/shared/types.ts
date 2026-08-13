@@ -352,6 +352,10 @@ export interface EmberApi {
   readFile(path: string): Promise<FileReadResult>
   readDir(path: string): Promise<DirReadResult>
   directoryExists(path: string): Promise<boolean>
+  createPath(target: string, kind: 'file' | 'directory'): Promise<FileWriteResult>
+  renamePath(from: string, to: string): Promise<FileWriteResult>
+  trashPath(target: string): Promise<FileWriteResult>
+  revealPath(target: string): void
   lspStart(language: string, root?: string): Promise<{ ok: boolean; error?: string }>
   lspSend(language: string, message: unknown): void
   onLspMessage(cb: (e: LspEvent) => void): () => void

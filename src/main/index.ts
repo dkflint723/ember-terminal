@@ -195,6 +195,12 @@ function registerIpc(): void {
   ipcMain.handle('file:read', (_e, filePath: string) => files.read(filePath))
   ipcMain.handle('file:readDir', (_e, dirPath: string) => files.readDir(dirPath))
   ipcMain.handle('file:dirExists', (_e, dirPath: string) => files.directoryExists(dirPath))
+  ipcMain.handle('file:create', (_e, target: string, kind: 'file' | 'directory') =>
+    files.create(target, kind)
+  )
+  ipcMain.handle('file:rename', (_e, from: string, to: string) => files.rename(from, to))
+  ipcMain.handle('file:trash', (_e, target: string) => files.trash(target))
+  ipcMain.on('file:reveal', (_e, target: string) => files.reveal(target))
 
   ipcMain.handle('lsp:start', (_e, language: string, root?: string) => lsp.start(language, root))
   ipcMain.on('lsp:send', (_e, language: string, message: unknown) => lsp.post(language, message))

@@ -2037,3 +2037,82 @@ kbd {
   color: var(--fg-faint);
   font-size: 12px;
 }
+
+/* ---------- tree editing and context menu ---------- */
+
+.tree__row--selected {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.tree__row--draft {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px 1px 6px;
+}
+
+.tree__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 1px 4px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--accent-dim);
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.tree__input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/*
+ * The scrim catches the click that dismisses the menu, including a right-click
+ * elsewhere — without it the menu would stay open behind a second one.
+ */
+.menu__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+}
+
+.menu {
+  position: fixed;
+  z-index: 51;
+  min-width: 180px;
+  padding: 4px 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.menu__item {
+  display: block;
+  width: 100%;
+  padding: 5px 12px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.menu__item:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.menu__item--danger:hover {
+  color: var(--fail);
+}
+
+.menu__rule {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}

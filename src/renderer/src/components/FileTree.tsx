@@ -36,6 +36,20 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState<Set<string>>(new Set())
+  const [selected, setSelected] = useState<string | null>(null)
+  /** An in-place input: creating something new, or renaming what is already there. */
+  const [draft, setDraft] = useState<{
+    kind: 'file' | 'directory'
+    dir: string
+    name: string
+    original: string | null
+  } | null>(null)
+  const [menu, setMenu] = useState<{
+    path: string
+    isDirectory: boolean
+    x: number
+    y: number
+  } | null>(null)
 
   const gitStatus = useStore((s) => s.gitStatus)
 
@@ -87,11 +101,130 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
     })
   }
 
+  /** Re-read a directory after something in it changed on disk. */
+  const refresh = async (dirPath: string): Promise<void> => {
+    setChildren((prev) => {
+      const next = { ...prev }
+      delete next[dirPath]
+      return next
+    })
+    await load(dirPath)
+  }
+
+  const parentOf = (target: string): string => target.replace(/[\\/][^\\/]*$/, '')
+  const joinPath = (dir: string, name: string): string =>
+    `${dir}${dir.includes('\\') ? '\\' : '/'}${name}`
+
+  /** Where a new entry should go: inside a directory, or beside a file. */
+  const containerFor = (target: string | null): string => {
+    if (!target || !root) return root ?? ''
+    const entry = Object.values(children).flat().find((e) => e.path === target)
+    if (entry?.isDirectory) return target
+    return parentOf(target)
+  }
+
+  const beginCreate = (kind: 'file' | 'directory'): void => {
+    const dir = containerFor(menu?.path ?? selected)
+    if (!dir) return
+    // Opened first, so the input appears in the right place immediately.
+    if (!expanded.has(dir) && dir !== root) toggle(dir)
+    setDraft({ kind, dir, name: '', original: null })
+    setMenu(null)
+  }
+
+  const commitDraft = async (): Promise<void> => {
+    if (!draft) return
+    const name = draft.name.trim()
+    const { dir, original, kind } = draft
+    setDraft(null)
+    if (!name) return
+
+    const res = original
+      ? await window.ember.renamePath(original, joinPath(dir, name))
+      : await window.ember.createPath(joinPath(dir, name), kind)
+
+    if (!res.ok) {
+      setError(res.error)
+      return
+    }
+    setError(null)
+    await refresh(dir)
+    // A new file is almost always about to be edited.
+    if (!original && kind === 'file') onOpen(joinPath(dir, name))
+  }
+
+  const remove = async (target: string): Promise<void> => {
+    setMenu(null)
+    if (!window.confirm(`Move ${target.split(/[\\/]/).pop()} to the Recycle Bin?`)) return
+    const res = await window.ember.trashPath(target)
+    if (!res.ok) {
+      setError(res.error)
+      return
+    }
+    setError(null)
+    await refresh(parentOf(target))
+  }
+
+  const draftRow = (dirPath: string, depth: number): React.JSX.Element | null => {
+    if (!draft || draft.dir !== dirPath || draft.original) return null
+    return (
+      <div className="tree__row tree__row--draft" style={{ paddingLeft: 6 + depth * 12 }}>
+        <span className="tree__twisty">{draft.kind === 'directory' ? '▸' : ''}</span>
+        <input
+          className="tree__input"
+          autoFocus
+          value={draft.name}
+          placeholder={draft.kind === 'directory' ? 'New folder' : 'New file'}
+          spellCheck={false}
+          onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+          onBlur={() => void commitDraft()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void commitDraft()
+            if (e.key === 'Escape') setDraft(null)
+          }}
+        />
+      </div>
+    )
+  }
+
   const rows = (dirPath: string, depth: number): React.JSX.Element[] => {
     const entries = children[dirPath] ?? []
     const out: React.JSX.Element[] = []
 
+    const pending = draftRow(dirPath, depth)
+    if (pending) out.push(<div key={`draft-${dirPath}`}>{pending}</div>)
+
     for (const entry of entries) {
+      // A row being renamed becomes an input in place, rather than a dialog.
+      if (draft?.original === entry.path) {
+        out.push(
+          <div
+            key={`rename-${entry.path}`}
+            className="tree__row tree__row--draft"
+            style={{ paddingLeft: 6 + depth * 12 }}
+          >
+            <span className="tree__twisty">{entry.isDirectory ? '▸' : ''}</span>
+            <input
+              className="tree__input"
+              autoFocus
+              value={draft.name}
+              spellCheck={false}
+              onFocus={(e) => {
+                // Select the stem, not the extension: renaming rarely changes it.
+                const dot = draft.name.lastIndexOf('.')
+                e.target.setSelectionRange(0, dot > 0 ? dot : draft.name.length)
+              }}
+              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+              onBlur={() => void commitDraft()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void commitDraft()
+                if (e.key === 'Escape') setDraft(null)
+              }}
+            />
+          </div>
+        )
+        continue
+      }
       const open = expanded.has(entry.path)
       const status = decorationFor(decorations, entry.path)
       out.push(
@@ -99,11 +232,20 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
           key={entry.path}
           className={`tree__row ${entry.hidden ? 'tree__row--hidden' : ''} ${
             status ? statusClass(status) : ''
-          }`}
+          } ${selected === entry.path ? 'tree__row--selected' : ''}`}
           style={{ paddingLeft: 6 + depth * 12 }}
           title={status ? `${entry.path} — ${STATUS_WORD[status] ?? status}` : entry.path}
           data-git={status ?? ''}
-          onClick={() => (entry.isDirectory ? toggle(entry.path) : onOpen(entry.path))}
+          onClick={() => {
+            setSelected(entry.path)
+            if (entry.isDirectory) toggle(entry.path)
+            else onOpen(entry.path)
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            setSelected(entry.path)
+            setMenu({ path: entry.path, isDirectory: entry.isDirectory, x: e.clientX, y: e.clientY })
+          }}
         >
           <span className="tree__twisty">
             {entry.isDirectory ? (open ? '▾' : '▸') : ''}
@@ -126,6 +268,22 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
         <span className="tree__root" title={root ?? ''}>
           {shortRoot ?? 'No folder'}
         </span>
+        <button
+          className="icon-btn"
+          title="New file"
+          disabled={!root}
+          onClick={() => beginCreate('file')}
+        >
+          ＋
+        </button>
+        <button
+          className="icon-btn"
+          title="New folder"
+          disabled={!root}
+          onClick={() => beginCreate('directory')}
+        >
+          ⊞
+        </button>
         <button
           className="icon-btn"
           title="Collapse all"
@@ -159,6 +317,62 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
           ↻
         </button>
       </div>
+
+      {/* Anchored to the pointer, and dismissed by anything else being clicked. */}
+      {menu && (
+        <>
+          <div className="menu__scrim" onMouseDown={() => setMenu(null)} onContextMenu={(e) => {
+            e.preventDefault()
+            setMenu(null)
+          }} />
+          <div className="menu" style={{ left: menu.x, top: menu.y }}>
+            <button className="menu__item" onClick={() => beginCreate('file')}>
+              New File
+            </button>
+            <button className="menu__item" onClick={() => beginCreate('directory')}>
+              New Folder
+            </button>
+            <div className="menu__rule" />
+            <button
+              className="menu__item"
+              onClick={() => {
+                const name = menu.path.split(/[\\/]/).pop() ?? ''
+                setDraft({
+                  kind: menu.isDirectory ? 'directory' : 'file',
+                  dir: parentOf(menu.path),
+                  name,
+                  original: menu.path
+                })
+                setMenu(null)
+              }}
+            >
+              Rename
+            </button>
+            <button className="menu__item menu__item--danger" onClick={() => void remove(menu.path)}>
+              Delete
+            </button>
+            <div className="menu__rule" />
+            <button
+              className="menu__item"
+              onClick={() => {
+                void navigator.clipboard.writeText(menu.path)
+                setMenu(null)
+              }}
+            >
+              Copy Path
+            </button>
+            <button
+              className="menu__item"
+              onClick={() => {
+                window.ember.revealPath(menu.path)
+                setMenu(null)
+              }}
+            >
+              Reveal in File Explorer
+            </button>
+          </div>
+        </>
+      )}
 
       <div className="tree__body">
         {error && <div className="tree__error">{error}</div>}
