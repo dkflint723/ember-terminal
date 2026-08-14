@@ -184,6 +184,50 @@ await sleep(2000)
 check('the folder is gone from disk', !fs.existsSync(path.join(work, 'made-dir')))
 check('and gone from the tree', !(await labels()).includes('made-dir'), JSON.stringify(await labels()))
 
+/*
+ * --- a byte-order mark survives editing ---------------------------------------
+ *
+ * Monaco strips a leading U+FEFF when it builds a model, so the stored copy never
+ * matched the buffer — every file with a BOM opened already marked unsaved — and
+ * saving wrote the stripped text back, removing a mark other Windows tools use to
+ * decide a file's encoding.
+ */
+const bomFile = path.join(work, 'bom.txt')
+fs.writeFileSync(bomFile, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('hello\n')]))
+
+await page.keyboard.press('Control+p')
+await page.waitForSelector('.qp__box', { timeout: 10_000 })
+await page.locator('.qp__box').fill('bom.txt')
+await sleep(900)
+await page.keyboard.press('Enter')
+await page.waitForSelector('.pane.editor', { timeout: 20_000 })
+await sleep(2000)
+
+check(
+  'a file with a byte-order mark opens clean, not already modified',
+  (await page.locator('.pane.editor[data-dirty="true"]').count()) === 0,
+  await page.locator('.pane.editor').first().getAttribute('data-dirty')
+)
+
+await page.locator('.pane.editor .view-lines').first().click()
+await page.keyboard.press('Control+End')
+await page.keyboard.type('!')
+await sleep(700)
+await page.keyboard.press('Control+s')
+await sleep(2500)
+
+const savedBytes = fs.readFileSync(bomFile)
+check(
+  'and keeps its byte-order mark when saved',
+  savedBytes[0] === 0xef && savedBytes[1] === 0xbb && savedBytes[2] === 0xbf,
+  savedBytes.toString('hex').slice(0, 24)
+)
+check(
+  'without doubling it',
+  savedBytes.toString('utf8').replace(/^﻿/, '').startsWith('hello'),
+  JSON.stringify(savedBytes.toString('utf8').slice(0, 12))
+)
+
 await page.screenshot({ path: path.join(SHOT_DIR, '102-tree-after.png') })
 await app.close()
 profile.cleanup()

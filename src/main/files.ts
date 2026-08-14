@@ -129,11 +129,20 @@ export class FileService {
       const buffer = await readFile(filePath)
       if (looksBinary(buffer)) return { ok: false, error: 'That looks like a binary file.' }
 
+      /*
+       * The byte-order mark is taken off here and put back on write.
+       *
+       * Monaco strips a leading U+FEFF when it builds a model, so leaving it in the
+       * text had two consequences: the stored copy never matched the buffer, which
+       * marked every file with a BOM as unsaved the moment it opened, and saving
+       * wrote the stripped version back — quietly removing a mark that changes how
+       * other Windows tools read the file.
+       */
       return {
         ok: true,
         path: filePath,
         name: basename(filePath),
-        content: buffer.toString('utf8'),
+        content: stripBom(buffer.toString('utf8')),
         // Detected so a save can preserve the file's existing convention.
         eol: buffer.includes('\r\n'.charCodeAt(0)) && /\r\n/.test(buffer.toString('utf8', 0, 4096))
           ? 'crlf'
@@ -204,7 +213,20 @@ export class FileService {
 
   async write(filePath: string, content: string): Promise<FileWriteResult> {
     try {
-      await writeFile(filePath, content, 'utf8')
+      /*
+       * A file that had a byte-order mark keeps it.
+       *
+       * Read from the file being overwritten rather than carried through the
+       * editor, for the same reason the line endings are: it is a property of the
+       * file, and every path that writes one — save, auto-save, Save All, the
+       * write Claude Code makes when a diff is accepted — would otherwise have to
+       * remember to pass it along, and one of them would not.
+       *
+       * The cost is that a BOM cannot be removed by editing in Ember. Preserving
+       * one nobody meant to keep is a far smaller harm than silently deleting one
+       * that other tools rely on to detect the encoding.
+       */
+      await writeFile(filePath, (await hadBom(filePath)) ? `﻿${stripBom(content)}` : content, 'utf8')
       return { ok: true }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : 'Could not save that file.' }
@@ -239,5 +261,30 @@ export class FileService {
   async saveDialog(window: BrowserWindow, defaultPath?: string): Promise<string | null> {
     const picked = await dialog.showSaveDialog(window, { title: 'Save as', defaultPath })
     return picked.canceled || !picked.filePath ? null : picked.filePath
+  }
+}
+
+/** The UTF-8 byte-order mark, as the single character it decodes to. */
+const BOM = '\uFEFF'
+
+function stripBom(text: string): string {
+  return text.startsWith(BOM) ? text.slice(1) : text
+}
+
+/** Whether the file currently on disk starts with a byte-order mark. */
+async function hadBom(filePath: string): Promise<boolean> {
+  try {
+    const { open } = await import('node:fs/promises')
+    const handle = await open(filePath, 'r')
+    try {
+      const head = Buffer.alloc(3)
+      const { bytesRead } = await handle.read(head, 0, 3, 0)
+      return bytesRead === 3 && head[0] === 0xef && head[1] === 0xbb && head[2] === 0xbf
+    } finally {
+      await handle.close()
+    }
+  } catch {
+    // A file that is not there yet has no convention to keep.
+    return false
   }
 }
