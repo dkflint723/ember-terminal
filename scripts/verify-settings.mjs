@@ -73,8 +73,40 @@ await page.evaluate(() => {
 await sleep(1200)
 check('saving closes the dialog', (await page.locator('.modal').count()) === 0)
 
+/*
+ * Stored, and deliberately not readable from here.
+ *
+ * The renderer is the side that turns command output into HTML, so anything that
+ * ever ran there could have asked for the settings and taken the key with it. Main
+ * keeps the value and answers only whether there is one — so the check is that a
+ * key is held and that its text does not come back.
+ */
 const stored = await page.evaluate(() => window.ember.getSettings())
-check('the key was stored', stored.anthropicApiKey === KEY, String(stored.anthropicApiKey))
+check('a key is held', stored.hasApiKey === true, JSON.stringify(stored.hasApiKey))
+check(
+  'and its value never reaches the renderer',
+  stored.anthropicApiKey === null,
+  String(stored.anthropicApiKey)
+)
+
+// Saving something unrelated must not wipe it: the field comes back empty because
+// the value is hidden, and an empty field means "leave it alone".
+await page.keyboard.press('Control+Comma')
+await page.waitForSelector('.modal', { timeout: 10_000 })
+await sleep(600)
+await page.evaluate(() => {
+  const save = [...document.querySelectorAll('.modal__actions .btn')].find((b) =>
+    b.textContent?.includes('Save')
+  )
+  save?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+})
+await sleep(1200)
+const afterUnrelatedSave = await page.evaluate(() => window.ember.getSettings())
+check(
+  'saving again does not discard the stored key',
+  afterUnrelatedSave.hasApiKey === true,
+  JSON.stringify(afterUnrelatedSave.hasApiKey)
+)
 
 // It must not be readable from the settings file in the clear.
 const onDisk = path.join(profile.dir, 'settings.json')

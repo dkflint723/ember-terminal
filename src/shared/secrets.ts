@@ -59,6 +59,55 @@ const INLINE_SECRET = [
   /\b[a-z][a-z0-9+.-]*:\/\/[^\s/@:]+:[^\s/@]+@/i
 ]
 
+/**
+ * Credential shapes that identify themselves wherever they appear.
+ *
+ * Separate from INLINE_SECRET because those need a surrounding flag to be
+ * recognised — `--token x` — whereas these are self-describing, which is what
+ * makes them safe to look for in a wall of command output. Nothing here matches on
+ * length or entropy alone: a rule like "40 hex characters" would redact commit
+ * hashes and checksums, which is worse than useless in a terminal.
+ */
+const KNOWN_SECRET = [
+  // Anthropic, OpenAI, GitHub, Slack, Google, AWS.
+  /\bsk-ant-[A-Za-z0-9_-]{8,}/g,
+  /\bsk-[A-Za-z0-9]{20,}/g,
+  /\bgh[pousr]_[A-Za-z0-9]{16,}/g,
+  /\bxox[abprs]-[A-Za-z0-9-]{10,}/g,
+  /\bAIza[0-9A-Za-z_-]{20,}/g,
+  /\bAKIA[0-9A-Z]{16}\b/g,
+  // Anything a flag or an assignment marks as a credential, value only.
+  /((?:--?)(?:password|passwd|pwd|token|secret|api[-_]?key|access[-_]?key|auth)(?:[=:]|\s+))\S+/gi,
+  /\b((?:PASSWORD|PASSWD|TOKEN|SECRET|API_KEY|APIKEY|ACCESS_KEY|SECRET_KEY|AUTH_TOKEN)=)\S+/g,
+  /(Authorization:\s*(?:Bearer|Basic)\s+)\S+/gi,
+  // The credentials in a URL, keeping the rest of it readable.
+  /([a-z][a-z0-9+.-]*:\/\/[^\s/@:]+:)[^\s/@]+(?=@)/gi,
+  // Private keys, which are worth removing wholesale rather than by line.
+  /-----BEGIN[^-]*PRIVATE KEY-----[\s\S]*?-----END[^-]*PRIVATE KEY-----/g
+]
+
+/**
+ * Replace credentials in text that is about to be stored.
+ *
+ * Command output goes into a history database that outlives the session, and a
+ * command like `aws configure list` or a curl that echoes its own headers puts a
+ * live key on screen without the command line ever mentioning one. Redacting is
+ * the right trade here rather than refusing to store: the output is what makes
+ * history searchable, and losing a line is better than keeping a key.
+ *
+ * Where a pattern captures its label, the label is kept — `TOKEN=[redacted]` says
+ * far more about what happened than a blank space does.
+ */
+export function redactSecrets(text: string): string {
+  let out = text
+  for (const pattern of KNOWN_SECRET) {
+    out = out.replace(pattern, (match, prefix?: string) =>
+      typeof prefix === 'string' ? `${prefix}[redacted]` : '[redacted]'
+    )
+  }
+  return out
+}
+
 /** True when a command line appears to carry a credential in the clear. */
 export function containsInlineSecret(command: string): boolean {
   // `--password-stdin` and friends read the secret from a pipe; nothing to leak.

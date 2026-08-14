@@ -134,7 +134,7 @@ const api: EmberApi = {
   ai: (req: AiRequest): Promise<AiResponse> => ipcRenderer.invoke('ai:run', req),
   aiCredential: (): Promise<AiCredential> => ipcRenderer.invoke('ai:credential'),
   claudeAccess: (): Promise<ClaudeAccess> => ipcRenderer.invoke('ai:claudeAccess'),
-  getSettings: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),
+  getSettings: () => ipcRenderer.invoke('settings:get'),
   keyEncryptionAvailable: (): Promise<boolean> => ipcRenderer.invoke('settings:encryption'),
   noteRecentFolder: (folder: string): Promise<Settings> =>
     ipcRenderer.invoke('settings:noteFolder', folder),

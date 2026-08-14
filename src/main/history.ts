@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { DatabaseSync } from 'node:sqlite'
 import { join } from 'node:path'
-import { containsInlineSecret } from '../shared/secrets.js'
+import { containsInlineSecret, redactSecrets } from '../shared/secrets.js'
 import type { HistoryEntry, HistoryQuery, HistoryRecord } from '../shared/types.js'
 
 /** Output is stored to make history searchable, not to reproduce a block. */
@@ -65,7 +65,17 @@ export class HistoryStore {
     const db = this.open()
     if (!db) return
 
-    const output = entry.output.slice(0, MAX_OUTPUT_CHARS)
+    /*
+     * The output is scrubbed as well as the command.
+     *
+     * A command line carrying a credential is dropped entirely, but plenty of
+     * commands print one without mentioning it — `aws configure list`, a curl that
+     * echoes its own headers, a script that dumps its environment. That went into
+     * a database that outlives the session, in the clear. Redacted rather than
+     * dropped: the output is what makes history searchable, and losing a line is a
+     * far better trade than keeping a key.
+     */
+    const output = redactSecrets(entry.output.slice(0, MAX_OUTPUT_CHARS))
     try {
       const insert = db.prepare(
         `INSERT INTO commands (command, cwd, shell, exit_code, duration_ms, started_at, output)

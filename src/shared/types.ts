@@ -368,7 +368,13 @@ export interface Settings {
   defaultProfileId: string | null
   /** Id of a theme in the VS Code color-theme format; see shared/theme.ts. */
   themeId: string
-  /** Stored encrypted at rest via Electron safeStorage when available. */
+  /**
+   * Stored encrypted at rest via Electron safeStorage when available.
+   *
+   * Always null when read from the renderer — the value stays in main, which is
+   * the only side that needs it. Set it by sending a string; leave it undefined in
+   * a patch to keep whatever is already stored.
+   */
   anthropicApiKey: string | null
   aiModel: string
   /** Put the last window's tabs, splits and open files back on launch. */
@@ -480,7 +486,8 @@ export interface EmberApi {
   onExit(cb: (e: PtyExitEvent) => void): () => void
   listProfiles(): Promise<ShellProfile[]>
   ai(req: AiRequest): Promise<AiResponse>
-  getSettings(): Promise<Settings>
+  /** `hasApiKey` says whether one is stored; the key itself never comes back. */
+  getSettings(): Promise<Settings & { hasApiKey: boolean }>
   /** `persisted` is false when the value is in memory only and will not survive. */
   setSettings(
     patch: Partial<Settings>

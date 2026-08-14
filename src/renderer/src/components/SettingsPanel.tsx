@@ -125,6 +125,8 @@ export function SettingsPanel(): React.JSX.Element | null {
   /** Null until asked; false means a saved key would sit in plain text. */
   const [encrypted, setEncrypted] = useState<boolean | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
+  /** Whether main is holding a key. Its value never comes over. */
+  const [hasApiKey, setHasApiKey] = useState(false)
 
   const refreshAccess = async (): Promise<void> => {
     setProbing(true)
@@ -163,6 +165,7 @@ export function SettingsPanel(): React.JSX.Element | null {
     void window.ember.getSettings().then((s) => {
       setDraft(s)
       setSaved(s)
+      setHasApiKey(s.hasApiKey)
     })
     void refreshThemeList()
   }, [open])
@@ -244,7 +247,16 @@ export function SettingsPanel(): React.JSX.Element | null {
 
   const save = async (): Promise<void> => {
     // Panes pick the new font up by re-rendering off the store.
-    const res = await window.ember.setSettings(draft)
+    /*
+     * An untouched key field means "leave it alone", not "clear it".
+     *
+     * The stored key never comes back from main, so the draft's copy is null
+     * whether or not one exists — sending it would wipe a saved key every time
+     * anybody changed a font size.
+     */
+    const patch: Partial<Settings> = { ...draft }
+    if (patch.anthropicApiKey == null) delete patch.anthropicApiKey
+    const res = await window.ember.setSettings(patch)
     applySettings(res.settings)
     /*
      * A write that did not happen keeps the dialog open.
@@ -441,13 +453,32 @@ export function SettingsPanel(): React.JSX.Element | null {
 
         <details className="field">
           <summary>Use an API key instead</summary>
+          {/* Empty even when a key is stored: the value stays in main and never
+              comes back here, so an empty box means "leave it as it is" rather than
+              "clear it". Removing one is a separate, deliberate action. */}
           <input
             type="password"
-            placeholder="sk-ant-…"
+            placeholder={hasApiKey ? 'A key is saved — type to replace it' : 'sk-ant-…'}
             value={draft.anthropicApiKey ?? ''}
             onChange={(e) => field('anthropicApiKey', e.target.value || null)}
             spellCheck={false}
           />
+          {hasApiKey && (
+            <div className="composer__proposal-actions">
+              <button
+                className="btn"
+                onClick={() => {
+                  void (async () => {
+                    const res = await window.ember.setSettings({ anthropicApiKey: null })
+                    applySettings(res.settings)
+                    setHasApiKey(false)
+                  })()
+                }}
+              >
+                Remove saved key
+              </button>
+            </div>
+          )}
           <div className="field__note">
             {encrypted === false
               ? 'Windows is not offering a credential store, so this would be saved as plain text in your settings file. Consider the ANTHROPIC_API_KEY environment variable instead.'

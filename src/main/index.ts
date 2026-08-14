@@ -406,7 +406,19 @@ function registerIpc(): void {
   )
   ipcMain.on('snippets:openFolder', () => void shell.openPath(snippets.dir()))
 
-  ipcMain.handle('settings:get', () => settings.get())
+  /*
+   * The key never crosses into the renderer.
+   *
+   * It was decrypted and handed over on every read, and the renderer is the side
+   * that turns command output into HTML — so anything that ever managed to run
+   * there could ask for the settings and walk away with the key. Nothing in the
+   * renderer needs its value: AiService reads it in main, and the dialog only
+   * needs to know whether one is set.
+   */
+  ipcMain.handle('settings:get', () => {
+    const current = settings.get()
+    return { ...current, anthropicApiKey: null, hasApiKey: !!current.anthropicApiKey?.trim() }
+  })
   ipcMain.handle('settings:set', (_e, patch: Partial<Settings>) => settings.set(patch))
   ipcMain.handle('settings:noteFolder', (_e, folder: string) => settings.noteRecentFolder(folder))
   ipcMain.handle('settings:loadError', () => settings.takeLoadError())
