@@ -33,6 +33,7 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
 
   const running = pane.blocks.at(-1)?.status === 'running'
   const pending = useStore((st) => st.pendingInput[pane.id])
+  const clearBlocks = useStore((st) => st.clearBlocks)
 
   // History search hands a command over rather than running it, so the user can
   // read and edit it before committing.
@@ -287,9 +288,18 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
       return
     }
 
+    /*
+     * Clear the blocks, rather than send a bare carriage return.
+     *
+     * Sending one asked the shell to redraw, and its prompt handler then reported a
+     * command boundary for a command that was never run — so every Ctrl+L left an
+     * empty "(interactive)" block behind holding a copy of the previous command's
+     * screen. Clearing the list here is also what the key actually means in a
+     * terminal that keeps its output in blocks.
+     */
     if (e.ctrlKey && e.key.toLowerCase() === 'l') {
       e.preventDefault()
-      controller.runCommand('')
+      clearBlocks(pane.id)
       return
     }
 

@@ -79,6 +79,36 @@ check(
   second.slice(0, 200)
 )
 
+/*
+ * --- a failing cmdlet reports its own failure ---------------------------------
+ *
+ * PowerShell never resets $LASTEXITCODE — it only holds the last *native* process's
+ * code — so after a native command exited 7, every failing cmdlet reported 7 as
+ * though it were its own result. A wrong exit code is worse than none, because the
+ * block presents it as fact.
+ */
+const statusOf = () =>
+  page.evaluate(() => {
+    const blocks = document.querySelectorAll('.block')
+    const last = blocks[blocks.length - 1]
+    return {
+      status: last?.querySelector('.block__status')?.getAttribute('title') ?? null,
+      meta: last?.querySelector('.block__meta')?.textContent ?? last?.textContent?.slice(-40) ?? ''
+    }
+  })
+
+await run('cmd /c exit 7')
+const native = await statusOf()
+check('a native command reports its own exit code', /7/.test(native.meta), JSON.stringify(native))
+
+await run('Get-Item C:\\definitely-not-here-xyz')
+const cmdlet = await statusOf()
+check(
+  'and a failing cmdlet does not inherit it',
+  !/\b7\b/.test(cmdlet.meta),
+  JSON.stringify(cmdlet)
+)
+
 await app.close()
 profile.cleanup()
 for (const f of failures) console.log(`  - ${f}`)

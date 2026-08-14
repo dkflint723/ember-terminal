@@ -360,6 +360,8 @@ export interface LspEvent {
   language: string
   message?: unknown
   code?: number | null
+  /** Set when the server failed to start at all, rather than exiting later. */
+  error?: string
 }
 
 export interface Settings {

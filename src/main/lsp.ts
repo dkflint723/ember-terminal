@@ -331,9 +331,20 @@ export class LspService {
       this.buffers.delete(language)
       this.send({ type: 'exit', language, code })
     })
-    child.on('error', () => {
+    /*
+     * A server that never started is reported like one that stopped.
+     *
+     * Only `exit` told the renderer anything, and a spawn failure — a missing
+     * binary, a broken toolchain — raises `error` instead. The client was left
+     * connected to a transport nothing was on the other end of, waiting on replies
+     * that could not come, so the language simply had no hovers, no diagnostics and
+     * no completions for the rest of the session with nothing to say why.
+     */
+    child.on('error', (err) => {
+      trace('<--', language, `spawn failed: ${err.message}`)
       this.servers.delete(language)
       this.buffers.delete(language)
+      this.send({ type: 'exit', language, code: null, error: err.message })
     })
 
     return { ok: true }

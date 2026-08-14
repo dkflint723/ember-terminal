@@ -36,7 +36,20 @@ $Global:__EmberOriginalPrompt = $function:Prompt
 function Global:Prompt {
   # Capture success/exit state before anything else can clobber it.
   $succeeded = $global:?
-  $lastExit = if ($succeeded) { 0 } elseif ($global:LASTEXITCODE) { $global:LASTEXITCODE } else { 1 }
+  <#
+    PowerShell never resets $LASTEXITCODE. It only ever holds the exit code of the
+    last *native* process, so after `cmd /c exit 7` every failing cmdlet reported 7
+    — a wrong number, which is worse than no number, because the block showed it as
+    the command's own result.
+
+    So it is only believed when it changed during this command. Anything else that
+    failed is a cmdlet failure, which has no exit code of its own; 1 is the
+    conventional stand-in.
+  #>
+  $currentExit = $global:LASTEXITCODE
+  $nativeRan = $currentExit -ne $Global:__EmberLastExit
+  $Global:__EmberLastExit = $currentExit
+  $lastExit = if ($succeeded) { 0 } elseif ($nativeRan -and $currentExit) { $currentExit } else { 1 }
 
   $out = ''
   # Close the previous command, unless this is the very first prompt.

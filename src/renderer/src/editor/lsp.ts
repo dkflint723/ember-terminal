@@ -1,4 +1,5 @@
 import { monaco } from './monaco'
+import { useStore } from '../state/store'
 
 /**
  * Connects Monaco's bundled LSP client to a language server running in the main
@@ -69,7 +70,17 @@ class IpcTransport {
     this.unsubscribe = window.ember.onLspMessage((event) => {
       if (event.language !== this.language) return
       if (event.type === 'exit') {
-        this.state.value = { state: 'closed', error: undefined }
+        // Carrying the reason: a transport that closed because the server could not
+        // be started should say so rather than look like a clean shutdown.
+        this.state.value = {
+          state: 'closed',
+          error: event.error ? new Error(event.error) : undefined
+        }
+        if (event.error) {
+          useStore
+            .getState()
+            .setNotice(`The ${event.language} language server could not start: ${event.error}`, 'error')
+        }
         return
       }
       this.listener?.(event.message)
