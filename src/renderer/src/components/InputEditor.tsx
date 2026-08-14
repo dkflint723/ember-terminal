@@ -3,6 +3,7 @@ import type { AiResponse, CompletionItem, CompletionResult } from '@shared/types
 import { commonPrefix } from '@shared/completion'
 import type { TerminalController } from '../terminal/controller'
 import { useStore, type TerminalPaneState } from '../state/store'
+import { isInside, samePath } from '@shared/paths'
 
 interface Props {
   pane: TerminalPaneState
@@ -16,6 +17,25 @@ type Mode = 'shell' | 'ai'
  * mode. Replaces the shell's own readline for typing, but keystrokes still reach
  * the pty whenever a program is actually reading stdin.
  */
+/**
+ * The tail of a path, which is the part that says where you are.
+ *
+ * Truncating from the right would leave every chip reading the same few drive
+ * letters, so this drops the head and marks it with an ellipsis.
+ */
+function shortenPath(full: string, keep = 34): string {
+  const clean = full.replace(/[\\/]+$/, '')
+  if (clean.length <= keep) return clean
+  const parts = clean.split(/[\\/]/)
+  let out = parts[parts.length - 1] ?? clean
+  for (let i = parts.length - 2; i >= 0; i--) {
+    const next = `${parts[i]}\\${out}`
+    if (next.length > keep) break
+    out = next
+  }
+  return `…${out.startsWith('\\') ? '' : '\\'}${out}`
+}
+
 export function InputEditor({ pane, controller }: Props): React.JSX.Element {
   const [mode, setMode] = useState<Mode>('shell')
   const [value, setValue] = useState('')
@@ -23,6 +43,23 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
   const [historyIdx, setHistoryIdx] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [proposal, setProposal] = useState<AiResponse | null>(null)
+
+  /*
+   * The repository this pane is standing in, for the chips.
+   *
+   * Read from the status the app already polls rather than asked for again, and
+   * only claimed when the pane's directory is actually inside that repository —
+   * a second terminal somewhere else must not be labelled with this branch.
+   */
+  const gitStatus = useStore((s) => s.gitStatus)
+  const inRepo = gitStatus ? isInside(gitStatus.root, pane.cwd) || samePath(gitStatus.root, pane.cwd) : false
+  const branch = inRepo ? (gitStatus!.detached ? 'detached' : gitStatus!.branch) : null
+  const changeCount = inRepo
+    ? new Set(
+        [...gitStatus!.staged, ...gitStatus!.changes, ...gitStatus!.conflicts].map((c) => c.path)
+      ).size
+    : null
+  const upstreamHint = inRepo ? (gitStatus!.upstream ?? 'No upstream') : null
   const [completion, setCompletion] = useState<{ result: CompletionResult; index: number } | null>(
     null
   )
@@ -365,7 +402,34 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
       )}
 
       <div className="composer__meta">
-        <span className="composer__cwd">{pane.cwd}</span>
+        {/*
+          Context as chips rather than a line of grey text: where you are, which
+          branch, and whether anything is uncommitted, each readable on its own.
+          The path is shortened from the left because the end of it is the part
+          that says where you actually are.
+        */}
+        <span className="chip chip--path" title={pane.cwd}>
+          <svg viewBox="0 0 16 16" className="chip__icon" aria-hidden="true">
+            <path d="M1.8 12.6V4.2a1 1 0 0 1 1-1h3.3l1.5 1.6h5.6a1 1 0 0 1 1 1v6.8a1 1 0 0 1-1 1H2.8a1 1 0 0 1-1-1Z" />
+          </svg>
+          {shortenPath(pane.cwd)}
+        </span>
+        {branch && (
+          <span className="chip chip--branch" title={upstreamHint ?? branch}>
+            <svg viewBox="0 0 16 16" className="chip__icon" aria-hidden="true">
+              <circle cx="4.5" cy="3.5" r="1.6" />
+              <circle cx="4.5" cy="12.5" r="1.6" />
+              <circle cx="11.5" cy="3.5" r="1.6" />
+              <path d="M4.5 5.1v5.8M11.5 5.1v1.3a2.8 2.8 0 0 1-2.8 2.8H4.5" />
+            </svg>
+            {branch}
+          </span>
+        )}
+        {changeCount !== null && (
+          <span className="chip chip--changes" title={`${changeCount} changed files`}>
+            ± {changeCount}
+          </span>
+        )}
         {pane.integration === 'pending' && (
           <span className="composer__badge" title="Waiting for the shell to report a prompt">
             starting…

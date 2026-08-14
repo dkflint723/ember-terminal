@@ -32,7 +32,7 @@
   --close-hover: #c42b1c;
   --selection: #3a4a63;
   --scrim: rgba(0, 0, 0, 0.58);
-  --radius: 6px;
+  --radius: 10px;
   --mono: 'Cascadia Code', 'Cascadia Mono', Consolas, 'Courier New', monospace;
   --ui: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
 }
@@ -138,7 +138,7 @@ button {
   place-items: center;
   width: 20px;
   height: 20px;
-  border-radius: 4px;
+  border-radius: 8px;
   color: var(--fg-faint);
   flex: 0 0 auto;
 }
@@ -174,7 +174,7 @@ button {
   padding: 8px 10px;
   border: 1px solid var(--border-strong);
   border-left-width: 3px;
-  border-radius: 4px;
+  border-radius: 8px;
   background: var(--bg-elevated);
   color: var(--fg);
   font-size: 12px;
@@ -218,7 +218,7 @@ button {
   place-items: center;
   width: 26px;
   height: 24px;
-  border-radius: 4px;
+  border-radius: 8px;
   color: var(--fg-faint);
   background: none;
   border: none;
@@ -282,12 +282,320 @@ button {
 
 /* ---------- panes ---------- */
 
+/*
+ * The window's regions, placed by grid rather than by nesting.
+ *
+ * Terminal mode and IDE mode want the shells in different places, and moving them
+ * by rendering them somewhere else would unmount every terminal in the tab — xterm
+ * is bound to a DOM node, and the pty, the scrollback and the block history would
+ * go with it. So both regions stay exactly where they are in the tree and only
+ * their grid placement changes. Switching modes costs nothing.
+ */
 .workspace {
   flex: 1 1 auto;
   min-height: 0;
   position: relative;
-  /* Must be a flex container, or a single pane will not stretch to fill it. */
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  grid-template-rows: 1fr;
+  grid-template-areas: 'rail side shells secondary';
+}
+
+/*
+ * In the IDE the editors take the middle and the shells become the panel beneath.
+ *
+ * The row and column tracks are set inline by App, because a percentage height on
+ * a grid item inside an `auto` track has nothing definite to resolve against: the
+ * track sizes to the item and the item sizes to the track. The panel came out the
+ * height of its own contents, which for one command is a couple of lines.
+ */
+.workspace[data-mode='ide'] {
+  grid-template-areas:
+    'rail side editors secondary'
+    'rail side shells  secondary';
+}
+
+.activity {
+  grid-area: rail;
+}
+
+.sidebar {
+  grid-area: side;
+  /*
+   * Its width has to be stated, not implied.
+   *
+   * The sidebar was written for a flex parent and sized itself with `flex: 0 0
+   * 260px`, which a grid container ignores entirely. Left with no definite width,
+   * its track sized itself from the sidebar's content — the longest file name in
+   * the tree — while the sidebar painted at its own minimum. The difference was a
+   * hundred-pixel band of empty background between it and the editor that grew
+   * with whatever the longest path on screen happened to be.
+   */
+  width: 260px;
+}
+
+/*
+ * Every region states where it ends.
+ *
+ * Rounded corners and a quieter palette made the app calmer and also made it
+ * mushy: with no edges, the explorer, the editor and the panel read as one
+ * undivided field of colour and it was not obvious what was a separate thing.
+ * Softness is in the corners and the palette; the boundaries stay drawn.
+ */
+.region {
+  min-width: 0;
+  min-height: 0;
   display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.region--editors,
+.region--shells {
+  background: var(--bg);
+}
+
+.activity {
+  border-right: 1px solid var(--border);
+}
+
+.sidebar {
+  border-right: 1px solid var(--border);
+}
+
+.workspace[data-mode='ide'] .region--shells {
+  border-top: 1px solid var(--border);
+}
+
+/*
+ * One weight of line, everywhere two sections meet.
+ *
+ * Rounding the corners and quietening the palette left several boundaries with
+ * nothing marking them, so the title bar ran into the tabs and a sidebar heading
+ * ran into its list. A hairline in a single colour is what says "this is its own
+ * space" without adding weight, and using one weight for all of them is what
+ * stops the seams competing with the content.
+ */
+.titlebar {
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar__title {
+  border-bottom: 1px solid var(--border);
+}
+
+.region--editors {
+  grid-area: editors;
+  border-bottom: 1px solid var(--border);
+}
+
+.region--shells {
+  grid-area: shells;
+}
+
+/* Closed rather than unmounted, for the same reason the regions do not move: a
+   terminal that leaves the DOM leaves its pty and its scrollback with it. */
+.region--shells[data-collapsed='true'] {
+  display: none;
+}
+
+.region--secondary {
+  grid-area: secondary;
+  min-width: 220px;
+  border-left: 1px solid var(--border);
+}
+
+.region__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+/* The panel's other views sit over the terminal rather than replacing it, so
+   switching to Problems and back does not disturb a running command. */
+.panel__overlay {
+  position: absolute;
+  inset: 0;
+  top: 28px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.panel__bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 6px;
+  background: var(--bg-chrome);
+  border-bottom: 1px solid var(--border);
+}
+
+.panel__tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 8px;
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.panel__tab:hover {
+  color: var(--fg);
+}
+
+.panel__tab--active {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+
+.panel__spacer {
+  flex: 1 1 auto;
+}
+
+.titlebar__split--on {
+  color: var(--fg);
+}
+
+/*
+ * The handle on a region's outer edge.
+ *
+ * Sits over the boundary rather than taking a row of its own, so the region's own
+ * content is not pushed around by something that is only there to be grabbed.
+ */
+.region-divider {
+  position: absolute;
+  z-index: 3;
+}
+
+.region-divider--panel {
+  top: -2px;
+  left: 0;
+  right: 0;
+  height: 5px;
+  cursor: row-resize;
+}
+
+.region-divider--secondary {
+  top: 0;
+  bottom: 0;
+  left: -2px;
+  width: 5px;
+  cursor: col-resize;
+}
+
+/* --- Claude, in the secondary sidebar ------------------------------------- */
+
+.claude {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-chrome);
+}
+
+.claude__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 6px 6px 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.claude__head .sidebar__title {
+  flex: 1 1 auto;
+  padding: 0;
+}
+
+.claude__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px;
+}
+
+.claude__empty {
+  color: var(--fg-faint);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.claude__where {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  /* The directory can be long and there is not much width here; breaking it
+     anywhere is better than a sidebar that scrolls sideways. */
+  overflow-wrap: anywhere;
+}
+
+.claude__turn {
+  margin-bottom: 12px;
+}
+
+.claude__who {
+  margin-bottom: 3px;
+  color: var(--fg-faint);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.claude__text {
+  color: var(--fg);
+  font-size: 12px;
+  line-height: 1.55;
+  /* Answers arrive as text with newlines and fenced code in them, and collapsing
+     that whitespace would run the code together into one line. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.claude__turn--you .claude__text {
+  padding: 6px 9px;
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  color: var(--fg-dim);
+}
+
+.claude__text--failed {
+  color: var(--fail);
+}
+
+.claude__thinking {
+  color: var(--fg-faint);
+  font-size: 12px;
+}
+
+.claude__composer {
+  flex: 0 0 auto;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.claude__box {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--ui);
+  font-size: 12px;
+  resize: none;
+}
+
+.claude__box:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 .split {
@@ -364,7 +672,7 @@ button {
 
 .pane__scroll::-webkit-scrollbar-thumb {
   background: var(--border-strong);
-  border-radius: 5px;
+  border-radius: 9px;
 }
 
 .block {
@@ -504,7 +812,7 @@ button {
 
 .block__action {
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: 8px;
   color: var(--fg-dim);
   font-size: 11px;
 }
@@ -577,10 +885,57 @@ button {
 .composer__meta {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 2px 5px;
+  gap: 6px;
+  padding: 0 2px 7px;
   color: var(--fg-faint);
   font-size: 11px;
+}
+
+/*
+ * Context chips.
+ *
+ * Where you are, which branch, and whether anything is uncommitted — the three
+ * things worth knowing before running a command, and previously either absent or
+ * a run of grey text that read as one fact rather than three.
+ */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 46ch;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chip__icon {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chip--branch {
+  color: var(--ok);
+}
+
+.chip--branch .chip__icon {
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+.chip--changes {
+  color: var(--accent);
 }
 
 .composer__cwd {
@@ -680,7 +1035,7 @@ kbd {
   padding: 1px 4px;
   border: 1px solid var(--border-strong);
   border-bottom-width: 2px;
-  border-radius: 3px;
+  border-radius: 7px;
   color: var(--fg-dim);
 }
 
@@ -714,7 +1069,7 @@ kbd {
 
 .btn {
   padding: 3px 10px;
-  border-radius: 4px;
+  border-radius: 8px;
   border: 1px solid var(--border-strong);
   color: var(--fg-dim);
   font-size: 11.5px;
@@ -785,7 +1140,7 @@ kbd {
   overflow-y: auto;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
+  border-radius: 14px;
   /* No bottom padding of its own: the sticky footer below carries it, so that
      content scrolls all the way to the buttons rather than under a dead strip. */
   padding: 18px 20px 0;
@@ -814,7 +1169,7 @@ kbd {
   padding: 6px 8px;
   background: var(--bg);
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
+  border-radius: 8px;
   color: var(--fg);
   font-family: var(--mono);
   font-size: 12.5px;
@@ -861,7 +1216,7 @@ kbd {
 .theme-swatch {
   width: 22px;
   height: 14px;
-  border-radius: 3px;
+  border-radius: 7px;
   border: 1px solid var(--border-strong);
   flex: 0 0 auto;
 }
@@ -955,7 +1310,7 @@ kbd {
   max-height: 76vh;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
+  border-radius: 14px;
   overflow: hidden;
 }
 
@@ -1292,7 +1647,7 @@ kbd {
   bottom: 7px;
   min-width: 15px;
   padding: 0 3px;
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--accent);
   color: var(--bg);
   font-size: 9px;
@@ -1306,9 +1661,17 @@ kbd {
 .sidebar {
   display: flex;
   flex-direction: column;
-  flex: 0 0 260px;
+  /*
+   * Sized in pixels, not percentages, now that the parent is a grid.
+   *
+   * `flex` is ignored outright by a grid container, and `max-width: 45%` resolved
+   * against the track rather than the window — and the track was sizing itself
+   * from this element, so 45% of it came out below the minimum and the sidebar
+   * snapped back to 170px inside a 260px track. The leftover was the empty band
+   * beside the explorer.
+   */
   min-width: 170px;
-  max-width: 45%;
+  max-width: 640px;
   background: var(--bg-chrome);
   border-right: 1px solid var(--border);
   overflow: hidden;
@@ -1339,7 +1702,7 @@ kbd {
   color: var(--fg-faint);
   background: none;
   border: none;
-  border-radius: 3px;
+  border-radius: 7px;
   font-size: 12px;
   line-height: 1.4;
   cursor: pointer;
@@ -1450,7 +1813,7 @@ kbd {
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: 7px;
   font-family: inherit;
   font-size: 12px;
 }
@@ -1465,7 +1828,7 @@ kbd {
   color: var(--fg);
   background: var(--primary-bg);
   border: 1px solid var(--primary-border);
-  border-radius: 3px;
+  border-radius: 7px;
   font-size: 12px;
   cursor: pointer;
 }
@@ -1479,7 +1842,7 @@ kbd {
 .scm__note {
   margin: 0 10px 6px;
   padding: 5px 7px;
-  border-radius: 3px;
+  border-radius: 7px;
   font-size: 11px;
   word-break: break-word;
 }
@@ -1516,7 +1879,7 @@ kbd {
 
 .scm__count {
   padding: 0 5px;
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--bg-hover);
   font-size: 9px;
 }
@@ -1638,7 +2001,7 @@ kbd {
 .diff__waiting {
   flex: 0 0 auto;
   padding: 1px 6px;
-  border-radius: 9px;
+  border-radius: 12px;
   background: var(--info-bg);
   border: 1px solid var(--info-border);
   color: var(--info-fg);
@@ -1725,7 +2088,7 @@ kbd {
   height: 15px;
   padding: 0;
   border: none;
-  border-radius: 3px;
+  border-radius: 7px;
   background: none;
   color: inherit;
   font-size: 11px;
@@ -1781,7 +2144,7 @@ kbd {
 
 .gh__hint code {
   padding: 0 3px;
-  border-radius: 2px;
+  border-radius: 5px;
   background: var(--bg-hover);
   font-family: var(--mono);
 }
@@ -1827,7 +2190,7 @@ kbd {
   justify-content: center;
   padding: 4px 6px;
   border: 1px solid transparent;
-  border-radius: 3px;
+  border-radius: 7px;
   background: none;
   color: var(--fg-faint);
   font-size: 11px;
@@ -1915,7 +2278,7 @@ kbd {
 .gh__label {
   padding: 0 4px;
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: 12px;
   color: var(--fg-faint);
 }
 
@@ -1987,7 +2350,7 @@ kbd {
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: 7px;
   font-family: var(--mono);
   font-size: 12px;
 }
@@ -2009,7 +2372,7 @@ kbd {
 .find__toggle {
   padding: 1px 6px;
   border: 1px solid transparent;
-  border-radius: 3px;
+  border-radius: 7px;
   background: none;
   color: var(--fg-faint);
   font-family: var(--mono);
@@ -2043,7 +2406,7 @@ kbd {
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-left-width: 3px;
-  border-radius: 3px;
+  border-radius: 7px;
   background: var(--bg-elevated);
   font-size: 12px;
 }
@@ -2084,7 +2447,7 @@ kbd {
   color: var(--fg-dim);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: 7px;
   font-size: 11px;
   cursor: pointer;
 }
@@ -2213,7 +2576,7 @@ kbd {
 .find__preview mark {
   background: var(--accent-dim);
   color: var(--fg);
-  border-radius: 2px;
+  border-radius: 5px;
 }
 
 /* ---------- quick open / command palette ---------- */
@@ -2236,7 +2599,7 @@ kbd {
   max-height: 60vh;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 5px;
+  border-radius: 9px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
   overflow: hidden;
 }
@@ -2332,7 +2695,7 @@ kbd {
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--accent-dim);
-  border-radius: 2px;
+  border-radius: 5px;
   font-family: var(--mono);
   font-size: 12px;
 }
@@ -2359,7 +2722,7 @@ kbd {
   padding: 4px 0;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
+  border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 

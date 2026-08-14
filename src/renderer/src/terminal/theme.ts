@@ -6,7 +6,7 @@ import { resolveTheme, type ResolvedTheme, type TerminalPalette } from '@shared/
  * something correct to paint with before the real theme arrives over IPC — and
  * the defaults live in exactly one place.
  */
-export const DEFAULT_THEME: ResolvedTheme = resolveTheme('ember-dark', {
+export const DEFAULT_THEME: ResolvedTheme = resolveTheme('ember-deep', {
   name: 'Ember Dark',
   type: 'dark'
 })
