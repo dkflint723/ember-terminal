@@ -59,14 +59,60 @@ export class GitService {
     return e?.message ?? 'git failed.'
   }
 
-  /** The repository containing `cwd`, or null when there is not one. */
-  async root(cwd: string): Promise<string | null> {
+  /**
+   * The repository containing `cwd`.
+   *
+   * Failures are told apart rather than all collapsing to null. Catching
+   * everything meant git missing from PATH, a directory git refuses to trust, and
+   * a folder that genuinely is not a repository all came out as the same sentence
+   * — "not a git repository" — which sends someone looking in exactly the wrong
+   * place.
+   */
+  private async findRoot(cwd: string): Promise<{ root: string } | { error: string }> {
     try {
       const { stdout } = await this.git(cwd, ['rev-parse', '--show-toplevel'])
-      return (stdout as string).trim() || null
-    } catch {
-      return null
+      const root = (stdout as string).trim()
+      return root ? { root } : { error: 'Not a git repository.' }
+    } catch (err) {
+      const e = err as { code?: string; stderr?: string }
+      const stderr = typeof e.stderr === 'string' ? e.stderr : ''
+      if (e.code === 'ENOENT') return { error: 'git is not installed, or not on PATH.' }
+      if (/not a git repository/i.test(stderr)) return { error: 'Not a git repository.' }
+      if (/dubious ownership/i.test(stderr)) {
+        return {
+          error:
+            'git refuses to use this folder: it is owned by another user. Add it with git config --global --add safe.directory.'
+        }
+      }
+      return { error: GitService.message(err) }
     }
+  }
+
+  async root(cwd: string): Promise<string | null> {
+    const found = await this.findRoot(cwd)
+    return 'root' in found ? found.root : null
+  }
+
+  /**
+   * Whether a merge, rebase or cherry-pick is half-finished.
+   *
+   * A merge with every conflict resolved reports no changes at all, so the panel
+   * said "No changes" and disabled Commit — which is the one action that would have
+   * finished the merge. The state lives in files beside the index, so it is read
+   * from there rather than inferred from the status output that does not mention
+   * it.
+   */
+  private async pendingOperation(root: string): Promise<GitStatus['operation']> {
+    const { existsSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const gitDir = join(root, '.git')
+    if (existsSync(join(gitDir, 'MERGE_HEAD'))) return 'merge'
+    if (existsSync(join(gitDir, 'CHERRY_PICK_HEAD'))) return 'cherry-pick'
+    if (existsSync(join(gitDir, 'REVERT_HEAD'))) return 'revert'
+    if (existsSync(join(gitDir, 'rebase-merge')) || existsSync(join(gitDir, 'rebase-apply'))) {
+      return 'rebase'
+    }
+    return null
   }
 
   /**
@@ -76,8 +122,9 @@ export class GitService {
    * versions, and NUL-terminated so no filename needs quoting or unescaping.
    */
   async status(cwd: string): Promise<GitStatusResult> {
-    const root = await this.root(cwd)
-    if (!root) return { ok: false, error: 'Not a git repository.' }
+    const found = await this.findRoot(cwd)
+    if (!('root' in found)) return { ok: false, error: found.error }
+    const root = found.root
 
     try {
       const { stdout } = await this.git(root, [
@@ -87,7 +134,8 @@ export class GitService {
         '--untracked-files=all',
         '-z'
       ])
-      return { ok: true, status: { root, ...parseStatus(stdout as string) } }
+      const operation = await this.pendingOperation(root)
+      return { ok: true, status: { root, ...parseStatus(stdout as string), operation } }
     } catch (err) {
       return { ok: false, error: GitService.message(err) }
     }
@@ -102,6 +150,28 @@ export class GitService {
    */
   async diff(root: string, path: string, staged: boolean): Promise<GitDiffResult> {
     try {
+      /*
+       * A conflicted path has no stage 0, so the ordinary `:path` lookup fails and
+       * used to come back as an empty left-hand side — presenting the entire
+       * conflict as if the file had just been added. Its two sides are the two
+       * versions being merged, which is what someone resolving it wants to see.
+       */
+      if (await this.conflicted(root, path)) {
+        const [ours, theirs] = await Promise.all([
+          this.showOrEmpty(root, `:2:${path}`),
+          this.showOrEmpty(root, `:3:${path}`)
+        ])
+        if (ours === null || theirs === null) return { ok: false, error: 'That file is binary.' }
+        return {
+          ok: true,
+          path,
+          original: ours,
+          modified: theirs,
+          originalLabel: 'Ours',
+          modifiedLabel: 'Theirs'
+        }
+      }
+
       const untracked = !staged && !(await this.tracked(root, path))
       const [original, modified] = await Promise.all([
         staged
@@ -126,6 +196,16 @@ export class GitService {
       }
     } catch (err) {
       return { ok: false, error: GitService.message(err) }
+    }
+  }
+
+  /** Whether a path is mid-conflict, which is to say it has stages rather than one blob. */
+  private async conflicted(root: string, path: string): Promise<boolean> {
+    try {
+      const { stdout } = await this.git(root, ['ls-files', '--unmerged', '--', path])
+      return (stdout as string).trim().length > 0
+    } catch {
+      return false
     }
   }
 
@@ -293,6 +373,9 @@ function parseStatus(raw: string): Omit<GitStatus, 'root'> {
 
   const byPath = (a: GitFileChange, b: GitFileChange): number => a.path.localeCompare(b.path)
   return {
+    // Filled in by status(), which reads it from the files beside the index —
+    // porcelain output says nothing about a half-finished merge.
+    operation: null,
     branch,
     detached,
     upstream,

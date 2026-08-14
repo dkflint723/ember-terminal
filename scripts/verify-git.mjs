@@ -166,6 +166,85 @@ check(
 )
 await page.screenshot({ path: path.join(SHOT_DIR, '22-explorer-git.png') })
 
+/*
+ * --- a merge that has to be finishable ---------------------------------------
+ *
+ * A merge with a conflict is the case the panel handled worst: the conflicted file
+ * showed an empty left-hand side labelled "Index", presenting the whole thing as an
+ * addition; there was no way to mark it resolved; and once it was resolved the
+ * change lists went empty, so the panel said "No changes" and disabled Commit —
+ * the one action that would have finished the merge.
+ */
+// The explorer checks above left the sidebar on the file tree.
+await page.keyboard.press('Control+Shift+G')
+await page.waitForSelector('.scm', { timeout: 10_000 })
+await sleep(800)
+
+git('checkout', '-q', '-b', 'other', 'HEAD')
+fs.writeFileSync(path.join(repo, 'conflict.txt'), 'theirs\n', 'utf8')
+git('add', '-A')
+git('commit', '-qm', 'theirs')
+git('checkout', '-q', 'main')
+fs.writeFileSync(path.join(repo, 'conflict.txt'), 'ours\n', 'utf8')
+git('add', '-A')
+git('commit', '-qm', 'ours')
+try {
+  git('merge', 'other')
+} catch {
+  // Expected: this is the conflict the checks below are about.
+}
+
+await page.locator('.icon-btn[title="Refresh"]').click()
+await sleep(2500)
+
+const merging = await page.evaluate(() => ({
+  operation: document.querySelector('.scm__operation')?.textContent ?? null,
+  conflictRows: Array.from(document.querySelectorAll('.scm__section')).some((s) =>
+    (s.querySelector('.scm__section-head')?.textContent ?? '').includes('Merge conflicts')
+  ),
+  resolveButton: !!document.querySelector('[title="Mark resolved and stage"]')
+}))
+check('a merge in progress is reported', merging.operation?.includes('Merge') === true, JSON.stringify(merging))
+check('the conflict is listed', merging.conflictRows, JSON.stringify(merging))
+check('and can be marked resolved from the panel', merging.resolveButton, JSON.stringify(merging))
+
+// The conflict's diff must show the two sides being merged, not an empty original.
+await page
+  .locator('.scm__row', { hasText: 'conflict.txt' })
+  .first()
+  .locator('.scm__file')
+  .click()
+await sleep(2500)
+// Across every diff pane: the earlier checks left one open on another file.
+const conflictDiff = await page.evaluate(() => ({
+  panes: Array.from(document.querySelectorAll('.pane.diff')).map((p) => p.textContent ?? '')
+}))
+check(
+  'a conflict diff shows both sides rather than an empty original',
+  conflictDiff.panes.some((t) => t.includes('ours') && t.includes('theirs')),
+  JSON.stringify(conflictDiff).slice(0, 260)
+)
+
+// Resolve it, stage it, and the merge must become committable.
+fs.writeFileSync(path.join(repo, 'conflict.txt'), 'resolved\n', 'utf8')
+await page.locator('.icon-btn[title="Refresh"]').click()
+await sleep(2000)
+// Row actions appear on hover, so the row is pointed at first — Playwright checks
+// visibility before it moves the mouse, so a direct click never becomes actionable.
+const conflictRow = page.locator('.scm__row', { hasText: 'conflict.txt' }).first()
+await conflictRow.hover()
+await sleep(400)
+await conflictRow.locator('[title="Mark resolved and stage"]').click()
+await sleep(2500)
+
+await page.locator('.scm__message').fill('finish the merge')
+await sleep(600)
+const canFinish = await page.evaluate(() => {
+  const btn = document.querySelector('.scm__commit-btn')
+  return { disabled: btn?.disabled ?? null, title: btn?.getAttribute('title') ?? null }
+})
+check('a resolved merge can be committed', canFinish.disabled === false, JSON.stringify(canFinish))
+
 await app.close()
 fs.rmSync(repo, { recursive: true, force: true })
 

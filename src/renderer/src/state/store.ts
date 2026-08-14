@@ -143,6 +143,8 @@ interface Store {
    * Null when there is no repository, or before the first read.
    */
   gitStatus: GitStatus | null
+  /** Why git could not be read at all, when that is not simply "no repository". */
+  gitError: string | null
   /** Command handed to a pane's input by history search, consumed on mount. */
   pendingInput: Record<string, string>
   /**
@@ -180,6 +182,8 @@ interface Store {
   showSidebarView(view: SidebarView): void
   setTreeRoot(path: string): void
   setGitStatus(status: GitStatus | null): void
+  /** Why git could not be read, when the reason is not simply "no repository here". */
+  setGitError(error: string | null): void
   setPendingInput(paneId: string, text: string): void
   clearPendingInput(paneId: string): void
   requestAsk(paneId: string): void
@@ -381,6 +385,7 @@ export const useStore = create<Store>((set, get) => ({
   sidebarView: 'explorer',
   treeRoot: null,
   gitStatus: null,
+  gitError: null,
   pendingInput: {},
   askRequest: null,
   paletteMode: null,
@@ -417,6 +422,7 @@ export const useStore = create<Store>((set, get) => ({
     set({ treeRoot })
   },
   setGitStatus: (gitStatus) => set({ gitStatus }),
+  setGitError: (gitError) => set({ gitError }),
   openPalette: (paletteMode) => set({ paletteMode }),
   closePalette: () => set({ paletteMode: null }),
 

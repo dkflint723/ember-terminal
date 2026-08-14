@@ -149,6 +149,17 @@ button {
   color: var(--fg);
 }
 
+/* A merge or rebase that is still open. The change lists cannot show this — once
+   the conflicts are resolved they are empty — so it gets its own line. */
+.scm__operation {
+  margin: 0 10px 6px;
+  padding: 5px 8px;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-elevated);
+  color: var(--fg-dim);
+  font-size: 11px;
+}
+
 /* A single line for things that failed with nowhere else to say so. Bottom-right,
    out of the way of both the composer and the sidebar. */
 .notice {
@@ -1461,7 +1472,8 @@ kbd {
   visibility: hidden;
 }
 
-.scm__row:hover .scm__actions {
+.scm__row:hover .scm__actions,
+.scm__row:focus-within .scm__actions {
   visibility: visible;
 }
 
@@ -1657,6 +1669,7 @@ kbd {
 }
 
 .etab:hover .etab__close,
+.etab:focus-within .etab__close,
 .etab--active .etab__close,
 .etab--dirty .etab__close {
   visibility: visible;
@@ -2032,7 +2045,8 @@ kbd {
   align-items: center;
 }
 
-.find__filerow:hover .find__replace--file {
+.find__filerow:hover .find__replace--file,
+.find__filerow:focus-within .find__replace--file {
   visibility: visible;
 }
 

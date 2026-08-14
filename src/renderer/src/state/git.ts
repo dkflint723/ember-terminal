@@ -21,16 +21,36 @@ const POLL_MS = 3000
  * than taking it as an argument, so a caller reacting to a button press does not
  * have to hold a subscription just to refresh.
  */
+/** True while a status call is in flight, so a slow repo does not stack them up. */
+let polling = false
+
 export async function refreshGitStatus(): Promise<void> {
-  const { treeRoot, setGitStatus } = useStore.getState()
+  const { treeRoot, setGitStatus, setGitError } = useStore.getState()
   if (!treeRoot) {
     setGitStatus(null)
+    setGitError(null)
     return
   }
-  const res = await window.ember.gitStatus(treeRoot)
-  // A directory that is not a repository is not an error worth raising; the panel
-  // says so in its own words.
-  setGitStatus(res.ok ? res.status : null)
+  // A repository slow enough to outlast the poll interval had two or three
+  // `git status` processes running against it at once, forever.
+  if (polling) return
+  polling = true
+  try {
+    const res = await window.ember.gitStatus(treeRoot)
+    setGitStatus(res.ok ? res.status : null)
+    /*
+     * The reason is kept rather than dropped.
+     *
+     * Every failure — git missing from PATH, a folder git will not trust, a
+     * timeout — arrived here and was rendered as "not a git repository", which is
+     * the one explanation guaranteed to send someone looking in the wrong place.
+     * "Not a git repository" is still not worth shouting about, so it stays the
+     * panel's own quiet wording; anything else is shown.
+     */
+    setGitError(res.ok || /not a git repository/i.test(res.error) ? null : res.error)
+  } finally {
+    polling = false
+  }
 }
 
 /**

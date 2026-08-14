@@ -11,6 +11,14 @@ import { refreshGitStatus, statusClass } from '../state/git'
  * that trusted its own model of the index would be wrong the moment someone typed
  * `git add` themselves.
  */
+/** What to call a half-finished operation, in the words git itself uses. */
+const OPERATION_NAME = {
+  merge: 'Merge',
+  rebase: 'Rebase',
+  'cherry-pick': 'Cherry-pick',
+  revert: 'Revert'
+} as const
+
 export function SourceControl(): React.JSX.Element {
   const status = useStore((s) => s.gitStatus)
   const treeRoot = useStore((s) => s.treeRoot)
@@ -20,6 +28,7 @@ export function SourceControl(): React.JSX.Element {
   const reloadFromDisk = useStore((s) => s.reloadFromDisk)
   const notePathDeleted = useStore((s) => s.notePathDeleted)
 
+  const gitError = useStore((s) => s.gitError)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -109,8 +118,29 @@ export function SourceControl(): React.JSX.Element {
     return <div className="scm scm--empty">Open a folder to see source control.</div>
   }
   if (!status) {
-    return <div className="scm scm--empty">{treeRoot} is not a git repository.</div>
+    // The reason, when there is one worth giving. Every git failure used to be
+    // rendered as "not a git repository", including git not being installed.
+    return (
+      <div className="scm scm--empty">
+        {gitError ?? `${treeRoot} is not a git repository.`}
+      </div>
+    )
   }
+
+  /*
+   * What stops a commit, and why, in one place.
+   *
+   * Ctrl+Enter in the message box used to commit regardless of any of this, so it
+   * could make a merge commit the button beside it was refusing to make.
+   */
+  const commitBlockedWhy = !message.trim()
+    ? 'Write a message first'
+    : status.conflicts.length > 0
+      ? 'Resolve and stage the conflicts first'
+      : status.staged.length === 0 && !status.operation
+        ? 'Stage something first'
+        : null
+  const commitBlocked = commitBlockedWhy !== null
 
   const section = (
     label: string,
@@ -171,6 +201,17 @@ export function SourceControl(): React.JSX.Element {
         </button>
       </div>
 
+      {/* A half-finished merge shows nothing in the change lists once its conflicts
+          are resolved, so without this the panel said "No changes" and disabled the
+          one button that would have finished it. */}
+      {status.operation && (
+        <div className="scm__operation">
+          {status.conflicts.length > 0
+            ? `${OPERATION_NAME[status.operation]} in progress — resolve the conflicts below, then stage them.`
+            : `${OPERATION_NAME[status.operation]} in progress — commit to finish it.`}
+        </div>
+      )}
+
       <div className="scm__commit">
         <textarea
           className="scm__message"
@@ -182,16 +223,16 @@ export function SourceControl(): React.JSX.Element {
           onKeyDown={(e) => {
             if (e.ctrlKey && e.key === 'Enter') {
               e.preventDefault()
-              void commit()
+              // The same conditions the button enforces. Bypassing them here could
+              // make a commit the button was refusing to make.
+              if (!commitBlocked) void commit()
             }
           }}
         />
         <button
           className="scm__commit-btn"
-          disabled={busy || !message.trim() || status.staged.length === 0}
-          title={
-            status.staged.length === 0 ? 'Stage something first' : 'Commit staged changes'
-          }
+          disabled={busy || commitBlocked}
+          title={commitBlockedWhy ?? 'Commit staged changes'}
           onClick={() => void commit()}
         >
           ✓ Commit
@@ -202,8 +243,18 @@ export function SourceControl(): React.JSX.Element {
       {note && <div className="scm__note">{note}</div>}
 
       <div className="scm__body">
-        {section('Merge conflicts', status.conflicts, false, () => (
-          <span className="scm__hint">resolve in editor</span>
+        {/* Staging a conflicted path is exactly how git is told it is resolved, so
+            the same + that stages anything else finishes a conflict. Without it a
+            merge could be started here and never completed. */}
+        {section('Merge conflicts', status.conflicts, false, (change) => (
+          <button
+            className="icon-btn"
+            title="Mark resolved and stage"
+            disabled={busy}
+            onClick={() => void act(() => window.ember.gitStage(root!, [change.path]))}
+          >
+            ＋
+          </button>
         ))}
 
         {section('Staged changes', status.staged, true, (change) => (

@@ -159,6 +159,11 @@ export interface GitStatus {
   staged: GitFileChange[]
   changes: GitFileChange[]
   conflicts: GitFileChange[]
+  /**
+   * A half-finished operation, which the change lists alone do not reveal: a merge
+   * whose conflicts are all resolved looks exactly like a clean tree.
+   */
+  operation: 'merge' | 'rebase' | 'cherry-pick' | 'revert' | null
 }
 
 export type GitStatusResult = { ok: true; status: GitStatus } | { ok: false; error: string }
