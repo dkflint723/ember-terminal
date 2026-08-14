@@ -222,6 +222,8 @@ interface Store {
 
   editorPane(paneId: string): EditorPaneState | null
   patchEditorPane(paneId: string, patch: Partial<EditorPaneState>): void
+  /** Update an open diff in place, after the thing it is showing has changed. */
+  patchDiffPane(paneId: string, patch: Partial<DiffPaneState>): void
   /** Patch one document in a pane, by default the one on screen. */
   patchDocument(paneId: string, patch: Partial<EditorDocument>, index?: number): void
   setActiveDocument(paneId: string, index: number): void
@@ -604,6 +606,13 @@ export const useStore = create<Store>((set, get) => ({
     set((s) => {
       const pane = s.panes[paneId]
       if (!pane || pane.kind !== 'editor') return s
+      return { panes: { ...s.panes, [paneId]: { ...pane, ...patch } } }
+    }),
+
+  patchDiffPane: (paneId, patch) =>
+    set((s) => {
+      const pane = s.panes[paneId]
+      if (!pane || pane.kind !== 'diff') return s
       return { panes: { ...s.panes, [paneId]: { ...pane, ...patch } } }
     }),
 

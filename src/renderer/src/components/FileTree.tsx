@@ -206,6 +206,80 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
     )
   }
 
+  /**
+   * Every row currently on screen, in the order they appear.
+   *
+   * The arrow keys move through what is visible, not through the file system, so
+   * this mirrors the same walk the rendering does — an expanded folder contributes
+   * its children, a collapsed one does not.
+   */
+  const visibleRows = useMemo(() => {
+    const out: { path: string; isDirectory: boolean; parent: string }[] = []
+    const walk = (dirPath: string): void => {
+      for (const entry of children[dirPath] ?? []) {
+        out.push({ path: entry.path, isDirectory: entry.isDirectory, parent: dirPath })
+        if (entry.isDirectory && expanded.has(entry.path)) walk(entry.path)
+      }
+    }
+    if (root) walk(root)
+    return out
+  }, [children, expanded, root])
+
+  /** Move focus to a row and mark it current, which is what the roving stop follows. */
+  const focusRow = (path: string): void => {
+    setSelected(path)
+    requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLElement>(`.tree__row[data-path="${CSS.escape(path)}"]`)
+      el?.focus()
+    })
+  }
+
+  /**
+   * Arrow-key movement, as a tree is expected to behave: up and down through what
+   * is visible, right to open a folder or step into it, left to close it or go back
+   * out to its parent.
+   */
+  const onTreeKeyDown = (e: React.KeyboardEvent): void => {
+    if (visibleRows.length === 0) return
+    const index = visibleRows.findIndex((r) => r.path === selected)
+    const current = index === -1 ? undefined : visibleRows[index]
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      focusRow(visibleRows[Math.min(index + 1, visibleRows.length - 1)]?.path ?? visibleRows[0].path)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      focusRow(visibleRows[Math.max(index - 1, 0)]?.path ?? visibleRows[0].path)
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      focusRow(visibleRows[0].path)
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      focusRow(visibleRows[visibleRows.length - 1].path)
+    } else if (e.key === 'ArrowRight' && current?.isDirectory) {
+      e.preventDefault()
+      if (!expanded.has(current.path)) toggle(current.path)
+      else focusRow(visibleRows[index + 1]?.path ?? current.path)
+    } else if (e.key === 'ArrowLeft' && current) {
+      e.preventDefault()
+      if (current.isDirectory && expanded.has(current.path)) toggle(current.path)
+      else if (current.parent && current.parent !== root) focusRow(current.parent)
+    } else if (e.key === 'ContextMenu' && current) {
+      // The menu is opened at the row rather than at the pointer, which is nowhere
+      // in particular when the keyboard asked for it.
+      e.preventDefault()
+      const box = document
+        .querySelector(`.tree__row[data-path="${CSS.escape(current.path)}"]`)
+        ?.getBoundingClientRect()
+      setMenu({
+        path: current.path,
+        isDirectory: current.isDirectory,
+        x: box ? box.left + 20 : 0,
+        y: box ? box.bottom : 0
+      })
+    }
+  }
+
   const rows = (dirPath: string, depth: number): React.JSX.Element[] => {
     const entries = children[dirPath] ?? []
     const out: React.JSX.Element[] = []
@@ -255,6 +329,16 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
           style={{ paddingLeft: 6 + depth * 12 }}
           title={status ? `${entry.path} — ${STATUS_WORD[status] ?? status}` : entry.path}
           data-git={status ?? ''}
+          data-path={entry.path}
+          role="treeitem"
+          aria-level={depth + 1}
+          aria-expanded={entry.isDirectory ? open : undefined}
+          aria-selected={selected === entry.path}
+          /* One tab stop for the whole tree: Tab reaches it, arrows move inside it.
+             Without this every visible row was its own stop. */
+          tabIndex={
+            selected === entry.path || (!selected && visibleRows[0]?.path === entry.path) ? 0 : -1
+          }
           onClick={() => {
             setSelected(entry.path)
             if (entry.isDirectory) toggle(entry.path)
@@ -414,7 +498,13 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
         </>
       )}
 
-      <div className="tree__body">
+      {/*
+        A real tree. Every row was its own tab stop, so reaching anything past the
+        first few meant pressing Tab once per file — in a repository, hundreds of
+        times — and there was no way to move between them or open a folder from the
+        keyboard at all.
+      */}
+      <div className="tree__body" role="tree" aria-label="Files" onKeyDown={onTreeKeyDown}>
         {error && <div className="tree__error">{error}</div>}
         {root && rows(root, 0)}
         {root && (children[root]?.length ?? 0) === 0 && !error && !loading.has(root) && (

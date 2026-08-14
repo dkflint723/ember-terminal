@@ -119,6 +119,41 @@ if (severityGlyphs.length > 0) {
   )
 }
 
+// --- the file tree is a tree ---------------------------------------------------
+// Every row used to be its own tab stop, so reaching anything past the first few
+// meant pressing Tab once per file, and nothing moved between them.
+await page.keyboard.press('Control+b')
+await page.waitForSelector('.tree', { timeout: 10_000 })
+await sleep(1500)
+
+const treeShape = await page.evaluate(() => {
+  const body = document.querySelector('.tree__body')
+  const rows = Array.from(document.querySelectorAll('.tree__row[role="treeitem"]'))
+  return {
+    role: body?.getAttribute('role') ?? null,
+    rows: rows.length,
+    stops: rows.filter((r) => r.getAttribute('tabindex') === '0').length
+  }
+})
+if (treeShape.rows > 1) {
+  check('the tree is a tree', treeShape.role === 'tree', JSON.stringify(treeShape))
+  check('with one tab stop, not one per row', treeShape.stops === 1, JSON.stringify(treeShape))
+
+  // Down arrow moves to the next row rather than doing nothing.
+  await page.evaluate(() =>
+    document.querySelector('.tree__row[role="treeitem"]')?.focus()
+  )
+  const firstFocused = await page.evaluate(
+    () => document.activeElement?.getAttribute('data-path') ?? null
+  )
+  await page.keyboard.press('ArrowDown')
+  await sleep(500)
+  const afterDown = await page.evaluate(
+    () => document.activeElement?.getAttribute('data-path') ?? null
+  )
+  check('arrow keys move between rows', afterDown !== null && afterDown !== firstFocused, `${firstFocused} -> ${afterDown}`)
+}
+
 // --- reduced motion is honoured ------------------------------------------------
 const motion = await page.evaluate(() => {
   const style = Array.from(document.styleSheets)

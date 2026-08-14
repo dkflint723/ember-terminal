@@ -44,8 +44,39 @@ export function SourceControl(): React.JSX.Element {
     const res = await fn()
     if (!res.ok) setError(res.error ?? 'git failed.')
     await refreshGitStatus()
+    if (res.ok) await refreshOpenDiffs()
     setBusy(false)
     return res.ok
+  }
+
+  /**
+   * Bring open diff panes back in line with the index.
+   *
+   * The status was re-read after every action but the diffs already on screen were
+   * not, so a pane went on showing an unstaged change after it had been staged —
+   * two panes side by side, one saying the file had changed and the other saying it
+   * had not. The pane is refreshed where the change still exists, and closed where
+   * git no longer reports one, because a diff of nothing is not worth a pane.
+   */
+  const refreshOpenDiffs = async (): Promise<void> => {
+    const state = useStore.getState()
+    if (!root) return
+
+    for (const pane of Object.values(state.panes)) {
+      if (pane.kind !== 'diff' || pane.proposal) continue
+      const fresh = await window.ember.gitDiff(root, pane.filePath, pane.staged)
+      const owner = state.tabIdForPane(pane.id)
+      if (!fresh.ok || fresh.original === fresh.modified) {
+        if (owner) state.closePane(owner, pane.id)
+        continue
+      }
+      state.patchDiffPane(pane.id, {
+        original: fresh.original,
+        modified: fresh.modified,
+        originalLabel: fresh.originalLabel,
+        modifiedLabel: fresh.modifiedLabel
+      })
+    }
   }
 
   const show = async (change: GitFileChange, staged: boolean): Promise<void> => {

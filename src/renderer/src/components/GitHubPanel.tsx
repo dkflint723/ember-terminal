@@ -14,6 +14,8 @@ export function GitHubPanel(): React.JSX.Element {
   const treeRoot = useStore((s) => s.treeRoot)
   const [overview, setOverview] = useState<GitHubOverview | null>(null)
   const [problem, setProblem] = useState<{ reason: string; error: string } | null>(null)
+  /** An action that failed, shown above the list the user is still looking at. */
+  const [actionError, setActionError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<number | null>(null)
   const [tab, setTab] = useState<'prs' | 'issues'>('prs')
@@ -43,7 +45,17 @@ export function GitHubPanel(): React.JSX.Element {
     setBusy(pr.number)
     const res = await window.ember.githubCheckout(treeRoot, pr.number)
     setBusy(null)
-    if (!res.ok) setProblem({ reason: 'error', error: res.error })
+    /*
+     * A failed action is not a failed panel.
+     *
+     * `problem` replaces the entire view with a full-page error, which is right
+     * when the panel could not load at all — no gh, not signed in — and quite wrong
+     * for a checkout that hit a dirty working tree. The pull requests were still
+     * there and still listed a moment earlier; throwing them away loses the user's
+     * place and tells them less, not more.
+     */
+    if (!res.ok) setActionError(res.error ?? 'Could not check that out.')
+    else setActionError(null)
     // The branch just changed, so the source-control view is now stale.
     await refreshGitStatus()
   }
@@ -89,6 +101,8 @@ export function GitHubPanel(): React.JSX.Element {
           ↻
         </button>
       </div>
+
+      {actionError && <div className="scm__error gh__action-error">{actionError}</div>}
 
       <div className="gh__switch">
         {(['prs', 'issues'] as const).map((which) => (
