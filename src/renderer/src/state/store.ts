@@ -720,7 +720,7 @@ export const useStore = create<Store>((set, get) => ({
    */
   reloadFromDisk: async (paths) => {
     const wanted = new Set(paths.map(pathKey))
-    const { monaco } = await import('../editor/monaco')
+    const { modelUri, monaco } = await import('../editor/monaco')
 
     for (const pane of Object.values(get().panes)) {
       if (pane.kind !== 'editor') continue
@@ -736,7 +736,7 @@ export const useStore = create<Store>((set, get) => ({
         const at = current?.documents.findIndex((d) => samePath(d.filePath, doc.filePath)) ?? -1
         if (at === -1) continue
         get().patchDocument(pane.id, { savedContent: res.content, eol: res.eol }, at)
-        const model = monaco.editor.getModel(monaco.Uri.file(doc.filePath))
+        const model = monaco.editor.getModel(modelUri(doc.filePath))
         if (model && model.getValue() !== res.content) {
           // The replacement can have brought different line endings with it, and the
           // model's are what the next save writes back.
@@ -768,7 +768,7 @@ export const useStore = create<Store>((set, get) => ({
    * copied across with it, since the text is the same text.
    */
   notePathRenamed: async (from, to) => {
-    const { monaco, languageForPath } = await import('../editor/monaco')
+    const { modelUri, monaco, languageForPath } = await import('../editor/monaco')
     const moved = new Map<string, string>()
 
     for (const pane of Object.values(get().panes)) {
@@ -782,14 +782,14 @@ export const useStore = create<Store>((set, get) => ({
 
         if (!moved.has(pathKey(doc.filePath))) {
           moved.set(pathKey(doc.filePath), next)
-          const source = monaco.editor.getModel(monaco.Uri.file(doc.filePath))
+          const source = monaco.editor.getModel(modelUri(doc.filePath))
           if (source) {
             const text = source.getValue()
             const crlf = source.getEOL() === '\r\n'
             // A model can already exist at the destination — renaming a file back to
             // a name used earlier in the session is enough — and creating a second
             // one for the same URI throws.
-            const existing = monaco.editor.getModel(monaco.Uri.file(next))
+            const existing = monaco.editor.getModel(modelUri(next))
             if (existing) {
               existing.setEOL(
                 crlf
@@ -798,7 +798,7 @@ export const useStore = create<Store>((set, get) => ({
               )
               existing.setValue(text)
             } else {
-              monaco.editor.createModel(text, languageForPath(next), monaco.Uri.file(next))
+              monaco.editor.createModel(text, languageForPath(next), modelUri(next))
             }
             const agreed = lastSynced(doc.filePath)
             if (agreed !== undefined) noteSynced(next, agreed)
@@ -854,7 +854,7 @@ export const useStore = create<Store>((set, get) => ({
    * Save All.
    */
   saveAllDocuments: async () => {
-    const { monaco } = await import('../editor/monaco')
+    const { modelUri, monaco } = await import('../editor/monaco')
     let saved = 0
     const failures: string[] = []
 
@@ -864,7 +864,7 @@ export const useStore = create<Store>((set, get) => ({
         const doc = pane.documents[index]
         if (!doc.dirty || !doc.filePath) continue
 
-        const content = monaco.editor.getModel(monaco.Uri.file(doc.filePath))?.getValue()
+        const content = monaco.editor.getModel(modelUri(doc.filePath))?.getValue()
         if (content === undefined) {
           failures.push(doc.title)
           continue

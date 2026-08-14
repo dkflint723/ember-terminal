@@ -141,7 +141,7 @@ export async function resolveProposal(
  * so saving is a deliberate overwrite rather than a silent revert.
  */
 async function reconcileAcceptedDiff(filePath: string, written: string): Promise<void> {
-  const { monaco } = await import('../editor/monaco')
+  const { modelUri, monaco } = await import('../editor/monaco')
   const state = useStore.getState()
   const key = (p: string): string => p.replace(/\\/g, '/').toLowerCase()
 
@@ -151,7 +151,7 @@ async function reconcileAcceptedDiff(filePath: string, written: string): Promise
       const doc = pane.documents[index]
       if (!doc.filePath || key(doc.filePath) !== key(filePath)) continue
 
-      const model = monaco.editor.getModel(monaco.Uri.file(doc.filePath))
+      const model = monaco.editor.getModel(modelUri(doc.filePath))
       const untouched = !model || model.getValue() === doc.savedContent
       state.patchDocument(pane.id, { savedContent: written, dirty: !untouched }, index)
       if (untouched && model) {
@@ -218,8 +218,8 @@ async function handle(call: IdeCall): Promise<unknown> {
        * session that asked Ember to save reverted the file it was working on.
        * saveAllDocuments in the store already reads the model; this now matches.
        */
-      const { monaco } = await import('../editor/monaco')
-      const content = monaco.editor.getModel(monaco.Uri.file(doc.filePath))?.getValue()
+      const { modelUri, monaco } = await import('../editor/monaco')
+      const content = monaco.editor.getModel(modelUri(doc.filePath))?.getValue()
       if (content === undefined) {
         return { success: false, message: 'That document has no editor buffer to save.' }
       }

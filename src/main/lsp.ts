@@ -69,10 +69,18 @@ function normalizeUris<T>(message: T): T {
 
     const out: Record<string, unknown> = {}
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      /*
+       * Any key naming a URI, not just `uri` and `rootUri`.
+       *
+       * A definition reply is a LocationLink, whose field is `targetUri` — so it
+       * was passing through in whatever spelling the server chose while every
+       * document Ember had opened was known by the canonical one. The editor then
+       * looked for a buffer under a name nothing was filed under, and Go to
+       * Definition failed with "no text model". Renames (`oldUri`/`newUri`) and
+       * document links have the same shape.
+       */
       const isFileUri =
-        (key === 'uri' || key === 'rootUri') &&
-        typeof item === 'string' &&
-        item.startsWith('file://')
+        /uri$/i.test(key) && typeof item === 'string' && item.startsWith('file://')
       out[key] = isFileUri ? canonicalFileUri(item as string) : walk(item)
     }
     return out

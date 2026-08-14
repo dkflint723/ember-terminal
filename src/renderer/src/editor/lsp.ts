@@ -156,6 +156,70 @@ interface TsDefaults {
  * for a language server.
  */
 /** Which server answers for a Monaco language id, if any. */
+/** One place a definition, declaration or implementation can be. */
+export interface DefinitionTarget {
+  filePath: string
+  line: number
+  column: number
+}
+
+/**
+ * Where a symbol is defined, asked of the server directly.
+ *
+ * Monaco's bundled client answers this itself, but only for files it is already
+ * managing: it keeps a map of the models it has opened and throws "no text model"
+ * for anything else. So Go to Definition worked only when the target file happened
+ * to be open already, which is the opposite of what the feature is for.
+ *
+ * The direct request channel exists for exactly this — the outline uses it for the
+ * same reason — and going through it means the answer arrives as data that can be
+ * used to open the file, rather than as an exception inside the client.
+ */
+export async function findDefinition(
+  language: string,
+  filePath: string,
+  line: number,
+  column: number
+): Promise<DefinitionTarget | null> {
+  const server = serverFor(language)
+  if (!server) return null
+
+  const { modelUri } = await import('./monaco')
+  const result = await window.ember.lspRequest(server, 'textDocument/definition', {
+    textDocument: { uri: modelUri(filePath).toString() },
+    position: { line: line - 1, character: column - 1 }
+  })
+
+  // Servers may answer with a Location, a list of them, or LocationLinks — all
+  // three are allowed, and which one arrives varies by server and by capability.
+  const first = Array.isArray(result) ? result[0] : result
+  if (!first || typeof first !== 'object') return null
+
+  const link = first as {
+    uri?: string
+    targetUri?: string
+    range?: { start?: { line?: number; character?: number } }
+    targetSelectionRange?: { start?: { line?: number; character?: number } }
+    targetRange?: { start?: { line?: number; character?: number } }
+  }
+  const uri = link.uri ?? link.targetUri
+  const start = (link.targetSelectionRange ?? link.targetRange ?? link.range)?.start
+  if (!uri || !start) return null
+
+  return {
+    filePath: fileUriToPath(uri),
+    line: (start.line ?? 0) + 1,
+    column: start.character ?? 0
+  }
+}
+
+/** `file:///c:/a/b.ts` back to a path the rest of the app can open. */
+function fileUriToPath(uri: string): string {
+  const withoutScheme = decodeURIComponent(uri.replace(/^file:\/\//, ''))
+  // Windows paths come back as `/c:/…`; the leading slash is not part of them.
+  return /^\/[a-zA-Z]:/.test(withoutScheme) ? withoutScheme.slice(1) : withoutScheme
+}
+
 export function serverFor(language: string): string | null {
   return SERVER_FOR[language] ?? null
 }

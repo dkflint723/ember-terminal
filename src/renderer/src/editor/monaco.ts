@@ -12,6 +12,7 @@
  * default loader, which would fetch them at runtime.
  */
 import * as monaco from 'monaco-editor'
+import { pathKey } from '@shared/paths'
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
 import TsWorker from 'monaco-editor/languages/features/typescript/ts.worker?worker'
 import JsonWorker from 'monaco-editor/languages/features/json/json.worker?worker'
@@ -57,6 +58,22 @@ export function languageForPath(filePath: string): string {
     if (language.filenames?.some((f) => f.toLowerCase() === base)) return language.id
   }
   return 'plaintext'
+}
+
+/**
+ * The URI a file's editor buffer is keyed by.
+ *
+ * It has to be the same spelling the language server sees, because that is what
+ * comes back in a definition, a reference or a rename. The transport canonicalises
+ * every file URI crossing it to lower case, so a model keyed by the path as
+ * Windows spells it — `D:\git_projects\…` — could never be found from a server's
+ * reply, and Go to Definition failed even within a single file.
+ *
+ * Matching `pathKey` exactly matters: a buffer keyed one way and compared another
+ * is how one file ends up with two models.
+ */
+export function modelUri(filePath: string): monaco.Uri {
+  return monaco.Uri.file(pathKey(filePath))
 }
 
 export { monaco }

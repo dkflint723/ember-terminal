@@ -12,6 +12,7 @@ import { activateTheme, refreshThemeList } from './state/theming'
 import { useGitStatusPolling } from './state/git'
 import { useIdeBridge } from './state/ide'
 import { restore, unsavedWorkIsPreserved, useSessionAutosave } from './state/session'
+import { setRevealer } from './editor/navigate'
 
 export function App(): React.JSX.Element {
   const tabs = useStore((s) => s.tabs)
@@ -177,6 +178,45 @@ export function App(): React.JSX.Element {
 
   useEffect(() => window.ember.onOpenFiles((paths) => void openPaths(paths)), [])
 
+  // Handed to the editor panes, which need it for Go to Definition but sit several
+  // levels down a tree that has no other use for it.
+  useEffect(() => setRevealer((p, line, column) => void revealAt(p, line, column)), [])
+
+  /*
+   * Let Go to Definition open a file that is not already open.
+   *
+   * Monaco navigates by asking for a model, and when the target lives in a file
+   * with no editor there is no model to ask for — so definitions, references and
+   * renames that pointed anywhere else did nothing at all. An opener is how Monaco
+   * asks the host to produce one; without it registered, it simply gives up.
+   */
+  useEffect(() => {
+    let disposed = false
+    let opener: { dispose(): void } | null = null
+    void import('./editor/monaco').then(({ monaco }) => {
+      if (disposed) return
+      opener = monaco.editor.registerEditorOpener({
+        openCodeEditor: (_source, resource, selection) => {
+          if (resource.scheme !== 'file') return false
+          // Monaco passes either a range or a bare position, depending on whether
+          // the target has an extent.
+          const at = selection as { startLineNumber?: number; startColumn?: number; lineNumber?: number; column?: number } | undefined
+          const line = at?.startLineNumber ?? at?.lineNumber ?? 1
+          const column = (at?.startColumn ?? at?.column ?? 1) - 1
+          void revealAt(resource.fsPath, line, column)
+          // Handled, even though the work finishes asynchronously — returning false
+          // makes Monaco fall back to doing nothing.
+          return true
+        }
+      })
+    })
+    return () => {
+      disposed = true
+      opener?.dispose()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // A second instance launched on a folder opens a tab there rather than stealing
   // the root from whatever the current window is already working on.
   useEffect(
@@ -233,10 +273,10 @@ export function App(): React.JSX.Element {
    */
   const revealAt = async (filePath: string, line: number, column: number): Promise<void> => {
     await openPaths([filePath])
-    const { monaco } = await import('./editor/monaco')
+    const { modelUri, monaco } = await import('./editor/monaco')
     // A couple of frames is enough for the pane to mount and claim the model.
     window.setTimeout(() => {
-      const model = monaco.editor.getModel(monaco.Uri.file(filePath))
+      const model = monaco.editor.getModel(modelUri(filePath))
       if (!model) return
       for (const editor of monaco.editor.getEditors()) {
         if (editor.getModel() !== model) continue

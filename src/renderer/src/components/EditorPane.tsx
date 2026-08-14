@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { activeDocument, useStore, type EditorPaneState } from '../state/store'
-import { monaco } from '../editor/monaco'
+import { modelUri, monaco } from '../editor/monaco'
 import { applyMonacoTheme, MONACO_THEME_ID } from '../editor/theme'
-import { ensureLanguageServer } from '../editor/lsp'
+import { ensureLanguageServer, findDefinition } from '../editor/lsp'
 import { ensureSnippets } from '../editor/snippets'
+import { openAt } from '../editor/navigate'
 import { lastSynced, noteSynced } from '../editor/synced'
 import { recordSelection } from '../state/ide'
 import { pendingUnsaved, setBufferReader } from '../state/session'
@@ -90,7 +91,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
    * and resolves imports relative to them.
    */
   const modelFor = (doc: typeof document): monaco.editor.ITextModel => {
-    const uri = doc.filePath ? monaco.Uri.file(doc.filePath) : undefined
+    const uri = doc.filePath ? modelUri(doc.filePath) : undefined
     const existing = uri ? monaco.editor.getModel(uri) : null
     if (existing) {
       /*
@@ -133,7 +134,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
   // Lets the session snapshot read any document's live text, including tabs that
   // are not on screen — their models hold the edits whether they are shown or not.
   useEffect(() => {
-    setBufferReader((filePath) => monaco.editor.getModel(monaco.Uri.file(filePath))?.getValue() ?? null)
+    setBufferReader((filePath) => monaco.editor.getModel(modelUri(filePath))?.getValue() ?? null)
   }, [])
 
   // Created once per pane; the model is swapped underneath it as tabs change.
@@ -211,6 +212,37 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     // standalone editor does not ship every workbench binding.
     editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF, () => {
       void editor.getAction('editor.action.formatDocument')?.run()
+    })
+
+    /*
+     * Go to Definition, answered by the server rather than by Monaco's client.
+     *
+     * The client resolves definitions only against files it is already managing and
+     * throws for anything else, so F12 worked into an open file and did nothing at
+     * all into any other — which is most of the times anyone presses it. Asking the
+     * server directly gives back a path, which the app already knows how to open.
+     */
+    editor.addAction({
+      id: 'ember.goToDefinition',
+      label: 'Go to Definition',
+      keybindings: [monaco.KeyCode.F12],
+      contextMenuGroupId: 'navigation',
+      contextMenuOrder: 1,
+      run: async (ed) => {
+        const model = ed.getModel()
+        const position = ed.getPosition()
+        const current = useStore.getState().editorPane(pane.id)
+        const doc = current ? activeDocument(current) : null
+        if (!model || !position || !doc?.filePath) return
+
+        const target = await findDefinition(doc.language, doc.filePath, position.lineNumber, position.column)
+        if (!target) {
+          setMessage('no definition found')
+          window.setTimeout(() => setMessage(null), 1500)
+          return
+        }
+        openAt(target.filePath, target.line, target.column)
+      }
     })
 
     // Claiming Ctrl+K stops Monaco starting one of its chords, which would eat the
@@ -358,7 +390,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     const index = current?.documents.findIndex((d) => samePath(d.filePath, filePath)) ?? -1
     if (!current || index === -1 || !current.documents[index].dirty) return
 
-    const buffer = monaco.editor.getModel(monaco.Uri.file(filePath))
+    const buffer = monaco.editor.getModel(modelUri(filePath))
     if (!buffer) return
     const content = buffer.getValue()
 
@@ -413,7 +445,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
      * saved, and left the next Ctrl+S ready to write one file's contents into the
      * other's path. The reverted file is a fixed thing; it is looked up as one.
      */
-    const model = monaco.editor.getModel(monaco.Uri.file(path))
+    const model = monaco.editor.getModel(modelUri(path))
     const current = useStore.getState().editorPane(pane.id)
     const at = current?.documents.findIndex((d) => samePath(d.filePath, path)) ?? -1
     if (!current || at === -1) return

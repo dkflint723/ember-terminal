@@ -127,8 +127,8 @@ function flatten(result: unknown, depth = 0): Symbol[] {
 
 function reveal(filePath: string, line: number, column: number): void {
   void (async () => {
-    const { monaco } = await import('../editor/monaco')
-    const model = monaco.editor.getModel(monaco.Uri.file(filePath))
+    const { modelUri, monaco } = await import('../editor/monaco')
+    const model = monaco.editor.getModel(modelUri(filePath))
     if (!model) return
     for (const editor of monaco.editor.getEditors()) {
       if (editor.getModel() !== model) continue
