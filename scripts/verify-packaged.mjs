@@ -99,8 +99,14 @@ check(
 // --- ripgrep -----------------------------------------------------------------
 // The binary is unpacked beside the asar, not inside it. Search, quick open and the
 // workspace file list all depend on reaching it.
+// Reports its own failure rather than an empty list, so that a folder with no files
+// and a ripgrep that could not be reached do not look identical.
 const listed = await page.evaluate((root) => window.ember.listFiles(root), work)
-check('ripgrep runs, so the file list works', Array.isArray(listed) && listed.length > 0, `${Array.isArray(listed) ? listed.length : 'not an array'} files`)
+check(
+  'ripgrep runs, so the file list works',
+  listed?.ok === true && listed.files.length > 0,
+  JSON.stringify(listed)?.slice(0, 200)
+)
 
 // --- the editor still works out of the asar ----------------------------------
 // Monaco and the workspace file list both come out of the asar, so opening a file

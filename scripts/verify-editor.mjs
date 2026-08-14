@@ -112,7 +112,24 @@ log(
 )
 await page.screenshot({ path: path.join(SHOT_DIR, '15-editor-saved.png') })
 
+/*
+ * Indentation guides.
+ *
+ * They come from `guides.indentation` in the pane options and take their colour
+ * from the theme, so either half going missing loses them silently — the editor
+ * still works, it just stops showing the structure of the file.
+ */
+const guides = await page.evaluate(() => {
+  const marks = [...document.querySelectorAll('.monaco-editor [class*="core-guide"]')]
+  const shadows = new Set(marks.map((m) => getComputedStyle(m).boxShadow))
+  return { count: marks.length, shadows: [...shadows] }
+})
+log('indent guides →', JSON.stringify(guides))
+
 const pass =
+  guides.count > 0 &&
+  // A guide whose colour did not resolve renders as "none".
+  guides.shadows.every((s) => s !== 'none' && s.includes('rgb')) &&
   opened.panes === 2 &&
   opened.terminalStillThere &&
   opened.editorPath === FILE &&

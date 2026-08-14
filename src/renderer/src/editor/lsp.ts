@@ -1,4 +1,4 @@
-import { monaco } from './monaco'
+import { monaco, languageForPath } from './monaco'
 import { useStore } from '../state/store'
 
 /**
@@ -54,6 +54,8 @@ class IpcTransport {
   readonly state = new Value<ConnectionState>({ state: 'connecting' })
   private listener: ((message: unknown) => void) | undefined
   private unsubscribe: (() => void) | undefined
+  /** Document URI to the language it was opened as. See `serves`. */
+  private openedAs = new Map<string, string>()
 
   constructor(
     private language: string,
@@ -91,7 +93,57 @@ class IpcTransport {
   }
 
   async send(message: unknown): Promise<void> {
+    if (!this.serves(message)) return
     window.ember.lspSend(this.language, message)
+  }
+
+  /**
+   * True when this message is about a document this server actually handles.
+   *
+   * Monaco's client offers every open document to every running server, so the
+   * TypeScript server was being told to open markdown, and then asked for
+   * highlights in it. It refuses — "Cannot open document" — and every request
+   * against that file afterwards fails, which surfaced as an unhandled rejection.
+   * Nothing was broken for the user, but a keystroke in a markdown file was
+   * sending a didChange to a server with no use for it, and the failures were
+   * indistinguishable from a server that had genuinely gone wrong.
+   *
+   * A request that is dropped is answered here rather than left hanging: the
+   * client is waiting on a promise, and silence would leak it.
+   */
+  private serves(message: unknown): boolean {
+    if (typeof message !== 'object' || message === null) return true
+    const rpc = message as {
+      id?: unknown
+      method?: unknown
+      params?: { textDocument?: { uri?: unknown; languageId?: unknown } }
+    }
+    if (typeof rpc.method !== 'string' || !rpc.method.startsWith('textDocument/')) return true
+
+    const uri = rpc.params?.textDocument?.uri
+    if (typeof uri !== 'string') return true
+
+    /*
+     * didOpen states the language outright, and what it said is remembered for the
+     * rest of the document's life. Asking the model each time would be wrong at the
+     * one moment it matters: didClose is sent while the model is being disposed, and
+     * a document that answered "typescript" on the way in must not answer "plaintext"
+     * on the way out — that would drop the close and leave the server holding a file
+     * it thinks is still open.
+     */
+    const declared = rpc.params?.textDocument?.languageId
+    if (typeof declared === 'string') this.openedAs.set(uri, declared)
+    const language =
+      this.openedAs.get(uri) ??
+      monaco.editor.getModel(monaco.Uri.parse(uri))?.getLanguageId() ??
+      languageForPath(fileUriToPath(uri))
+    if (rpc.method === 'textDocument/didClose') this.openedAs.delete(uri)
+
+    if (serverFor(language) === this.language) return true
+    if (rpc.id !== undefined) {
+      queueMicrotask(() => this.listener?.({ jsonrpc: '2.0', id: rpc.id, result: null }))
+    }
+    return false
   }
 
   setListener(listener: ((message: unknown) => void) | undefined): void {

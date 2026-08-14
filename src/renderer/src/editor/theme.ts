@@ -103,7 +103,12 @@ export function applyMonacoTheme(theme: ResolvedTheme): void {
       'editorWidget.border': v['border-strong'],
       'editorSuggestWidget.background': v['bg-elevated'],
       'editorSuggestWidget.selectedBackground': v['bg-hover'],
+      // Both halves, or the active one is not active. The pane asks for
+      // highlightActiveIndentation, but with only the inactive colour mapped the
+      // highlight fell back to Monaco's built-in grey — which in this palette is
+      // near enough to the inactive guide that the feature was doing nothing.
       'editorIndentGuide.background1': v.border,
+      'editorIndentGuide.activeBackground1': v['border-strong'],
       'editorGutter.background': v.bg,
       'scrollbarSlider.background': v['border-strong'],
       'editorError.foreground': v.fail,
