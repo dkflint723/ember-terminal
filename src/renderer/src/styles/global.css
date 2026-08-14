@@ -466,13 +466,19 @@ button {
   font-family: var(--mono);
 }
 
+/* Faded rather than removed. `display: none` and `visibility: hidden` both take an
+   element out of the tab order, so no amount of :focus-within can bring it back —
+   these were unreachable without a mouse. Opacity leaves them focusable, and
+   reserving the space also stops the row shifting under the pointer on hover. */
 .block__actions {
-  display: none;
+  display: flex;
   gap: 2px;
+  opacity: 0;
 }
 
-.block__head:hover .block__actions {
-  display: flex;
+.block__head:hover .block__actions,
+.block__head:focus-within .block__actions {
+  opacity: 1;
 }
 
 .block__action {
@@ -1469,12 +1475,12 @@ kbd {
 .scm__actions {
   display: flex;
   flex: 0 0 auto;
-  visibility: hidden;
+  opacity: 0;
 }
 
 .scm__row:hover .scm__actions,
 .scm__row:focus-within .scm__actions {
-  visibility: visible;
+  opacity: 1;
 }
 
 .scm__file {
@@ -1664,8 +1670,9 @@ kbd {
   font-size: 11px;
   line-height: 1;
   cursor: pointer;
-  /* Hidden until wanted, except on a dirty tab where the dot is the unsaved mark. */
-  visibility: hidden;
+  /* Faded until wanted, except on a dirty tab where the dot is the unsaved mark.
+     Not hidden: that would take it out of the tab order. */
+  opacity: 0;
 }
 
 .etab:hover .etab__close,
@@ -2037,7 +2044,7 @@ kbd {
 .find__replace--file {
   padding: 0 6px;
   margin-right: 8px;
-  visibility: hidden;
+  opacity: 0;
 }
 
 .find__filerow {
@@ -2047,7 +2054,7 @@ kbd {
 
 .find__filerow:hover .find__replace--file,
 .find__filerow:focus-within .find__replace--file {
-  visibility: visible;
+  opacity: 1;
 }
 
 .find__summary {
@@ -2485,4 +2492,29 @@ kbd {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * Honour a request for less motion.
+ *
+ * Two things here loop forever — the running-command indicator and the spinner —
+ * and for some people continuous movement is not a stylistic preference but a
+ * trigger for nausea or migraine. Slowed to a step rather than removed: both exist
+ * to say "still working", and something that never changes says the opposite.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .block--running .block__status,
+  .spinner {
+    animation: none !important;
+    opacity: 0.75;
+  }
 }

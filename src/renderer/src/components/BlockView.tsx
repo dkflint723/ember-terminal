@@ -35,7 +35,23 @@ export const BlockView = memo(function BlockView({ block, onToggle, onRerun }: P
       role="group"
       aria-label={`${block.command || 'interactive command'} — ${statusLabel}`}
     >
-      <div className="block__head" onClick={onToggle}>
+      {/* A div with a click handler is invisible to the keyboard: it cannot be
+          tabbed to and Enter does nothing, so collapsing a block — and reaching the
+          copy and re-run controls inside it — needed a mouse. */}
+      <div
+        className="block__head"
+        role="button"
+        tabIndex={0}
+        aria-expanded={!block.collapsed}
+        aria-label={`${block.collapsed ? 'Expand' : 'Collapse'} ${block.command || 'interactive command'}`}
+        onClick={onToggle}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return
+          // Space scrolls the pane otherwise, which is the opposite of activating.
+          e.preventDefault()
+          onToggle()
+        }}
+      >
         <span className="block__chevron">{block.collapsed ? '▶' : '▼'}</span>
         {/*
           Status carries a glyph as well as a colour. Colour alone is unreadable

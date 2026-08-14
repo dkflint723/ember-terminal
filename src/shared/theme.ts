@@ -117,6 +117,65 @@ function mix(a: string, b: string, amount: number): string {
   })
 }
 
+/** WCAG relative luminance, which is what a contrast ratio is computed from. */
+function luminance(color: string): number {
+  const rgb = parseHex(color)
+  if (!rgb) return 0
+  const channel = (v: number): number => {
+    const s = v / 255
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * channel(rgb.r) + 0.7152 * channel(rgb.g) + 0.0722 * channel(rgb.b)
+}
+
+/** How readable one colour is on another, 1 (invisible) to 21 (black on white). */
+export function contrastRatio(a: string, b: string): number {
+  const la = luminance(a)
+  const lb = luminance(b)
+  const [hi, lo] = la > lb ? [la, lb] : [lb, la]
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+/**
+ * Push a colour until it is readable on every background it will be used against.
+ *
+ * The derived palette was built by mixing toward the foreground by a fixed
+ * fraction, which produces pleasant-looking values and no guarantee at all: every
+ * one of the built-in themes had `--fg-faint` below 4.5:1, and one had its error
+ * colour at 2.81:1 — a red that fails is worse than no colour, because it is the
+ * one people are meant to notice.
+ *
+ * A theme's own colours are still the starting point; this only moves them as far
+ * as it has to, and towards the theme's own foreground rather than to black or
+ * white, so a dark theme stays dark and a tinted one keeps its tint.
+ */
+function readable(color: string, against: string[], target: number, toward: string): string {
+  const worst = (candidate: string): number =>
+    Math.min(...against.map((bg) => contrastRatio(candidate, bg)))
+
+  if (worst(color) >= target) return color
+
+  /*
+   * Toward the theme's own foreground first, and only then past it.
+   *
+   * Some themes are built around a foreground that itself falls short — Solarized
+   * dark reads 4.01:1 — and mixing toward it converges on a colour that still
+   * fails, which is how every token in one theme collapsed to the same grey and
+   * none of them passed. When the theme's own foreground is not enough, the only
+   * place left to go is white or black.
+   */
+  const extreme = luminance(against[0]) < 0.5 ? '#ffffff' : '#000000'
+  for (const end of [toward, extreme]) {
+    let best = color
+    for (let i = 1; i <= 20; i++) {
+      best = mix(end, color, i / 20)
+      if (worst(best) >= target) return best
+    }
+    color = best
+  }
+  return color
+}
+
 /** Drop any alpha channel; several xterm colour slots reject 8-digit hex. */
 function opaque(value: string, over: string): string {
   const hex = value.trim().replace(/^#/, '')
@@ -203,7 +262,15 @@ export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
       ['terminal.selectionBackground', 'editor.selectionBackground'],
       dark ? '#3a4a63' : '#cfe3ff'
     ),
-    black: ansi('black', 'Black'),
+    /*
+     * Black has to be visible against the terminal's own background.
+     *
+     * Several themes set it to exactly their background colour, so anything a
+     * program printed in black — an ordinary thing for a program to do, and what
+     * many prompts and spinners use — disappeared entirely. Nudged toward the
+     * foreground only as far as it takes to be seen, so it still reads as black.
+     */
+    black: readable(ansi('black', 'Black'), [opaque(bg, dark ? '#000000' : '#ffffff')], 1.6, fg),
     red: ansi('red', 'Red'),
     green: ansi('green', 'Green'),
     yellow: ansi('yellow', 'Yellow'),
@@ -262,6 +329,18 @@ export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
   )
   const info = opaque(pick(['textLink.foreground', 'charts.blue'], terminal.blue), bg)
 
+  /*
+   * Every background text can land on.
+   *
+   * A colour is only readable if it is readable everywhere it is used, and these
+   * surfaces differ enough to matter — a value that passes on the pane background
+   * can fail on an elevated panel or a hovered row.
+   */
+  const surfaces = [bg, chrome, elevated, hover, mix(fg, bg, dark ? 0.03 : 0.02)]
+  const text = (color: string): string => readable(color, surfaces, 4.5, fg)
+  // 3:1 is the floor for borders, icons and other non-text marks.
+  const mark = (color: string): string => readable(color, surfaces, 3, fg)
+
   const vars: Record<string, string> = {
     bg,
     'bg-chrome': chrome,
@@ -269,19 +348,22 @@ export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
     'bg-hover': hover,
     // Blocks sit just off the pane background so their edges read without a border.
     'bg-block': mix(fg, bg, dark ? 0.03 : 0.02),
-    border,
-    'border-strong': borderStrong,
-    fg,
-    'fg-dim': fgDim,
-    'fg-faint': fgFaint,
-    accent,
+    border: mark(border),
+    'border-strong': mark(borderStrong),
+    // The body text of a theme built around a foreground that itself falls short —
+    // Solarized dark is the well-known one — is lifted like everything else. A theme
+    // is entitled to its palette, but not to text nobody can read.
+    fg: text(fg),
+    'fg-dim': text(fgDim),
+    'fg-faint': text(fgFaint),
+    accent: text(accent),
     'accent-dim': mix(accent, bg, 0.32),
-    ok,
-    fail,
+    ok: text(ok),
+    fail: text(fail),
     'fail-border': mix(fail, bg, 0.35),
     'fail-bg': mix(fail, bg, 0.08),
-    info,
-    'info-fg': mix(info, fg, dark ? 0.55 : 0.75),
+    info: text(info),
+    'info-fg': text(mix(info, fg, dark ? 0.55 : 0.75)),
     'info-bg': mix(info, bg, dark ? 0.12 : 0.08),
     'info-border': mix(info, bg, 0.42),
     'primary-bg': mix(info, bg, dark ? 0.38 : 0.85),

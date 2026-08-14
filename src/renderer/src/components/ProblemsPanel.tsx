@@ -139,8 +139,19 @@ export function ProblemsPanel({ onOpen }: Props): React.JSX.Element {
                     title={problem.message}
                     onClick={() => onOpen(problem.file, problem.line, problem.column - 1)}
                   >
-                    <span className={`probs__dot probs__dot--${severityWord(problem.severity)}`}>
-                      ●
+                    {/*
+                      A glyph as well as a colour, and a name for a screen reader.
+                      Severity was carried by colour alone, which no palette can fix
+                      for a colour vision deficiency — and in one of the shipped
+                      colourblind-safe themes error and warning were the identical
+                      colour, so the distinction was invisible to everyone.
+                    */}
+                    <span
+                      className={`probs__dot probs__dot--${severityWord(problem.severity)}`}
+                      aria-label={severityWord(problem.severity)}
+                      title={severityWord(problem.severity)}
+                    >
+                      {problem.severity === 8 ? '✕' : problem.severity === 4 ? '⚠' : 'ⓘ'}
                     </span>
                     <span className="probs__message">{problem.message.split('\n')[0]}</span>
                     <span className="probs__where">

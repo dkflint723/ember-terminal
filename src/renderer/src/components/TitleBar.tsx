@@ -93,18 +93,42 @@ export function TitleBar(): React.JSX.Element {
 
   return (
     <div className="titlebar">
-      <div className="titlebar__tabs">
+      {/*
+        A real tab list. These were plain divs with mouse handlers, so the strip
+        could not be reached or operated from the keyboard at all, and the close
+        button — bound to mousedown alone — ignored Enter and Space even once it
+        had focus.
+      */}
+      <div className="titlebar__tabs" role="tablist" aria-label="Terminal tabs">
         {tabs.map((t) => (
           <div
             key={t.id}
             className={`tab ${t.id === activeTabId ? 'tab--active' : ''}`}
+            role="tab"
+            aria-selected={t.id === activeTabId}
+            // Only the selected tab is a tab stop; the arrows move between them,
+            // which is how a tab list is expected to behave.
+            tabIndex={t.id === activeTabId ? 0 : -1}
             onMouseDown={() => setActiveTab(t.id)}
+            onKeyDown={(e) => {
+              const index = tabs.findIndex((x) => x.id === t.id)
+              if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+                e.preventDefault()
+                const next = tabs[index + (e.key === 'ArrowRight' ? 1 : -1)]
+                if (next) setActiveTab(next.id)
+              } else if (e.key === 'Delete') {
+                e.preventDefault()
+                closeTab(t.id)
+              }
+            }}
           >
             <span className="tab__label">{titleFor(t.id)}</span>
             <button
               className="tab__close"
               title="Close tab"
-              onMouseDown={(e) => {
+              aria-label={`Close ${titleFor(t.id)}`}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
                 e.stopPropagation()
                 closeTab(t.id)
               }}
