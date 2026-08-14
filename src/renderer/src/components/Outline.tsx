@@ -126,17 +126,31 @@ interface RawSymbol {
   children?: unknown
 }
 
+/*
+ * In the order they appear in the file.
+ *
+ * The server returns them in whatever order suits it — typescript-language-server
+ * puts functions ahead of the interfaces they use — and taking that order verbatim
+ * gave an outline whose first entry was on line 7 and whose second was on line 1.
+ * An outline is a map of the file, and a map has to agree with the ground. Each
+ * level is sorted separately so that children stay under their own parent.
+ */
 function flatten(result: unknown, depth = 0): Symbol[] {
   if (!Array.isArray(result)) return []
   const out: Symbol[] = []
-  for (const item of result as RawSymbol[]) {
-    const range = item.selectionRange ?? item.range ?? item.location?.range
-    if (!range) continue
+  const ordered = (result as RawSymbol[])
+    .map((item) => ({ item, at: item.selectionRange ?? item.range ?? item.location?.range }))
+    .filter((entry) => entry.at !== undefined)
+    .sort(
+      (a, b) => a.at!.start.line - b.at!.start.line || a.at!.start.character - b.at!.start.character
+    )
+
+  for (const { item, at } of ordered) {
     out.push({
       name: String(item.name ?? ''),
       kind: Number(item.kind ?? 0),
-      line: range.start.line + 1,
-      column: range.start.character,
+      line: at!.start.line + 1,
+      column: at!.start.character,
       depth
     })
     if (Array.isArray(item.children)) out.push(...flatten(item.children, depth + 1))

@@ -305,9 +305,28 @@ export function SearchPanel({ onOpen }: Props): React.JSX.Element {
                   >
                     <span className="find__line">{hit.line}</span>
                     <span className="find__preview">
-                      {hit.preview.slice(0, hit.column)}
-                      <mark>{hit.preview.slice(hit.column, hit.column + hit.length)}</mark>
-                      {hit.preview.slice(hit.column + hit.length)}
+                      {(() => {
+                        /*
+                         * Enough of the line to place the match, starting near it.
+                         *
+                         * The preview began at column 0 and was clipped at the width
+                         * of the panel, so a match late in a long line was simply not
+                         * on screen: the row showed the beginning of a line with the
+                         * thing being searched for cut off the end of it.
+                         */
+                        // Little enough lead that the match itself, and some of
+                        // what follows it, still fit in a sidebar's width.
+                        const LEAD = 10
+                        const from = Math.max(0, hit.column - LEAD)
+                        return (
+                          <>
+                            {from > 0 && '…'}
+                            {hit.preview.slice(from, hit.column)}
+                            <mark>{hit.preview.slice(hit.column, hit.column + hit.length)}</mark>
+                            {hit.preview.slice(hit.column + hit.length)}
+                          </>
+                        )
+                      })()}
                     </span>
                   </button>
                 ))}

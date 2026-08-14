@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { pathKey } from '@shared/paths'
 import { monaco } from '../editor/monaco'
 import { useStore } from '../state/store'
 
@@ -72,7 +73,30 @@ function severityWord(severity: number): string {
 export function ProblemsPanel({ onOpen }: Props): React.JSX.Element {
   const problems = useProblems()
   const treeRoot = useStore((s) => s.treeRoot)
+  const panes = useStore((s) => s.panes)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+
+  /*
+   * How the file is really spelled, rather than how its marker spells it.
+   *
+   * Model URIs are built from a lowercased path, so that two spellings of one file
+   * on a case-insensitive filesystem cannot become two buffers. That lowercasing
+   * comes back out on every marker, and it showed: the panel labelled problems
+   * `c:/users/…` where the rest of the app says `C:\Users\…`, and because the
+   * lowercased path never matched the workspace root, every problem was named by
+   * its full absolute path instead of a short relative one. The open document —
+   * and a problem is only ever reported for an open document — knows the answer.
+   */
+  const spelling = useMemo(() => {
+    const byKey = new Map<string, string>()
+    for (const pane of Object.values(panes)) {
+      if (pane.kind !== 'editor') continue
+      for (const doc of pane.documents) {
+        if (doc.filePath) byKey.set(pathKey(doc.filePath), doc.filePath)
+      }
+    }
+    return (file: string): string => byKey.get(pathKey(file)) ?? file
+  }, [panes])
 
   const groups = useMemo(() => {
     const byFile = new Map<string, Problem[]>()
@@ -88,10 +112,14 @@ export function ProblemsPanel({ onOpen }: Props): React.JSX.Element {
     return <div className="probs probs--empty">No problems in the open files.</div>
   }
 
-  const relative = (full: string): string =>
-    treeRoot
-      ? full.replace(/\\/g, '/').replace(`${treeRoot.replace(/\\/g, '/')}/`, '')
-      : full.replace(/\\/g, '/')
+  // Compared without regard to case, because the workspace root and the path a
+  // file was opened by need not agree on the spelling of a drive letter.
+  const relative = (full: string): string => {
+    const slashed = spelling(full).replace(/\\/g, '/')
+    if (!treeRoot) return slashed
+    const root = treeRoot.replace(/\\/g, '/').replace(/\/$/, '')
+    return pathKey(slashed).startsWith(`${pathKey(root)}/`) ? slashed.slice(root.length + 1) : slashed
+  }
 
   const errors = problems.filter((p) => p.severity === 8).length
   const warnings = problems.filter((p) => p.severity === 4).length
@@ -115,7 +143,7 @@ export function ProblemsPanel({ onOpen }: Props): React.JSX.Element {
             <div key={file}>
               <button
                 className="find__file"
-                title={file}
+                title={spelling(file)}
                 onClick={() =>
                   setCollapsed((prev) => {
                     const next = new Set(prev)
@@ -137,7 +165,7 @@ export function ProblemsPanel({ onOpen }: Props): React.JSX.Element {
                     key={`${problem.line}:${problem.column}:${i}`}
                     className="probs__row"
                     title={problem.message}
-                    onClick={() => onOpen(problem.file, problem.line, problem.column - 1)}
+                    onClick={() => onOpen(spelling(problem.file), problem.line, problem.column - 1)}
                   >
                     {/*
                       A glyph as well as a colour, and a name for a screen reader.

@@ -394,6 +394,7 @@ button {
 }
 
 .block__head {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -470,15 +471,35 @@ button {
    element out of the tab order, so no amount of :focus-within can bring it back —
    these were unreachable without a mouse. Opacity leaves them focusable, and
    reserving the space also stops the row shifting under the pointer on hover. */
+/*
+ * Out of the flow, so buttons nobody can see take no width from the command.
+ *
+ * They were laid out in the header at opacity 0, and an invisible flex item still
+ * reserves its space: in a narrow pane the command was cut to three characters to
+ * make room for three controls that were not on screen. Opacity rather than
+ * display or visibility, because either of those takes the buttons out of the tab
+ * order — and the focus-within rule that reveals them could then never fire.
+ *
+ * Not hit-testable while hidden, either. An invisible button that still swallows
+ * clicks is worse than one that takes up room, and the header itself is clickable.
+ */
 .block__actions {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
   display: flex;
   gap: 2px;
+  padding-left: 10px;
+  background: var(--bg-elevated);
   opacity: 0;
+  pointer-events: none;
 }
 
 .block__head:hover .block__actions,
 .block__head:focus-within .block__actions {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .block__action {
@@ -632,12 +653,25 @@ button {
   color: var(--fg-faint);
 }
 
+/*
+ * Each hint stays in one piece, and the row wraps between them.
+ *
+ * Without this the row could not wrap, so in a narrow pane the text inside a hint
+ * broke instead — leaving "ask" beside its keys and "Claude" stranded on the line
+ * below, which reads as two hints rather than one.
+ */
 .composer__hint {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 4px 10px;
   padding: 5px 2px 0;
   color: var(--fg-faint);
   font-size: 11px;
+}
+
+.composer__hint > *,
+.pane__hints > * {
+  white-space: nowrap;
 }
 
 kbd {
@@ -752,7 +786,9 @@ kbd {
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
   border-radius: 10px;
-  padding: 18px 20px 20px;
+  /* No bottom padding of its own: the sticky footer below carries it, so that
+     content scrolls all the way to the buttons rather than under a dead strip. */
+  padding: 18px 20px 0;
 }
 
 .modal h2 {
@@ -797,11 +833,23 @@ kbd {
   font-size: 11px;
 }
 
+/*
+ * Save and Cancel stay on screen.
+ *
+ * The dialog scrolls, and the buttons sat at the end of the scrolling content —
+ * so on any window short enough to need scrolling, the settings opened with no
+ * visible way to accept or dismiss them, and the only thing that closed the
+ * dialog was a key nobody was told about.
+ */
 .modal__actions {
+  position: sticky;
+  bottom: 0;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 18px;
+  padding: 12px 0 20px;
+  background: var(--bg-elevated);
 }
 
 .theme-swatches {
@@ -1052,6 +1100,19 @@ kbd {
   min-width: 0;
   color: var(--fg);
   font-family: var(--mono);
+  overflow: hidden;
+}
+
+/*
+ * The text needs a box of its own to be truncated in.
+ *
+ * `text-overflow` has no effect on a flex container's own text, so the ellipsis
+ * declared on .editor__name never applied — a name too long for the bar was cut
+ * off mid-character with nothing to say it had been. The flex container is still
+ * needed to sit the unsaved dot beside the name.
+ */
+.editor__label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

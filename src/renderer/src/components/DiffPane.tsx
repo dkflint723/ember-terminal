@@ -26,6 +26,12 @@ export function DiffPane({ pane, active, onFocus }: Props): React.JSX.Element {
   const fontFamily = useStore((s) => s.settings.fontFamily)
   const fontSize = useStore((s) => s.settings.fontSize)
 
+  const close = (): void => {
+    const state = useStore.getState()
+    const owner = state.tabIdForPane(pane.id)
+    if (owner) state.closePane(owner, pane.id)
+  }
+
   useEffect(() => {
     if (!host.current || editorRef.current) return
 
@@ -92,7 +98,9 @@ export function DiffPane({ pane, active, onFocus }: Props): React.JSX.Element {
       data-diff-staged={pane.staged ? 'true' : 'false'}
     >
       <div className="editor__bar">
-        <span className="editor__name">{pane.title}</span>
+        <span className="editor__name" title={pane.filePath}>
+          <span className="editor__label">{pane.title}</span>
+        </span>
         <span className="editor__lang">
           {pane.originalLabel} ↔ {pane.modifiedLabel}
         </span>
@@ -114,6 +122,18 @@ export function DiffPane({ pane, active, onFocus }: Props): React.JSX.Element {
               accept
             </button>
           </>
+        )}
+        {/*
+          A diff opened from the source control panel had no way to be dismissed:
+          the pane carries no tab strip, and unlike an editor its bar held nothing
+          at all unless Claude was waiting on an answer. Closing it needed a
+          keyboard shortcut nobody would guess at. A proposal keeps its accept and
+          reject, which are how that one is meant to end.
+        */}
+        {!pane.proposal && (
+          <button className="block__action" title="Close this diff" onClick={close}>
+            close
+          </button>
         )}
       </div>
       <div className="editor__host" ref={host} />
