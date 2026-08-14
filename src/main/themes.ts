@@ -9,6 +9,7 @@ import {
   type ThemeFile,
   type ThemeSummary
 } from '../shared/theme.js'
+import { isInside } from '../shared/paths.js'
 
 interface Entry {
   id: string
@@ -168,6 +169,9 @@ export class ThemeStore {
 
         const slug = safeName(theme.label ?? basename(inside, extname(inside)))
         const target = join(this.userDir(), `${slug}.json`)
+        // Same belt-and-braces as the snippet importer: the slug is sanitised, and
+        // the result is checked to be where it is supposed to be.
+        if (!isInside(this.userDir(), target)) continue
         writeFileSync(target, JSON.stringify(resolved, null, 2), 'utf8')
         ids.push(`user:${slug}`)
       }

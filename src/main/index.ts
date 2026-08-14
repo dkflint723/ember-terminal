@@ -112,7 +112,14 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      /*
+       * The renderer runs sandboxed.
+       *
+       * It was off for one reason: the preload called homedir(), which needs Node.
+       * That is a whole OS sandbox given up for a string, and the string is now
+       * fetched over IPC instead. Nothing else in the preload touches Node.
+       */
+      sandbox: true,
       spellcheck: false
     }
   })
@@ -160,6 +167,24 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
+  /*
+   * The window stays on its own document.
+   *
+   * Nothing stopped it navigating elsewhere — a dropped link, a stray anchor, a
+   * redirect — and whatever it landed on would inherit the whole preload bridge:
+   * reading and writing arbitrary files, spawning shells, the lot. The frame is
+   * pinned to the page it starts on, and anything else is handed to the browser,
+   * which is where a web page belongs.
+   */
+  const stayPut = (event: Electron.Event, url: string): void => {
+    const current = mainWindow?.webContents.getURL()
+    if (!current || url === current) return
+    event.preventDefault()
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
+  }
+  mainWindow.webContents.on('will-navigate', stayPut)
+  mainWindow.webContents.on('will-redirect', stayPut)
+
   const devUrl = process.env.ELECTRON_RENDERER_URL
   if (isDev && devUrl) {
     void mainWindow.loadURL(devUrl)
@@ -169,6 +194,11 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
+  // Synchronous because the preload reads it while it is being set up, before any
+  // renderer code runs — and registerIpc() runs before the window is created.
+  ipcMain.on('app:homeDir', (event) => {
+    event.returnValue = app.getPath('home')
+  })
   const profiles = detectProfiles()
 
   ipcMain.handle('profiles:list', () => profiles)

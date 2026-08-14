@@ -4,6 +4,7 @@ import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } fro
 import { basename, extname, join } from 'node:path'
 import { parseThemeJson } from '../shared/theme.js'
 import type { Snippet } from '../shared/types.js'
+import { isInside } from '../shared/paths.js'
 
 /**
  * Snippets in the VS Code format, from the user's own folder and from extensions.
@@ -166,7 +167,17 @@ export class SnippetStore {
         }
         if (Object.keys(scoped).length === 0) continue
 
+        /*
+         * The name is sanitised and then the result is checked.
+         *
+         * Everything in the manifest comes out of an archive the user was handed,
+         * and `language` was once used as a path component directly — so a crafted
+         * extension could write wherever it liked. `safeName` makes that
+         * impossible; the containment check says so out loud rather than leaving
+         * the guarantee resting on a regular expression somebody might relax.
+         */
         const target = join(this.dir(), `${from}-${safeName(entry.language)}.code-snippets`)
+        if (!isInside(this.dir(), target)) continue
         writeFileSync(target, JSON.stringify(scoped, null, 2), 'utf8')
         count += 1
       }

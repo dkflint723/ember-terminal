@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { homedir } from 'node:os'
 import type {
   AiRequest,
   CommandNotice,
@@ -154,7 +153,9 @@ const api: EmberApi = {
   },
 
   platform: process.platform,
-  homeDir: homedir()
+  // Read at preload time so callers still see a plain string. Node is not
+  // available in a sandboxed preload, which is the point.
+  homeDir: ipcRenderer.sendSync('app:homeDir') as string
 }
 
 contextBridge.exposeInMainWorld('ember', api)
