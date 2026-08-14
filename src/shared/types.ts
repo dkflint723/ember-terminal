@@ -260,6 +260,11 @@ export interface SearchHit {
   preview: string
 }
 
+/** Every file in the workspace, or why they could not be listed. */
+export type FileListResult =
+  | { ok: true; files: string[] }
+  | { ok: false; error: string }
+
 export type SearchResult =
   | { ok: true; hits: SearchHit[]; truncated: boolean }
   | { ok: false; error: string }
@@ -441,7 +446,7 @@ export interface EmberApi {
   githubCheckout(cwd: string, number: number): Promise<GitSimpleResult>
   openExternal(url: string): void
   search(query: SearchQuery): Promise<SearchResult>
-  listFiles(root: string): Promise<string[]>
+  listFiles(root: string): Promise<FileListResult>
   replaceInFiles(request: ReplaceRequest): Promise<ReplaceOutcome>
   openFolderDialog(defaultPath?: string): Promise<string | null>
   snippetsFor(languageId: string): Promise<Snippet[]>

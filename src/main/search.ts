@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import type {
+  FileListResult,
   ReplaceOutcome,
   ReplaceRequest,
   SearchHit,
@@ -64,19 +65,19 @@ export class SearchService {
    * for a search, so it honours the same ignore rules — a quick-open list that
    * offered node_modules while search skipped it would be its own kind of wrong.
    */
-  async files(root: string): Promise<string[]> {
+  async files(root: string): Promise<FileListResult> {
     const rg = this.rgPath()
-    if (!rg) return []
+    if (!rg) return { ok: false, error: 'The bundled ripgrep binary is missing.' }
 
-    return new Promise<string[]>((resolve) => {
+    return new Promise<FileListResult>((resolve) => {
       let child: ChildProcess
       try {
         child = spawn(rg, ['--files', '--no-require-git', '--', root], {
           windowsHide: true,
           stdio: ['ignore', 'pipe', 'ignore']
         })
-      } catch {
-        resolve([])
+      } catch (err) {
+        resolve({ ok: false, error: err instanceof Error ? err.message : 'Could not list files.' })
         return
       }
 
@@ -87,8 +88,18 @@ export class SearchService {
         // is not the tool for the job and the fuzzy filter would crawl.
         if (out.length > 8 * 1024 * 1024) child.kill()
       })
-      child.on('error', () => resolve([]))
-      child.on('close', () => resolve(out.split('\n').map((l) => l.trim()).filter(Boolean)))
+      /*
+       * A failure is not an empty folder.
+       *
+       * Every error came back as an empty list, so quick open said "No files"
+       * whether the workspace was empty or ripgrep could not run at all — which is
+       * exactly how a packaged build shipped with its file list, its search and its
+       * quick open all silently dead.
+       */
+      child.on('error', (err) => resolve({ ok: false, error: err.message }))
+      child.on('close', () =>
+        resolve({ ok: true, files: out.split('\n').map((l) => l.trim()).filter(Boolean) })
+      )
     })
   }
 

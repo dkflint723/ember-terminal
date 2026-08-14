@@ -250,7 +250,19 @@ export function App(): React.JSX.Element {
     const { languageForPath } = await import('./editor/monaco')
     for (const filePath of paths) {
       const res = await window.ember.readFile(filePath)
-      if (!res.ok) continue
+      if (!res.ok) {
+        /*
+         * Say why nothing opened.
+         *
+         * A binary file, or one over the size cap, was skipped in silence — no tab,
+         * no message, nothing at all. Double-clicking a PNG in the explorer looked
+         * exactly like the app having stopped responding to clicks.
+         */
+        useStore
+          .getState()
+          .setNotice(`${filePath.split(/[\\/]/).pop()}: ${res.error}`, 'error')
+        continue
+      }
       const s = useStore.getState()
       const tab = s.tabs.find((t) => t.id === s.activeTabId)
       if (!tab) return

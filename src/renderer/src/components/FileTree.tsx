@@ -290,8 +290,23 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
         {/* Without this the workspace could only be set by launching with a path or
             by inheriting the terminal's directory, so there was no way to move to a
             different project from inside the app. */}
-        <button className="icon-btn" title="Open folder" onClick={() => void openFolder()}>
-          🗀
+        {/* Drawn rather than typed: U+1F5C0 has no glyph in the shipped Windows
+            fonts and rendered as an empty box. */}
+        <button
+          className="icon-btn"
+          title="Open folder"
+          aria-label="Open folder"
+          onClick={() => void openFolder()}
+        >
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+            <path
+              d="M1.5 3.5h4l1.5 2h7.5v7h-13z"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.3"
+              strokeLinejoin="round"
+            />
+          </svg>
         </button>
         <button
           className="icon-btn"

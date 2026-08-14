@@ -29,7 +29,8 @@ export function SourceControl(): React.JSX.Element {
   const notePathDeleted = useStore((s) => s.notePathDeleted)
 
   const gitError = useStore((s) => s.gitError)
-  const [message, setMessage] = useState('')
+  const message = useStore((s) => s.commitDraft)
+  const setMessage = useStore((s) => s.setCommitDraft)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)

@@ -145,6 +145,14 @@ interface Store {
   gitStatus: GitStatus | null
   /** Why git could not be read at all, when that is not simply "no repository". */
   gitError: string | null
+  /**
+   * The commit message being written.
+   *
+   * In the store rather than in the panel because the sidebar unmounts a view when
+   * you switch away from it, and a half-written commit message is exactly the kind
+   * of thing someone leaves to go and look at a diff.
+   */
+  commitDraft: string
   /** Command handed to a pane's input by history search, consumed on mount. */
   pendingInput: Record<string, string>
   /**
@@ -184,6 +192,7 @@ interface Store {
   setGitStatus(status: GitStatus | null): void
   /** Why git could not be read, when the reason is not simply "no repository here". */
   setGitError(error: string | null): void
+  setCommitDraft(text: string): void
   setPendingInput(paneId: string, text: string): void
   clearPendingInput(paneId: string): void
   requestAsk(paneId: string): void
@@ -386,6 +395,7 @@ export const useStore = create<Store>((set, get) => ({
   treeRoot: null,
   gitStatus: null,
   gitError: null,
+  commitDraft: '',
   pendingInput: {},
   askRequest: null,
   paletteMode: null,
@@ -423,6 +433,7 @@ export const useStore = create<Store>((set, get) => ({
   },
   setGitStatus: (gitStatus) => set({ gitStatus }),
   setGitError: (gitError) => set({ gitError }),
+  setCommitDraft: (commitDraft) => set({ commitDraft }),
   openPalette: (paletteMode) => set({ paletteMode }),
   closePalette: () => set({ paletteMode: null }),
 

@@ -20,6 +20,8 @@ export function Palette({ onOpenFile }: Props): React.JSX.Element | null {
   const treeRoot = useStore((s) => s.treeRoot)
   const [files, setFiles] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
+  /** Why the file list is empty, when the reason is not that the folder is. */
+  const [listError, setListError] = useState<string | null>(null)
 
   // Handed to the command list, which is not a component and so has no props.
   useEffect(() => setPaletteFileOpener(onOpenFile), [onOpenFile])
@@ -33,7 +35,10 @@ export function Palette({ onOpenFile }: Props): React.JSX.Element | null {
     setLoading(true)
     void window.ember.listFiles(treeRoot).then((found) => {
       if (!live) return
-      setFiles(found)
+      setFiles(found.ok ? found.files : [])
+      // "No files" is a fact about the folder; a failure is a fact about the app,
+      // and the two used to look identical here.
+      setListError(found.ok ? null : found.error)
       setLoading(false)
     })
     return () => {
@@ -61,7 +66,15 @@ export function Palette({ onOpenFile }: Props): React.JSX.Element | null {
       <QuickPick
         placeholder="Go to file…"
         items={items}
-        empty={loading ? 'Listing files…' : treeRoot ? 'No files' : 'Open a folder first'}
+        empty={
+          loading
+            ? 'Listing files…'
+            : listError
+              ? `Could not list files: ${listError}`
+              : treeRoot
+                ? 'No files'
+                : 'Open a folder first'
+        }
         onPick={(item) => {
           close()
           onOpenFile(item.id)

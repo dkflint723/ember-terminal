@@ -47,15 +47,34 @@ export function Outline(): React.JSX.Element | null {
     }
 
     let live = true
-    void window.ember
-      .lspRequest(server, 'textDocument/documentSymbol', {
-        textDocument: { uri: toUri(filePath) }
-      })
-      .then((result) => {
-        if (live) setSymbols(flatten(result))
-      })
+    const load = (): void => {
+      void window.ember
+        .lspRequest(server, 'textDocument/documentSymbol', {
+          textDocument: { uri: toUri(filePath) }
+        })
+        .then((result) => {
+          if (live) setSymbols(flatten(result))
+        })
+    }
+
+    /*
+     * Asked again as the file changes, and as the server catches up.
+     *
+     * This was a single request made when the view mounted, so the outline showed
+     * the file as it was when the sidebar opened and never moved again — and if the
+     * language server had not finished starting, it stayed empty for the rest of
+     * the session with nothing to say why. Polling is the honest tool here: the
+     * server pushes diagnostics but not symbols, so there is nothing to subscribe
+     * to, and the request is cheap against a document the server already has open.
+     */
+    load()
+    // `window.document`: the component's own `document` is the open file.
+    const timer = window.setInterval(() => {
+      if (window.document.visibilityState === 'visible') load()
+    }, 2500)
     return () => {
       live = false
+      window.clearInterval(timer)
     }
   }, [filePath, language])
 
