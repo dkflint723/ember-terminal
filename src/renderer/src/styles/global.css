@@ -2518,3 +2518,14 @@ kbd {
     opacity: 0.75;
   }
 }
+
+/* First-run hints under the empty-pane line. Laid out rather than run together so
+   each shortcut reads as one thing. */
+.pane__hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 8px;
+  color: var(--fg-faint);
+  font-size: 11px;
+}

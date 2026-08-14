@@ -101,6 +101,30 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
               </div>
             </div>
           )}
+          {/* Once the shell is up and nothing has been run, the pane was simply
+              blank — which says nothing about what this app does differently, or
+              that there is an editor and a workspace a keystroke away. */}
+          {pane.blocks.length === 0 && pane.integration === 'ready' && (
+            <div className="block">
+              <div className="block__body block__body--empty">
+                <div>Run a command — each one becomes a block with its exit code and timing.</div>
+                <div className="pane__hints">
+                  <span>
+                    <kbd>Ctrl</kbd> <kbd>K</kbd> ask Claude for a command
+                  </span>
+                  <span>
+                    <kbd>Ctrl</kbd> <kbd>B</kbd> files
+                  </span>
+                  <span>
+                    <kbd>Ctrl</kbd> <kbd>P</kbd> go to file
+                  </span>
+                  <span>
+                    <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>P</kbd> all commands
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
           {pane.blocks.map((b) => (
             <BlockView
               key={b.id}

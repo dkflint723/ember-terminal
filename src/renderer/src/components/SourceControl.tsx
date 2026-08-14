@@ -105,10 +105,19 @@ export function SourceControl(): React.JSX.Element {
   const discard = async (change: GitFileChange): Promise<void> => {
     if (!root) return
     const untracked = change.status === 'U'
+    /*
+     * The full path, not the repository-relative one.
+     *
+     * git reports paths relative to the repository root, which is not necessarily
+     * the folder that is open — so with the workspace rooted in a subdirectory the
+     * panel can offer to discard a file somewhere else entirely, named only by a
+     * path that does not resolve from where the user thinks they are.
+     */
+    const full = `${root}/${change.path}`
     const ok = window.confirm(
       untracked
-        ? `Delete ${change.path}? It is untracked, so this cannot be undone.`
-        : `Discard changes to ${change.path}? This cannot be undone.`
+        ? `Delete ${full}? It is untracked, so this cannot be undone.`
+        : `Discard changes to ${full}? This cannot be undone.`
     )
     if (!ok) return
     const done = await act(() =>
@@ -125,7 +134,6 @@ export function SourceControl(): React.JSX.Element {
      * changed a file without anything telling the editor. Reloading leaves a buffer
      * with unsaved edits of the user's own alone, as it does everywhere else.
      */
-    const full = `${root}/${change.path}`
     if (untracked) notePathDeleted(full)
     else await reloadFromDisk([full])
   }

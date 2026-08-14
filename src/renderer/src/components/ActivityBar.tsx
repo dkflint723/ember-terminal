@@ -93,14 +93,16 @@ export function ActivityBar(): React.JSX.Element {
       ).size
     : 0
 
+  // A toolbar rather than a tab list: the rail holds a settings button as well as
+  // the view switches, and a tab list may only contain tabs.
   return (
-    <div className="activity" role="tablist" aria-label="Views">
+    <div className="activity" role="toolbar" aria-label="Views">
       {ENTRIES.map((entry) => {
         const active = open && view === entry.view
         return (
           <button
             key={entry.view}
-            role="tab"
+            role="button"
             aria-selected={active}
             aria-label={entry.label}
             title={entry.hint}

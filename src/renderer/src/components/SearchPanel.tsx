@@ -183,7 +183,9 @@ export function SearchPanel({ onOpen }: Props): React.JSX.Element {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') void run()
-            if (e.key === 'Escape') setText('')
+            // Escape dismisses, as it does everywhere else here. Wiping a query
+            // someone had just typed was the one place it destroyed something.
+            if (e.key === 'Escape') useStore.getState().toggleSidebar(false)
           }}
         />
         <div className="find__toggles">

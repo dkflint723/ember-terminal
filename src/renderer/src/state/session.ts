@@ -295,10 +295,17 @@ export function unsavedWorkIsPreserved(): boolean {
 /** Save on a debounce whenever the shape of the workspace changes. */
 export function useSessionAutosave(enabled: boolean): void {
   useEffect(() => {
-    // Restore switched off means nothing is written down, so unsaved work really
-    // does go when the window closes — which is what makes the prompt worth having.
+    /*
+     * Restore switched off means nothing is written down, so unsaved work really
+     * does go when the window closes — which is what makes the prompt worth having.
+     *
+     * The file it had already written is also removed. Leaving it meant the tabs
+     * and the unsaved buffer text from the last session sat on disk indefinitely
+     * after someone had explicitly asked the app to stop remembering.
+     */
     if (!enabled) {
       preserving = false
+      window.ember.sessionClear()
       return
     }
 

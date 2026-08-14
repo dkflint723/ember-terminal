@@ -113,7 +113,15 @@ export class TerminalController {
     })
 
     this.term.loadAddon(this.fit)
-    this.term.loadAddon(new WebLinksAddon())
+    /*
+     * Links open in the browser, by asking main directly.
+     *
+     * The addon's default handler opens a window, and the window-open handler
+     * denies every one of them — so clicking a URL in output did nothing at all.
+     * Going straight to main skips the window that was only ever going to be
+     * refused; the http(s) filter there is unchanged.
+     */
+    this.term.loadAddon(new WebLinksAddon((_event, uri) => window.ember.openExternal(uri)))
 
     const unicode = new Unicode11Addon()
     this.term.loadAddon(unicode)
