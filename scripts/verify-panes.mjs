@@ -83,9 +83,8 @@ check(
 // The tab the request came from must be left intact. It is the one the bug
 // corrupted: it was given an active pane out of another tab's layout, and a tab
 // whose active pane is not its own cannot act on it. Splitting is the cheapest
-// observable proof, since a split is made from whatever pane is active — and it
-// only duplicates terminals, so this tab, which holds nothing else, is the case
-// that shows it.
+// observable proof, since a split is made from whatever pane is active — and this
+// tab holds only a terminal, which is the simplest form of it.
 await page.locator('.tab').nth(1).click()
 await sleep(1200)
 const before = (await view()).panes
@@ -93,6 +92,55 @@ await page.keyboard.press('Control+Shift+D')
 await sleep(2000)
 const after = (await view()).panes
 check('the requesting tab is still intact and can split', after > before, `${before} → ${after}`)
+
+/*
+ * --- splitting an editor gives you an editor ----------------------------------
+ *
+ * A split used to mean "another shell" whatever had focus, so asking for one from
+ * an editor moved a terminal somewhere else in the tab and there was no way to put
+ * two files side by side at all. Two views of one file are safe: the buffer is a
+ * model keyed by URI, so they are the same text, not a copy of it.
+ */
+// Back to the tab that has the file open; the checks above left us on the other one.
+await page.locator('.tab').first().click()
+await sleep(1500)
+await page.locator('.pane.editor').first().click()
+await sleep(600)
+const beforeSplit = await view()
+await page.keyboard.press('Control+Shift+D')
+await sleep(1500)
+const split = await view()
+check(
+  'splitting from an editor makes a second editor',
+  split.editors === beforeSplit.editors + 1,
+  `${beforeSplit.editors} → ${split.editors}`
+)
+check(
+  'and it is showing the same file',
+  split.shown.filter((p) => p && p.endsWith('shared.ts')).length === 2,
+  JSON.stringify(split.shown)
+)
+
+// One buffer, not two copies of one: typing in the new half must show in the old.
+await page.locator('.pane.editor').last().locator('.view-lines').click()
+await sleep(400)
+await page.keyboard.press('Control+End')
+await page.keyboard.type('// typed in the split')
+await sleep(900)
+const bothDirty = await page.locator('.pane.editor[data-dirty="true"]').count()
+check('an edit in one half is an edit in the file', bothDirty === 2, String(bothDirty))
+
+await page.keyboard.press('Control+s')
+await sleep(2000)
+check(
+  'and saving settles both halves',
+  (await page.locator('.pane.editor[data-dirty="true"]').count()) === 0
+)
+check(
+  'the edit reached disk once',
+  fs.readFileSync(shared, 'utf8').match(/typed in the split/g)?.length === 1,
+  JSON.stringify(fs.readFileSync(shared, 'utf8'))
+)
 
 await app.close()
 profile.cleanup()

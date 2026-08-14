@@ -112,6 +112,63 @@ check(
   (await page.locator('.pane.editor[data-dirty="true"]').count()) === 0
 )
 
+/*
+ * --- the same file open in two tabs ------------------------------------------
+ *
+ * The buffer is shared, being a Monaco model keyed by URI, but each pane keeps its
+ * own record of what the file last looked like on disk. Saving in one used to
+ * settle only that pane, leaving the other reporting unsaved changes for a file
+ * that matched disk exactly — and no way to clear it short of closing the tab.
+ */
+const openHere = async (name) => {
+  await page.keyboard.press('Control+p')
+  await page.waitForSelector('.qp__box', { timeout: 10_000 })
+  await page.locator('.qp__box').fill(name)
+  await sleep(800)
+  await page.keyboard.press('Enter')
+  await sleep(2500)
+}
+
+await page.keyboard.press('Control+Shift+T')
+await sleep(1200)
+await openHere('one')
+const tabs = page.locator('.tab')
+check('the file is open in a second tab', (await tabs.count()) === 2, String(await tabs.count()))
+
+await typeInEditor('// edited from the second tab')
+check(
+  'editing marks it unsaved',
+  (await page.locator('.pane.editor[data-dirty="true"]').count()) === 1
+)
+await page.keyboard.press('Control+s')
+await sleep(2000)
+check(
+  'the save reaches disk',
+  read(one).includes('// edited from the second tab'),
+  JSON.stringify(read(one))
+)
+
+/*
+ * Back to the first tab, and onto that file specifically. `data-dirty` reports the
+ * document on screen, and the first tab opens showing two.ts — checking it there
+ * would pass without ever looking at the file this is about.
+ */
+await tabs.first().click()
+await sleep(1200)
+await page.locator('.etab', { hasText: 'one.ts' }).first().click()
+await sleep(1500)
+check(
+  'and the other tab stops claiming unsaved changes',
+  (await page.locator('.pane.editor[data-dirty="true"]').count()) === 0,
+  await page.locator('.pane.editor').first().getAttribute('data-dirty')
+)
+// Monaco renders spaces as non-breaking ones, so the rendered text has to be put
+// back into ordinary characters before it can be compared to what was typed.
+const onScreen = await page.evaluate(() =>
+  document.querySelector('.pane.editor .view-lines')?.textContent?.replace(/ /g, ' ')
+)
+check('and it shows what was saved', onScreen?.includes('edited from the second tab'), onScreen)
+
 await app.close()
 profile.cleanup()
 fs.rmSync(work, { recursive: true, force: true })

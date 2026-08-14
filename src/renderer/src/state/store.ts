@@ -226,6 +226,8 @@ interface Store {
   patchDiffPane(paneId: string, patch: Partial<DiffPaneState>): void
   /** Patch one document in a pane, by default the one on screen. */
   patchDocument(paneId: string, patch: Partial<EditorDocument>, index?: number): void
+  /** Record what a file now looks like on disk, in every pane showing that file. */
+  settleSaved(filePath: string, content: string, dirty: boolean): void
   setActiveDocument(paneId: string, index: number): void
   /** Close a tab; closing the last one closes the pane with it. */
   closeDocument(tabId: string, paneId: string, index: number): void
@@ -502,14 +504,55 @@ export const useStore = create<Store>((set, get) => ({
   splitPane: (tabId, paneId, direction, before = false) => {
     const { tabs, panes } = get()
     const tab = tabs.find((t) => t.id === tabId)
-    // A split duplicates a shell, so it is made from a terminal. Asked for from an
-    // editor, fall back to the tab's own terminal rather than doing nothing at all.
-    const here = new Set(collectPaneIds(tab?.root ?? { type: 'leaf', paneId: '' }))
+    if (!tab) return null
+
+    /*
+     * A split gives you another of whatever you were looking at.
+     *
+     * It used to mean "another shell" no matter what had focus, so asking for a
+     * split from an editor moved a terminal somewhere else in the tab — an answer
+     * to a question nobody had asked, and no way at all to put two files side by
+     * side. An editor now splits into an editor on the same file.
+     *
+     * Two views of one file are safe because they are genuinely one file: the
+     * buffer is a Monaco model keyed by URI, so both edit the same text, and
+     * `settleSaved` keeps every pane's record of what is on disk in step. What is
+     * copied below is only this pane's view of the document, not the text.
+     */
+    const from = panes[paneId]
+    if (from?.kind === 'editor') {
+      const document = activeDocument(from)
+      if (!document) return null
+      const pane: EditorPaneState = {
+        id: uid(),
+        kind: 'editor',
+        documents: [{ ...document }],
+        activeIndex: 0,
+        error: null
+      }
+      set({
+        panes: { ...panes, [pane.id]: pane },
+        tabs: tabs.map((t) =>
+          t.id === tabId
+            ? {
+                ...t,
+                root: splitAt(t.root, from.id, direction, pane.id, before),
+                activePaneId: pane.id
+              }
+            : t
+        )
+      })
+      return pane.id
+    }
+
+    // A terminal split duplicates a shell. Asked for from anything else — a diff,
+    // say — fall back to the tab's own terminal rather than doing nothing at all.
+    const here = new Set(collectPaneIds(tab.root))
     const source =
       panes[paneId]?.kind === 'terminal'
         ? panes[paneId]
         : Object.values(panes).find((p) => p.kind === 'terminal' && here.has(p.id))
-    if (!tab || !source || source.kind !== 'terminal') return null
+    if (!source || source.kind !== 'terminal') return null
 
     // Inherit the source pane's shell and directory: splitting is almost always
     // "another one of these, here".
@@ -532,13 +575,27 @@ export const useStore = create<Store>((set, get) => ({
   tabIdForPane: (paneId) =>
     get().tabs.find((t) => collectPaneIds(t.root).includes(paneId))?.id ?? null,
 
+  /*
+   * Counted once per file, not once per view of it.
+   *
+   * A file can be open in two panes — that is what splitting an editor does — and
+   * both hold the same buffer. Listing them separately would warn about two
+   * unsaved files when there is one, and name it twice in the same sentence.
+   */
   dirtyDocumentsIn: (paneIds) => {
     const panes = get().panes
+    const seen = new Set<string>()
     const out: string[] = []
     for (const id of paneIds) {
       const pane = panes[id]
       if (pane?.kind !== 'editor') continue
-      for (const doc of pane.documents) if (doc.dirty) out.push(doc.title)
+      for (const doc of pane.documents) {
+        if (!doc.dirty) continue
+        const key = doc.filePath ? pathKey(doc.filePath) : `${pane.id}:${doc.title}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.push(doc.title)
+      }
     }
     return out
   },
@@ -674,9 +731,21 @@ export const useStore = create<Store>((set, get) => ({
     // the first file opens a split — after that the terminal keeps the space it
     // has, which is the point of tabs.
     const here = new Set(collectPaneIds(tab.root))
-    const host = Object.values(panes).find(
-      (p): p is EditorPaneState => p.kind === 'editor' && here.has(p.id)
-    )
+    /*
+     * The focused pane first, and only then the first one found.
+     *
+     * With the editor split in two, a file opened while the right half has focus
+     * belongs in the right half. Taking the first editor pane in the tab put every
+     * file into the left one regardless of where the user was working, which makes
+     * a split editor almost useless — you cannot put a second file beside the first.
+     */
+    const focused = panes[tab.activePaneId]
+    const host =
+      focused?.kind === 'editor' && here.has(focused.id)
+        ? focused
+        : Object.values(panes).find(
+            (p): p is EditorPaneState => p.kind === 'editor' && here.has(p.id)
+          )
     if (host) {
       const documents = [...host.documents, document]
       set({
@@ -877,12 +946,18 @@ export const useStore = create<Store>((set, get) => ({
     const { modelUri, monaco } = await import('../editor/monaco')
     let saved = 0
     const failures: string[] = []
+    // One write per file, however many panes are showing it: they share a buffer,
+    // so the second write would be the same bytes and the count would report one
+    // file as two.
+    const written = new Set<string>()
 
     for (const pane of Object.values(get().panes)) {
       if (pane.kind !== 'editor') continue
       for (let index = 0; index < pane.documents.length; index++) {
         const doc = pane.documents[index]
         if (!doc.dirty || !doc.filePath) continue
+        if (written.has(pathKey(doc.filePath))) continue
+        written.add(pathKey(doc.filePath))
 
         const content = monaco.editor.getModel(modelUri(doc.filePath))?.getValue()
         if (content === undefined) {
@@ -900,6 +975,8 @@ export const useStore = create<Store>((set, get) => ({
         const current = get().editorPane(pane.id)
         const at = current?.documents.findIndex((d) => d.filePath === doc.filePath) ?? -1
         if (at !== -1) get().patchDocument(pane.id, { savedContent: content, dirty: false }, at)
+        // And in every other pane on this file, which this loop now skips.
+        get().settleSaved(doc.filePath, content, false)
         // Recorded even when the tab has gone: the model outlives it, and this is
         // what stops a later reopen mistaking a saved buffer for unsaved work.
         noteSynced(doc.filePath, content)
@@ -932,6 +1009,38 @@ export const useStore = create<Store>((set, get) => ({
       if (!pane.documents[at]) return s
       const documents = pane.documents.map((d, i) => (i === at ? { ...d, ...patch } : d))
       return { panes: { ...s.panes, [paneId]: { ...pane, documents } } }
+    }),
+
+  /*
+   * A file can be open in more than one editor pane — two tabs each showing it is
+   * enough — and every pane kept its own record of what that file looked like on
+   * disk. The text itself was never at risk, because the buffer is a Monaco model
+   * keyed by URI and so is genuinely shared. The bookkeeping around it was not:
+   * saving in one pane settled only that pane, and the other went on reporting
+   * unsaved changes for a file that matched disk exactly. The same file read as
+   * modified in one tab and clean in another, and there was no way to clear it
+   * short of closing the tab.
+   *
+   * Dirtiness is passed in rather than assumed false, for the reason spelled out
+   * where saves are written: a keystroke can land while the file is being written,
+   * and that text is genuinely ahead of disk.
+   */
+  settleSaved: (filePath, content, dirty) =>
+    set((s) => {
+      const panes = { ...s.panes }
+      let touched = false
+      for (const pane of Object.values(s.panes)) {
+        if (pane.kind !== 'editor') continue
+        if (!pane.documents.some((d) => samePath(d.filePath, filePath))) continue
+        panes[pane.id] = {
+          ...pane,
+          documents: pane.documents.map((d) =>
+            samePath(d.filePath, filePath) ? { ...d, savedContent: content, dirty } : d
+          )
+        }
+        touched = true
+      }
+      return touched ? { panes } : s
     }),
 
   setActiveDocument: (paneId, index) =>

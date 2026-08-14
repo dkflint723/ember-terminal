@@ -370,6 +370,9 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
       },
       at
     )
+    // And in any other pane showing the same file, which would otherwise go on
+    // reporting unsaved changes for a file that now matches disk.
+    useStore.getState().settleSaved(target, content, (buffer?.getValue() ?? content) !== content)
     setMessage('saved')
     window.setTimeout(() => setMessage(null), 1500)
   }
@@ -406,6 +409,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     const at = after?.documents.findIndex((d) => samePath(d.filePath, filePath)) ?? -1
     if (!after || at === -1) return
     patchDocument(pane.id, { savedContent: content, dirty: buffer.getValue() !== content }, at)
+    useStore.getState().settleSaved(filePath, content, buffer.getValue() !== content)
   }
 
   /**
@@ -453,6 +457,9 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     model?.setEOL(eolOf(res.eol))
     model?.setValue(res.content)
     patchDocument(pane.id, { savedContent: res.content, dirty: false, eol: res.eol }, at)
+    // A revert throws away the edit everywhere, not only in the pane it was asked
+    // from — the buffer they share has already gone back to what disk holds.
+    useStore.getState().settleSaved(path, res.content, false)
     if (model) noteSynced(path, model.getValue())
   }
 
@@ -532,7 +539,9 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
             which is the thing you cannot tell from a name alone when two
             directories both contain an index.ts. */}
         <span className="editor__name" title={document.filePath ?? document.title}>
-          {locate(document.filePath, useStore.getState().treeRoot) || document.title}
+          <span className="editor__label">
+            {locate(document.filePath, useStore.getState().treeRoot) || document.title}
+          </span>
           {document.dirty && <span className="editor__dot" title="Unsaved changes" />}
         </span>
         <span className="editor__lang">{document.language}</span>
