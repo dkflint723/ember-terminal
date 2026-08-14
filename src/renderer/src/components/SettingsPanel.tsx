@@ -523,6 +523,28 @@ export function SettingsPanel(): React.JSX.Element | null {
         </div>
 
         <div className="field">
+          <label>Interface size</label>
+          <input
+            type="number"
+            min={60}
+            max={250}
+            step={10}
+            value={Math.round((draft.uiZoom || 1) * 100)}
+            onChange={(e) => {
+              const percent = Math.min(Math.max(Number(e.target.value) || 100, 60), 250)
+              field('uiZoom', percent / 100)
+              // Applied as it changes, so the number can be judged by looking.
+              window.ember.setZoom(percent / 100)
+            }}
+          />
+          <div className="field__note">
+            Per cent. Scales the whole interface, terminal included — the editor font
+            setting only covers text inside editors. Ctrl+= and Ctrl+- do the same, and
+            Ctrl+0 returns to 100.
+          </div>
+        </div>
+
+        <div className="field">
           <label>Auto save after</label>
           <input
             type="number"

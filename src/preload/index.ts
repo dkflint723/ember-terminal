@@ -140,6 +140,7 @@ const api: EmberApi = {
     ipcRenderer.invoke('settings:noteFolder', folder),
   settingsLoadError: (): Promise<string | null> => ipcRenderer.invoke('settings:loadError'),
   reportUnsaved: (count: number) => ipcRenderer.send('window:unsaved', count),
+  setZoom: (factor: number) => ipcRenderer.send('window:zoom', factor),
   setSettings: (patch: Partial<Settings>) =>
     ipcRenderer.invoke('settings:set', patch),
 

@@ -372,6 +372,24 @@ export function App(): React.JSX.Element {
         return
       }
 
+      /*
+       * Zoom, on the keys every application uses for it.
+       *
+       * The interface was fixed between 8 and 13 pixels with no way to change it,
+       * which is unreadable on a dense display. Applied as a zoom factor so the
+       * terminal scales with everything else — its cell metrics are not touched by
+       * the editor's font settings.
+       */
+      if (e.ctrlKey && (e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0')) {
+        e.preventDefault()
+        const current = s.settings.uiZoom || 1
+        const next =
+          e.key === '0' ? 1 : Math.min(Math.max(current + (e.key === '-' ? -0.1 : 0.1), 0.6), 2.5)
+        window.ember.setZoom(next)
+        void window.ember.setSettings({ uiZoom: next }).then((r) => s.applySettings(r.settings))
+        return
+      }
+
       // Save All. Ctrl+S belongs to the focused editor, and VS Code's Ctrl+K S is
       // not available here because Ctrl+K asks Claude.
       if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 's') {

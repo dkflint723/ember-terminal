@@ -394,6 +394,16 @@ export interface Settings {
   autoSaveAfterSeconds: number
   /** Folders opened before, most recent first, so one can be returned to. */
   recentFolders: string[]
+  /**
+   * How large the interface is drawn, 1 being unscaled.
+   *
+   * The chrome was fixed between 8 and 13 pixels with nothing to change it, which
+   * is unreadable on a dense display and unusable for anyone who needs larger text.
+   * Applied as a zoom factor rather than a font size so everything scales together
+   * — including the terminal, whose cell metrics the editor's font settings do not
+   * touch.
+   */
+  uiZoom: number
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -406,7 +416,8 @@ export const DEFAULT_SETTINGS: Settings = {
   restoreSession: true,
   notifyAfterSeconds: 10,
   autoSaveAfterSeconds: 0,
-  recentFolders: []
+  recentFolders: [],
+  uiZoom: 1
 }
 
 /** The API the preload script exposes on `window.ember`. */
@@ -498,6 +509,8 @@ export interface EmberApi {
   settingsLoadError(): Promise<string | null>
   /** Keep main's count current, so closing the window can ask before discarding. */
   reportUnsaved(count: number): void
+  /** Scale the whole interface. Clamped in main to something usable. */
+  setZoom(factor: number): void
   windowAction(action: 'minimize' | 'maximize' | 'close'): void
   onWindowState(cb: (s: { maximized: boolean }) => void): () => void
   platform: string

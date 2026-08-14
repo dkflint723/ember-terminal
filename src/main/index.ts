@@ -124,7 +124,14 @@ function createWindow(): void {
     }
   })
 
-  mainWindow.on('ready-to-show', () => mainWindow?.show())
+  mainWindow.on('ready-to-show', () => {
+    // Before it is shown, so the first frame is already the right size.
+    const zoom = settings.get().uiZoom
+    if (Number.isFinite(zoom) && zoom !== 1) {
+      mainWindow?.webContents.setZoomFactor(Math.min(Math.max(zoom, 0.6), 2.5))
+    }
+    mainWindow?.show()
+  })
 
   /*
    * Closing the window is the last chance to keep unsaved work.
@@ -422,6 +429,12 @@ function registerIpc(): void {
   ipcMain.handle('settings:set', (_e, patch: Partial<Settings>) => settings.set(patch))
   ipcMain.handle('settings:noteFolder', (_e, folder: string) => settings.noteRecentFolder(folder))
   ipcMain.handle('settings:loadError', () => settings.takeLoadError())
+  ipcMain.on('window:zoom', (_e, factor: number) => {
+    // Clamped: a zoom of 0 leaves an invisible window with no way back to the
+    // control that set it.
+    const clamped = Math.min(Math.max(Number.isFinite(factor) ? factor : 1, 0.6), 2.5)
+    mainWindow?.webContents.setZoomFactor(clamped)
+  })
   ipcMain.on('window:unsaved', (_e, count: number) => {
     unsavedCount = Math.max(0, count)
   })
