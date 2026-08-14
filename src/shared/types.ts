@@ -39,7 +39,7 @@ export interface AiRequest {
   cwd: string
   /** Recent failed command + output, when the user asks to explain an error. */
   recent?: { command: string; output: string; exitCode: number }[]
-  mode: 'command' | 'explain'
+  mode: 'command' | 'explain' | 'chat'
 }
 
 export interface AiResponse {
@@ -212,7 +212,12 @@ export interface SessionSnapshot {
   sidebarOpen: boolean
   sidebarView: 'explorer' | 'search' | 'scm' | 'github' | 'problems'
   activeTabId: string | null
-  tabs: { id: string; root: SessionLayout; activePaneId: string }[]
+  /**
+   * `root` is the shells, and keeps its name so that a session written by an
+   * earlier build still restores. `editors` is the middle of the IDE, and is
+   * absent both in those older files and in any tab where nothing has been opened.
+   */
+  tabs: { id: string; root: SessionLayout; editors?: SessionLayout; activePaneId: string }[]
   panes: SessionPane[]
 }
 
@@ -410,7 +415,7 @@ export const DEFAULT_SETTINGS: Settings = {
   fontFamily: 'Cascadia Code, Cascadia Mono, Consolas, monospace',
   fontSize: 13,
   defaultProfileId: null,
-  themeId: 'ember-dark',
+  themeId: 'ember-deep',
   anthropicApiKey: null,
   aiModel: 'claude-opus-5',
   restoreSession: true,

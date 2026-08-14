@@ -9,30 +9,64 @@ import { activeDocument, useStore } from '../state/store'
  * only a direction. Splitting upward exists as well but nobody reaches for it, so
  * it stays in the palette rather than taking a fourth slot here.
  */
-const SPLITS = [
+/**
+ * The three layout toggles, in the idiom every editor uses: a box with the region
+ * in question shaded, so the picture says which edge of the window it means.
+ *
+ * They toggle regions rather than splitting panes. Splitting is what Ctrl+Shift+D
+ * and Ctrl+Shift+E do, and putting it here made the icons a lie — they are the
+ * shape of VS Code's sidebar, panel and secondary-sidebar switches, and that is
+ * what people reach for them expecting.
+ */
+interface LayoutState {
+  sidebarOpen: boolean
+  panelOpen: boolean
+  secondaryOpen: boolean
+}
+
+const REGIONS = [
   {
-    id: 'left',
-    label: 'Split left',
-    hint: 'new pane on the left',
-    direction: 'row' as const,
-    before: true,
-    fill: { x: 2.5, y: 3.5, width: 5.5, height: 9 }
+    id: 'primary',
+    label: 'Toggle the side bar',
+    hint: 'Ctrl+B',
+    fill: { x: 2.5, y: 3.5, width: 4.5, height: 9 },
+    on: (l: LayoutState) => l.sidebarOpen,
+    toggle: () => useStore.getState().toggleSidebar()
   },
   {
-    id: 'right',
-    label: 'Split right',
-    hint: 'Ctrl+Shift+D',
-    direction: 'row' as const,
-    before: false,
-    fill: { x: 8, y: 3.5, width: 5.5, height: 9 }
+    id: 'panel',
+    label: 'Toggle the panel',
+    hint: 'Ctrl+J',
+    fill: { x: 2.5, y: 9, width: 11, height: 3.5 },
+    on: (l: LayoutState) => l.panelOpen,
+    toggle: () => {
+      /*
+       * The panel only exists in the IDE, so asking for it is also asking for that
+       * — and asking for a region is asking to see it. Toggling blindly meant the
+       * first press from the terminal switched mode and hid the panel in the same
+       * motion, so the button you pressed to get the panel produced no panel.
+       */
+      const s = useStore.getState()
+      if (s.mode !== 'ide') {
+        s.setMode('ide')
+        s.togglePanel(true)
+      } else s.togglePanel()
+    }
   },
   {
-    id: 'down',
-    label: 'Split down',
-    hint: 'Ctrl+Shift+E',
-    direction: 'column' as const,
-    before: false,
-    fill: { x: 2.5, y: 8.5, width: 11, height: 4 }
+    id: 'secondary',
+    label: 'Toggle Claude',
+    hint: 'Ctrl+Shift+B',
+    fill: { x: 9, y: 3.5, width: 4.5, height: 9 },
+    on: (l: LayoutState) => l.secondaryOpen,
+    toggle: () => {
+      // Same bargain as the panel: arriving in the IDE this way shows Claude.
+      const s = useStore.getState()
+      if (s.mode !== 'ide') {
+        s.setMode('ide')
+        s.toggleSecondary(true)
+      } else s.toggleSecondary()
+    }
   }
 ]
 
@@ -44,7 +78,23 @@ export function TitleBar(): React.JSX.Element {
   const setActiveTab = useStore((s) => s.setActiveTab)
   const closeTab = useStore((s) => s.closeTab)
   const newTab = useStore((s) => s.newTab)
-  const splitPane = useStore((s) => s.splitPane)
+  /*
+   * Every selector is read before any of them is combined.
+   *
+   * Written as `useStore(panelOpen) && useStore(mode) === 'ide'`, the `&&` short
+   * circuited: with the panel closed the second hook was never called, so the
+   * component rendered fewer hooks than the time before and React tore the whole
+   * tree down. Closing the panel emptied the window.
+   */
+  const sidebarOpen = useStore((s) => s.sidebarOpen)
+  const panelOpen = useStore((s) => s.panelOpen)
+  const mode = useStore((s) => s.mode)
+  const secondaryOpen = useStore((s) => s.secondaryOpen)
+  const layout: LayoutState = {
+    sidebarOpen,
+    panelOpen: panelOpen && mode === 'ide',
+    secondaryOpen
+  }
   const toggleSettings = useStore((s) => s.toggleSettings)
 
   const [maximized, setMaximized] = useState(false)
@@ -212,17 +262,14 @@ export function TitleBar(): React.JSX.Element {
         relying on the tooltip.
       */}
       <div className="titlebar__layout">
-        {SPLITS.map((s) => (
+        {REGIONS.map((r) => (
           <button
-            key={s.id}
-            className="titlebar__split"
-            aria-label={s.label}
-            title={`${s.label} (${s.hint})`}
-            disabled={!activeTabId}
-            onClick={() => {
-              const tab = tabs.find((t) => t.id === activeTabId)
-              if (tab) splitPane(tab.id, tab.activePaneId, s.direction, s.before)
-            }}
+            key={r.id}
+            className={`titlebar__split ${r.on(layout) ? 'titlebar__split--on' : ''}`}
+            aria-label={r.label}
+            aria-pressed={r.on(layout)}
+            title={`${r.label} (${r.hint})`}
+            onClick={r.toggle}
           >
             <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
               <rect
@@ -235,7 +282,9 @@ export function TitleBar(): React.JSX.Element {
                 stroke="currentColor"
                 strokeWidth="1.2"
               />
-              <rect {...s.fill} fill="currentColor" opacity="0.85" />
+              {/* Filled while the region is open, outlined while it is not, so the
+                  three icons report the layout as well as change it. */}
+              <rect {...r.fill} fill="currentColor" opacity={r.on(layout) ? 0.85 : 0.25} />
             </svg>
           </button>
         ))}

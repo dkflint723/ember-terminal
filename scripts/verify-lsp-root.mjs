@@ -73,7 +73,10 @@ await page.keyboard.type(`cd "${second}"`, { delay: 5 })
 await page.keyboard.press('Enter')
 await sleep(3500)
 
-await page.keyboard.press('Control+b')
+// Made sure of, not toggled. Opening a file puts the app into IDE mode, which
+// reveals the explorer — so a blind Ctrl+B here closed the sidebar it was meant
+// to open, and the tree this waits for never came.
+if ((await page.locator('.tree').count()) === 0) await page.keyboard.press('Control+b')
 await page.waitForSelector('.tree', { timeout: 10_000 })
 await sleep(800)
 const home = page.locator('.tree__head .icon-btn[title^="Use "]')

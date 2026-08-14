@@ -6,13 +6,15 @@ import { DiffPane } from './DiffPane'
 
 interface Props {
   tabId: string
+  /** Which of the tab's two layouts this tree belongs to, for resizing. */
+  region: 'shells' | 'editors'
   node: LayoutNode
   path: number[]
   activePaneId: string
 }
 
 /** Recursively renders the pane tree, with draggable dividers between children. */
-export function SplitView({ tabId, node, path, activePaneId }: Props): React.JSX.Element | null {
+export function SplitView({ tabId, region, node, path, activePaneId }: Props): React.JSX.Element | null {
   const panes = useStore((s) => s.panes)
   const setActivePane = useStore((s) => s.setActivePane)
   const setSizes = useStore((s) => s.setSizes)
@@ -70,7 +72,7 @@ export function SplitView({ tabId, node, path, activePaneId }: Props): React.JSX
       const pair = startSizes[index] + startSizes[index + 1]
       next[index] = Math.min(Math.max(startSizes[index] + delta, min), pair - min)
       next[index + 1] = pair - next[index]
-      setSizes(tabId, path, next)
+      setSizes(tabId, region, path, next)
     }
 
     const onUp = (): void => {
@@ -91,7 +93,13 @@ export function SplitView({ tabId, node, path, activePaneId }: Props): React.JSX
             className="split__child"
             style={{ flex: `${node.sizes[i] ?? 1} 1 0`, minWidth: 0, minHeight: 0 }}
           >
-            <SplitView tabId={tabId} node={child} path={[...path, i]} activePaneId={activePaneId} />
+            <SplitView
+              tabId={tabId}
+              region={region}
+              node={child}
+              path={[...path, i]}
+              activePaneId={activePaneId}
+            />
           </div>
           {i < node.children.length - 1 && (
             <div

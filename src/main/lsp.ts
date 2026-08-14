@@ -329,6 +329,11 @@ export class LspService {
       trace('<--', language, `exit: code=${code} signal=${signal}`)
       this.servers.delete(language)
       this.buffers.delete(language)
+      // Let go of anything waiting on a handshake that is never coming, and forget
+      // the gate so a restarted server opens a fresh one.
+      this.markReady(language)
+      this.ready.delete(language)
+      this.initializeIds.delete(language)
       this.send({ type: 'exit', language, code })
     })
     /*
@@ -376,6 +381,12 @@ export class LspService {
       try {
         const parsed = normalizeUris(JSON.parse(body))
         trace('<--', language, parsed)
+        // The handshake's answer, whatever id the client chose for it, opens the
+        // gate that our own requests are waiting behind.
+        const reply = parsed as { id?: unknown; method?: unknown }
+        if (reply.method === undefined && reply.id === this.initializeIds.get(language)) {
+          this.markReady(language)
+        }
         if (
           !this.settleDirect(parsed) &&
           !this.splitRegistrations(language, parsed) &&
@@ -414,6 +425,9 @@ export class LspService {
 
     let outgoing = message
     if (this.isInitialize(message)) {
+      // Remembered so the reply can be recognised, which is the only moment the
+      // server is actually open for business. See `whenReady`.
+      this.initializeIds.set(language, (message as { id?: unknown }).id)
       const params = (message.params ?? {}) as Record<string, unknown>
       const root = this.roots.get(language)
       const workspace = root
@@ -500,8 +514,46 @@ export class LspService {
   private nextDirectId = LspService.DIRECT_ID_BASE
   private pendingDirect = new Map<number, (result: unknown) => void>()
 
-  request(language: string, method: string, params: unknown): Promise<unknown> {
-    if (!this.servers.has(language)) return Promise.resolve(null)
+  /*
+   * Nothing may be asked of a server before it has answered `initialize`.
+   *
+   * The client's own requests are already ordered behind the handshake, but these
+   * are ours — the outline asks for document symbols the moment a file opens — and
+   * they went straight out. A server that has not finished initialising answers
+   * "Unhandled method" and the feature simply does not appear, which reads exactly
+   * like a server that cannot do it at all. It surfaced when opening a file started
+   * revealing the explorer too, moving the outline's first request earlier by a few
+   * hundred milliseconds; it was always a race, and losing it was always possible.
+   */
+  private initializeIds = new Map<string, unknown>()
+  private ready = new Map<string, { promise: Promise<void>; settle: () => void }>()
+
+  private readyGate(language: string): { promise: Promise<void>; settle: () => void } {
+    const existing = this.ready.get(language)
+    if (existing) return existing
+    let settle = (): void => {}
+    const promise = new Promise<void>((resolve) => {
+      settle = resolve
+    })
+    const gate = { promise, settle }
+    this.ready.set(language, gate)
+    return gate
+  }
+
+  /** Resolved once the server has replied to `initialize`, or has gone away. */
+  private whenReady(language: string): Promise<void> {
+    return this.readyGate(language).promise
+  }
+
+  private markReady(language: string): void {
+    this.readyGate(language).settle()
+  }
+
+  async request(language: string, method: string, params: unknown): Promise<unknown> {
+    if (!this.servers.has(language)) return null
+    await this.whenReady(language)
+    // The wait is not instant, and a server can be gone by the end of it.
+    if (!this.servers.has(language)) return null
     const id = ++this.nextDirectId
 
     return new Promise((resolve) => {

@@ -75,6 +75,25 @@ function commandSystemPrompt(shell: string, cwd: string): string {
   ].join('\n')
 }
 
+/**
+ * The side panel, where the conversation is about the work rather than one command.
+ *
+ * Separate from the explain prompt because that one is written for a failure that
+ * just happened and answers in a short paragraph — right for "why did that break",
+ * wrong for "how should I structure this". This one can be asked anything,
+ * including questions with no command in the answer at all.
+ */
+function chatSystemPrompt(shell: string, cwd: string): string {
+  return [
+    'You are helping someone inside their terminal and editor. They can see their',
+    `files, their shell (${shell}) and their working directory (${cwd}).`,
+    '',
+    'Answer the question that was asked, at the length it deserves — a sentence when',
+    'a sentence will do. Show commands and code in fenced blocks so they can be read',
+    'and copied. Where you are unsure about their setup, say so rather than assuming.'
+  ].join('\n')
+}
+
 function explainSystemPrompt(shell: string): string {
   return [
     `You explain ${shell} command failures to the person who just hit one.`,
@@ -168,7 +187,9 @@ export class AiService {
     const system =
       req.mode === 'command'
         ? `${commandSystemPrompt(req.shell, req.cwd)}\n\n${JSON_INSTRUCTION}`
-        : explainSystemPrompt(req.shell)
+        : req.mode === 'chat'
+          ? chatSystemPrompt(req.shell, req.cwd)
+          : explainSystemPrompt(req.shell)
 
     const answer = await this.claude.ask(
       system,
@@ -176,7 +197,8 @@ export class AiService {
       this.settings.get().aiModel
     )
     if (!answer.ok) return { ok: false, error: answer.error }
-    if (req.mode === 'explain') return { ok: true, explanation: answer.text.trim() }
+    // Anything that is not asking for a command wants the prose back as it is.
+    if (req.mode !== 'command') return { ok: true, explanation: answer.text.trim() }
     return this.parseCommand(answer.text)
   }
 
@@ -221,7 +243,7 @@ export class AiService {
         return { ok: false, error: 'Claude returned an empty response.' }
       }
 
-      if (req.mode === 'explain') return { ok: true, explanation: text }
+      if (req.mode !== 'command') return { ok: true, explanation: text }
 
       return this.parseCommand(text)
     } catch (err) {
@@ -237,7 +259,9 @@ export class AiService {
     const system =
       req.mode === 'command'
         ? commandSystemPrompt(req.shell, req.cwd)
-        : explainSystemPrompt(req.shell)
+        : req.mode === 'chat'
+          ? chatSystemPrompt(req.shell, req.cwd)
+          : explainSystemPrompt(req.shell)
 
     const outputConfig: Record<string, unknown> = { effort: EFFORT }
     if (req.mode === 'command') {

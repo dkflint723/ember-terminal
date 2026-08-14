@@ -13,12 +13,23 @@ import { useGitStatusPolling } from './state/git'
 import { useIdeBridge } from './state/ide'
 import { restore, unsavedWorkIsPreserved, useSessionAutosave } from './state/session'
 import { setRevealer } from './editor/navigate'
+import { PanelBar } from './components/PanelBar'
+import { OutputPanel } from './components/OutputPanel'
+import { ClaudePanel } from './components/ClaudePanel'
+import { ProblemsPanel } from './components/ProblemsPanel'
+import { RegionDivider } from './components/RegionDivider'
 
 export function App(): React.JSX.Element {
   const tabs = useStore((s) => s.tabs)
   const panes = useStore((s) => s.panes)
   const activeTabId = useStore((s) => s.activeTabId)
   const sidebarOpen = useStore((s) => s.sidebarOpen)
+  const mode = useStore((s) => s.mode)
+  const panelOpen = useStore((s) => s.panelOpen)
+  const panelView = useStore((s) => s.panelView)
+  const secondaryOpen = useStore((s) => s.secondaryOpen)
+  const panelHeight = useStore((s) => s.panelHeight)
+  const secondaryWidth = useStore((s) => s.secondaryWidth)
   const notice = useStore((s) => s.notice)
   const setNotice = useStore((s) => s.setNotice)
 
@@ -349,6 +360,39 @@ export function App(): React.JSX.Element {
           s.splitPane(tab.id, tab.activePaneId, 'column')
           return
         }
+        /*
+         * The switch the whole thing is built around: a terminal, or an IDE.
+         *
+         * Ctrl+Shift+I because it is the one free chord that names what it does,
+         * and because this window has no application menu — nothing else is
+         * claiming it.
+         */
+        if (key === 'i') {
+          e.preventDefault()
+          s.setMode()
+          return
+        }
+        // Claude's sidebar. Ctrl+Shift+B beside Ctrl+B for the other one.
+        if (key === 'b') {
+          e.preventDefault()
+          // Shown, not toggled, when this is also what put us in the IDE.
+          if (s.mode !== 'ide') {
+            s.setMode('ide')
+            s.toggleSecondary(true)
+          } else s.toggleSecondary()
+          return
+        }
+      }
+
+      // Ctrl+J is the panel, as it is in VS Code. Outside the Shift block because
+      // it takes no Shift.
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'j') {
+        e.preventDefault()
+        if (s.mode !== 'ide') {
+          s.setMode('ide')
+          s.togglePanel(true)
+        } else s.togglePanel()
+        return
       }
 
       /*
@@ -469,27 +513,99 @@ export function App(): React.JSX.Element {
   }, [newTab])
 
   const activeTab = tabs.find((t) => t.id === activeTabId)
+  // In IDE mode a closed panel hides the shells; in terminal mode they are the app,
+  // and the panel toggle has nothing to say about them.
+  const hideShells = mode === 'ide' && !panelOpen
 
   return (
     <div className="app">
       <TitleBar />
-      <div className="workspace">
+      <div
+        className="workspace"
+        data-mode={mode}
+        style={{
+          // Definite tracks. A percentage size on a grid item inside an `auto`
+          // track resolves against a track that is itself sizing to the item, so
+          // the panel came out the height of its own contents. A closed region
+          // gets no track at all, or it would leave a gap where it used to be.
+          gridTemplateRows:
+            mode === 'ide' && panelOpen ? `1fr ${Math.round(panelHeight * 100)}%` : '1fr',
+          gridTemplateColumns:
+            mode === 'ide' && secondaryOpen
+              ? `auto auto 1fr ${Math.round(secondaryWidth * 100)}%`
+              : 'auto auto 1fr auto'
+        }}
+      >
         <ActivityBar />
         {sidebarOpen && (
           <Sidebar onOpen={(p) => void openPaths([p])} onOpenAt={(p, l, c) => void revealAt(p, l, c)} />
         )}
+        {/*
+          Both regions are always in the tree, and CSS grid decides where they sit.
+          Moving them by rendering them somewhere else would unmount every terminal
+          in the tab: xterm is attached to a DOM node, and the pty, the scrollback
+          and the block history would go with it. Switching modes must not cost you
+          a running shell, so the elements stay put and only their placement changes.
+        */}
         {activeTab ? (
-          <SplitView
-            tabId={activeTab.id}
-            node={activeTab.root}
-            path={[]}
-            activePaneId={activeTab.activePaneId}
-          />
+          <>
+            {mode === 'ide' && (
+              <div className="region region--editors">
+                {activeTab.editors ? (
+                  <SplitView
+                    tabId={activeTab.id}
+                    region="editors"
+                    node={activeTab.editors}
+                    path={[]}
+                    activePaneId={activeTab.activePaneId}
+                  />
+                ) : (
+                  <div className="empty">
+                    <div>No files open</div>
+                    <div style={{ fontSize: 11 }}>
+                      <kbd>Ctrl</kbd> <kbd>P</kbd> to go to a file
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="region region--shells" data-collapsed={hideShells ? 'true' : 'false'}>
+              {mode === 'ide' && <RegionDivider region="panel" />}
+              {mode === 'ide' && <PanelBar />}
+              <div className="region__body">
+                <SplitView
+                  tabId={activeTab.id}
+                  region="shells"
+                  node={activeTab.shells}
+                  path={[]}
+                  activePaneId={activeTab.activePaneId}
+                />
+              </div>
+              {mode === 'ide' && panelView !== 'terminal' && (
+                <div className="panel__overlay">
+                  {panelView === 'problems' && (
+                    <ProblemsPanel onOpen={(p, l, c) => void revealAt(p, l, c)} />
+                  )}
+                  {panelView === 'output' && <OutputPanel />}
+                </div>
+              )}
+            </div>
+
+            {mode === 'ide' && secondaryOpen && (
+              <div className="region region--secondary">
+                <RegionDivider region="secondary" />
+                <ClaudePanel />
+              </div>
+            )}
+          </>
         ) : (
-          <div className="empty">
-            <div>No shells open</div>
-            <div style={{ fontSize: 11 }}>
-              <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>T</kbd> to open one
+          <div className="region region--shells">
+            <div className="empty">
+              <div>No shells open</div>
+              <div style={{ fontSize: 11 }}>
+                <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>T</kbd> to open one
+              </div>
             </div>
           </div>
         )}

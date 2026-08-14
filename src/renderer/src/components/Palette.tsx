@@ -248,6 +248,32 @@ function commands(): Command[] {
           s.showSidebarView('explorer')
         }
       })),
+    // The mode switch first, because it is the one command that changes what the
+    // rest of this list is for, and the only way to find it without being told.
+    {
+      id: 'view.mode',
+      label: s.mode === 'ide' ? 'View: Back to the Terminal' : 'View: Turn into an IDE',
+      hint: 'Ctrl+Shift+I',
+      run: () => s.setMode()
+    },
+    {
+      id: 'view.panel',
+      label: 'View: Toggle Panel',
+      hint: 'Ctrl+J',
+      run: () => {
+        s.setMode('ide')
+        s.togglePanel()
+      }
+    },
+    {
+      id: 'view.claude',
+      label: 'View: Toggle Claude',
+      hint: 'Ctrl+Shift+B',
+      run: () => {
+        s.setMode('ide')
+        s.toggleSecondary()
+      }
+    },
     { id: 'view.explorer', label: 'View: Explorer', hint: 'Ctrl+B', run: () => s.showSidebarView('explorer') },
     { id: 'view.search', label: 'View: Search', hint: 'Ctrl+Shift+F', run: () => s.showSidebarView('search') },
     { id: 'view.scm', label: 'View: Source Control', hint: 'Ctrl+Shift+G', run: () => s.showSidebarView('scm') },

@@ -54,11 +54,15 @@ export function snapshot(): SessionSnapshot {
   const tabs: SessionSnapshot['tabs'] = []
   const wanted = new Set<string>()
   for (const tab of state.tabs) {
-    const root = pruneLayout(tab.root, keep)
+    // Both regions, saved separately. A tab with no shells left is not a tab; a tab
+    // with no editors is simply one where nothing has been opened yet.
+    const root = pruneLayout(tab.shells, keep)
     if (!root) continue
-    const ids = collect(root)
+    const editors = tab.editors ? pruneLayout(tab.editors, keep) : null
+    const ids = [...collect(root), ...(editors ? collect(editors) : [])]
     ids.forEach((id) => wanted.add(id))
     tabs.push({
+      editors: editors ?? undefined,
       id: tab.id,
       root,
       activePaneId: ids.includes(tab.activePaneId) ? tab.activePaneId : ids[0]
@@ -242,12 +246,18 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
   // so tabs are pruned to what actually exists.
   const tabs: Tab[] = []
   for (const tab of snapshotIn.tabs) {
-    const root = pruneLayout(tab.root as LayoutNode, (id) => panes[id] !== undefined)
+    const alive = (id: string): boolean => panes[id] !== undefined
+    const root = pruneLayout(tab.root as LayoutNode, alive)
     if (!root) continue
-    const ids = collect(root)
+    // Sessions written before the editor area was its own region have no `editors`,
+    // and come back as a tab whose files are simply not open — which is what the
+    // old snapshot could still be honestly read as.
+    const editors = tab.editors ? pruneLayout(tab.editors as LayoutNode, alive) : null
+    const ids = [...collect(root), ...(editors ? collect(editors) : [])]
     tabs.push({
       id: tab.id,
-      root: root as LayoutNode,
+      shells: root as LayoutNode,
+      editors: (editors as LayoutNode) ?? null,
       activePaneId: ids.includes(tab.activePaneId) ? tab.activePaneId : ids[0]
     })
   }
@@ -264,6 +274,16 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
     tabs,
     activeTabId: tabs.find((t) => t.id === snapshotIn.activeTabId)?.id ?? tabs[0].id,
     treeRoot: root,
+    /*
+     * A session with files open comes back as an IDE.
+     *
+     * Restored editors are put straight into the tab's editor region rather than
+     * going through openFile, so nothing along the way asked for the mode that
+     * region is visible in. The window came back a plain terminal with its files
+     * loaded, present in the state and on screen nowhere — which reads as the
+     * restore having quietly dropped them.
+     */
+    mode: tabs.some((t) => t.editors) ? 'ide' : 'terminal',
     sidebarOpen: snapshotIn.sidebarOpen,
     sidebarView: snapshotIn.sidebarView
   })

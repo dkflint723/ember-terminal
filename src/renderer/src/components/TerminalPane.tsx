@@ -109,6 +109,11 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
               <div className="block__body block__body--empty">
                 <div>Run a command — each one becomes a block with its exit code and timing.</div>
                 <div className="pane__hints">
+                  {/* First, because it is the thing this app does that a terminal
+                      does not, and nothing else on screen hints that it can. */}
+                  <span>
+                    <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>I</kbd> turn into an IDE
+                  </span>
                   <span>
                     <kbd>Ctrl</kbd> <kbd>K</kbd> ask Claude for a command
                   </span>

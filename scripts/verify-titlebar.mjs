@@ -108,38 +108,48 @@ const paneBoxes = () =>
     })
   )
 
-const beforeSplit = (await paneBoxes()).length
-await page.locator('.titlebar__split[aria-label="Split right"]').click()
-await sleep(1500)
-const afterRight = await paneBoxes()
-check('split right adds a pane', afterRight.length === beforeSplit + 1, `${beforeSplit} -> ${afterRight.length}`)
-check(
-  'and puts it beside, not below',
-  new Set(afterRight.map((b) => b.left)).size > 1,
-  JSON.stringify(afterRight)
-)
+/*
+ * --- the three layout toggles -------------------------------------------------
+ *
+ * They used to split panes while wearing the icons of VS Code's sidebar, panel and
+ * secondary-sidebar switches. They toggle those regions now, and each one reports
+ * the state it is in, so this checks both halves: that pressing it changes the
+ * layout, and that the button says so afterwards.
+ */
+const region = (label) => page.locator(`.titlebar__split[aria-label="${label}"]`)
+const pressed = (label) =>
+  page.evaluate(
+    (l) => document.querySelector(`.titlebar__split[aria-label="${l}"]`)?.getAttribute('aria-pressed'),
+    label
+  )
 
-// The newly split pane is active, so splitting left of it lands to its left.
-const leftmostBefore = Math.min(...afterRight.map((b) => b.left))
-await page.locator('.titlebar__split[aria-label="Split left"]').click()
-await sleep(1500)
-const afterLeft = await paneBoxes()
-check('split left adds a pane', afterLeft.length === afterRight.length + 1, `${afterRight.length} -> ${afterLeft.length}`)
-check(
-  'and the new pane is left of where the old one started',
-  Math.min(...afterLeft.map((b) => b.left)) <= leftmostBefore,
-  `${leftmostBefore} -> ${Math.min(...afterLeft.map((b) => b.left))}`
-)
+/*
+ * Visible, not merely present. The panel is hidden with display:none rather than
+ * unmounted — a terminal that leaves the DOM leaves its pty with it — so counting
+ * elements says it is still there when it is not on screen.
+ */
+const shown = async (sel) =>
+  (await page.locator(sel).count()) > 0 && (await page.locator(sel).first().isVisible())
 
-await page.locator('.titlebar__split[aria-label="Split down"]').click()
-await sleep(1500)
-const afterDown = await paneBoxes()
-check('split down adds a pane', afterDown.length === afterLeft.length + 1, `${afterLeft.length} -> ${afterDown.length}`)
-check(
-  'and it sits below something',
-  new Set(afterDown.map((b) => b.top)).size > 1,
-  JSON.stringify(afterDown)
-)
+const TOGGLES = [
+  { label: 'Toggle the side bar', shows: '.sidebar' },
+  { label: 'Toggle the panel', shows: '.panel__bar' },
+  { label: 'Toggle Claude', shows: '.region--secondary' }
+]
+
+for (const t of TOGGLES) {
+  const before = await shown(t.shows)
+  await region(t.label).click()
+  await sleep(1200)
+  const after = await shown(t.shows)
+  check(`${t.label} changes the layout`, after !== before, `${before} -> ${after}`)
+  check(`${t.label} reports its state`, (await pressed(t.label)) === String(after), t.label)
+
+  // And back, so each toggle is left as it was found and the next one starts clean.
+  await region(t.label).click()
+  await sleep(1200)
+  check(`${t.label} toggles back`, (await shown(t.shows)) === before, `${after} -> back`)
+}
 
 // --- the window controls can be named ----------------------------------------
 const named = await page.evaluate(() =>

@@ -90,6 +90,9 @@ function wellFormed(snapshot: SessionSnapshot): boolean {
   for (const tab of snapshot.tabs) {
     if (typeof tab?.id !== 'string' || typeof tab?.activePaneId !== 'string') return false
     if (!validNode(tab.root)) return false
+    // Absent in older files and in tabs where nothing has been opened; present it
+    // must still be a layout, or the renderer would walk a malformed tree.
+    if (tab.editors !== undefined && tab.editors !== null && !validNode(tab.editors)) return false
   }
 
   for (const pane of snapshot.panes) {

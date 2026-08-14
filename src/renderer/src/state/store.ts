@@ -30,6 +30,12 @@ export type PaneKind = 'terminal' | 'editor' | 'diff'
 /** Which view the sidebar is showing, chosen from the activity bar. */
 export type SidebarView = 'explorer' | 'search' | 'scm' | 'github' | 'problems'
 
+/** A terminal, or the whole IDE around it. */
+export type WorkspaceMode = 'terminal' | 'ide'
+
+/** Which view the bottom panel is showing. */
+export type PanelView = 'terminal' | 'problems' | 'output'
+
 /**
  * Whether this pane's shell reports command boundaries.
  *
@@ -117,10 +123,35 @@ export type LayoutNode =
   | { type: 'leaf'; paneId: string }
   | { type: 'split'; direction: 'row' | 'column'; children: LayoutNode[]; sizes: number[] }
 
+/**
+ * A tab holds two layouts, not one.
+ *
+ * Ember is a terminal that turns into an IDE, and the two modes want the same
+ * panes in different places: in terminal mode the shells are the whole window and
+ * there is nothing else, and in IDE mode the editors take the middle and the
+ * shells drop into the panel along the bottom. Keeping them in one tree would
+ * mean rebuilding it on every mode change, and a layout someone has arranged
+ * would not survive the round trip. Each region keeps its own arrangement.
+ */
 export interface Tab {
   id: string
-  root: LayoutNode
+  /** Terminal panes: the whole window in terminal mode, the panel in IDE mode. */
+  shells: LayoutNode
+  /** Editor and diff panes, shown in the middle in IDE mode. Null until a file opens. */
+  editors: LayoutNode | null
   activePaneId: string
+}
+
+/** Which of a tab's two layouts holds this pane. */
+export function regionOf(tab: Tab, paneId: string): 'shells' | 'editors' | null {
+  if (collectPaneIds(tab.shells).includes(paneId)) return 'shells'
+  if (tab.editors && collectPaneIds(tab.editors).includes(paneId)) return 'editors'
+  return null
+}
+
+/** Every pane in a tab, in both regions. */
+export function paneIdsOf(tab: Tab): string[] {
+  return [...collectPaneIds(tab.shells), ...(tab.editors ? collectPaneIds(tab.editors) : [])]
 }
 
 interface Store {
@@ -135,6 +166,23 @@ interface Store {
   historyOpen: boolean
   sidebarOpen: boolean
   sidebarView: SidebarView
+  /*
+   * Terminal or IDE.
+   *
+   * The app opens as a terminal and nothing else, because that is what it is for.
+   * One key turns it into the editor, sidebars and panel of an IDE, and the same
+   * key turns it back. Both modes are the same session — the same shells, the
+   * same open files — arranged differently.
+   */
+  mode: WorkspaceMode
+  /** The bottom panel, and which of its views is on top. Only shown in IDE mode. */
+  panelOpen: boolean
+  panelView: PanelView
+  /** The right-hand sidebar, which holds Claude. Only shown in IDE mode. */
+  secondaryOpen: boolean
+  /** Region sizes, as a fraction of the window. */
+  panelHeight: number
+  secondaryWidth: number
   /** Root of the file tree; null until a terminal reports a directory. */
   treeRoot: string | null
   /**
@@ -188,6 +236,19 @@ interface Store {
   toggleSidebar(open?: boolean): void
   /** Show a view, opening the sidebar; picking the one already shown closes it. */
   showSidebarView(view: SidebarView): void
+  /**
+   * Switch between the terminal and the IDE. Passing a mode sets it outright.
+   *
+   * Anything that only makes sense in an IDE — opening a file, revealing a search
+   * result — calls this with 'ide' rather than quietly doing nothing, so the app
+   * arrives where the action can be seen.
+   */
+  setMode(mode?: WorkspaceMode): void
+  togglePanel(open?: boolean): void
+  /** Show a panel view, opening the panel; picking the one already shown closes it. */
+  showPanelView(view: PanelView): void
+  toggleSecondary(open?: boolean): void
+  setRegionSize(region: 'panel' | 'secondary', fraction: number): void
   setTreeRoot(path: string): void
   setGitStatus(status: GitStatus | null): void
   /** Why git could not be read, when the reason is not simply "no repository here". */
@@ -218,7 +279,7 @@ interface Store {
   tabIdForPane(paneId: string): string | null
   /** Titles of the unsaved documents held by these panes, for a close prompt. */
   dirtyDocumentsIn(paneIds: string[]): string[]
-  setSizes(tabId: string, path: number[], sizes: number[]): void
+  setSizes(tabId: string, region: 'shells' | 'editors', path: number[], sizes: number[]): void
 
   editorPane(paneId: string): EditorPaneState | null
   patchEditorPane(paneId: string, patch: Partial<EditorPaneState>): void
@@ -396,6 +457,13 @@ export const useStore = create<Store>((set, get) => ({
   historyOpen: false,
   sidebarOpen: false,
   sidebarView: 'explorer',
+  // A terminal until asked to be more than one.
+  mode: 'terminal',
+  panelOpen: true,
+  panelView: 'terminal',
+  secondaryOpen: false,
+  panelHeight: 0.35,
+  secondaryWidth: 0.26,
   treeRoot: null,
   gitStatus: null,
   gitError: null,
@@ -422,6 +490,37 @@ export const useStore = create<Store>((set, get) => ({
       sidebarOpen: !(s.sidebarOpen && s.sidebarView === view),
       sidebarView: view
     })),
+
+  /*
+   * Entering the IDE opens the explorer if nothing else is open, because an IDE
+   * with every region collapsed is a terminal with extra steps — and the point of
+   * the switch is to see the difference it made.
+   */
+  setMode: (mode) =>
+    set((s) => {
+      const next = mode ?? (s.mode === 'ide' ? 'terminal' : 'ide')
+      if (next === s.mode) return s
+      const bare = next === 'ide' && !s.sidebarOpen && !s.secondaryOpen
+      return { mode: next, sidebarOpen: bare ? true : s.sidebarOpen }
+    }),
+
+  togglePanel: (open) => set((s) => ({ panelOpen: open ?? !s.panelOpen })),
+
+  showPanelView: (view) =>
+    set((s) => ({
+      panelOpen: !(s.panelOpen && s.panelView === view),
+      panelView: view
+    })),
+
+  toggleSecondary: (open) => set((s) => ({ secondaryOpen: open ?? !s.secondaryOpen })),
+
+  // Clamped, because a region dragged to the edge of the window cannot be dragged
+  // back — there is nothing left of it to take hold of.
+  setRegionSize: (region, fraction) =>
+    set(() => {
+      const size = Math.min(0.8, Math.max(0.12, fraction))
+      return region === 'panel' ? { panelHeight: size } : { secondaryWidth: size }
+    }),
 
   setTreeRoot: (treeRoot) => {
     // Servers are started once per language and told their root in the handshake,
@@ -457,7 +556,8 @@ export const useStore = create<Store>((set, get) => ({
     const pane = makeTerminalPane(profileId, cwd ?? window.ember.homeDir)
     const tab: Tab = {
       id: uid(),
-      root: { type: 'leaf', paneId: pane.id },
+      shells: { type: 'leaf', paneId: pane.id },
+      editors: null,
       activePaneId: pane.id
     }
     set((s) => ({
@@ -475,14 +575,14 @@ export const useStore = create<Store>((set, get) => ({
     // A tab can hold several editors, so this asks about all of them at once
     // rather than once per pane on the way down. Skipped when closePane has
     // already asked about the same documents on its way here.
-    if (!alreadyConfirmed && !confirmDiscarding(get().dirtyDocumentsIn(collectPaneIds(tab.root)))) {
+    if (!alreadyConfirmed && !confirmDiscarding(get().dirtyDocumentsIn(paneIdsOf(tab)))) {
       return
     }
 
-    for (const id of collectPaneIds(tab.root)) window.ember.kill(id)
+    for (const id of paneIdsOf(tab)) window.ember.kill(id)
 
     const nextPanes = { ...panes }
-    for (const id of collectPaneIds(tab.root)) delete nextPanes[id]
+    for (const id of paneIdsOf(tab)) delete nextPanes[id]
 
     const idx = tabs.findIndex((t) => t.id === tabId)
     const nextTabs = tabs.filter((t) => t.id !== tabId)
@@ -536,7 +636,9 @@ export const useStore = create<Store>((set, get) => ({
           t.id === tabId
             ? {
                 ...t,
-                root: splitAt(t.root, from.id, direction, pane.id, before),
+                editors: t.editors
+                  ? splitAt(t.editors, from.id, direction, pane.id, before)
+                  : { type: 'leaf', paneId: pane.id },
                 activePaneId: pane.id
               }
             : t
@@ -547,7 +649,7 @@ export const useStore = create<Store>((set, get) => ({
 
     // A terminal split duplicates a shell. Asked for from anything else — a diff,
     // say — fall back to the tab's own terminal rather than doing nothing at all.
-    const here = new Set(collectPaneIds(tab.root))
+    const here = new Set(paneIdsOf(tab))
     const source =
       panes[paneId]?.kind === 'terminal'
         ? panes[paneId]
@@ -563,7 +665,7 @@ export const useStore = create<Store>((set, get) => ({
         t.id === tabId
           ? {
               ...t,
-              root: splitAt(t.root, source.id, direction, pane.id, before),
+              shells: splitAt(t.shells, source.id, direction, pane.id, before),
               activePaneId: pane.id
             }
           : t
@@ -573,7 +675,7 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   tabIdForPane: (paneId) =>
-    get().tabs.find((t) => collectPaneIds(t.root).includes(paneId))?.id ?? null,
+    get().tabs.find((t) => paneIdsOf(t).includes(paneId))?.id ?? null,
 
   /*
    * Counted once per file, not once per view of it.
@@ -616,10 +718,19 @@ export const useStore = create<Store>((set, get) => ({
     // Closing a pane through the wrong tab used to remove it from the pane map and
     // kill its process while the tab that really owns it kept a leaf pointing at it,
     // leaving that tab with a hole where a pane should be.
-    if (!collectPaneIds(tab.root).includes(paneId)) return
+    const region = regionOf(tab, paneId)
+    if (!region) return
 
-    const nextRoot = removeLeaf(tab.root, paneId)
-    if (!nextRoot) {
+    const from = region === 'shells' ? tab.shells : tab.editors!
+    const nextRoot = removeLeaf(from, paneId)
+
+    /*
+     * The last editor closing empties the middle; the last shell closing ends the
+     * tab. They are not the same thing: a tab is a shell that may also have files
+     * open, so closing every file leaves a working terminal, while closing every
+     * terminal leaves nothing for the tab to be.
+     */
+    if (!nextRoot && region === 'shells') {
       // Already asked above, about the only pane this tab had.
       get().closeTab(tabId, true)
       return
@@ -629,28 +740,31 @@ export const useStore = create<Store>((set, get) => ({
     const nextPanes = { ...panes }
     delete nextPanes[paneId]
 
-    const remaining = collectPaneIds(nextRoot)
     set({
       panes: nextPanes,
-      tabs: tabs.map((t) =>
-        t.id === tabId
-          ? {
-              ...t,
-              root: nextRoot,
-              activePaneId: remaining.includes(t.activePaneId) ? t.activePaneId : remaining[0]
-            }
-          : t
-      )
+      tabs: tabs.map((t) => {
+        if (t.id !== tabId) return t
+        const next: Tab =
+          region === 'shells' ? { ...t, shells: nextRoot! } : { ...t, editors: nextRoot }
+        const remaining = paneIdsOf(next)
+        return {
+          ...next,
+          activePaneId: remaining.includes(next.activePaneId) ? next.activePaneId : remaining[0]
+        }
+      })
     })
   },
 
-  setSizes: (tabId, path, sizes) =>
+  setSizes: (tabId, region, path, sizes) =>
     set((s) => ({
       tabs: s.tabs.map((t) => {
         if (t.id !== tabId) return t
-        const node = nodeAt(t.root, path)
+        const root = region === 'shells' ? t.shells : t.editors
+        if (!root) return t
+        const node = nodeAt(root, path)
         if (!node || node.type !== 'split') return t
-        return { ...t, root: replaceNode(t.root, path, { ...node, sizes }) }
+        const next = replaceNode(root, path, { ...node, sizes })
+        return region === 'shells' ? { ...t, shells: next } : { ...t, editors: next }
       })
     })),
 
@@ -678,6 +792,10 @@ export const useStore = create<Store>((set, get) => ({
     const tab = tabs.find((t) => t.id === tabId)
     if (!tab) return null
 
+    // Opening a file is a request to be an IDE. Putting it in a region that is not
+    // on screen would look exactly like nothing happening.
+    get().setMode('ide')
+
     const document: EditorDocument = {
       filePath: file.path,
       title: file.name,
@@ -699,7 +817,7 @@ export const useStore = create<Store>((set, get) => ({
      * in two tabs reveals the copy already in front of the user.
      */
     for (const candidate of [tab, ...tabs.filter((t) => t.id !== tabId)]) {
-      const here = new Set(collectPaneIds(candidate.root))
+      const here = new Set(paneIdsOf(candidate))
       for (const pane of Object.values(panes)) {
         if (pane.kind !== 'editor' || !here.has(pane.id)) continue
         const index = pane.documents.findIndex((d) => samePath(d.filePath, file.path))
@@ -730,7 +848,7 @@ export const useStore = create<Store>((set, get) => ({
     // Otherwise it becomes a tab in this tab's editor pane if there is one. Only
     // the first file opens a split — after that the terminal keeps the space it
     // has, which is the point of tabs.
-    const here = new Set(collectPaneIds(tab.root))
+    const here = new Set(paneIdsOf(tab))
     /*
      * The focused pane first, and only then the first one found.
      *
@@ -769,7 +887,15 @@ export const useStore = create<Store>((set, get) => ({
       panes: { ...panes, [pane.id]: pane },
       tabs: tabs.map((t) =>
         t.id === tabId
-          ? { ...t, root: splitAt(t.root, tab.activePaneId, 'row', pane.id), activePaneId: pane.id }
+          ? {
+              ...t,
+              // First editor in this tab, so it becomes the editor area outright.
+              // Only reached when the tab has none; a tab that does reuses it above.
+              editors: t.editors
+                ? splitAt(t.editors, collectPaneIds(t.editors)[0], 'row', pane.id)
+                : { type: 'leaf', paneId: pane.id },
+              activePaneId: pane.id
+            }
           : t
       )
     })
@@ -1074,12 +1200,15 @@ export const useStore = create<Store>((set, get) => ({
     const tab = tabs.find((t) => t.id === tabId)
     if (!tab) return null
 
+    // A diff lives in the editor area, same as a file.
+    get().setMode('ide')
+
     // One pane per file-and-side, refreshed in place. Opening the same diff twice
     // should show the current content, not a second pane holding a stale snapshot.
     // Found by tab, for the same reason as openFileInSplit: a pane can only be made
     // active in the tab that actually contains it.
     for (const candidate of [tab, ...tabs.filter((t) => t.id !== tabId)]) {
-      const here = new Set(collectPaneIds(candidate.root))
+      const here = new Set(paneIdsOf(candidate))
       const existing = Object.values(panes).find(
         (p) =>
           p.kind === 'diff' &&
@@ -1101,7 +1230,15 @@ export const useStore = create<Store>((set, get) => ({
       panes: { ...panes, [pane.id]: pane },
       tabs: tabs.map((t) =>
         t.id === tabId
-          ? { ...t, root: splitAt(t.root, tab.activePaneId, 'row', pane.id), activePaneId: pane.id }
+          ? {
+              ...t,
+              // First editor in this tab, so it becomes the editor area outright.
+              // Only reached when the tab has none; a tab that does reuses it above.
+              editors: t.editors
+                ? splitAt(t.editors, collectPaneIds(t.editors)[0], 'row', pane.id)
+                : { type: 'leaf', paneId: pane.id },
+              activePaneId: pane.id
+            }
           : t
       )
     })
