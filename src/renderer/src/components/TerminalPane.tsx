@@ -122,11 +122,33 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
     }
   }, [controller])
 
-  // Keep the newest block in view as output lands.
+  /*
+   * Follow the newest output, unless the reader has gone looking at something else.
+   *
+   * Two things were wrong with pinning this to the block count alone. A command's
+   * output is rendered into its block when the command *finishes*, so the tall part
+   * arrives without the count changing and nothing moved the view — which is the
+   * whole of "I have to drag it down myself". And scrolling unconditionally is its
+   * own bug in the other direction: someone reading back through a build log does
+   * not want the next line of output to yank them to the end.
+   *
+   * So it follows only while it is already at the end. The slack is for a wheel
+   * notch that lands a pixel short, which is still someone watching the end.
+   */
+  const stuck = useRef(true)
+  const noteScroll = (): void => {
+    const el = scroller.current
+    if (el) stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
+  }
+
+  // The size of what the newest block is holding, which is what changes when output
+  // lands in a block that already existed. `last` is read further up the component.
+  const lastSize = last ? (last.kind === 'command' ? last.output.length : last.answer.length) : 0
+
   useEffect(() => {
     const el = scroller.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [pane.blocks.length, running])
+    if (el && stuck.current) el.scrollTop = el.scrollHeight
+  }, [pane.blocks.length, running, lastSize, mode])
 
   const rerun = (command: string): void => {
     if (command.trim().length > 0) controller.runCommand(command)
@@ -147,7 +169,11 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
     >
       {!raw && (
         <div className="pane__body">
-        <div className={`pane__scroll ${stream ? 'pane__scroll--stream' : ''}`} ref={scroller}>
+        <div
+          className={`pane__scroll ${stream ? 'pane__scroll--stream' : ''}`}
+          ref={scroller}
+          onScroll={noteScroll}
+        >
           {/*
             An aside, not a block. These borrowed a block's chrome, which stopped
             being free once blocks became a hairline list: an empty pane drew a

@@ -1422,6 +1422,14 @@ button {
   color: var(--fg-faint);
 }
 
+/* The one agent mode that will run something it warned about. It is a standing
+   readout like everything else down here, so it takes the failure colour rather
+   than a fill or a badge — the point is that it can be noticed in passing, not
+   that it interrupts. */
+.statusbar__sub--risky {
+  color: var(--fail);
+}
+
 .claude {
   position: relative;
   flex: 0 0 auto;
@@ -1480,6 +1488,13 @@ button {
   color: var(--fg);
   text-align: left;
   cursor: pointer;
+}
+
+/* Named in the failure colour in the list too, so the row that hands over the
+   confirmation step looks different from the two that do not — before it is
+   chosen, which is the only moment the warning is any use. */
+.claude__item--risky .claude__name {
+  color: var(--fail);
 }
 
 .claude__item:hover:not(:disabled),

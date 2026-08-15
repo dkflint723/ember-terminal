@@ -64,6 +64,44 @@ export const AI_EFFORTS: { level: AiEffort; note: string }[] = [
   { level: 'max', note: 'Everything it has, when being right matters more.' }
 ]
 
+/**
+ * How much of a command the agent is allowed to run without being asked.
+ *
+ * This is a setting about a shell, so it is written to be read by someone deciding
+ * how much rope to hand over rather than as three interchangeable words. `manual`
+ * is the default and the only one where nothing can happen without a press.
+ *
+ * `auto` leans on the flag main already computes for every proposal: the model is
+ * asked to say whether what it is proposing is hard to undo, and anything it marks
+ * that way still waits. That flag is a model's judgement rather than a guarantee,
+ * which is exactly why the mode that trusts it is not the default.
+ */
+export type AiMode = 'manual' | 'auto' | 'bypass'
+
+export interface AiModeChoice {
+  mode: AiMode
+  label: string
+  note: string
+  /** Worth drawing in the failure colour: this one can do something irreversible. */
+  risky?: boolean
+}
+
+export const AI_MODES: AiModeChoice[] = [
+  { mode: 'manual', label: 'Manual', note: 'Every command waits for you to press Run.' },
+  { mode: 'auto', label: 'Auto', note: 'Runs on arrival, unless it looks hard to undo.' },
+  {
+    mode: 'bypass',
+    label: 'Bypass',
+    note: 'Runs everything, including what it warned about.',
+    risky: true
+  }
+]
+
+/** The listed mode, falling back to the careful one for anything unrecognised. */
+export function modeChoice(mode: string): AiModeChoice {
+  return AI_MODES.find((m) => m.mode === mode) ?? AI_MODES[0]
+}
+
 /** The listed model with this id, if it is one of them. */
 export function modelChoice(id: string): AiModelChoice | undefined {
   return AI_MODELS.find((m) => m.id === id)

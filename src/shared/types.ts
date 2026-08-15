@@ -1,7 +1,7 @@
 /** Types shared across main, preload, and renderer. */
 
 import type { ResolvedTheme, ThemeSummary } from './theme.js'
-import type { AiEffort } from './models.js'
+import type { AiEffort, AiMode } from './models.js'
 
 export interface ShellProfile {
   id: string
@@ -526,6 +526,15 @@ export interface Settings {
    * questions that deserve it.
    */
   aiEffort: AiEffort
+  /**
+   * How much the agent may do without being asked.
+   *
+   * Manual by default, and deliberately so: this is a terminal, the proposal is a
+   * real command line, and the difference between the three settings is whether a
+   * sentence written by a model reaches a shell without anyone reading it first.
+   * Someone who wants that can say so; nobody should get it by not choosing.
+   */
+  aiMode: AiMode
   /** Put the last window's tabs, splits and open files back on launch. */
   restoreSession: boolean
   /**
@@ -561,6 +570,7 @@ export const DEFAULT_SETTINGS: Settings = {
   anthropicApiKey: null,
   aiModel: 'claude-opus-5',
   aiEffort: 'low',
+  aiMode: 'manual',
   restoreSession: true,
   notifyAfterSeconds: 10,
   autoSaveAfterSeconds: 0,

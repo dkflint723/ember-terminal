@@ -109,6 +109,76 @@ check(
   JSON.stringify(cmdlet)
 )
 
+/*
+ * --- the grid's padding is not output -----------------------------------------
+ *
+ * conpty repaints a screen rather than streaming a stream: it puts the cursor where
+ * the next thing goes and leaves every row it stepped over untouched, so a capture
+ * arrives holding runs of rows nothing ever wrote. Measured before this was fixed,
+ * `Get-ChildItem` rendered nineteen rows — thirteen of them empty, between the
+ * `Directory:` line and the table, where PowerShell prints exactly one blank line.
+ * At 387px for three files, most of a block was padding.
+ *
+ * One blank is kept, because a blank line between paragraphs is real output. So
+ * this asserts the run, not the count: any two adjacent empty rows are the grid
+ * coming back.
+ */
+await run('Get-ChildItem | Select-Object -First 3')
+const shape = await page.evaluate(() => {
+  const all = document.querySelectorAll('.block')
+  const rows = Array.from(all[all.length - 1]?.querySelectorAll('.block__body .row') ?? [])
+  const blank = rows.map((r) => (r.textContent ?? '').trim() === '')
+  let worst = 0
+  let runLength = 0
+  for (const isBlank of blank) {
+    runLength = isBlank ? runLength + 1 : 0
+    worst = Math.max(worst, runLength)
+  }
+  return { rows: rows.length, blanks: blank.filter(Boolean).length, worst }
+})
+check('a listing has no run of blank rows the shell never printed', shape.worst <= 1, JSON.stringify(shape))
+/*
+ * The row *count* is deliberately not asserted here yet, and that is a statement
+ * about a bug rather than about this check. A block can still come back holding a
+ * whole screen of earlier commands' output — 127 rows for a three-item listing when
+ * this was measured — because conpty repaints the screen and the repaint lands
+ * inside the capture. Padding and duplication are two faults with one cause, and
+ * only the padding is fixed; a count assertion here would be failing for the other
+ * one, which is not this check's business to report.
+ */
+// The blank line PowerShell does print is still there: collapsing to none would
+// jam the heading against the table.
+check('and the blank line it did print is kept', shape.blanks >= 1, JSON.stringify(shape))
+
+/*
+ * --- the list follows the output ----------------------------------------------
+ *
+ * A command's output is rendered into its block when the command finishes, so the
+ * tall part arrives without the block count changing. Pinned to the count alone,
+ * nothing moved the view and the newest output sat below the fold until it was
+ * dragged into sight.
+ */
+const bottomGap = async () =>
+  page.evaluate(() => {
+    const el = document.querySelector('.pane__scroll')
+    return el ? Math.round(el.scrollHeight - el.scrollTop - el.clientHeight) : null
+  })
+await run('1..60 | ForEach-Object { "scroll line $_" }')
+check('the newest output is in view without being dragged there', (await bottomGap()) <= 24, `${await bottomGap()}px below the fold`)
+
+// And the other half: someone who has scrolled up to read is not yanked back.
+await page.evaluate(() => {
+  const el = document.querySelector('.pane__scroll')
+  if (el) el.scrollTop = 0
+})
+await sleep(400)
+await run('1..40 | ForEach-Object { "later line $_" }')
+check(
+  'but a reader who scrolled up is left where they were',
+  (await bottomGap()) > 24,
+  `${await bottomGap()}px below the fold`
+)
+
 await app.close()
 profile.cleanup()
 for (const f of failures) console.log(`  - ${f}`)

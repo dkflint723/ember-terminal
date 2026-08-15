@@ -359,6 +359,29 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
       const note = (res.explanation ?? '').trim()
       const destructive = note.startsWith('⚠')
 
+      /*
+       * Whether this one runs itself.
+       *
+       * The mode is read here, at the moment the answer lands, and nowhere else —
+       * which is what keeps a restored conversation inert. A proposal that comes
+       * back from the database carries the verdict it was given last time and is
+       * never put through this, so turning Auto on does not reach backwards and
+       * run what was left open yesterday.
+       *
+       * `auto` defers to the model's own warning, and that flag is a judgement
+       * rather than a guarantee — a command it failed to recognise as destructive
+       * runs. That is the trade the mode is, said plainly in the menu, and it is
+       * why manual is what you get without choosing.
+       *
+       * Read from the store here rather than through a selector above, so it is
+       * the setting in force at the moment the command would run and not the one
+       * that was showing when the question was sent. Someone who has second
+       * thoughts mid-request and switches back to Manual has just said no.
+       */
+      const aiMode = useStore.getState().settings.aiMode
+      const runItself =
+        res.ok && !!res.command && (aiMode === 'bypass' || (aiMode === 'auto' && !destructive))
+
       patchConversation(pane.id, blockId, {
         streaming: false,
         answer: res.ok ? (destructive ? note.replace(/^⚠\s*/, '') : note) : '',
@@ -367,9 +390,13 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
         // and the block has already shown it above the card as the answer.
         proposal:
           res.ok && res.command
-            ? { command: res.command, note: '', destructive, state: 'open' }
+            ? { command: res.command, note: '', destructive, state: runItself ? 'run' : 'open' }
             : null
       })
+
+      // After the patch, so the command block lands under the conversation that
+      // asked for it rather than racing the answer it belongs to.
+      if (runItself && res.command) controller.runCommand(res.command)
     } catch (err) {
       patchConversation(pane.id, blockId, {
         streaming: false,

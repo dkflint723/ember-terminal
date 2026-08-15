@@ -573,6 +573,80 @@ const refusal = await conversation()
   .catch(() => null)
 check('a refusal is explained as one', refusal?.includes('declined') === true, String(refusal))
 
+/*
+ * --- what the agent may do on its own -----------------------------------------
+ *
+ * The mode decides whether a command line written by a model reaches the shell
+ * without anyone reading it, so it is the one setting in this app where being
+ * wrong costs something that cannot be taken back. All three states are driven
+ * here, and each is proved by whether a command block appeared — not by what the
+ * card says about itself, which is the thing that would still look right if the
+ * wiring were backwards.
+ *
+ * Every case above ran under the default, which is why the first check can assert
+ * that nothing has run so far: seven questions have been asked and answered, five
+ * of them carrying a command, and the shell has never been handed one.
+ */
+const commandBlocks = () => page.locator('.block:not(.block--agent)').count()
+const offering = (command, destructive) => ({
+  status: 200,
+  body: message(JSON.stringify({ command, note: 'A marker for the mode checks.', destructive }))
+})
+
+check('nothing has run on its own so far', (await commandBlocks()) === 0, `${await commandBlocks()} command blocks`)
+
+await pick('Auto')
+await page.keyboard.press('Escape')
+await sleep(300)
+check('the switcher says which mode is in effect', (await chip()).label?.includes('auto') === true, (await chip()).label)
+
+reply = offering('echo mode-auto-marker', false)
+await ask('print the auto marker')
+await sleep(2600)
+check('Auto runs a command it was not warned about', (await commandBlocks()) === 1, `${await commandBlocks()} command blocks`)
+check(
+  'and the card records that it ran rather than offering to',
+  (await conversation().locator('.proposal__state').textContent().catch(() => null))?.trim() === 'Run'
+)
+check(
+  'with nothing left to press',
+  (await conversation().locator('.proposal__primary').count()) === 0
+)
+
+// The half that matters. Auto leans on the model's own warning, so the warning has
+// to be what stops it — if this ran, the mode would be Bypass wearing another name.
+reply = offering('echo mode-auto-destructive', true)
+await ask('do the risky thing')
+await sleep(2600)
+check('Auto still waits when it is told the command is hard to undo', (await commandBlocks()) === 1, `${await commandBlocks()} command blocks`)
+check(
+  'and offers the choice instead',
+  (await conversation().locator('.proposal__primary').count()) === 1
+)
+check('saying why it stopped', (await conversation().locator('.proposal__warn').count()) === 1)
+
+await pick('Bypass')
+await page.keyboard.press('Escape')
+await sleep(300)
+reply = offering('echo mode-bypass-marker', true)
+await ask('do the risky thing anyway')
+await sleep(2600)
+check('Bypass runs even what it was warned about', (await commandBlocks()) === 2, `${await commandBlocks()} command blocks`)
+
+// And back, because a mode that cannot be given up is a trap rather than a setting.
+await pick('Manual')
+await page.keyboard.press('Escape')
+await sleep(300)
+reply = offering('echo mode-manual-marker', false)
+await ask('print the manual marker')
+await sleep(2600)
+check('Manual goes back to waiting', (await commandBlocks()) === 2, `${await commandBlocks()} command blocks`)
+check(
+  'with the command offered rather than run',
+  (await conversation().locator('.proposal__primary').count()) === 1
+)
+await page.screenshot({ path: path.join(SHOT_DIR, '77-agent-modes.png') })
+
 await app.close()
 profile.cleanup()
 server.close()

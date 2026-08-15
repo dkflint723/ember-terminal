@@ -131,7 +131,7 @@ export function renderBufferAsHtml(term: Terminal, theme: TerminalPalette): stri
   const buffer = term.buffer.active
   const palette = buildPalette(theme)
 
-  const logical: { style: Style; text: string }[][] = []
+  let logical: { style: Style; text: string }[][] = []
   let current: { style: Style; text: string }[] = []
 
   for (let y = 0; y < buffer.length; y++) {
@@ -161,6 +161,33 @@ export function renderBufferAsHtml(term: Terminal, theme: TerminalPalette): stri
     logical.pop()
   }
   while (logical.length > 0 && logical[0].every((r) => r.text.length === 0)) logical.shift()
+
+  /*
+   * Collapse the grid's padding in the middle, which is not blank output.
+   *
+   * conpty repaints a screen rather than streaming a stream: it positions the
+   * cursor where the next thing goes and leaves the rows it stepped over untouched,
+   * so a capture holds runs of rows nothing ever wrote. `Get-ChildItem` measured
+   * nineteen rows here, thirteen of them empty, between the `Directory:` line and
+   * the table — where PowerShell itself prints exactly one blank line.
+   *
+   * One is kept rather than none, because a blank line between paragraphs is real
+   * output and losing it would jam a report together. A program that meant to print
+   * five in a row loses four, which is a trade worth making against every block
+   * being padded to the height of a screen.
+   */
+  const spaced: typeof logical = []
+  let blanks = 0
+  for (const runs of logical) {
+    if (runs.every((r) => r.text.length === 0)) {
+      blanks += 1
+      if (blanks === 1) spaced.push(runs)
+    } else {
+      blanks = 0
+      spaced.push(runs)
+    }
+  }
+  logical = spaced
 
   return logical
     .map((runs) => {
