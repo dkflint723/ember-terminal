@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { modelLabel } from '@shared/models'
 import { useStore } from '../state/store'
 import { QuickPick, type QuickPickItem } from './QuickPick'
 
@@ -293,12 +294,32 @@ function commands(): Command[] {
     },
     { id: 'view.problems', label: 'View: Problems', hint: 'Ctrl+Shift+M', run: () => s.showSidebarView('problems') },
     { id: 'view.settings', label: 'Preferences: Settings', hint: 'Ctrl+,', run: () => s.toggleSettings(true) },
+    {
+      id: 'ai.picker',
+      label: 'Claude: Model and Effort…',
+      hint: modelLabel(s.settings.aiModel),
+      run: () => s.requestAiPicker()
+    },
     { id: 'view.history', label: 'Terminal: Search History', hint: 'Ctrl+R', run: () => s.toggleHistory(true) },
     {
       id: 'terminal.new',
       label: 'Terminal: New Tab',
       hint: 'Ctrl+Shift+T',
       run: () => s.newTab(s.profiles[0]?.id ?? '')
+    },
+    {
+      id: 'terminal.clearBlocks',
+      label: 'Terminal: Clear Blocks',
+      hint: 'Ctrl+Shift+K',
+      run: () => {
+        const tab = s.tabs.find((t) => t.id === s.activeTabId)
+        const here = tab ? s.panes[tab.activePaneId] : undefined
+        const target =
+          here?.kind === 'terminal'
+            ? here.id
+            : Object.values(s.panes).find((p) => p.kind === 'terminal')?.id
+        if (target) s.clearBlocks(target)
+      }
     },
     {
       id: 'terminal.splitRight',

@@ -182,6 +182,18 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
     return found
   }
 
+  /*
+   * The commands each pane was holding when the app closed.
+   *
+   * Kept in the database rather than in this snapshot: the session file is
+   * rewritten on a debounce while the app runs, and rendered output would mean
+   * megabytes of HTML written over and over. Fetched in one call for every pane at
+   * once, since one round trip per pane is the kind of thing that makes a launch
+   * feel slow for no reason.
+   */
+  const terminalIds = snapshotIn.panes.filter((p) => p.kind === 'terminal').map((p) => p.id)
+  const savedBlocks = await window.ember.loadBlocks(terminalIds)
+
   for (const saved of snapshotIn.panes) {
     if (saved.kind === 'terminal') {
       const cwd = (await stillThere(saved.cwd)) ? saved.cwd : window.ember.homeDir
@@ -192,7 +204,9 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
         // The title follows the directory, so a fallback must not keep the old name.
         title: cwd === saved.cwd ? saved.title : cwd.split(/[\\/]/).filter(Boolean).pop() || 'Shell',
         cwd,
-        blocks: [],
+        // Marked as having come from before, which is the whole difference between
+        // a block that is a record and a block that looks like it just ran.
+        blocks: (savedBlocks[saved.id] ?? []).map((b) => ({ ...b, restored: true })),
         mode: 'blocks',
         integration: 'pending',
         awaitingSecret: false,
@@ -287,6 +301,10 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
     sidebarOpen: snapshotIn.sidebarOpen,
     sidebarView: snapshotIn.sidebarView
   })
+
+  // Panes that did not survive to this launch have no way of ever asking for their
+  // blocks again, so this is the moment they stop being anyone's.
+  window.ember.keepBlocksFor(Object.keys(panes))
   return true
 }
 

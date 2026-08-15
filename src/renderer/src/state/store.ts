@@ -23,6 +23,12 @@ export interface Block {
    * once the program has restored the screen.
    */
   interactive: boolean
+  /**
+   * Ran in an earlier session and came back with the pane. Only used to draw the
+   * line between then and now — the block is otherwise an ordinary one, and can be
+   * copied, re-run and collapsed like any other.
+   */
+  restored?: boolean
 }
 
 export type PaneKind = 'terminal' | 'editor' | 'diff'
@@ -191,6 +197,15 @@ interface Store {
    * Null when there is no repository, or before the first read.
    */
   gitStatus: GitStatus | null
+  /**
+   * The repository each shell is standing in, keyed by its directory.
+   *
+   * Separate from `gitStatus`, which describes the workspace: a terminal is often
+   * somewhere else entirely, and in a plain terminal session there is no workspace
+   * to describe. Keyed by directory rather than by pane so that several panes in one
+   * project share a single answer.
+   */
+  cwdGit: Record<string, GitStatus | null>
   /** Why git could not be read at all, when that is not simply "no repository". */
   gitError: string | null
   /**
@@ -212,6 +227,13 @@ interface Store {
    * counter makes repeated presses distinguishable, so it still toggles.
    */
   askRequest: { paneId: string; n: number } | null
+  /**
+   * Bumped to open the model-and-effort switcher from somewhere that is not the
+   * chip itself — the palette, for anyone who reaches for that first. A counter
+   * rather than a flag, for the same reason as the ask request: asking twice has
+   * to register as twice.
+   */
+  aiPickerRequest: number
   /** Which overlay is open: file quick-open, the command palette, or neither. */
   paletteMode: 'files' | 'commands' | null
   /**
@@ -251,12 +273,16 @@ interface Store {
   setRegionSize(region: 'panel' | 'secondary', fraction: number): void
   setTreeRoot(path: string): void
   setGitStatus(status: GitStatus | null): void
+  /** File a directory's repository status, or the absence of one. */
+  setCwdGit(cwd: string, status: GitStatus | null): void
   /** Why git could not be read, when the reason is not simply "no repository here". */
   setGitError(error: string | null): void
   setCommitDraft(text: string): void
   setPendingInput(paneId: string, text: string): void
   clearPendingInput(paneId: string): void
   requestAsk(paneId: string): void
+  /** Open the Claude model-and-effort switcher. */
+  requestAiPicker(): void
   openPalette(mode: 'files' | 'commands'): void
   closePalette(): void
 
@@ -466,10 +492,12 @@ export const useStore = create<Store>((set, get) => ({
   secondaryWidth: 0.26,
   treeRoot: null,
   gitStatus: null,
+  cwdGit: {},
   gitError: null,
   commitDraft: '',
   pendingInput: {},
   askRequest: null,
+  aiPickerRequest: 0,
   paletteMode: null,
   notice: null,
 
@@ -535,6 +563,22 @@ export const useStore = create<Store>((set, get) => ({
     set({ treeRoot })
   },
   setGitStatus: (gitStatus) => set({ gitStatus }),
+
+  setCwdGit: (cwd, status) =>
+    set((s) => {
+      const key = pathKey(cwd)
+      // Written only when the answer actually changed. This is polled, and a store
+      // that publishes an identical object every three seconds re-renders every
+      // pane and re-schedules the session write for nothing.
+      const before = s.cwdGit[key]
+      if (before === status) return {}
+      if (before && status && before.branch === status.branch && before.root === status.root) {
+        const count = (g: GitStatus): number =>
+          g.staged.length + g.changes.length + g.conflicts.length
+        if (count(before) === count(status) && before.ahead === status.ahead) return {}
+      }
+      return { cwdGit: { ...s.cwdGit, [key]: status } }
+    }),
   setGitError: (gitError) => set({ gitError }),
   setCommitDraft: (commitDraft) => set({ commitDraft }),
   openPalette: (paletteMode) => set({ paletteMode }),
@@ -542,6 +586,8 @@ export const useStore = create<Store>((set, get) => ({
 
   requestAsk: (paneId) =>
     set((s) => ({ askRequest: { paneId, n: (s.askRequest?.n ?? 0) + 1 } })),
+
+  requestAiPicker: () => set((s) => ({ aiPickerRequest: s.aiPickerRequest + 1 })),
 
   setPendingInput: (paneId, text) =>
     set((s) => ({ pendingInput: { ...s.pendingInput, [paneId]: text } })),
@@ -1303,5 +1349,10 @@ export const useStore = create<Store>((set, get) => ({
     get().patchBlock(paneId, blockId, { collapsed: !block.collapsed })
   },
 
-  clearBlocks: (paneId) => get().patchPane(paneId, { blocks: [] })
+  // Forgotten on disk as well as on screen. A Clear that left them to come back at
+  // the next launch would be a strange kind of clear.
+  clearBlocks: (paneId) => {
+    window.ember.clearBlocks(paneId)
+    get().patchPane(paneId, { blocks: [] })
+  }
 }))

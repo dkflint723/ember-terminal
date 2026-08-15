@@ -262,6 +262,54 @@ export function TitleBar(): React.JSX.Element {
         relying on the tooltip.
       */}
       <div className="titlebar__layout">
+        {/*
+          The switch the app is built around, and until now the only one with no
+          button: it lived on Ctrl+Shift+I and a palette entry, so a window that had
+          become an IDE stayed one — closing the file you opened left two thirds of
+          the screen saying "No files open" with nothing offering the way back, and
+          people restarted the app to get their terminal.
+
+          Named rather than drawn. The three beside it toggle regions and can share
+          one picture with a different part shaded; this changes what the window is,
+          which is worth a word.
+        */}
+        <button
+          className={`titlebar__mode ${mode === 'ide' ? 'titlebar__mode--ide' : ''}`}
+          aria-label={mode === 'ide' ? 'Back to the terminal' : 'Turn into an IDE'}
+          title={`${mode === 'ide' ? 'Back to the terminal' : 'Turn into an IDE'} (Ctrl+Shift+I)`}
+          onClick={() => useStore.getState().setMode()}
+        >
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+            {mode === 'ide' ? (
+              // A prompt, meaning the thing you get back.
+              <path
+                d="M3.4 4.6 7 8l-3.6 3.4M8.6 11.6h4.2"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ) : (
+              // A window with a sidebar and a panel: the shape it turns into.
+              <>
+                <rect
+                  x="1.6"
+                  y="2.6"
+                  width="12.8"
+                  height="10.8"
+                  rx="1.6"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                />
+                <path d="M5.8 2.6v10.8M5.8 10.2h8.6" stroke="currentColor" strokeWidth="1.3" />
+              </>
+            )}
+          </svg>
+          {mode === 'ide' ? 'Terminal' : 'IDE'}
+        </button>
+        <div className="titlebar__sep" aria-hidden="true" />
         {REGIONS.map((r) => (
           <button
             key={r.id}

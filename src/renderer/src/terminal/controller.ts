@@ -485,6 +485,30 @@ export class TerminalController {
         startedAt: block.startedAt,
         output: el.innerText
       })
+
+      /*
+       * And keep the block itself, so the pane comes back holding it.
+       *
+       * Written as each command finishes rather than as the app closes: a session
+       * that ends in a crash or a Windows restart is exactly the one whose blocks
+       * are worth having, and it costs one small insert per command. Off when the
+       * user has switched session restore off, which is the same bargain Warp
+       * offers — no restoring, and no recording either.
+       */
+      if (this.store().settings.restoreSession) {
+        window.ember.saveBlock(this.paneId, {
+          id: block.id,
+          command: block.command,
+          output,
+          status: exitCode === 0 ? 'done' : 'failed',
+          exitCode,
+          cwd: block.cwd,
+          startedAt: block.startedAt,
+          durationMs,
+          interactive,
+          collapsed: block.collapsed
+        })
+      }
     }
 
     // Reset the live view so the next command starts on a clean screen. Deferred

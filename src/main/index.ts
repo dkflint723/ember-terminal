@@ -24,6 +24,7 @@ import {
   type CompletionRequest,
   type HistoryQuery,
   type HistoryRecord,
+  type PersistedBlock,
   type ReplaceRequest,
   type Settings,
   type SpawnRequest
@@ -349,6 +350,12 @@ function registerIpc(): void {
   ipcMain.handle('completion:request', (_e, req: CompletionRequest) => completion.complete(req))
 
   ipcMain.on('history:record', (_e, entry: HistoryRecord) => history.record(entry))
+  ipcMain.on('blocks:save', (_e, paneId: string, block: PersistedBlock) =>
+    history.saveBlock(paneId, block)
+  )
+  ipcMain.handle('blocks:load', (_e, paneIds: string[]) => history.loadBlocks(paneIds))
+  ipcMain.on('blocks:clear', (_e, paneId: string) => history.clearBlocks(paneId))
+  ipcMain.on('blocks:keep', (_e, paneIds: string[]) => history.keepOnlyBlocksFor(paneIds))
   ipcMain.handle('history:search', (_e, query: HistoryQuery) => history.search(query))
   ipcMain.handle('history:suggest', (_e, prefix: string, cwd: string) =>
     history.suggest(prefix, cwd)

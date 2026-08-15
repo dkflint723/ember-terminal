@@ -348,6 +348,25 @@ export function App(): React.JSX.Element {
           s.closePane(tab.id, tab.activePaneId)
           return
         }
+        /*
+         * Clear this pane's blocks, on the binding Warp uses on Windows.
+         *
+         * Blocks outlive the app now, so there has to be a way to say "not any
+         * more" that does not mean deleting a database by hand. It targets a
+         * terminal: pressed with an editor focused it takes the tab's first shell,
+         * because "clear" from a pane that has nothing to clear should still mean
+         * something.
+         */
+        if (key === 'k' && tab) {
+          e.preventDefault()
+          const here = s.panes[tab.activePaneId]
+          const target =
+            here?.kind === 'terminal'
+              ? here.id
+              : Object.values(s.panes).find((p) => p.kind === 'terminal')?.id
+          if (target) s.clearBlocks(target)
+          return
+        }
         // Windows Terminal uses Alt+Shift+= / Alt+Shift+- ; these are the
         // equivalents that do not collide with shell shortcuts.
         if (key === 'd' && tab) {

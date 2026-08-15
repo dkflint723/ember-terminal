@@ -12,10 +12,13 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
+import * as fs from 'node:fs'
 import * as http from 'node:http'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
+const SHOT_DIR = process.env.SCREENSHOT_DIR || path.join(APP_DIR, '.shots')
+fs.mkdirSync(SHOT_DIR, { recursive: true })
 const profile = newProfile('ai')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -155,7 +158,112 @@ if (first) {
     JSON.stringify(first.body?.messages ?? '').includes('find all log files'),
     JSON.stringify(first.body?.messages ?? null).slice(0, 120)
   )
+  check('it names the model in effect', first.body?.model === 'claude-opus-5', String(first.body?.model))
+  check(
+    'and the effort it was set to',
+    first.body?.output_config?.effort === 'low',
+    JSON.stringify(first.body?.output_config ?? null)
+  )
 }
+
+/*
+ * --- switching model and effort ----------------------------------------------
+ *
+ * Both lived where they could not be reached mid-question: the model as a text box
+ * in the settings dialog, the effort as a constant in main. Asserted through the
+ * stub rather than through the chip's own label, because the only thing that
+ * matters is what the next request actually asks for.
+ */
+await dismiss()
+const chip = () =>
+  page.evaluate(() => ({
+    label: document.querySelector('.chip--claude')?.textContent?.trim() ?? null,
+    open: !!document.querySelector('.claude__menu'),
+    // Which rows the menu will not let you pick.
+    disabledEfforts: Array.from(document.querySelectorAll('.claude__menu .claude__item'))
+      .filter((b) => b.disabled)
+      .map((b) => b.querySelector('.claude__name')?.textContent ?? '')
+  }))
+
+const pick = async (name) => {
+  if (!(await chip()).open) {
+    await page.click('.chip--claude')
+    await sleep(400)
+  }
+  await page.locator('.claude__item', { hasText: new RegExp(`^${name}`) }).first().click()
+  await sleep(700)
+}
+
+await page.click('.chip--claude')
+await sleep(500)
+await page.screenshot({ path: path.join(SHOT_DIR, '75-claude-switcher.png') })
+
+const before = await chip()
+check('the switcher says what is in effect', before.label?.includes('Opus 5') === true, before.label)
+check('including the effort', before.label?.includes('low') === true, before.label)
+
+await pick('Sonnet 5')
+await pick('xhigh')
+const after = await chip()
+check('picking a model shows it', after.label?.includes('Sonnet 5') === true, after.label)
+check('picking an effort shows it', after.label?.includes('xhigh') === true, after.label)
+await page.keyboard.press('Escape')
+await sleep(300)
+
+reply = {
+  status: 200,
+  body: message(
+    JSON.stringify({ command: 'Get-Date', note: 'Prints the time.', destructive: false })
+  )
+}
+await ask('what time is it')
+const switched = received[received.length - 1]
+check('the next request uses the model picked', switched?.body?.model === 'claude-sonnet-5', String(switched?.body?.model))
+check(
+  'and the effort picked',
+  switched?.body?.output_config?.effort === 'xhigh',
+  JSON.stringify(switched?.body?.output_config ?? null)
+)
+
+// A model that takes no effort level must not be sent one — that is a 400, not a
+// setting the API ignores.
+await dismiss()
+await pick('Haiku 4.5')
+const haiku = await chip()
+check(
+  'a model without effort control greys the levels out',
+  haiku.disabledEfforts.includes('xhigh'),
+  JSON.stringify(haiku.disabledEfforts)
+)
+check('and stops claiming one', haiku.label?.includes('xhigh') !== true, haiku.label)
+await page.keyboard.press('Escape')
+await sleep(300)
+
+reply = {
+  status: 200,
+  body: message(
+    JSON.stringify({ command: 'Get-Location', note: 'Prints the directory.', destructive: false })
+  )
+}
+await ask('where am i')
+const noEffort = received[received.length - 1]
+check('so no effort is sent for it', noEffort?.body?.output_config?.effort === undefined, JSON.stringify(noEffort?.body?.output_config ?? null))
+check('though the model still is', noEffort?.body?.model === 'claude-haiku-4-5', String(noEffort?.body?.model))
+
+// Back to the default, and openable from the palette as well as the chip.
+await dismiss()
+await pick('Opus 5')
+await page.keyboard.press('Escape')
+await sleep(300)
+await page.keyboard.press('Control+Shift+P')
+await page.waitForSelector('.qp__box', { timeout: 10_000 })
+await page.locator('.qp__box').fill('model and effort')
+await sleep(400)
+await page.keyboard.press('Enter')
+await sleep(700)
+check('the palette opens the switcher too', (await chip()).open === true)
+await page.keyboard.press('Escape')
+await sleep(300)
 
 // --- a destructive command is marked ------------------------------------------
 await dismiss()

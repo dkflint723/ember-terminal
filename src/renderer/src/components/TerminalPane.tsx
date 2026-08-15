@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useRef } from 'react'
-import { useStore, type TerminalPaneState } from '../state/store'
+import { Fragment, useEffect, useLayoutEffect, useRef } from 'react'
+import { useStore, type Block, type TerminalPaneState } from '../state/store'
 import { getController } from '../terminal/controller'
 import { BlockView } from './BlockView'
 import { InputEditor } from './InputEditor'
@@ -10,6 +10,21 @@ interface Props {
   onFocus: () => void
 }
 
+/**
+ * When the restored run happened, in the form a person would say it.
+ *
+ * The last restored block rather than the first: the mark sits above them all and
+ * what someone wants to know is when they were last here, not when that stretch of
+ * work began.
+ */
+function whenRan(blocks: Block[]): string {
+  const last = [...blocks].reverse().find((b) => b.restored)
+  if (!last) return 'earlier'
+  const at = new Date(last.startedAt)
+  const day = at.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+  return `${day} at ${at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
+}
+
 export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Element {
   const termHost = useRef<HTMLDivElement>(null)
   const liveWrap = useRef<HTMLDivElement>(null)
@@ -18,6 +33,7 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
   const fontFamily = useStore((s) => s.settings.fontFamily)
   const fontSize = useStore((s) => s.settings.fontSize)
   const palette = useStore((s) => s.theme.terminal)
+  const mode = useStore((s) => s.mode)
   const profileName = useStore((s) => s.profiles.find((p) => p.id === pane.profileId)?.name)
 
   // The controller is created once per pane; later font and theme changes go
@@ -29,6 +45,24 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
   // has no blocks to show. Both present as an ordinary terminal.
   const plain = pane.integration === 'absent'
   const raw = pane.mode === 'raw' || plain
+
+  /*
+   * Blocks when the terminal is the app; one continuous stream when it is a panel.
+   *
+   * The two want opposite things from the same session. With the whole window, a
+   * command is worth separating from the one before it — that is what the app is
+   * for. Dropped into the bottom third of an IDE it is not: every hairline and
+   * status glyph is height taken from the four lines actually being read, and the
+   * panel is where people expect a terminal to behave like a terminal.
+   *
+   * The stream is drawn from the same captured blocks rather than by handing the
+   * pane to the live terminal, because the live terminal is a window onto conpty's
+   * console buffer and not a record: conpty repaints a small screen instead of
+   * scrolling it, so a pane rendered that way holds exactly one screenful and
+   * scrolls back to nothing. The captures are where this app's history actually
+   * lives, so the stream is those, with the furniture taken off.
+   */
+  const stream = mode === 'ide' && !raw
   const running = !plain && pane.blocks.at(-1)?.status === 'running'
 
   useLayoutEffect(() => {
@@ -93,26 +127,31 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
       data-integration={pane.integration}
     >
       {!raw && (
-        <div className="pane__scroll" ref={scroller}>
+        <div className={`pane__scroll ${stream ? 'pane__scroll--stream' : ''}`} ref={scroller}>
+          {/*
+            An aside, not a block. These borrowed a block's chrome, which stopped
+            being free once blocks became a hairline list: an empty pane drew a
+            separator and a status rule under a command that never ran.
+          */}
           {pane.blocks.length === 0 && pane.integration === 'pending' && (
-            <div className="block">
-              <div className="block__body block__body--empty">
-                Starting shell… command blocks appear once shell integration loads.
-              </div>
+            <div className="pane__note">
+              Starting shell… command blocks appear once shell integration loads.
             </div>
           )}
           {/* Once the shell is up and nothing has been run, the pane was simply
               blank — which says nothing about what this app does differently, or
               that there is an editor and a workspace a keystroke away. */}
           {pane.blocks.length === 0 && pane.integration === 'ready' && (
-            <div className="block">
-              <div className="block__body block__body--empty">
+            <div className="pane__note">
+              <div>
                 <div>Run a command — each one becomes a block with its exit code and timing.</div>
                 <div className="pane__hints">
                   {/* First, because it is the thing this app does that a terminal
-                      does not, and nothing else on screen hints that it can. */}
+                      does not. It said "turn into an IDE" in both modes, which is
+                      the wrong half of the sentence to read while already in one. */}
                   <span>
-                    <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>I</kbd> turn into an IDE
+                    <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>I</kbd>{' '}
+                    {mode === 'ide' ? 'back to the terminal' : 'turn into an IDE'}
                   </span>
                   <span>
                     <kbd>Ctrl</kbd> <kbd>K</kbd> ask Claude for a command
@@ -130,13 +169,30 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
               </div>
             </div>
           )}
-          {pane.blocks.map((b) => (
-            <BlockView
-              key={b.id}
-              block={b}
-              onToggle={() => toggleBlock(pane.id, b.id)}
-              onRerun={rerun}
-            />
+          {pane.blocks.map((b, i) => (
+            <Fragment key={b.id}>
+              {/*
+                Where the last session ended.
+
+                Restored blocks are real records — the command ran, the exit code is
+                its own — but they are not this session, and a pane that opens
+                already holding output owes the reader that sentence. Drawn once, at
+                the boundary, rather than as a mark on every block.
+              */}
+              {b.restored && i === 0 && (
+                <div className="blocks__mark">
+                  Previous session from {whenRan(pane.blocks)}
+                </div>
+              )}
+              {!b.restored && pane.blocks[i - 1]?.restored && (
+                <div className="blocks__mark blocks__mark--now">This session</div>
+              )}
+              <BlockView
+                block={b}
+                onToggle={() => toggleBlock(pane.id, b.id)}
+                onRerun={rerun}
+              />
+            </Fragment>
           ))}
         </div>
       )}

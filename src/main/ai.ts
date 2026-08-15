@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { AiCredential, AiRequest, AiResponse } from '../shared/types.js'
+import { supportsEffort } from '../shared/models.js'
 import type { SettingsStore } from './settings.js'
 import type { ClaudeCliService } from './claude-cli.js'
 
@@ -20,13 +21,15 @@ const JSON_INSTRUCTION = [
   '  destructive  boolean  true when it deletes, overwrites, or is otherwise hard to undo'
 ].join('\n')
 
-/**
- * Command generation is latency-sensitive and produces a couple of lines of
- * output, so we run adaptive thinking at low effort. (Disabling thinking outright
- * on Opus 5 risks leaking `<thinking>` tags into the visible response, and low
- * effort already gets most of the token and latency saving.)
+/*
+ * Thinking is always adaptive; how much of it is the user's setting.
+ *
+ * Low is the default because the request this app makes most often is a single
+ * command line, where the wait is the thing being felt. (Disabling thinking
+ * outright on Opus 5 risks leaking `<thinking>` tags into the visible response,
+ * and low effort already gets most of the token and latency saving.) The switcher
+ * beside the prompt raises it for the questions that are worth waiting for.
  */
-const EFFORT = 'low'
 
 /**
  * `max_tokens` caps thinking plus response text together, so this is deliberately
@@ -263,7 +266,10 @@ export class AiService {
           ? chatSystemPrompt(req.shell, req.cwd)
           : explainSystemPrompt(req.shell)
 
-    const outputConfig: Record<string, unknown> = { effort: EFFORT }
+    const outputConfig: Record<string, unknown> = {}
+    // Sent only where it is accepted: a model that takes no effort level rejects
+    // the whole request rather than ignoring the field.
+    if (supportsEffort(model)) outputConfig.effort = this.settings.get().aiEffort
     if (req.mode === 'command') {
       outputConfig.format = { type: 'json_schema', schema: COMMAND_SCHEMA }
     }

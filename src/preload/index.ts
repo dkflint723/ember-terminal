@@ -12,6 +12,7 @@ import type {
   SearchQuery,
   SessionSnapshot,
   HistoryRecord,
+  PersistedBlock,
   AiResponse,
   EmberApi,
   PtyDataEvent,
@@ -100,6 +101,11 @@ const api: EmberApi = {
   complete: (req: CompletionRequest) => ipcRenderer.invoke('completion:request', req),
   recordHistory: (entry: HistoryRecord) => ipcRenderer.send('history:record', entry),
   searchHistory: (query: HistoryQuery) => ipcRenderer.invoke('history:search', query),
+  saveBlock: (paneId: string, block: PersistedBlock) =>
+    ipcRenderer.send('blocks:save', paneId, block),
+  loadBlocks: (paneIds: string[]) => ipcRenderer.invoke('blocks:load', paneIds),
+  clearBlocks: (paneId: string) => ipcRenderer.send('blocks:clear', paneId),
+  keepBlocksFor: (paneIds: string[]) => ipcRenderer.send('blocks:keep', paneIds),
   suggestHistory: (prefix: string, cwd: string) =>
     ipcRenderer.invoke('history:suggest', prefix, cwd),
   listThemes: () => ipcRenderer.invoke('themes:list'),

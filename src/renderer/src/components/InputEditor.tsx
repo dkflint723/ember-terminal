@@ -3,7 +3,9 @@ import type { AiResponse, CompletionItem, CompletionResult } from '@shared/types
 import { commonPrefix } from '@shared/completion'
 import type { TerminalController } from '../terminal/controller'
 import { useStore, type TerminalPaneState } from '../state/store'
-import { isInside, samePath } from '@shared/paths'
+import { isInside, pathKey, samePath } from '@shared/paths'
+import { refreshGitForCwd } from '../state/git'
+import { ClaudeChip } from './ClaudeChip'
 
 interface Props {
   pane: TerminalPaneState
@@ -47,19 +49,34 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
   /*
    * The repository this pane is standing in, for the chips.
    *
-   * Read from the status the app already polls rather than asked for again, and
-   * only claimed when the pane's directory is actually inside that repository —
-   * a second terminal somewhere else must not be labelled with this branch.
+   * Two sources, in that order. The workspace status is already polled and already
+   * describes this directory whenever the pane sits inside the open folder, so it
+   * costs nothing to use. Everything else — a shell cd'd into some other project,
+   * or a plain terminal session with no folder open at all — is read for the
+   * directory itself. Without that second source the chips only ever appeared for
+   * people who had opened a folder, which is the opposite of who wants them.
    */
-  const gitStatus = useStore((s) => s.gitStatus)
-  const inRepo = gitStatus ? isInside(gitStatus.root, pane.cwd) || samePath(gitStatus.root, pane.cwd) : false
-  const branch = inRepo ? (gitStatus!.detached ? 'detached' : gitStatus!.branch) : null
-  const changeCount = inRepo
+  const workspaceGit = useStore((s) => s.gitStatus)
+  const cwdGit = useStore((s) => s.cwdGit[pathKey(pane.cwd)])
+  const inWorkspace = workspaceGit
+    ? isInside(workspaceGit.root, pane.cwd) || samePath(workspaceGit.root, pane.cwd)
+    : false
+  const gitStatus = inWorkspace ? workspaceGit : (cwdGit ?? null)
+
+  // A shell that has moved is asked about straight away rather than at the next
+  // tick: cd'ing into a project and seeing the branch a beat later is fine, seeing
+  // the last project's branch is not.
+  useEffect(() => {
+    void refreshGitForCwd(pane.cwd)
+  }, [pane.cwd])
+
+  const branch = gitStatus ? (gitStatus.detached ? 'detached' : gitStatus.branch) : null
+  const changeCount = gitStatus
     ? new Set(
-        [...gitStatus!.staged, ...gitStatus!.changes, ...gitStatus!.conflicts].map((c) => c.path)
+        [...gitStatus.staged, ...gitStatus.changes, ...gitStatus.conflicts].map((c) => c.path)
       ).size
     : null
-  const upstreamHint = inRepo ? (gitStatus!.upstream ?? 'No upstream') : null
+  const upstreamHint = gitStatus ? (gitStatus.upstream ?? 'No upstream') : null
   const [completion, setCompletion] = useState<{ result: CompletionResult; index: number } | null>(
     null
   )
@@ -430,6 +447,10 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
             ± {changeCount}
           </span>
         )}
+        {/* Pushed to the end of the strip: where you are comes first, and this is
+            the one chip that is a control rather than a report. */}
+        <span className="composer__gap" />
+        <ClaudeChip />
         {pane.integration === 'pending' && (
           <span className="composer__badge" title="Waiting for the shell to report a prompt">
             starting…

@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import type { GitFileChange } from '@shared/types'
+import { isInside } from '@shared/paths'
 import { useStore } from './store'
 
 /**
@@ -54,6 +55,40 @@ export async function refreshGitStatus(): Promise<void> {
 }
 
 /**
+ * The repository a shell is standing in, which is not always the workspace.
+ *
+ * The composer's branch and change count came from the workspace status alone, so
+ * they appeared only when a folder had been opened and the pane happened to sit
+ * inside it. That is exactly backwards for a terminal: someone who cds into a
+ * repository wants to see the branch they are about to commit to, and in a plain
+ * terminal there is no workspace root at all, so the chips simply never appeared.
+ *
+ * Read per directory and cached by it, because several panes in one project are the
+ * normal case and they can share the answer.
+ */
+let pollingCwd = false
+
+export async function refreshGitForCwd(cwd: string): Promise<void> {
+  const { treeRoot, setCwdGit } = useStore.getState()
+  if (!cwd) return
+  // Inside the workspace the polled status already describes this directory, and
+  // asking git the same question twice per tick is the kind of waste that shows up
+  // as a fan spinning on a large repository.
+  if (treeRoot && isInside(treeRoot, cwd)) return
+  if (pollingCwd) return
+
+  pollingCwd = true
+  try {
+    const res = await window.ember.gitStatus(cwd)
+    // The pane may have been cd'd elsewhere while git was answering; the reply
+    // describes the directory it was asked about, so it is filed under that one.
+    setCwdGit(cwd, res.ok ? res.status : null)
+  } finally {
+    pollingCwd = false
+  }
+}
+
+/**
  * Drive the polling. Mounted once, at the app root, because the explorer's
  * decorations need the status whether or not the source-control view is open — and
  * because two components each running their own interval would double the work and
@@ -66,7 +101,14 @@ export function useGitStatusPolling(): void {
     void refreshGitStatus()
 
     const tick = (): void => {
-      if (document.visibilityState === 'visible') void refreshGitStatus()
+      if (document.visibilityState !== 'visible') return
+      void refreshGitStatus()
+      // Only the pane in front of the user: a window of eight shells should not
+      // mean eight git processes every three seconds.
+      const s = useStore.getState()
+      const tab = s.tabs.find((t) => t.id === s.activeTabId)
+      const pane = tab ? s.panes[tab.activePaneId] : undefined
+      if (pane?.kind === 'terminal') void refreshGitForCwd(pane.cwd)
     }
     const timer = window.setInterval(tick, POLL_MS)
 

@@ -37,6 +37,64 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
 
+const failures = []
+const check = (label, ok, detail) => {
+  if (!ok) failures.push(`${label}${detail !== undefined ? ` — ${detail}` : ''}`)
+}
+
+/*
+ * --- the shell's own repository, with no folder open -------------------------
+ *
+ * The branch and change-count chips used to come from the workspace status alone,
+ * so they appeared only for someone who had opened a folder and whose shell
+ * happened to sit inside it. A terminal is the case that matters: launched bare,
+ * cd'd into a project, wanting to know what it is about to commit to. This runs on
+ * its own profile so the session it writes cannot disturb the checks below.
+ */
+{
+  const bare = newProfile('git-cwd')
+  const app = await electron.launch({
+    executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
+    args: [APP_DIR, bare.arg],
+    cwd: APP_DIR,
+    env,
+    timeout: 60_000
+  })
+  const page = await app.firstWindow()
+  await placeTopRight(app)
+  await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
+  await sleep(1500)
+
+  const chips = () =>
+    page.evaluate(() => ({
+      branch: document.querySelector('.chip--branch')?.textContent?.trim() ?? null,
+      changes: document.querySelector('.chip--changes')?.textContent?.trim() ?? null,
+      workspace: !!document.querySelector('.sidebar')
+    }))
+
+  const before = await chips()
+  check('a terminal outside a repository shows no branch', before.branch === null, before.branch)
+
+  await page.click('.composer__input')
+  await page.keyboard.type(`cd "${repo}"`, { delay: 10 })
+  await page.keyboard.press('Enter')
+  await sleep(4000)
+
+  const after = await chips()
+  check('cd into a repository shows its branch', after.branch === 'main', after.branch)
+  check(
+    'and how much is uncommitted',
+    (after.changes ?? '').replace(/\s/g, '') === '±2',
+    after.changes
+  )
+  check('with no folder opened to make it happen', after.workspace === false)
+  await page.screenshot({ path: path.join(SHOT_DIR, '71-git-cwd-chips.png') })
+
+  await app.close()
+  await sleep(800)
+  bare.cleanup()
+}
+
 const app = await electron.launch({
   executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
   args: [APP_DIR, profile.arg, path.join(repo, 'tracked.ts')],
@@ -63,11 +121,6 @@ page.on('console', (m) => {
 await page.waitForSelector('.monaco-editor', { timeout: 30_000 })
 // Discarding prompts for confirmation; the harness always agrees.
 page.on('dialog', (d) => void d.accept())
-
-const failures = []
-const check = (label, condition, detail) => {
-  if (!condition) failures.push(`${label}${detail ? ` — ${detail}` : ''}`)
-}
 
 // --- the activity bar is present with the sidebar closed -------------------
 // Asserted as "has a source control entry" rather than a count: this check exists

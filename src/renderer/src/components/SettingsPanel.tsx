@@ -425,6 +425,13 @@ export function SettingsPanel(): React.JSX.Element | null {
             onChange={(e) => field('aiModel', e.target.value)}
             spellCheck={false}
           />
+          {/* The switcher beside the prompt is the way in for the models on the
+              list; this field stays because it takes any id, including one newer
+              than this build knows about. */}
+          <div className="field__note">
+            Takes any model id. The ✦ chip beside the prompt switches between the
+            usual ones — and sets how hard Claude thinks — without coming here.
+          </div>
         </div>
 
         {/* Claude access, shown as what is actually in effect rather than as a field

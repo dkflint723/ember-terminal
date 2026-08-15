@@ -1,6 +1,7 @@
 /** Types shared across main, preload, and renderer. */
 
 import type { ResolvedTheme, ThemeSummary } from './theme.js'
+import type { AiEffort } from './models.js'
 
 export interface ShellProfile {
   id: string
@@ -89,6 +90,29 @@ export interface HistoryRecord {
   startedAt: number
   /** Plain text, stored to make history searchable rather than replayable. */
   output: string
+}
+
+/**
+ * A finished block, kept so a pane comes back with its commands still in it.
+ *
+ * Separate from HistoryRecord even though both describe a command, because they
+ * answer different questions: history is plain text so it can be searched across
+ * every session, and this is the block's rendered output so the pane can be put
+ * back the way the user left it. Only finished commands are stored — a block still
+ * running when the app closed would come back looking live forever.
+ */
+export interface PersistedBlock {
+  id: string
+  command: string
+  /** Serialized HTML, as the block rendered it. */
+  output: string
+  status: 'done' | 'failed'
+  exitCode: number | null
+  cwd: string
+  startedAt: number
+  durationMs: number | null
+  interactive: boolean
+  collapsed: boolean
 }
 
 export interface HistoryEntry {
@@ -384,6 +408,13 @@ export interface Settings {
    */
   anthropicApiKey: string | null
   aiModel: string
+  /**
+   * How hard Claude thinks before answering. Low by default because the request
+   * this app makes most often is one command line, where the wait is the thing
+   * being felt — the switcher beside the prompt is there to raise it for the
+   * questions that deserve it.
+   */
+  aiEffort: AiEffort
   /** Put the last window's tabs, splits and open files back on launch. */
   restoreSession: boolean
   /**
@@ -418,6 +449,7 @@ export const DEFAULT_SETTINGS: Settings = {
   themeId: 'ember-deep',
   anthropicApiKey: null,
   aiModel: 'claude-opus-5',
+  aiEffort: 'low',
   restoreSession: true,
   notifyAfterSeconds: 10,
   autoSaveAfterSeconds: 0,
@@ -489,6 +521,14 @@ export interface EmberApi {
   complete(req: CompletionRequest): Promise<CompletionResult>
   recordHistory(entry: HistoryRecord): void
   searchHistory(query: HistoryQuery): Promise<HistoryEntry[]>
+  /** Keep a finished block, so its pane comes back holding it. */
+  saveBlock(paneId: string, block: PersistedBlock): void
+  /** The blocks belonging to these panes, oldest first. */
+  loadBlocks(paneIds: string[]): Promise<Record<string, PersistedBlock[]>>
+  /** Forget one pane's blocks — what Clear does, on disk as well as on screen. */
+  clearBlocks(paneId: string): void
+  /** Drop blocks belonging to panes that no longer exist. */
+  keepBlocksFor(paneIds: string[]): void
   suggestHistory(prefix: string, cwd: string): Promise<string | null>
   listThemes(): Promise<ThemeSummary[]>
   /** Null when the id names a theme that has since been removed. */
