@@ -1,8 +1,10 @@
 import { Fragment, useEffect, useLayoutEffect, useRef } from 'react'
 import { useStore, type Block, type TerminalPaneState } from '../state/store'
 import { getController } from '../terminal/controller'
+import { AgentBlock } from './AgentBlock'
 import { BlockView } from './BlockView'
 import { InputEditor } from './InputEditor'
+import { OverviewRuler, useBlockGeometry } from './OverviewRuler'
 
 interface Props {
   pane: TerminalPaneState
@@ -15,7 +17,8 @@ interface Props {
  *
  * The last restored block rather than the first: the mark sits above them all and
  * what someone wants to know is when they were last here, not when that stretch of
- * work began.
+ * work began. Both kinds of block carry `restored` and `startedAt`, so the mark
+ * reads the same whether the session ended on a command or on a question.
  */
 function whenRan(blocks: Block[]): string {
   const last = [...blocks].reverse().find((b) => b.restored)
@@ -30,6 +33,7 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
   const liveWrap = useRef<HTMLDivElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const toggleBlock = useStore((s) => s.toggleBlock)
+  const patchConversation = useStore((s) => s.patchConversation)
   const fontFamily = useStore((s) => s.settings.fontFamily)
   const fontSize = useStore((s) => s.settings.fontSize)
   const palette = useStore((s) => s.theme.terminal)
@@ -63,7 +67,17 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
    * lives, so the stream is those, with the furniture taken off.
    */
   const stream = mode === 'ide' && !raw
-  const running = !plain && pane.blocks.at(-1)?.status === 'running'
+
+  /*
+   * Only a command can be running.
+   *
+   * This drives the strip of live terminal and the scroll-to-bottom, so it has to
+   * mean "a program has the pty", not "the list ends in something recent". A
+   * conversation block is the other kind now — nothing is attached to it — and it
+   * has no status to read at all.
+   */
+  const last = pane.blocks.at(-1)
+  const running = !plain && last?.kind === 'command' && last.status === 'running'
 
   useLayoutEffect(() => {
     if (termHost.current) controller.attach(termHost.current)
@@ -118,6 +132,11 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
     if (command.trim().length > 0) controller.runCommand(command)
   }
 
+  // Where the blocks sit, for the ruler down the right edge and for knowing which
+  // head is pinned. Measured from the DOM, so it follows wrapping and collapsing
+  // without either of them having to report anything.
+  const geometry = useBlockGeometry(scroller, pane.blocks)
+
   return (
     <div
       className={`pane ${active ? 'pane--active' : ''}`}
@@ -127,6 +146,7 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
       data-integration={pane.integration}
     >
       {!raw && (
+        <div className="pane__body">
         <div className={`pane__scroll ${stream ? 'pane__scroll--stream' : ''}`} ref={scroller}>
           {/*
             An aside, not a block. These borrowed a block's chrome, which stopped
@@ -187,13 +207,35 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
               {!b.restored && pane.blocks[i - 1]?.restored && (
                 <div className="blocks__mark blocks__mark--now">This session</div>
               )}
-              <BlockView
-                block={b}
-                onToggle={() => toggleBlock(pane.id, b.id)}
-                onRerun={rerun}
-              />
+              {b.kind === 'conversation' ? (
+                <AgentBlock
+                  block={b}
+                  stuck={b.id === geometry.stuckId}
+                  onToggle={() => toggleBlock(pane.id, b.id)}
+                  onRun={(command) => {
+                    patchConversation(pane.id, b.id, {
+                      proposal: b.proposal ? { ...b.proposal, state: 'run' } : null
+                    })
+                    rerun(command)
+                  }}
+                  onDismiss={() =>
+                    patchConversation(pane.id, b.id, {
+                      proposal: b.proposal ? { ...b.proposal, state: 'dismissed' } : null
+                    })
+                  }
+                />
+              ) : (
+                <BlockView
+                  block={b}
+                  stuck={b.id === geometry.stuckId}
+                  onToggle={() => toggleBlock(pane.id, b.id)}
+                  onRerun={rerun}
+                />
+              )}
             </Fragment>
           ))}
+        </div>
+        <OverviewRuler geometry={geometry} scroller={scroller} />
         </div>
       )}
 

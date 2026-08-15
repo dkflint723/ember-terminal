@@ -96,21 +96,41 @@ await sleep(600)
 await page.keyboard.type('list files in the current directory', { delay: 5 })
 await page.keyboard.press('Enter')
 
+// The answer lands in the block list rather than in the composer — one question is
+// asked, so the one conversation in the list is the one to read. Waited on the
+// proposal itself, not merely on the block settling, because a proposal is what
+// this is here to prove came back.
+const conversation = page.locator('.block--agent').last()
+/** Read an element out of the conversation, or null when it is not there. */
+const inBlock = async (sel) =>
+  (await conversation.locator(sel).count()) > 0
+    ? await conversation.locator(sel).first().textContent()
+    : null
+
 let settled = false
+let failed = null
 for (let i = 0; i < 90; i++) {
   await sleep(1000)
-  if ((await page.locator('.composer__proposal').count()) > 0) {
+  if ((await conversation.locator('.proposal').count()) > 0) {
     settled = true
     break
   }
+  // A failure is a settled answer too, and waiting out the remaining minute for a
+  // proposal that is never coming only delays reporting the reason.
+  failed = await inBlock('.block__answer-error')
+  if (failed !== null) break
 }
-check('a proposal comes back without any API key', settled, 'timed out waiting for a reply')
+check(
+  'a proposal comes back without any API key',
+  settled,
+  failed ?? 'timed out waiting for a reply'
+)
 
 if (settled) {
-  const error = await page.locator('.composer__error').textContent().catch(() => null)
+  const error = await inBlock('.block__answer-error')
   check('and it is not an error', error === null, String(error))
 
-  const command = await page.locator('.composer__proposal-cmd').textContent().catch(() => null)
+  const command = await inBlock('.proposal__body')
   // The JSON comes back fenced from this path, so a command appearing at all is the
   // proof that the unwrapping works — a raw fenced blob would fail to parse.
   check('the command parsed out of the reply', (command ?? '').trim().length > 0, String(command))

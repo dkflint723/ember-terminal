@@ -18,6 +18,25 @@ export function samePath(a: string | null | undefined, b: string | null | undefi
   return pathKey(a) === pathKey(b)
 }
 
+/**
+ * A path short enough to sit in a strip of chrome, keeping the end.
+ *
+ * Truncating from the right would leave every one reading the same few drive
+ * letters, so this drops the head and marks it with an ellipsis.
+ */
+export function shortenPath(full: string, keep = 34): string {
+  const clean = full.replace(/[\\/]+$/, '')
+  if (clean.length <= keep) return clean
+  const parts = clean.split(/[\\/]/)
+  let out = parts[parts.length - 1] ?? clean
+  for (let i = parts.length - 2; i >= 0; i--) {
+    const next = `${parts[i]}\\${out}`
+    if (next.length > keep) break
+    out = next
+  }
+  return `…${out.startsWith('\\') ? '' : '\\'}${out}`
+}
+
 /** Whether `child` is `parent` itself or something inside it. */
 export function isInside(parent: string, child: string): boolean {
   const p = pathKey(parent).replace(/\/$/, '')

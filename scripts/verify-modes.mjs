@@ -74,7 +74,9 @@ const view = () =>
       mode: document.querySelector('.workspace')?.getAttribute('data-mode'),
       shells: document.querySelectorAll('.region--shells .pane').length,
       editors: document.querySelectorAll('.region--editors .pane.editor').length,
-      claude: document.querySelectorAll('.region--secondary .claude').length,
+      // Reaching Claude is a composer state now, not a region: there is nothing on
+      // the right to count any more.
+      asking: document.querySelectorAll('.composer__row--ai').length,
       panelBar: document.querySelectorAll('.panel__bar').length,
       blocks: document.querySelectorAll('.block').length,
       // The button that says what the window is and turns it into the other thing.
@@ -160,13 +162,35 @@ const opened = await view()
 check('a file opens in the editor area', opened.editors === 1, JSON.stringify(opened))
 check('and the shell stays in the panel', opened.shells >= 1, JSON.stringify(opened))
 
-// --- Claude on the right ------------------------------------------------------
+/*
+ * --- reaching Claude ----------------------------------------------------------
+ *
+ * The chord used to open a sidebar on the right; the sidebar is gone and the agent
+ * is a block in the list, so it points the active shell's composer at Claude
+ * instead. Pressed from here, with an editor focused, which is the case worth
+ * proving: the chord has to find a shell to ask from, and this is the only test
+ * where the focused pane is not one.
+ *
+ * It sets asking rather than toggling it, which is the half worth a check of its
+ * own. The composer classifies what is typed now, so a chord meaning "ask Claude"
+ * that flipped whatever was in effect would take you away from the agent exactly
+ * when the buffer already read as a question — and pressing it twice, which is what
+ * people do when the first press is not obviously visible, used to undo itself.
+ * Ctrl+K is the one that flips a reading, so Ctrl+K is what comes back.
+ */
+check('nothing is asking to begin with', (await view()).asking === 0)
 await page.keyboard.press('Control+Shift+B')
 await sleep(1200)
-check('Ctrl+Shift+B opens Claude', (await view()).claude === 1)
+const asked = await view()
+check('Ctrl+Shift+B points the composer at Claude', asked.asking === 1, JSON.stringify(asked))
 await page.keyboard.press('Control+Shift+B')
 await sleep(900)
-check('and closes it again', (await view()).claude === 0)
+const again = await view()
+check('and pressing it again leaves it pointed there', again.asking === 1, JSON.stringify(again))
+await page.keyboard.press('Control+K')
+await sleep(900)
+const unasked = await view()
+check('while Ctrl+K flips it back to the shell', unasked.asking === 0, JSON.stringify(unasked))
 
 // --- the panel toggles --------------------------------------------------------
 await page.keyboard.press('Control+j')

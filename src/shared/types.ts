@@ -38,8 +38,24 @@ export interface AiRequest {
   /** Best-effort shell/OS context so the model emits a runnable command. */
   shell: string
   cwd: string
-  /** Recent failed command + output, when the user asks to explain an error. */
-  recent?: { command: string; output: string; exitCode: number }[]
+  /**
+   * Recent failed command + output, when the user asks to explain an error.
+   *
+   * `cwd` is where that command ran, which is not necessarily the `cwd` above: an
+   * attached block can predate a cd, or belong to another pane entirely. It is
+   * optional because a caller that has no directory to name — the chat path, which
+   * is about the work rather than one command — sends none, and a directory that
+   * was not collected is left out of the prompt rather than guessed at.
+   */
+  recent?: {
+    command: string
+    output: string
+    exitCode: number
+    cwd?: string
+    /** Whether `output` is a cut-down copy, which the model is told rather than left
+        to infer from a length that both sides happen to cap at the same number. */
+    elided?: boolean
+  }[]
   mode: 'command' | 'explain' | 'chat'
 }
 
@@ -93,7 +109,7 @@ export interface HistoryRecord {
 }
 
 /**
- * A finished block, kept so a pane comes back with its commands still in it.
+ * A finished command block, kept so a pane comes back with its commands still in it.
  *
  * Separate from HistoryRecord even though both describe a command, because they
  * answer different questions: history is plain text so it can be searched across
@@ -101,7 +117,14 @@ export interface HistoryRecord {
  * back the way the user left it. Only finished commands are stored — a block still
  * running when the app closed would come back looking live forever.
  */
-export interface PersistedBlock {
+export interface PersistedCommandBlock {
+  /**
+   * Optional rather than required, because every row written before conversations
+   * existed has no kind at all. Those rows are read as commands rather than
+   * rewritten: there are installs with blocks already stored, and the point of the
+   * table is that they survive.
+   */
+  kind?: 'command'
   id: string
   command: string
   /** Serialized HTML, as the block rendered it. */
@@ -114,6 +137,66 @@ export interface PersistedBlock {
   interactive: boolean
   collapsed: boolean
 }
+
+/** What the agent offered to do, and what was decided about it. */
+export interface PersistedProposal {
+  command: string
+  note: string
+  destructive: boolean
+  /**
+   * The decision, kept rather than the card being dropped once it is made. A
+   * conversation that comes back cannot offer to do a second time what was already
+   * done, because only `open` is the state that still has a Run button attached to
+   * it — and restoring a block runs nothing either way.
+   */
+  state: 'open' | 'run' | 'dismissed'
+}
+
+/**
+ * One block a question was asked about, kept so a restored conversation still says
+ * what it was about.
+ *
+ * The command is stored rather than looked up from the id later, because the block
+ * it names need not still exist: a pane keeps only its recent end, and Clear
+ * removes everything. An attachment that outlives its block is still a true record
+ * of what was asked — one that could only point at a row that has gone would leave
+ * the exchange looking like it came out of nowhere.
+ */
+export interface PersistedAttachment {
+  blockId: string
+  command: string
+  /** Whether the output sent with it was cut short, which the chip says out loud. */
+  elided: boolean
+}
+
+/**
+ * One exchange with the agent, kept for the reason a command block is: it is part
+ * of what happened in this pane, and the answer to "why did that fail" is worth as
+ * much tomorrow as the failure itself.
+ *
+ * `streaming` is deliberately absent. A request that was still arriving when the
+ * window closed is not still arriving now, so it is restored as false rather than
+ * stored — a block that came back mid-stream would say "Thinking…" for ever.
+ */
+export interface PersistedConversationBlock {
+  kind: 'conversation'
+  id: string
+  prompt: string
+  answer: string
+  /**
+   * Why the request failed, when it did. Stored because an answer and a failure
+   * are both empty in the `answer` column, and a failed exchange that came back
+   * indistinguishable from an empty one would read as still waiting.
+   */
+  error: string | null
+  proposal: PersistedProposal | null
+  /** The blocks the question was asked about; empty when it was asked about none. */
+  attached: PersistedAttachment[]
+  startedAt: number
+  collapsed: boolean
+}
+
+export type PersistedBlock = PersistedCommandBlock | PersistedConversationBlock
 
 export interface HistoryEntry {
   id: number

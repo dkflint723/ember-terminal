@@ -90,20 +90,44 @@ function parseTraffic(lines) {
 }
 
 /**
- * The server's response to the client's request of this method.
+ * Every response the server gave to a request of this method, in order.
  *
- * It is the first thing arriving *after* that request carrying the same id and no
- * method of its own. Searching by id alone instead matched PowerShell Editor
+ * A response is the first thing arriving *after* its request carrying the same id
+ * and no method of its own. Searching by id alone instead matched PowerShell Editor
  * Services' own `client/registerCapability`, which is a request rather than a
  * response and so has no result — a working server read as a failing one.
  */
+function answersTo(traffic, method) {
+  const out = []
+  for (let i = 0; i < traffic.length; i++) {
+    const request = traffic[i]
+    if (!request.fromClient || request.msg?.method !== method) continue
+    const answer = traffic
+      .slice(i + 1)
+      .find((t) => !t.fromClient && t.msg?.id === request.msg.id && t.msg?.method === undefined)?.msg
+    if (answer) out.push(answer)
+  }
+  return out
+}
+
+/** An answer that actually carries something. */
+const carries = (answer) => Array.isArray(answer?.result) && answer.result.length > 0
+
+/**
+ * The answer that says the server is being reached, if one has arrived yet.
+ *
+ * Every matching pair is considered rather than only the first, because a file
+ * settling produces several of these requests — the outline asks, the breadcrumbs
+ * ask, and Go to Symbol below asks again — and a server that has not finished
+ * reading the file answers the earliest of them with an empty list. Taking the
+ * first pair therefore made the result depend on which request won the race:
+ * bash-language-server spends its first seconds failing to shell out to `man` and
+ * `help`, so at the tail of a five-language run it lost that race about half the
+ * time and the case failed with an empty result while a later answer sat in the
+ * same log carrying both symbols.
+ */
 function findAnswer(traffic, method) {
-  const at = traffic.findIndex((t) => t.fromClient && t.msg?.method === method)
-  if (at === -1) return undefined
-  return traffic
-    .slice(at + 1)
-    .find((t) => !t.fromClient && t.msg?.id === traffic[at].msg.id && t.msg?.method === undefined)
-    ?.msg
+  return answersTo(traffic, method).find(carries)
 }
 
 async function run(language) {
@@ -153,6 +177,23 @@ async function run(language) {
   // PowerShell host before it answers anything, which no fixed sleep can safely
   // assume — least of all with the rest of the suite competing for the machine.
   if (spec.answersNonEmpty) {
+    /*
+     * Asked for, rather than waited on.
+     *
+     * The document-symbol request is Monaco's to make: the outline and the
+     * breadcrumbs ask on a schedule of their own, and at the tail of a five-language
+     * run this one intermittently never asked at all — the case passes alone and in
+     * pairs and failed about half the time in a full sweep, which is a gap in the
+     * harness rather than a fault in the server. Go to Symbol is the same request on
+     * the path a person would take to make it, so provoking it deliberately both
+     * settles the flake and checks the thing the case says it checks. The wait below
+     * still stands, because asking is not being answered.
+     */
+    await page.locator('.view-line').first().click()
+    await page.keyboard.press('Control+Shift+O')
+    await sleep(1500)
+    await page.keyboard.press('Escape')
+
     const deadline = Date.now() + 60_000
     while (
       Date.now() < deadline &&
@@ -240,9 +281,14 @@ function check(language, { spec, ui, lines }) {
   }
 
   if (spec.answersNonEmpty) {
-    const items = findAnswer(traffic, spec.answersNonEmpty)?.result
-    if (!Array.isArray(items) || items.length === 0) {
-      failures.push(`${spec.answersNonEmpty} returned ${JSON.stringify(items)}, expected a non-empty result`)
+    const answers = answersTo(traffic, spec.answersNonEmpty)
+    if (!answers.some(carries)) {
+      // Reported with the count, so "the server answered nothing useful once" and
+      // "it was never asked at all" cannot be confused for each other.
+      failures.push(
+        `${spec.answersNonEmpty} returned ${JSON.stringify(answers.at(-1)?.result)} across ` +
+          `${answers.length} answer(s), expected a non-empty result`
+      )
     }
   }
 

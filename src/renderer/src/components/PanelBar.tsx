@@ -32,9 +32,12 @@ export function PanelBar(): React.JSX.Element {
         >
           {v.label}
           {/* The count belongs on the tab, so the panel can say how much is wrong
-              without the view being the one on top. */}
+              without the view being the one on top. It runs with the label rather
+              than sitting in the sidebar's badge — a tab is not a notification, and
+              borrowing .scm__count meant the panel inherited whatever the section
+              headings in the explorer happened to look like. */}
           {v.id === 'problems' && problems.length > 0 && (
-            <span className="scm__count">{problems.length}</span>
+            <span className="panel__count">{problems.length}</span>
           )}
         </button>
       ))}

@@ -12,10 +12,18 @@
 // wrong — their blocks table grows without limit and every row is read before the
 // first frame, so an install of a few weeks eventually opens on a hang.
 //
+// Conversations are kept the same way and checked here too, for a reason particular
+// to them: they reach the database on a different clock from commands. A command is
+// written the instant it finishes, an exchange only when the workspace autosave next
+// fires, so the order the rows were written in is not the order the things happened
+// in — and a restored list that gets that wrong is not a record, it is a
+// plausible-looking fiction.
+//
 // Run: node scripts/verify-blocks.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import * as fs from 'node:fs'
+import * as http from 'node:http'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
@@ -27,7 +35,45 @@ const work = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-blocks-'))
 const userData = path.join(work, 'userData')
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const env = { ...process.env }
+
+/*
+ * A stub Anthropic, so asking something is as repeatable as running echo.
+ *
+ * The point here is what survives a restart, not what the model says, and a real
+ * request would make the answer — and therefore every assertion about the block
+ * holding it — different on every run.
+ */
+const ANSWER = 'Lists every log file below here.'
+const PROPOSED = 'Get-ChildItem -Recurse -Filter *.log'
+const server = http.createServer((req, res) => {
+  req.resume()
+  req.on('end', () => {
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        id: 'msg_stub',
+        type: 'message',
+        role: 'assistant',
+        model: 'claude-opus-5',
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({ command: PROPOSED, note: ANSWER, destructive: false })
+          }
+        ],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 }
+      })
+    )
+  })
+})
+await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+
+const env = {
+  ...process.env,
+  ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.address().port}`,
+  ANTHROPIC_API_KEY: 'sk-ant-stub-key-for-verification'
+}
 delete env.ELECTRON_RUN_AS_NODE
 
 const failures = []
@@ -61,6 +107,24 @@ const run = async (page, cmd, settle = 2600) => {
   await page.keyboard.press('Enter')
   await sleep(settle)
 }
+
+/**
+ * Every block in the pane as one list, commands and conversations together.
+ *
+ * Read in document order and labelled by kind, because the thing being checked is
+ * the sequence itself: which happened first, not what each one holds.
+ */
+const timeline = (page) =>
+  page.evaluate(() =>
+    Array.from(document.querySelectorAll('.pane__scroll .block')).map((b) => ({
+      kind: b.classList.contains('block--agent') ? 'agent' : 'command',
+      text: (
+        b.querySelector('.block__cmd')?.textContent ??
+        b.querySelector('.block__prompt')?.textContent ??
+        ''
+      ).trim()
+    }))
+  )
 
 // --- a session worth keeping -------------------------------------------------
 {
@@ -148,10 +212,98 @@ const run = async (page, cmd, settle = 2600) => {
   const mark = await page.evaluate(() => document.querySelectorAll('.blocks__mark').length)
   check('with nothing to mark', mark === 0, `${mark} marks`)
 
+  /*
+   * --- an exchange, and a command straight after it --------------------------
+   *
+   * Asked first and answered at once, then a command typed before the workspace
+   * autosave has come round to writing the conversation down. That ordering is the
+   * point: the command reaches the database first despite happening second, so a
+   * pane read back in the order its rows were written returns these two the wrong
+   * way round. The pane is empty here, so what comes back is only this.
+   */
+  await page.click('.composer__input')
+  await page.keyboard.press('Control+K')
+  await sleep(400)
+  await page.keyboard.type('find all log files', { delay: 5 })
+  await page.keyboard.press('Enter')
+  await sleep(500)
+  await run(page, 'echo after-the-question')
+
+  const asked = await timeline(page)
+  check(
+    'the question and the command are both in the pane',
+    asked.length === 2 && asked[0]?.kind === 'agent' && asked[1]?.kind === 'command',
+    JSON.stringify(asked)
+  )
+
+  // Left with its verdict recorded rather than open, so the restore has something
+  // to get wrong: a proposal that came back open would come back with a Run button.
+  const dismiss = page.locator('.block--agent .proposal__secondary')
+  check('the answer proposed something', (await dismiss.count()) === 1)
+  if (await dismiss.count()) await dismiss.click()
+  await sleep(600)
+
+  await sleep(2500)
+  await app.close()
+  await sleep(1200)
+}
+
+// --- and the exchange comes back where it happened ---------------------------
+{
+  const app = await launch()
+  const page = await app.firstWindow()
+  await placeTopRight(app)
+  await page.waitForSelector('.pane', { timeout: 30_000 })
+  await sleep(4000)
+
+  const back = await timeline(page)
+  check('both came back', back.length === 2, JSON.stringify(back))
+  check(
+    'the question is still a question',
+    back[0]?.kind === 'agent' && back[0]?.text.includes('find all log files'),
+    JSON.stringify(back[0])
+  )
+  // The regression this ordering exists for: by the order the rows were written,
+  // the command comes first. By the order the two things happened, it does not.
+  check(
+    'and it is still before the command that followed it',
+    back[1]?.kind === 'command' && back[1]?.text.includes('after-the-question'),
+    JSON.stringify(back)
+  )
+
+  const agent = page.locator('.block--agent').first()
+  check(
+    'the answer came back with it',
+    ((await agent.locator('.block__answer').textContent()) ?? '').includes('log file'),
+    await agent.locator('.block__answer').textContent()
+  )
+  check(
+    'as did the command it offered',
+    ((await agent.locator('.proposal__body').textContent()) ?? '').includes('Get-ChildItem'),
+    await agent.locator('.proposal__body').textContent()
+  )
+  /*
+   * The safety half. A proposal is the one restored thing that carries an action,
+   * so it has to come back holding the answer it was given — a dismissed command
+   * that reopens with a Run button is a restore that asks to do something the user
+   * already said no to.
+   */
+  check(
+    'a dismissed proposal comes back dismissed',
+    ((await agent.locator('.proposal__state').textContent()) ?? '').trim() === 'Dismissed',
+    await agent.locator('.proposal__state').textContent().catch(() => null)
+  )
+  check(
+    'with nothing left to press',
+    (await agent.locator('.proposal__primary').count()) === 0
+  )
+  await page.screenshot({ path: path.join(SHOT_DIR, '71-blocks-conversation.png') })
+
   await app.close()
   await sleep(600)
 }
 
+server.close()
 fs.rmSync(work, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)
 console.log('blocks across restarts:', failures.length === 0 ? 'PASS' : 'FAIL')

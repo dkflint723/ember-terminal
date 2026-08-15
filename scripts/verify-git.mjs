@@ -65,10 +65,13 @@ const check = (label, ok, detail) => {
   await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
   await sleep(1500)
 
+  // Read from the status bar: the branch and the change count moved out of the
+  // composer, since they are facts about the session rather than about the thing
+  // being typed.
   const chips = () =>
     page.evaluate(() => ({
-      branch: document.querySelector('.chip--branch')?.textContent?.trim() ?? null,
-      changes: document.querySelector('.chip--changes')?.textContent?.trim() ?? null,
+      branch: document.querySelector('[data-status="branch"]')?.textContent?.trim() ?? null,
+      changes: document.querySelector('[data-status="changes"]')?.textContent?.trim() ?? null,
       workspace: !!document.querySelector('.sidebar')
     }))
 

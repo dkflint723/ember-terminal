@@ -7,14 +7,18 @@ import { useStore } from '../state/store'
  * two panes in the same tree and stores its sizes on the tab, while this one moves
  * the edge of a whole region and stores a fraction of the window. Sharing the code
  * would mean one of them carrying the other's arguments everywhere.
+ *
+ * The panel is the only region this serves now — the right-hand Claude sidebar it
+ * also used to resize is gone, and with it the vertical drag. The region is still
+ * named rather than assumed, because the class name it produces is what the
+ * stylesheet places.
  */
 interface Props {
-  region: 'panel' | 'secondary'
+  region: 'panel'
 }
 
 export function RegionDivider({ region }: Props): React.JSX.Element {
   const setRegionSize = useStore((s) => s.setRegionSize)
-  const vertical = region === 'secondary'
 
   const onDown = (e: React.MouseEvent): void => {
     e.preventDefault()
@@ -27,10 +31,7 @@ export function RegionDivider({ region }: Props): React.JSX.Element {
     const onMove = (ev: MouseEvent): void => {
       // Measured from the edge the region is attached to, so the handle stays
       // under the pointer rather than drifting as the region resizes.
-      const fraction = vertical
-        ? (box.right - ev.clientX) / box.width
-        : (box.bottom - ev.clientY) / box.height
-      setRegionSize(region === 'panel' ? 'panel' : 'secondary', fraction)
+      setRegionSize(region, (box.bottom - ev.clientY) / box.height)
     }
 
     const onUp = (): void => {
@@ -47,8 +48,8 @@ export function RegionDivider({ region }: Props): React.JSX.Element {
     <div
       className={`divider region-divider region-divider--${region}`}
       role="separator"
-      aria-orientation={vertical ? 'vertical' : 'horizontal'}
-      aria-label={region === 'panel' ? 'Resize the panel' : 'Resize the Claude sidebar'}
+      aria-orientation="horizontal"
+      aria-label="Resize the panel"
       onMouseDown={onDown}
     />
   )

@@ -346,7 +346,13 @@ export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
     'bg-chrome': chrome,
     'bg-elevated': elevated,
     'bg-hover': hover,
-    // Blocks sit just off the pane background so their edges read without a border.
+    /*
+     * Blocks used to sit just off the pane background so their edges read without a
+     * border. They are flat now and nothing renders this — but it is deliberately
+     * still derived: scripts/verify-contrast.mjs measures every text token against
+     * it as one of the surfaces, so removing it here would not tidy anything, it
+     * would make that suite compare against `undefined` for every theme.
+     */
     'bg-block': mix(fg, bg, dark ? 0.03 : 0.02),
     border: mark(border),
     'border-strong': mark(borderStrong),
@@ -357,7 +363,6 @@ export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
     'fg-dim': text(fgDim),
     'fg-faint': text(fgFaint),
     accent: text(accent),
-    'accent-dim': mix(accent, bg, 0.32),
     ok: text(ok),
     fail: text(fail),
     'fail-border': mix(fail, bg, 0.35),
@@ -366,9 +371,9 @@ export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
     'info-fg': text(mix(info, fg, dark ? 0.55 : 0.75)),
     'info-bg': mix(info, bg, dark ? 0.12 : 0.08),
     'info-border': mix(info, bg, 0.42),
-    'primary-bg': mix(info, bg, dark ? 0.38 : 0.85),
-    'primary-border': mix(info, bg, dark ? 0.55 : 0.95),
-    'primary-fg': dark ? mix('#ffffff', info, 0.85) : '#ffffff',
+    // The primary button's own three-colour palette is gone with the button that
+    // used it: what is emphatic now is said with the hover fill and a strong border,
+    // and the one accent fill left in the app is the agent's Run.
     'close-hover': dark ? '#c42b1c' : '#e11d48',
     selection: terminal.selectionBackground,
     // A heavy black scrim reads as muddy over a light theme, so lighten it there.

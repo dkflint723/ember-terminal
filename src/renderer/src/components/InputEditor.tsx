@@ -1,82 +1,83 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AiResponse, CompletionItem, CompletionResult } from '@shared/types'
+import type { CompletionItem, CompletionResult } from '@shared/types'
 import { commonPrefix } from '@shared/completion'
 import type { TerminalController } from '../terminal/controller'
-import { useStore, type TerminalPaneState } from '../state/store'
-import { isInside, pathKey, samePath } from '@shared/paths'
+import { classifyIntent, type Intent } from '../composer/intent'
+import {
+  useStore,
+  type AttachedBlock,
+  type CommandBlock,
+  type TerminalPaneState
+} from '../state/store'
 import { refreshGitForCwd } from '../state/git'
-import { ClaudeChip } from './ClaudeChip'
 
 interface Props {
   pane: TerminalPaneState
   controller: TerminalController
 }
 
-type Mode = 'shell' | 'ai'
-
 /**
- * A real editor for the command line: multi-line, history, and a natural-language
- * mode. Replaces the shell's own readline for typing, but keystrokes still reach
- * the pty whenever a program is actually reading stdin.
+ * A real editor for the command line: multi-line, history, and a line that can be
+ * either a command or a question — read as one or the other rather than switched
+ * between. Replaces the shell's own readline for typing, but keystrokes still
+ * reach the pty whenever a program is actually reading stdin.
  */
-/**
- * The tail of a path, which is the part that says where you are.
- *
- * Truncating from the right would leave every chip reading the same few drive
- * letters, so this drops the head and marks it with an ellipsis.
- */
-function shortenPath(full: string, keep = 34): string {
-  const clean = full.replace(/[\\/]+$/, '')
-  if (clean.length <= keep) return clean
-  const parts = clean.split(/[\\/]/)
-  let out = parts[parts.length - 1] ?? clean
-  for (let i = parts.length - 2; i >= 0; i--) {
-    const next = `${parts[i]}\\${out}`
-    if (next.length > keep) break
-    out = next
-  }
-  return `…${out.startsWith('\\') ? '' : '\\'}${out}`
-}
 
 export function InputEditor({ pane, controller }: Props): React.JSX.Element {
-  const [mode, setMode] = useState<Mode>('shell')
   const [value, setValue] = useState('')
-  const [history, setHistory] = useState<string[]>([])
-  const [historyIdx, setHistoryIdx] = useState<number | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [proposal, setProposal] = useState<AiResponse | null>(null)
 
   /*
-   * The repository this pane is standing in, for the chips.
+   * What Enter will do, and which of the two decided it.
    *
-   * Two sources, in that order. The workspace status is already polled and already
-   * describes this directory whenever the pane sits inside the open folder, so it
-   * costs nothing to use. Everything else — a shell cd'd into some other project,
-   * or a plain terminal session with no folder open at all — is read for the
-   * directory itself. Without that second source the chips only ever appeared for
-   * people who had opened a folder, which is the opposite of who wants them.
+   * The composer used to hold a mode that Ctrl+K flipped and nothing else touched,
+   * so the wrong one was always one forgotten keypress away — a question sent to
+   * the shell, or a command sent to Claude. The buffer is read instead: `detected`
+   * is what it looks like, `override` is set only when the user has said otherwise
+   * about this particular buffer, and an override wins. The label names which of
+   * them is speaking, so a reading that was guessed never passes for a decision.
    */
-  const workspaceGit = useStore((s) => s.gitStatus)
-  const cwdGit = useStore((s) => s.cwdGit[pathKey(pane.cwd)])
-  const inWorkspace = workspaceGit
-    ? isInside(workspaceGit.root, pane.cwd) || samePath(workspaceGit.root, pane.cwd)
-    : false
-  const gitStatus = inWorkspace ? workspaceGit : (cwdGit ?? null)
+  const [detected, setDetected] = useState<Intent>('shell')
+  const [override, setOverride] = useState<Intent | null>(null)
+  /**
+   * What the label says. Only the label: every key that acts on the buffer reads it
+   * again for itself, because `detected` is deliberately a moment behind and a key
+   * pressed inside that moment would otherwise be routed by the previous buffer.
+   */
+  const intent: Intent = override ?? detected
+  /**
+   * The same reading, for the one effect that must not depend on it.
+   *
+   * Ctrl+K arrives through the store rather than through this component, so its
+   * effect cannot close over `detected` without re-running on every keystroke.
+   */
+  const detectedRef = useRef<Intent>('shell')
+  /** The line history put back, while the buffer is still that line. See `recall`. */
+  const recalled = useRef<string | null>(null)
 
-  // A shell that has moved is asked about straight away rather than at the next
-  // tick: cd'ing into a project and seeing the branch a beat later is fine, seeing
-  // the last project's branch is not.
+  /*
+   * Blocks the question is being asked about.
+   *
+   * Held by id rather than by value: the block is the thing being pointed at, and
+   * its output is read at send time from wherever it actually lives, so a chip
+   * cannot go stale against the block it names.
+   */
+  const [attachments, setAttachments] = useState<AttachedBlock[]>([])
+
+  const [history, setHistory] = useState<string[]>([])
+  const [historyIdx, setHistoryIdx] = useState<number | null>(null)
+
+  /*
+   * The repository this pane is standing in is read here and reported elsewhere.
+   *
+   * The branch and the count are the status bar's to draw now, but the asking
+   * still belongs to the pane: each shell knows when it has been cd'd somewhere
+   * else, and finding out at the next poll would mean seeing the last project's
+   * branch for a beat after arriving in a new one.
+   */
   useEffect(() => {
     void refreshGitForCwd(pane.cwd)
   }, [pane.cwd])
 
-  const branch = gitStatus ? (gitStatus.detached ? 'detached' : gitStatus.branch) : null
-  const changeCount = gitStatus
-    ? new Set(
-        [...gitStatus.staged, ...gitStatus.changes, ...gitStatus.conflicts].map((c) => c.path)
-      ).size
-    : null
-  const upstreamHint = gitStatus ? (gitStatus.upstream ?? 'No upstream') : null
   const [completion, setCompletion] = useState<{ result: CompletionResult; index: number } | null>(
     null
   )
@@ -85,15 +86,36 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
   /** Guards against a slow completion reply landing after the input moved on. */
   const completionSeq = useRef(0)
 
-  const running = pane.blocks.at(-1)?.status === 'running'
+  // Only a command can be running. A conversation sitting at the end of the list
+  // is an exchange with the agent, not a program holding the keyboard, so it must
+  // not swap the composer out for the send-to-process one.
+  const last = pane.blocks.at(-1)
+  const running = last?.kind === 'command' && last.status === 'running'
+
+  /*
+   * A chip only counts while the block behind it is still in the list.
+   *
+   * Cleared with Ctrl+L, or pushed off the end of the pane's cap, and the output it
+   * promised to send no longer exists — so the chips are filtered here rather than
+   * pruned in an effect, and every reader below counts the same live ones.
+   */
+  const attached = attachments.filter((a) => pane.blocks.some((b) => b.id === a.blockId))
+  const hasFailed = pane.blocks.some((b) => b.kind === 'command' && b.status === 'failed')
+
   const pending = useStore((st) => st.pendingInput[pane.id])
   const clearBlocks = useStore((st) => st.clearBlocks)
+  const beginConversation = useStore((st) => st.beginConversation)
+  const patchConversation = useStore((st) => st.patchConversation)
 
   // History search hands a command over rather than running it, so the user can
   // read and edit it before committing.
   useEffect(() => {
     if (pending === undefined) return
     setValue(pending)
+    // What arrives here came out of the shell's history, or is a sign-in command
+    // the settings panel typed for the user. Either way it is a command already,
+    // and is pinned as one for the same reason a recalled line is — see recall().
+    setOverride('shell')
     useStore.getState().clearPendingInput(pane.id)
     const el = ref.current
     if (el) {
@@ -110,11 +132,43 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
     el.style.height = `${el.scrollHeight}px`
   }, [value])
 
+  /*
+   * Read the buffer on an idle, never on the keystroke.
+   *
+   * Classifying is cheap and synchronous, so the delay is not about the cost of the
+   * answer — it is about not asking forty times a second, and about the label not
+   * flickering through three readings while a word is still being typed. Eighty
+   * milliseconds is under the pause between words and well over the pause between
+   * characters. The cleanup also drops the pending timer when the pane closes.
+   *
+   * The answer is mirrored into a ref as it is set, for Ctrl+K alone — see the note
+   * on that effect for why it reads the label's reading and not the buffer's.
+   */
+  useEffect(() => {
+    // An override is a decision about one buffer. Emptying the input ends that
+    // buffer, so whatever is typed next is read fresh rather than inheriting it.
+    if (value.length === 0) setOverride(null)
+    else if (recalled.current !== null && value !== recalled.current) {
+      // Editing away from a recalled line ends the pin that came with it. The pin
+      // belongs to that line, not to the composer: someone who presses Up to look
+      // at their last command and then types a question over it has decided
+      // nothing, and without this the question goes to the shell.
+      recalled.current = null
+      setOverride(null)
+    }
+    const handle = window.setTimeout(() => {
+      const next = classifyIntent(value)
+      detectedRef.current = next
+      setDetected(next)
+    }, 80)
+    return () => window.clearTimeout(handle)
+  }, [value])
+
   // Suggest the most recent matching command from history as ghost text. Only for
   // a single line: the overlay mirrors the input's metrics to align the ghost, and
   // that alignment cannot be trusted once the text wraps.
   useEffect(() => {
-    if (mode !== 'shell' || value.includes('\n') || value.trim().length < 2) {
+    if (intent !== 'shell' || value.includes('\n') || value.trim().length < 2) {
       setSuggestion(null)
       return
     }
@@ -122,7 +176,7 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
       void window.ember.suggestHistory(value, pane.cwd).then((s) => setSuggestion(s))
     }, 110)
     return () => window.clearTimeout(handle)
-  }, [value, mode, pane.cwd])
+  }, [value, intent, pane.cwd])
 
   const submitShell = (): void => {
     const command = value
@@ -130,73 +184,197 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
     setHistory((h) => [...h.filter((c) => c !== command.trim()), command.trim()].slice(-500))
     setHistoryIdx(null)
     setValue('')
-    setProposal(null)
     setSuggestion(null)
+    /*
+     * The chips go with the buffer they were gathered for.
+     *
+     * Running a command is not asking about the failure they point at, and the
+     * question they belonged to has just left the input — so keeping them would
+     * leave "attached" standing over a line nobody chose them for, and the next
+     * question would quietly ship a failure it was never shown carrying.
+     */
+    setAttachments([])
     controller.runCommand(command)
   }
 
   /**
-   * Ctrl+K, wherever it was pressed. The counter is what makes a second press
-   * register as a second request rather than the same state, so it still toggles.
+   * Put back a line that has already been a command.
+   *
+   * A history entry is by construction something that ran, so it is recalled as one.
+   * Left to the classifier it would be read fresh, and a line that only reached the
+   * shell in the first place because Ctrl+K pinned it — `where is the config`, which
+   * reads as English — would come back as a question, with Enter sending a command
+   * out of the command history to Claude.
+   *
+   * The pin is attached to the recalled line rather than to the composer, and the
+   * effect above lets go of it as soon as the buffer stops being that line. Pinning
+   * the composer instead would mean anyone who pressed Up to remind themselves what
+   * they last ran, then typed over it, was silently still pinned to the shell —
+   * which is most of what Up is for.
+   */
+  const recall = (command: string): void => {
+    recalled.current = command
+    setValue(command)
+    setOverride('shell')
+  }
+
+  /**
+   * A request to point this composer at Claude, from wherever it was pressed.
+   *
+   * The request is consumed rather than watched. `askRequest` is store state that
+   * outlives the press, and this composer is unmounted and mounted again every time
+   * the pane runs a full-screen program — so an effect that acted on whatever was
+   * standing there would pin an intent on the way back out of `vim`, and take the
+   * focus with it, for a press made ten minutes ago. Remembering the last counter
+   * seen is what makes a press a press.
+   *
+   * What it does with the request is the caller's word. Everything labelled "ask
+   * Claude" means agent outright and says so; Ctrl+K means "the reading on screen is
+   * wrong", so it flips the reading on screen — the label's, deliberately, and not a
+   * fresh look at the buffer. Those two disagree for the 80ms the classifier is
+   * behind by, and in that window a fresh look inverts the key: the footer offers to
+   * pin the opposite of what the label shows, so a press lands on the reading the
+   * user could not have been reacting to and Enter then does the expensive wrong
+   * thing. Reading the label costs a press made mid-word looking like it only
+   * removed the word "autodetected"; the press is still visible, still correct on
+   * the next one, and never sends a command to the model.
+   *
+   * Either way it pins the override rather than a mode, so there is nothing left
+   * behind to trip over: emptying the input unpins it.
    */
   const askRequest = useStore((s) => s.askRequest)
+  const seenAsk = useRef(askRequest?.n ?? 0)
   useEffect(() => {
     if (!askRequest || askRequest.paneId !== pane.id) return
-    setMode((m) => (m === 'ai' ? 'shell' : 'ai'))
+    if (askRequest.n <= seenAsk.current) return
+    seenAsk.current = askRequest.n
+    // Updated as a function of the current override rather than the one this effect
+    // closed over: it re-runs only when a request arrives, so the captured value is
+    // whatever it was the last time one did.
+    const { how } = askRequest
+    setOverride((o) => {
+      if (how === 'agent') return 'agent'
+      return (o ?? detectedRef.current) === 'agent' ? 'shell' : 'agent'
+    })
     ref.current?.focus()
-  }, [askRequest?.n, askRequest?.paneId, pane.id])
+  }, [askRequest?.n, askRequest?.paneId, askRequest?.how, pane.id])
 
+  /**
+   * Attach the next failed command back, so a question carries the failure with it.
+   *
+   * One press per block, walking backwards, which is what makes a second press mean
+   * "the one before that" rather than the same one again. Running out is not a
+   * failure — there is simply nothing older left to point at.
+   */
+  const attachEarlier = (): void => {
+    const taken = new Set(attached.map((a) => a.blockId))
+    for (let i = pane.blocks.length - 1; i >= 0; i--) {
+      const block = pane.blocks[i]
+      if (block.kind !== 'command' || block.status !== 'failed' || taken.has(block.id)) continue
+      setAttachments([
+        ...attached,
+        { blockId: block.id, command: block.command, elided: blockOutput(block.output).elided }
+      ])
+      return
+    }
+  }
+
+  /*
+   * Ask, and put the question in the list.
+   *
+   * The answer used to appear as a card inside the composer, which meant it lived
+   * as far from the command it was about as every other command — and vanished the
+   * moment anything else was typed. It is a block now: the prompt lands in the
+   * list immediately, the answer fills in underneath it, and both stay where they
+   * happened.
+   *
+   * Nothing here tracks the wait any more either. The composer used to keep a
+   * `busy` flag alive for the length of the request purely to spin a 9px ring
+   * beside the intent label, which reported the same wait the block already
+   * reports in words a couple of inches above it. Progress lives in the block.
+   */
   const askAi = async (requestMode: 'command' | 'explain'): Promise<void> => {
-    const intent = value.trim()
-    if (requestMode === 'command' && intent.length === 0) return
+    const typed = value.trim()
+    if (requestMode === 'command' && typed.length === 0) return
+    const prompt = requestMode === 'explain' && typed.length === 0 ? 'Why did that fail?' : typed
 
-    setBusy(true)
-    setProposal(null)
+    /*
+     * Read the chips before the composer is emptied, and empty them with it.
+     *
+     * The block is the record of what this question was asked about, so the chips
+     * move into it rather than staying here — left in the row they would quietly
+     * ride along with the next question too, and nothing on screen would say that
+     * the second answer had been given the first question's context.
+     */
+    const sent = attached
+    setValue('')
+    setOverride(null)
+    setAttachments([])
+    const blockId = beginConversation(pane.id, prompt, sent)
 
-    // Give the model the failing commands it needs to explain an error.
-    const recent = pane.blocks
-      .slice(-3)
-      .filter((b) => b.status !== 'running')
-      .map((b) => ({
-        command: b.command,
-        output: plainText(b.output),
-        exitCode: b.exitCode ?? 0
-      }))
+    /*
+     * What the model is given to read.
+     *
+     * Attachments first and in the order they were chosen, then the tail of the
+     * session the explain path has always sent — minus anything already attached by
+     * hand, because the same failure twice is a longer request that says no more.
+     */
+    const chosen = new Set(sent.map((a) => a.blockId))
+    const recent = [
+      ...sent.flatMap((a) => {
+        const block = pane.blocks.find((b) => b.id === a.blockId)
+        return block && block.kind === 'command' ? [asContext(block)] : []
+      }),
+      ...pane.blocks
+        .slice(-3)
+        .filter(
+          (b): b is CommandBlock =>
+            b.kind === 'command' && b.status !== 'running' && !chosen.has(b.id)
+        )
+        .map(asContext)
+    ]
 
-    // Wrapped because `busy` disables the composer: if this call rejects rather
-    // than resolving — main throwing, the window reloading mid-flight — an
-    // unhandled rejection would leave the input permanently unusable with no
+    // Wrapped because nothing else ends the block: if this call rejects rather
+    // than resolving — main throwing, the window reloading mid-flight — the
+    // conversation would sit on "Thinking…" for the rest of the session with no
     // explanation, which reads as the app having locked up.
     try {
       const res = await window.ember.ai({
-        intent: requestMode === 'explain' && intent.length === 0 ? 'Why did that fail?' : intent,
+        intent: prompt,
         shell: pane.profileId,
         cwd: pane.cwd,
         recent,
         mode: requestMode
       })
-      setProposal(res)
+
+      /*
+       * The destructive flag does not cross the IPC boundary as a flag.
+       *
+       * Main parses it out of the model's JSON and folds it into the note as a
+       * leading ⚠ — an AiResponse carries a command, one sentence, and nothing
+       * else. Reading the marker back off the sentence is what lets the block
+       * draw its own warning, and the sentence is then shown without it so the
+       * same caution is not made twice in two different vocabularies.
+       */
+      const note = (res.explanation ?? '').trim()
+      const destructive = note.startsWith('⚠')
+
+      patchConversation(pane.id, blockId, {
+        streaming: false,
+        answer: res.ok ? (destructive ? note.replace(/^⚠\s*/, '') : note) : '',
+        error: res.ok ? null : (res.error ?? 'Claude gave no answer and no reason.'),
+        // The proposal carries no note of its own: what came back is one sentence,
+        // and the block has already shown it above the card as the answer.
+        proposal:
+          res.ok && res.command
+            ? { command: res.command, note: '', destructive, state: 'open' }
+            : null
+      })
     } catch (err) {
-      setProposal({
-        ok: false,
+      patchConversation(pane.id, blockId, {
+        streaming: false,
         error: err instanceof Error ? err.message : 'Could not reach Claude.'
       })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const acceptProposal = (run: boolean): void => {
-    const command = proposal?.command
-    if (!command) return
-    setProposal(null)
-    setMode('shell')
-    if (run) {
-      setValue('')
-      controller.runCommand(command)
-    } else {
-      setValue(command)
-      ref.current?.focus()
     }
   }
 
@@ -264,6 +442,28 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    /*
+     * What this keypress is about to act on, read from the buffer in hand.
+     *
+     * `detected` is 80ms behind on purpose so the word beside the input does not
+     * flicker through three readings while one is being typed, but a key pressed
+     * inside that window must not be routed by the buffer before it: select all,
+     * paste `git status` over a question, press Enter, and the debounced reading
+     * would still say 'agent' and spend a model call on a line meant to run.
+     * Classifying is pure and costs under a microsecond, so the keys that act ask
+     * again and only the label waits.
+     */
+    const live: Intent = override ?? classifyIntent(value)
+
+    // Ahead of everything else, including the completion list: Ctrl+Up is not one
+    // of the list's arrow keys, and a list open over a half-typed command is
+    // exactly the moment someone reaches for the error they are fixing.
+    if (e.ctrlKey && e.key === 'ArrowUp') {
+      e.preventDefault()
+      attachEarlier()
+      return
+    }
+
     // The completion list owns these keys while it is open.
     if (completion) {
       const items = completion.result.items
@@ -283,7 +483,10 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
         move(-1)
         return
       }
-      if (e.key === 'Enter') {
+      // Ctrl+Enter is excepted: it is documented as the one chord that always
+      // asks, so it has to mean that here too rather than accepting whatever the
+      // list happens to be pointing at. It falls through to the branch below.
+      if (e.key === 'Enter' && !e.ctrlKey) {
         e.preventDefault()
         acceptCompletion(items[completion.index], completion.result)
         return
@@ -306,34 +509,73 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
       }
     }
 
-    // Tab must never fall through to the browser, which would move focus out of
-    // the input entirely — the behaviour that made the editor feel broken.
+    /*
+     * Tab completes, whichever way the line reads.
+     *
+     * It must never fall through to the browser, which would move focus out of the
+     * input entirely — the behaviour that made the editor feel broken — so once the
+     * key is taken it has to be spent on something. Gating the completion on the
+     * reading spent it on nothing: `kill the proc` reads as a question because of
+     * the "the", and Tab there simply vanished. A path or a command name is worth
+     * finishing inside a question too — half of what gets asked about is a file —
+     * and a completion that finds nothing quietly closes, which is the same silence
+     * the shell reading already gives for a token with no matches.
+     */
     if (e.key === 'Tab') {
       e.preventDefault()
-      if (mode === 'shell') void requestCompletions()
+      void requestCompletions()
       return
     }
 
-    // Shift+Enter always inserts a newline, in either mode.
+    // Shift+Enter always inserts a newline, whichever way the line reads.
     if (e.key === 'Enter' && e.shiftKey) return
+
+    // Ctrl+Enter is the agent regardless of how the buffer reads. Autodetection
+    // gets the ordinary cases right, and this is the answer to the one it does
+    // not: a question that looks exactly like a command goes to Claude in one
+    // chord, without arguing with the label first.
+    if (e.key === 'Enter' && e.ctrlKey) {
+      e.preventDefault()
+      // Reaching here with a list open means the list is being abandoned, and its
+      // replacement span points into a buffer that is about to be emptied.
+      setCompletion(null)
+      void askAi('command')
+      return
+    }
 
     if (e.key === 'Enter') {
       e.preventDefault()
-      if (mode === 'ai') void askAi('command')
+      if (live === 'agent') void askAi('command')
       else submitShell()
       return
     }
 
+    /*
+     * Escape used to dismiss the proposal card first. There is nothing here to
+     * dismiss now — the proposal is a block, dismissed from its own buttons — so
+     * what it undoes is the attachments, and otherwise it is still the way back to
+     * the terminal it has always been.
+     *
+     * It deliberately does not pin the intent. Doing that made Escape on a question
+     * move no focus at all and leave a shell override behind on a line the user was
+     * still going to send to Claude, so reaching the terminal took two presses and
+     * the first one silently changed where Enter went. Pinning is Ctrl+K's.
+     */
     if (e.key === 'Escape') {
       e.preventDefault()
-      if (proposal) setProposal(null)
-      else if (mode === 'ai') setMode('shell')
-      else controller.focus()
+      // The text is deliberately left alone: detaching undoes Ctrl+Up, and taking
+      // a half-written question with it would be a second, larger undo that the
+      // key was not pressed for.
+      if (attached.length > 0) {
+        setAttachments([])
+        return
+      }
+      controller.focus()
       return
     }
 
     // Ctrl+K is handled globally rather than here, so it behaves the same wherever
-    // focus happens to be — see the askRequest effect below.
+    // focus happens to be — see the askRequest effect above.
 
     // Ctrl+C with nothing selected interrupts the running program.
     if (e.ctrlKey && e.key.toLowerCase() === 'c' && !window.getSelection()?.toString()) {
@@ -364,7 +606,7 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
       e.preventDefault()
       const next = historyIdx === null ? history.length - 1 : Math.max(0, historyIdx - 1)
       setHistoryIdx(next)
-      setValue(history[next])
+      recall(history[next])
       return
     }
     if (e.key === 'ArrowDown' && el.selectionStart === el.value.length && historyIdx !== null) {
@@ -372,10 +614,12 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
       const next = historyIdx + 1
       if (next >= history.length) {
         setHistoryIdx(null)
+        // Back past the newest entry is an empty line, not a recalled one, and an
+        // empty buffer is what ends an override anyway.
         setValue('')
       } else {
         setHistoryIdx(next)
-        setValue(history[next])
+        recall(history[next])
       }
     }
   }
@@ -418,53 +662,31 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
         </div>
       )}
 
-      <div className="composer__meta">
-        {/*
-          Context as chips rather than a line of grey text: where you are, which
-          branch, and whether anything is uncommitted, each readable on its own.
-          The path is shortened from the left because the end of it is the part
-          that says where you actually are.
-        */}
-        <span className="chip chip--path" title={pane.cwd}>
-          <svg viewBox="0 0 16 16" className="chip__icon" aria-hidden="true">
-            <path d="M1.8 12.6V4.2a1 1 0 0 1 1-1h3.3l1.5 1.6h5.6a1 1 0 0 1 1 1v6.8a1 1 0 0 1-1 1H2.8a1 1 0 0 1-1-1Z" />
-          </svg>
-          {shortenPath(pane.cwd)}
-        </span>
-        {branch && (
-          <span className="chip chip--branch" title={upstreamHint ?? branch}>
-            <svg viewBox="0 0 16 16" className="chip__icon" aria-hidden="true">
-              <circle cx="4.5" cy="3.5" r="1.6" />
-              <circle cx="4.5" cy="12.5" r="1.6" />
-              <circle cx="11.5" cy="3.5" r="1.6" />
-              <path d="M4.5 5.1v5.8M11.5 5.1v1.3a2.8 2.8 0 0 1-2.8 2.8H4.5" />
-            </svg>
-            {branch}
-          </span>
-        )}
-        {changeCount !== null && (
-          <span className="chip chip--changes" title={`${changeCount} changed files`}>
-            ± {changeCount}
-          </span>
-        )}
-        {/* Pushed to the end of the strip: where you are comes first, and this is
-            the one chip that is a control rather than a report. */}
-        <span className="composer__gap" />
-        <ClaudeChip />
-        {pane.integration === 'pending' && (
-          <span className="composer__badge" title="Waiting for the shell to report a prompt">
-            starting…
-          </span>
-        )}
-        {pane.exited && (
-          <span className="composer__badge composer__badge--warn">
-            exited {pane.exitCode ?? ''}
-          </span>
-        )}
-      </div>
+      {/*
+        Where you are, which branch and how much is uncommitted used to be chips
+        along here. They are standing facts about the session rather than anything
+        to do with what is being typed, so they live in the status bar now and the
+        composer is an input again. What is left is the pane telling you about
+        itself — a shell still starting, or one that has exited — which is about
+        this composer and belongs to it.
+      */}
+      {(pane.integration === 'pending' || pane.exited) && (
+        <div className="composer__meta">
+          {pane.integration === 'pending' && (
+            <span className="composer__badge" title="Waiting for the shell to report a prompt">
+              starting…
+            </span>
+          )}
+          {pane.exited && (
+            <span className="composer__badge composer__badge--warn">
+              exited {pane.exitCode ?? ''}
+            </span>
+          )}
+        </div>
+      )}
 
-      <div className={`composer__row ${mode === 'ai' ? 'composer__row--ai' : ''}`}>
-        <span className="composer__sigil">{mode === 'ai' ? '✦' : '❯'}</span>
+      <div className={`composer__row ${intent === 'agent' ? 'composer__row--ai' : ''}`}>
+        <span className="composer__sigil">{intent === 'agent' ? '✦' : '❯'}</span>
         <div className="composer__field">
           {/*
             Always rendered, even with nothing to show. React reconciles unkeyed
@@ -487,7 +709,7 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
           autoFocus
           value={value}
           placeholder={
-            mode === 'ai' ? 'describe what you want to do…' : pane.exited ? 'shell exited' : ''
+            intent === 'agent' ? 'describe what you want to do…' : pane.exited ? 'shell exited' : ''
           }
           onChange={(e) => {
             setValue(e.target.value)
@@ -498,47 +720,55 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
           onKeyDown={onKeyDown}
           />
         </div>
-        {busy && <span className="spinner" />}
-      </div>
+        {/*
+          How many failures the question is carrying, counted rather than listed.
 
-      {proposal && (
-        <div className="composer__proposal">
-          {proposal.ok ? (
-            <>
-              {proposal.command && (
-                <div className="composer__proposal-cmd">{proposal.command}</div>
-              )}
-              {proposal.explanation && (
-                <div className="composer__proposal-note">{proposal.explanation}</div>
-              )}
-              {proposal.command && (
-                <div className="composer__proposal-actions">
-                  <button className="btn btn--primary" onClick={() => acceptProposal(true)}>
-                    Run
-                  </button>
-                  <button className="btn" onClick={() => acceptProposal(false)}>
-                    Edit first
-                  </button>
-                  <button className="btn" onClick={() => setProposal(null)}>
-                    Dismiss
-                  </button>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="composer__error">{proposal.error}</div>
-          )}
-        </div>
-      )}
+          The chips themselves belong to the block, where they are still readable
+          tomorrow; here they would crowd the row for the few seconds between
+          attaching and sending, and what matters in those seconds is only that
+          something is attached.
+        */}
+        {attached.length > 0 && (
+          <span className="composer__attach">
+            {attached.length === 1 ? '1 block attached' : `${attached.length} blocks attached`}
+          </span>
+        )}
+
+        {/*
+          What pressing Enter will do, said before it is pressed.
+
+          The word beside it is the difference between a reading and a decision: the
+          composer classifies what is typed, and a guess that presents itself as a
+          setting is worse than no label at all. Ctrl+K removes the word by making
+          the choice a real one.
+        */}
+        <span className={`composer__intent ${intent === 'agent' ? 'composer__intent--ai' : ''}`}>
+          {intent}
+        </span>
+        {override === null && <span className="composer__auto">autodetected</span>}
+      </div>
 
       <div className="composer__hint">
         <span>
-          <kbd>Ctrl</kbd> <kbd>K</kbd> {mode === 'ai' ? 'shell' : 'ask Claude'}
+          <kbd>Ctrl</kbd> <kbd>K</kbd> {intent === 'agent' ? 'pin shell' : 'pin agent'}
         </span>
+        <span>
+          <kbd>Ctrl</kbd> <kbd>Enter</kbd> send to agent
+        </span>
+        {hasFailed && (
+          <span>
+            <kbd>Ctrl</kbd> <kbd>↑</kbd> attach failed block
+          </span>
+        )}
+        {attached.length > 0 && (
+          <span>
+            <kbd>Esc</kbd> detach all
+          </span>
+        )}
         <span>
           <kbd>Shift</kbd> <kbd>Enter</kbd> newline
         </span>
-        {pane.blocks.some((b) => b.status === 'failed') && (
+        {hasFailed && (
           <button className="block__action" onClick={() => void askAi('explain')}>
             explain last error
           </button>
@@ -697,8 +927,53 @@ function shortType(type: string): string {
   }
 }
 
-function plainText(html: string): string {
+/** How much of one block's output travels with a question. */
+const OUTPUT_LIMIT = 4000
+
+/**
+ * The text of a block's rendered output, and whether it is all of it.
+ *
+ * Elision is not decided here, and deliberately so. A long capture has already
+ * lost its beginning by the time it is a block — the offscreen terminal says so
+ * with a .block__elided line at the top of the output it kept — and the cap below
+ * is the second cut, the one this file has always made before handing output to
+ * the model. Both are reported, so what a chip calls elided is what was actually
+ * dropped rather than a third rule invented alongside them.
+ */
+function blockOutput(html: string): { text: string; elided: boolean } {
   const el = document.createElement('div')
   el.innerHTML = html
-  return el.innerText.slice(0, 4000)
+  const text = el.innerText
+  return {
+    text: text.slice(0, OUTPUT_LIMIT),
+    elided: text.length > OUTPUT_LIMIT || html.includes('block__elided')
+  }
+}
+
+/**
+ * One command as the model reads it: what ran, where, how it ended, what it said.
+ *
+ * Whether it was cut is carried as a flag rather than left to be inferred from the
+ * length. Main caps these too, and its cap is the same 4000 — so a length test
+ * there can never fire for anything sent from here, and a log that was cut would
+ * reach the model ending mid-line with nothing saying so. It would then answer
+ * about the last thing it could see, which for a build failure is a downstream
+ * symptom rather than the first error. One flag says it once, and the chip beside
+ * the question and the text the model is given agree about the same block.
+ */
+function asContext(block: CommandBlock): {
+  command: string
+  output: string
+  exitCode: number
+  cwd: string
+  elided: boolean
+} {
+  const { text, elided } = blockOutput(block.output)
+  return {
+    command: block.command,
+    output: text,
+    exitCode: block.exitCode ?? 0,
+    cwd: block.cwd,
+    elided
+  }
 }

@@ -228,7 +228,12 @@ export function SourceControl(): React.JSX.Element {
             <circle cx="11.5" cy="3.5" r="1.8" />
             <path d="M4.5 5.3v5.4M11.5 5.3v1.2a3 3 0 0 1-3 3H4.5" />
           </svg>
-          {status.detached ? 'detached' : status.branch}
+          {/* In a box of its own so a long branch name has something to be
+              truncated in: a bare text node beside the glyph is an anonymous flex
+              item, and an ellipsis has nowhere to be drawn on one. */}
+          <span className="scm__branch-name">
+            {status.detached ? 'detached' : status.branch}
+          </span>
         </span>
         {(ahead || behind) && (
           <span className="scm__track" title={`${status.ahead} ahead, ${status.behind} behind`}>

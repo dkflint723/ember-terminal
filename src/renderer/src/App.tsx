@@ -14,8 +14,8 @@ import { useIdeBridge } from './state/ide'
 import { restore, unsavedWorkIsPreserved, useSessionAutosave } from './state/session'
 import { setRevealer } from './editor/navigate'
 import { PanelBar } from './components/PanelBar'
+import { StatusBar } from './components/StatusBar'
 import { OutputPanel } from './components/OutputPanel'
-import { ClaudePanel } from './components/ClaudePanel'
 import { ProblemsPanel } from './components/ProblemsPanel'
 import { RegionDivider } from './components/RegionDivider'
 
@@ -27,9 +27,7 @@ export function App(): React.JSX.Element {
   const mode = useStore((s) => s.mode)
   const panelOpen = useStore((s) => s.panelOpen)
   const panelView = useStore((s) => s.panelView)
-  const secondaryOpen = useStore((s) => s.secondaryOpen)
   const panelHeight = useStore((s) => s.panelHeight)
-  const secondaryWidth = useStore((s) => s.secondaryWidth)
   const notice = useStore((s) => s.notice)
   const setNotice = useStore((s) => s.setNotice)
 
@@ -336,6 +334,20 @@ export function App(): React.JSX.Element {
       const tabId = s.activeTabId
       const tab = s.tabs.find((t) => t.id === tabId)
 
+      /*
+       * The pane a shell-shaped chord targets: the active one when that is a
+       * terminal, else the first terminal in the window — asking about a shell,
+       * or clearing one, needs a shell. Three chords land here, so the choice is
+       * made in one place rather than drifting apart between them.
+       */
+      const askTarget = (): string | undefined => {
+        if (!tab) return undefined
+        const active = s.panes[tab.activePaneId]
+        return active?.kind === 'terminal'
+          ? active.id
+          : Object.values(s.panes).find((p) => p.kind === 'terminal')?.id
+      }
+
       if (e.ctrlKey && e.shiftKey) {
         const key = e.key.toLowerCase()
         if (key === 't') {
@@ -352,18 +364,14 @@ export function App(): React.JSX.Element {
          * Clear this pane's blocks, on the binding Warp uses on Windows.
          *
          * Blocks outlive the app now, so there has to be a way to say "not any
-         * more" that does not mean deleting a database by hand. It targets a
-         * terminal: pressed with an editor focused it takes the tab's first shell,
-         * because "clear" from a pane that has nothing to clear should still mean
-         * something.
+         * more" that does not mean deleting a database by hand. It falls back to a
+         * shell the same way the ask chords do — pressed with an editor focused,
+         * "clear" from a pane that has nothing to clear should still mean
+         * something — so it asks the same helper rather than repeating it.
          */
         if (key === 'k' && tab) {
           e.preventDefault()
-          const here = s.panes[tab.activePaneId]
-          const target =
-            here?.kind === 'terminal'
-              ? here.id
-              : Object.values(s.panes).find((p) => p.kind === 'terminal')?.id
+          const target = askTarget()
           if (target) s.clearBlocks(target)
           return
         }
@@ -391,14 +399,22 @@ export function App(): React.JSX.Element {
           s.setMode()
           return
         }
-        // Claude's sidebar. Ctrl+Shift+B beside Ctrl+B for the other one.
+        /*
+         * Ctrl+Shift+B opened Claude's sidebar, and there is no sidebar any more —
+         * the agent is a block in the list. The chord is kept rather than dropped
+         * because it is what people already press to reach Claude, and repointed
+         * at what reaching Claude means now: the composer, pinned to agent, on the
+         * active shell.
+         *
+         * 'agent' rather than a toggle because the chord says what it wants. A
+         * buffer that already reads as a question is the normal case here, and
+         * flipping that reading would pin shell and send the sentence to the
+         * shell — the opposite of what was pressed.
+         */
         if (key === 'b') {
           e.preventDefault()
-          // Shown, not toggled, when this is also what put us in the IDE.
-          if (s.mode !== 'ide') {
-            s.setMode('ide')
-            s.toggleSecondary(true)
-          } else s.toggleSecondary()
+          const target = askTarget()
+          if (target) s.requestAsk(target, 'agent')
           return
         }
       }
@@ -415,23 +431,18 @@ export function App(): React.JSX.Element {
       }
 
       /*
-       * Ctrl+K asks Claude, and is claimed globally so it means the same thing
-       * wherever focus is. In an editor pane Monaco takes it as a chord prefix and
-       * swallows the next keystroke, which reads as the app freezing — the
+       * Ctrl+K pins the composer's intent, flipping whichever reading is in
+       * effect — the way to disagree with what the input autodetected, in either
+       * direction. It is claimed globally so it means the same thing wherever
+       * focus is: in an editor pane Monaco takes it as a chord prefix and
+       * swallows the next keystroke, which reads as the app freezing, and the
        * shortcut is advertised in the composer footer, so it has to work from
        * anywhere rather than only from the composer itself.
        */
       if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
         e.preventDefault()
-        if (!tab) return
-        // The pane it targets is the active one when that is a terminal, else the
-        // first terminal in the tab — asking about a shell needs a shell.
-        const active = s.panes[tab.activePaneId]
-        const target =
-          active?.kind === 'terminal'
-            ? active.id
-            : Object.values(s.panes).find((p) => p.kind === 'terminal')?.id
-        if (target) s.requestAsk(target)
+        const target = askTarget()
+        if (target) s.requestAsk(target, 'toggle')
         return
       }
 
@@ -547,12 +558,13 @@ export function App(): React.JSX.Element {
           // track resolves against a track that is itself sizing to the item, so
           // the panel came out the height of its own contents. A closed region
           // gets no track at all, or it would leave a gap where it used to be.
+          //
+          // Only the rows are set here now. The columns were inline for the sake of
+          // the right-hand Claude sidebar's percentage width; with that region gone
+          // every remaining column sizes itself, so the stylesheet can have them
+          // back.
           gridTemplateRows:
-            mode === 'ide' && panelOpen ? `1fr ${Math.round(panelHeight * 100)}%` : '1fr',
-          gridTemplateColumns:
-            mode === 'ide' && secondaryOpen
-              ? `auto auto 1fr ${Math.round(secondaryWidth * 100)}%`
-              : 'auto auto 1fr auto'
+            mode === 'ide' && panelOpen ? `1fr ${Math.round(panelHeight * 100)}%` : '1fr'
         }}
       >
         <ActivityBar />
@@ -610,13 +622,6 @@ export function App(): React.JSX.Element {
                 </div>
               )}
             </div>
-
-            {mode === 'ide' && secondaryOpen && (
-              <div className="region region--secondary">
-                <RegionDivider region="secondary" />
-                <ClaudePanel />
-              </div>
-            )}
           </>
         ) : (
           <div className="region region--shells">
@@ -632,6 +637,10 @@ export function App(): React.JSX.Element {
         <HistorySearch />
         <Palette onOpenFile={(p) => void openPaths([p])} />
       </div>
+
+      {/* Below the grid and across the whole window, under the rail as well —
+          the facts it carries are about the session, not about one region of it. */}
+      <StatusBar />
 
       {/* Things that failed away from any panel of their own — a background save,
           the session file, writing settings — rather than being discarded. */}

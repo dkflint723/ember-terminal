@@ -2,8 +2,8 @@
 //
 // The Anthropic SDK takes its base URL from ANTHROPIC_BASE_URL and the app takes
 // its key from ANTHROPIC_API_KEY, so the whole path — Ctrl+K, the request main
-// builds, the proposal the composer renders — runs against a stub on localhost
-// with nothing in the app changed for testing and no real key or network needed.
+// builds, the block the answer lands in — runs against a stub on localhost with
+// nothing in the app changed for testing and no real key or network needed.
 //
 // What the stub receives is asserted too. A request that reached the API but asked
 // for the wrong thing would otherwise look exactly like a working feature.
@@ -93,27 +93,64 @@ const check = (label, ok, detail) => {
 }
 
 /**
+ * The newest conversation in the list.
+ *
+ * Every answer is read through this rather than through a bare `.proposal`,
+ * because the answers accumulate: the card used to live in the composer and be
+ * replaced by the next one, and now the block it belongs to stays where it
+ * happened. A selector that matched any proposal would keep reading the first
+ * one and pass for the rest of the run.
+ */
+const conversation = () => page.locator('.block--agent').last()
+
+/**
  * Type the request and send it, switching to asking first only if the composer is
  * not already there. Ctrl+K toggles, so pressing it unconditionally would drop back
- * to the shell and send the intent to PowerShell as a command.
+ * to the shell and send the intent to PowerShell as a command — and sending puts
+ * the composer back in the shell itself, so after the first question the guard is
+ * what makes the second one a question too.
+ *
+ * Waits for the new block to settle rather than for a proposal, since a refusal and
+ * a rejected key are answers as well and neither of them proposes anything.
+ * Returns what the composer looked like around the send, so the first case can
+ * assert the round trip without every later one repeating it.
  */
 const ask = async (intent) => {
+  const before = await page.locator('.block--agent').count()
   await page.click('.composer__input')
   if ((await page.locator('.composer__row--ai').count()) === 0) {
     await page.keyboard.press('Control+K')
     await sleep(600)
   }
   await page.keyboard.type(intent, { delay: 5 })
+  const asking = (await page.locator('.composer__row--ai').count()) > 0
   await page.keyboard.press('Enter')
+
   for (let i = 0; i < 40; i++) {
     await sleep(400)
-    if ((await page.locator('.composer__proposal').count()) > 0) return
+    if ((await page.locator('.block--agent').count()) <= before) continue
+    const block = conversation()
+    // Thinking… is what the block shows while the request is out; anything else
+    // in the answer body means the request came back, one way or another.
+    if ((await block.locator('.block__thinking').count()) === 0) break
+  }
+
+  return {
+    asking,
+    left: await page.locator('.composer__input').inputValue(),
+    stillAsking: (await page.locator('.composer__row--ai').count()) > 0
   }
 }
 
-/** Clear a proposal if it has actions; an error one has none to clear. */
+/**
+ * Answer the newest proposal with Dismiss, if it still has buttons to press — an
+ * errored conversation never had any, and one already answered shows its state
+ * instead. Nothing depends on this the way it used to, since the cards no longer
+ * queue up in one place, but a card left open is a card whose buttons were never
+ * pressed.
+ */
 const dismiss = async () => {
-  const button = page.locator('.composer__proposal-actions .btn', { hasText: 'Dismiss' })
+  const button = conversation().locator('.proposal__secondary')
   if (await button.count()) await button.click()
   await sleep(500)
 }
@@ -129,20 +166,35 @@ reply = {
     })
   )
 }
-await ask('find all log files')
+const round = await ask('find all log files')
 
-check('Ctrl+K switches the composer to asking', true)
-const proposed = await page.locator('.composer__proposal-cmd').textContent().catch(() => null)
+check('Ctrl+K switches the composer to asking', round.asking)
+// Sending hands the question to the list, so the composer has nothing left to
+// hold and no reason to still be pointed at Claude.
+check('sending empties the composer', round.left === '', JSON.stringify(round.left))
+check('and puts it back in the shell', round.stillAsking === false)
+
+const answered = conversation()
+check(
+  'the question lands in the list',
+  (await answered.locator('.block__prompt').textContent())?.includes('find all log files') ===
+    true
+)
+const proposed = await answered.locator('.proposal__body').textContent().catch(() => null)
 check(
   'the command Claude returned is shown',
   proposed?.includes('Get-ChildItem') === true,
   String(proposed)
 )
-const note = await page.locator('.composer__proposal-note').textContent().catch(() => null)
+// The sentence that came back is the block's answer now — the card carries the
+// command alone, so there is one explanation rather than two.
+const note = await answered.locator('.block__answer').textContent().catch(() => null)
 check('with its note', note?.includes('log file') === true, String(note))
 check(
   'and it is offered rather than run',
-  (await page.locator('.composer__proposal-actions .btn').count()) >= 2
+  (await answered.locator('.proposal__actions button').count()) >= 2 &&
+    (await answered.locator('.proposal__primary').count()) === 1 &&
+    (await answered.locator('.proposal__secondary').count()) === 1
 )
 
 // --- what actually went to the API -------------------------------------------
@@ -183,9 +235,24 @@ if (first) {
  * matters is what the next request actually asks for.
  */
 await dismiss()
+/*
+ * Checked once, here, rather than on every dismiss.
+ *
+ * A card in the composer could be thrown away because the composer was going to be
+ * used for something else in a moment. A card in the list cannot: the block is a
+ * record of what was asked, so the answer to it stays and says which button was
+ * pressed instead of leaving a proposal that looks like it is still on offer.
+ */
+check(
+  'dismissing keeps the card and records it',
+  (await answered.locator('.proposal').count()) === 1 &&
+    (await answered.locator('.proposal__state').textContent()) === 'Dismissed',
+  await answered.locator('.proposal__actions').textContent().catch(() => null)
+)
+
 const chip = () =>
   page.evaluate(() => ({
-    label: document.querySelector('.chip--claude')?.textContent?.trim() ?? null,
+    label: document.querySelector('.statusbar__claude')?.textContent?.trim() ?? null,
     open: !!document.querySelector('.claude__menu'),
     // Which rows the menu will not let you pick.
     disabledEfforts: Array.from(document.querySelectorAll('.claude__menu .claude__item'))
@@ -195,14 +262,14 @@ const chip = () =>
 
 const pick = async (name) => {
   if (!(await chip()).open) {
-    await page.click('.chip--claude')
+    await page.click('.statusbar__claude')
     await sleep(400)
   }
   await page.locator('.claude__item', { hasText: new RegExp(`^${name}`) }).first().click()
   await sleep(700)
 }
 
-await page.click('.chip--claude')
+await page.click('.statusbar__claude')
 await sleep(500)
 await page.screenshot({ path: path.join(SHOT_DIR, '75-claude-switcher.png') })
 
@@ -279,7 +346,7 @@ const usage = () =>
 
 const openMenu = async () => {
   if ((await page.locator('.claude__menu').count()) === 0) {
-    await page.click('.chip--claude')
+    await page.click('.statusbar__claude')
     await sleep(500)
   }
 }
@@ -461,8 +528,21 @@ reply = {
   )
 }
 await ask('delete everything in this folder')
-const warned = await page.locator('.composer__proposal-note').textContent().catch(() => null)
-check('a destructive command is flagged', warned?.includes('⚠') === true, String(warned))
+/*
+ * The flag crosses IPC folded into the note as a leading ⚠, and the composer used
+ * to show it that way. The block does not: InputEditor reads the marker off the
+ * sentence, strips it, and hands the block a boolean, which is drawn as its own
+ * line in the card. So both halves are checked — that the warning is there, and
+ * that the ⚠ it was carried in did not survive into the prose beside it.
+ */
+const destructive = conversation()
+check(
+  'a destructive command is flagged',
+  (await destructive.locator('.proposal__warn').count()) === 1,
+  await destructive.locator('.proposal').textContent().catch(() => null)
+)
+const spoken = (await destructive.locator('.block__answer').textContent().catch(() => '')) ?? ''
+check('and the caution is made once, in words', !spoken.includes('⚠'), spoken)
 
 // --- a rejected key reads as one ----------------------------------------------
 await dismiss()
@@ -471,7 +551,10 @@ reply = {
   body: { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }
 }
 await ask('anything at all')
-const authError = await page.locator('.composer__error').textContent().catch(() => null)
+const authError = await conversation()
+  .locator('.block__answer-error')
+  .textContent()
+  .catch(() => null)
 check(
   'a rejected key says so plainly',
   authError?.includes('API key was rejected') === true,
@@ -484,7 +567,10 @@ reply = {
   body: message('', { stop_reason: 'refusal', stop_details: { category: 'harmful_content' } })
 }
 await ask('something it will decline')
-const refusal = await page.locator('.composer__error').textContent().catch(() => null)
+const refusal = await conversation()
+  .locator('.block__answer-error')
+  .textContent()
+  .catch(() => null)
 check('a refusal is explained as one', refusal?.includes('declined') === true, String(refusal))
 
 await app.close()

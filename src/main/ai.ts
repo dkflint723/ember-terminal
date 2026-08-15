@@ -132,9 +132,28 @@ function buildUserMessage(req: AiRequest): string {
   if (req.recent && req.recent.length > 0) {
     parts.push('Recent commands from this session:')
     for (const r of req.recent) {
-      // Cap each block: a runaway build log would otherwise dominate the request.
-      const output = r.output.length > 4000 ? `${r.output.slice(0, 4000)}\n…[truncated]` : r.output
-      parts.push(`$ ${r.command}\n(exit ${r.exitCode})\n${output}`)
+      /*
+       * Cap each block: a runaway build log would otherwise dominate the request.
+       *
+       * The flag is read as well as the length, and it is the flag that does the
+       * work — the renderer caps at this same 4000 before it sends, so nothing
+       * arriving from the composer is ever longer than the test and the marker
+       * would never be appended. A log that was cut has to say so, or the model
+       * answers about the last thing it can see as though that were the whole of
+       * it. The length still stands for callers that do not set the flag.
+       */
+      const cut = r.output.length > 4000
+      const output = `${cut ? r.output.slice(0, 4000) : r.output}${cut || r.elided ? '\n…[truncated]' : ''}`
+      /*
+       * Where it ran is part of what happened, so each item says so for itself.
+       * The system prompt names only the directory the question is being asked
+       * from, and an attached failure need not have run there — it can predate a
+       * cd, or come from another pane — so without this the model answers about
+       * the wrong tree, and two failures from two directories are indistinguishable
+       * from two in one.
+       */
+      const where = r.cwd ? ` in ${r.cwd}` : ''
+      parts.push(`$ ${r.command}\n(exit ${r.exitCode}${where})\n${output}`)
     }
     parts.push('')
   }

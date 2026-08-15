@@ -6,8 +6,27 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import type { TerminalPalette } from '@shared/theme'
 import { looksLikeSecretPrompt, stripAnsi } from '@shared/secrets'
 import { renderBufferAsHtml } from './serialize'
-import { useStore } from '../state/store'
+import { useStore, type CommandBlock, type TerminalPaneState } from '../state/store'
 import { DEFAULT_THEME, toXtermTheme } from './theme'
+
+/**
+ * The block with this id, but only if it is a command.
+ *
+ * A pane's list now holds conversations with the agent alongside its commands, and
+ * everything below this line is about the pty: capturing output, closing a block on
+ * an exit code, writing a row to history. None of that means anything for a
+ * conversation — it has no output and never finishes with a status — so an id that
+ * names one is not an error to report, it is simply nothing for this code to do.
+ * Callers already treat a missing block as "carry on without it", which is the
+ * right behaviour here too.
+ */
+function commandBlock(
+  pane: TerminalPaneState | null | undefined,
+  blockId: string
+): CommandBlock | undefined {
+  const block = pane?.blocks.find((b) => b.id === blockId)
+  return block?.kind === 'command' ? block : undefined
+}
 
 /** Undo the escaping applied by the shell-integration scripts. */
 function unescapeOsc(value: string): string {
@@ -457,7 +476,7 @@ export class TerminalController {
     this.capture = ''
 
     const pane = this.store().terminalPane(this.paneId)
-    const block = pane?.blocks.find((b) => b.id === blockId)
+    const block = commandBlock(pane, blockId)
 
     const durationMs = block ? Date.now() - block.startedAt : null
 
@@ -712,8 +731,12 @@ window.ember.onExit(({ paneId, exitCode }) => {
   store.patchPane(paneId, { exited: true, exitCode, mode: 'blocks' })
 
   // A shell that dies mid-command never sends `133;D`, so close the open block
-  // here rather than leaving it running for the life of the window.
-  const running = store.terminalPane(paneId)?.blocks.find((b) => b.status === 'running')
+  // here rather than leaving it running for the life of the window. Commands only:
+  // a conversation still streaming when the shell exits is being answered by the
+  // agent, which the pty's death says nothing about.
+  const running = store
+    .terminalPane(paneId)
+    ?.blocks.find((b): b is CommandBlock => b.kind === 'command' && b.status === 'running')
   if (running) {
     store.patchBlock(paneId, running.id, {
       status: 'failed',

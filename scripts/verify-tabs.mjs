@@ -68,7 +68,11 @@ const state = () =>
       tabs: Array.from(document.querySelectorAll('.etab')).map((t) => ({
         label: t.querySelector('.etab__label')?.textContent ?? '',
         active: t.classList.contains('etab--active'),
-        dirty: t.classList.contains('etab--dirty')
+        // Read from the dot the tab actually shows rather than from a modifier
+        // class. There used to be an `.etab--dirty` as well, which nothing styled —
+        // so this check was passing on a hook that had no consequence on screen,
+        // and would have gone on passing if the dot had stopped being drawn.
+        dirty: !!t.querySelector('.editor__dirty')
       })),
       shownPath: pane?.getAttribute('data-editor-path') ?? null,
       shownDirty: pane?.getAttribute('data-dirty') ?? null,

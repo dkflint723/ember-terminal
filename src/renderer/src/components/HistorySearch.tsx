@@ -127,9 +127,17 @@ export function HistorySearch(): React.JSX.Element | null {
           />
         </div>
 
+        {/*
+          Two independent booleans, so both can be on at once — which is why
+          neither of them may be the accent fill. That fill means "the one
+          important action here", and two of them lit side by side means nothing.
+          .btn--on is the quiet selected state instead: the same treatment the
+          active panel tab uses, an edge and full-strength text.
+        */}
         <div className="hist__filters">
           <button
-            className={`btn ${scopeToCwd ? 'btn--primary' : ''}`}
+            className={`btn ${scopeToCwd ? 'btn--on' : ''}`}
+            aria-pressed={scopeToCwd}
             onClick={() => setScopeToCwd((v) => !v)}
             disabled={!cwd}
             title={cwd || 'No directory'}
@@ -137,7 +145,8 @@ export function HistorySearch(): React.JSX.Element | null {
             this directory
           </button>
           <button
-            className={`btn ${onlyFailures ? 'btn--primary' : ''}`}
+            className={`btn ${onlyFailures ? 'btn--on' : ''}`}
+            aria-pressed={onlyFailures}
             onClick={() => setOnlyFailures((v) => !v)}
           >
             failures only

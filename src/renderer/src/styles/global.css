@@ -10,14 +10,17 @@
   --bg-chrome: #191919;
   --bg-elevated: #1f1f1f;
   --bg-hover: #2a2a2a;
-  --bg-block: #101010;
   --border: #2e2e2e;
   --border-strong: #3d3d3d;
   --fg: #e6e6e6;
   --fg-dim: #9a9a9a;
   --fg-faint: #6b6b6b;
   --accent: #ff9d5c;
-  --accent-dim: #7a4a2a;
+  /* No --accent-dim. It edged a running block, bordered an input at rest and
+     tinted the row a list cursor was on, which made three unrelated things all
+     say "accent, but quieter" — and the accent does not mean busy, or resting,
+     or selected. A focus ring takes --accent itself, a resting border takes
+     --border-strong, and a selected row takes --selection. */
   --ok: #8cc265;
   --fail: #e05561;
   --fail-border: #4a2226;
@@ -26,13 +29,13 @@
   --info-fg: #9fd0ff;
   --info-bg: #101820;
   --info-border: #24425e;
-  --primary-bg: #1d4a75;
-  --primary-border: #2a6ba8;
-  --primary-fg: #dceaff;
   --close-hover: #c42b1c;
   --selection: #3a4a63;
   --scrim: rgba(0, 0, 0, 0.58);
-  --radius: 10px;
+  /* No --radius. It was 10px and it was what made a block a card, an input a
+     search box and the composer a widget. Corners are now one of two values,
+     stated where they are used: 0 for anything that frames content, 2px for the
+     things you press or type into. */
   --mono: 'Cascadia Code', 'Cascadia Mono', Consolas, 'Courier New', monospace;
   --ui: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
 }
@@ -108,8 +111,8 @@ button {
   align-items: center;
   gap: 8px;
   padding: 0 10px 0 14px;
-  min-width: 130px;
-  max-width: 220px;
+  min-width: 150px;
+  max-width: 230px;
   border-right: 1px solid var(--bg);
   color: var(--fg-dim);
   white-space: nowrap;
@@ -129,18 +132,32 @@ button {
   flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 12px;
+  /* The tab names a shell, and a shell's name is primary text like the command
+     it will run — the same 13px as everything else that is the point of a row. */
+  font-size: 13px;
 }
 
 .tab__close,
 .titlebar__new {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 8px;
+  /* 2px, not 8px: the round hit area read as a button floating on the tab. Small
+     controls get the same corner as inputs and key caps and nothing more. */
+  border-radius: 2px;
   color: var(--fg-faint);
   flex: 0 0 auto;
+}
+
+.tab__close {
+  width: 18px;
+  height: 18px;
+  font-size: 11px;
+}
+
+.titlebar__new {
+  width: 26px;
+  height: 24px;
+  font-size: 13px;
 }
 
 .tab__close:hover,
@@ -174,7 +191,6 @@ button {
   padding: 8px 10px;
   border: 1px solid var(--border-strong);
   border-left-width: 3px;
-  border-radius: 8px;
   background: var(--bg-elevated);
   color: var(--fg);
   font-size: 12px;
@@ -218,7 +234,7 @@ button {
   place-items: center;
   width: 26px;
   height: 24px;
-  border-radius: 8px;
+  border-radius: 2px;
   color: var(--fg-faint);
   background: none;
   border: none;
@@ -248,10 +264,13 @@ button {
   gap: 5px;
   height: 24px;
   padding: 0 9px;
-  border-radius: 8px;
+  border-radius: 2px;
   border: 1px solid var(--border);
   background: none;
-  color: var(--fg-muted);
+  /* Was `--fg-muted`, which is not a variable this app defines — the declaration
+     was dropped as invalid and the label inherited full-brightness --fg, so the
+     quietest control in the bar was the loudest thing in it. */
+  color: var(--fg-dim);
   font: inherit;
   font-size: 11px;
   letter-spacing: 0.02em;
@@ -264,12 +283,19 @@ button {
   border-color: var(--border-strong);
 }
 
-/* Marked while the window is an IDE, since that is the state someone may not have
-   asked for and wants to leave. */
+/*
+ * Marked while the window is an IDE, since that is the state someone may not have
+ * asked for and wants to leave.
+ *
+ * Marked the way an active tab is — a fill and full-strength text — rather than
+ * in the accent. The accent is focus, the active-tab edge, the rail marker and one
+ * primary button; a mode switch is none of those, and the button already says
+ * which state it is in with its own word.
+ */
 .titlebar__mode--ide {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--fg);
+  background: var(--bg);
+  border-color: var(--border-strong);
 }
 
 .titlebar__sep {
@@ -296,6 +322,46 @@ button {
   -webkit-app-region: no-drag;
 }
 
+/*
+ * The profile list under the new-tab button.
+ *
+ * Was written inline on the element, which put a hard-coded radius and a colour
+ * outside the one stylesheet and out of reach of the theme. Square like every
+ * other frame; the app region has to be reset because the title bar drags.
+ */
+.titlebar__menu {
+  position: absolute;
+  top: 30px;
+  left: 0;
+  z-index: 30;
+  min-width: 190px;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  -webkit-app-region: no-drag;
+}
+
+.titlebar__menu-item {
+  display: block;
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: 2px;
+  color: var(--fg-dim);
+  font-size: 12px;
+  text-align: left;
+}
+
+.titlebar__menu-item:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.titlebar__menu-rule {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
 .titlebar__spacer {
   flex: 1 1 auto;
   min-width: 12px;
@@ -312,6 +378,9 @@ button {
   place-items: center;
   width: 46px;
   color: var(--fg-dim);
+  /* Stated, because `button { font: inherit }` would otherwise hand these the
+     body's 13px and draw the window controls larger than the tabs beside them. */
+  font-size: 11px;
 }
 
 .caption-btn:hover {
@@ -340,23 +409,25 @@ button {
   min-height: 0;
   position: relative;
   display: grid;
-  grid-template-columns: auto auto 1fr auto;
+  grid-template-columns: auto auto 1fr;
   grid-template-rows: 1fr;
-  grid-template-areas: 'rail side shells secondary';
+  grid-template-areas: 'rail side shells';
 }
 
 /*
  * In the IDE the editors take the middle and the shells become the panel beneath.
  *
- * The row and column tracks are set inline by App, because a percentage height on
- * a grid item inside an `auto` track has nothing definite to resolve against: the
- * track sizes to the item and the item sizes to the track. The panel came out the
- * height of its own contents, which for one command is a couple of lines.
+ * The row tracks are set inline by App, because a percentage height on a grid item
+ * inside an `auto` track has nothing definite to resolve against: the track sizes
+ * to the item and the item sizes to the track. The panel came out the height of its
+ * own contents, which for one command is a couple of lines. Only the rows: the
+ * columns were inline for the sake of the right-hand Claude sidebar's percentage
+ * width, and with that region gone they belong here again.
  */
 .workspace[data-mode='ide'] {
   grid-template-areas:
-    'rail side editors secondary'
-    'rail side shells  secondary';
+    'rail side editors'
+    'rail side shells';
 }
 
 .activity {
@@ -443,12 +514,6 @@ button {
   display: none;
 }
 
-.region--secondary {
-  grid-area: secondary;
-  min-width: 220px;
-  border-left: 1px solid var(--border);
-}
-
 .region__body {
   flex: 1 1 auto;
   min-height: 0;
@@ -460,7 +525,10 @@ button {
 .panel__overlay {
   position: absolute;
   inset: 0;
-  top: 28px;
+  /* The bar's height, repeated. The overlay is positioned against the region
+     rather than laid out after the bar, so nothing keeps the two in step but this
+     line — change .panel__bar's height and change this with it. */
+  top: 26px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -469,25 +537,30 @@ button {
 
 .panel__bar {
   display: flex;
-  align-items: center;
-  gap: 2px;
+  align-items: stretch;
   flex: 0 0 auto;
-  height: 28px;
-  padding: 0 6px;
+  height: 26px;
+  padding: 0 6px 0 0;
   background: var(--bg-chrome);
   border-bottom: 1px solid var(--border);
 }
 
+/*
+ * Full height, so the marker below can sit on the bar's own bottom edge.
+ *
+ * A tab inset inside the bar could only be marked by giving it a fill, which is
+ * how these read before: a rounded chip that looked like a button somebody had
+ * left pressed. The tab is not a button, it is a place.
+ */
 .panel__tab {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 9px;
-  border-radius: 8px;
+  padding: 0 12px;
   background: none;
   border: none;
   color: var(--fg-dim);
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -495,13 +568,28 @@ button {
   color: var(--fg);
 }
 
+/* The same 2px edge the active window tab and the rail use, on the side the
+   content is on. */
 .panel__tab--active {
   color: var(--fg);
-  background: var(--bg-hover);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* Runs with the label rather than sitting in a badge of its own — a count is part
+   of what the tab is called, not a notification on it. */
+.panel__count {
+  color: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .panel__spacer {
   flex: 1 1 auto;
+}
+
+/* The tabs stretch because their marker is an edge of the bar; the close button
+   is a button and stays its own size. */
+.panel__bar .icon-btn {
+  align-self: center;
 }
 
 .titlebar__split--on {
@@ -525,121 +613,6 @@ button {
   right: 0;
   height: 5px;
   cursor: row-resize;
-}
-
-.region-divider--secondary {
-  top: 0;
-  bottom: 0;
-  left: -2px;
-  width: 5px;
-  cursor: col-resize;
-}
-
-/* --- Claude, in the secondary sidebar ------------------------------------- */
-
-.claude {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  background: var(--bg-chrome);
-}
-
-.claude__head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 0 auto;
-  padding: 6px 6px 6px 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.claude__head .sidebar__title {
-  flex: 1 1 auto;
-  padding: 0;
-}
-
-.claude__body {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 10px 12px;
-}
-
-.claude__empty {
-  color: var(--fg-faint);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.claude__where {
-  margin-top: 8px;
-  font-family: var(--mono);
-  font-size: 10px;
-  /* The directory can be long and there is not much width here; breaking it
-     anywhere is better than a sidebar that scrolls sideways. */
-  overflow-wrap: anywhere;
-}
-
-.claude__turn {
-  margin-bottom: 12px;
-}
-
-.claude__who {
-  margin-bottom: 3px;
-  color: var(--fg-faint);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.claude__text {
-  color: var(--fg);
-  font-size: 12px;
-  line-height: 1.55;
-  /* Answers arrive as text with newlines and fenced code in them, and collapsing
-     that whitespace would run the code together into one line. */
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.claude__turn--you .claude__text {
-  padding: 6px 9px;
-  border-radius: 10px;
-  background: var(--bg-elevated);
-  color: var(--fg-dim);
-}
-
-.claude__text--failed {
-  color: var(--fail);
-}
-
-.claude__thinking {
-  color: var(--fg-faint);
-  font-size: 12px;
-}
-
-.claude__composer {
-  flex: 0 0 auto;
-  padding: 8px 12px 10px;
-  border-top: 1px solid var(--border);
-}
-
-.claude__box {
-  width: 100%;
-  padding: 7px 9px;
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  background: var(--bg);
-  color: var(--fg);
-  font-family: var(--ui);
-  font-size: 12px;
-  resize: none;
-}
-
-.claude__box:focus {
-  outline: none;
-  border-color: var(--accent);
 }
 
 .split {
@@ -671,9 +644,12 @@ button {
   z-index: 2;
 }
 
+/* A divider is a rule, and rules are drawn in the colour the app draws rules in.
+   It used to light up in a dimmed accent, which made "you are dragging this" and
+   "this has focus" the same colour on a screen that regularly has both. */
 .divider:hover,
 .divider--dragging {
-  background: var(--accent-dim);
+  background: var(--border-strong);
 }
 
 .divider--row {
@@ -701,13 +677,61 @@ button {
 
 /* ---------- block scroller ---------- */
 
+/* The list and the ruler beside it, sharing the pane's height. */
+.pane__body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .pane__scroll {
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 8px 0 4px;
+  padding: 0 0 4px;
   user-select: text;
+}
+
+/*
+ * The overview ruler: where the failures are, without scrolling to find them.
+ *
+ * Twelve pixels at the right edge with one mark per block and the visible slice
+ * shaded — Monaco's idiom, which this app already puts beside every file, applied
+ * to the list of commands.
+ */
+.ruler {
+  position: relative;
+  flex: 0 0 12px;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+}
+
+.ruler__viewport {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: var(--bg-hover);
+  opacity: 0.5;
+}
+
+.ruler__mark {
+  position: absolute;
+  left: 3px;
+  width: 6px;
+  height: 2px;
+  background: var(--border-strong);
+  cursor: pointer;
+}
+
+/* Wider, taller and in the failure colour: the whole point of the column is that a
+   failure is findable in a session you have scrolled a long way through. */
+.ruler__mark--failed {
+  left: 2px;
+  width: 8px;
+  height: 3px;
+  background: var(--fail);
 }
 
 .pane__scroll::-webkit-scrollbar {
@@ -716,7 +740,6 @@ button {
 
 .pane__scroll::-webkit-scrollbar-thumb {
   background: var(--border-strong);
-  border-radius: 9px;
 }
 
 /*
@@ -736,7 +759,10 @@ button {
    */
   border-left: 2px solid transparent;
   border-bottom: 1px solid var(--border);
-  overflow: hidden;
+  padding: 4px 0 6px;
+  /* Not hidden: the head has to be able to stick to the top of the scroll
+     container, and an ancestor that clips also stops sticky from working. */
+  overflow: clip visible;
   /*
    * Virtualization, done by the engine rather than by hand: off-screen blocks skip
    * layout and paint entirely. `auto` for the intrinsic size makes the browser
@@ -754,25 +780,48 @@ button {
   border-left-color: var(--fail);
 }
 
-.block--running {
-  border-left-color: var(--accent);
-}
+/*
+ * A running block is carried by its pulsing dot and nothing else.
+ *
+ * The accent used to edge it, which made "busy" and "focused" the same colour in a
+ * window that often had both at once. The accent means focus and one primary
+ * action; it does not mean working.
+ */
 
 .block__head {
-  position: relative;
+  /* Sticky rather than static: the head of the block being read pins to the top of
+     the list, so a four-hundred-line output never loses the command that caused
+     it. The list does the work — nothing recalculates on scroll but the shadow. */
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 3px 10px;
+  padding: 1px 12px 1px 10px;
   cursor: pointer;
+}
+
+/* Only while actually pinned, and only then, does it take a surface and a shadow —
+   applied to every head it would put back the filled header bar this list just
+   lost. */
+.block__head--stuck {
+  background: var(--bg-chrome);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.4);
+  padding: 4px 12px;
 }
 
 /* The command under the pointer lifts, rather than every command sitting on a
    filled bar for the sake of the one being looked at. It is also what the actions
-   sit on, so they mask the command instead of floating over it. */
+   sit on, so they mask the command instead of floating over it.
+
+   The hover colour, not the retired --bg-block: blocks have no fill of their own
+   any more, so the only thing left that darkened a head was a token meaning
+   "block", used for something that is not about being a block at all. */
 .block__head:hover,
 .block__head:focus-within {
-  background: var(--bg-block);
+  background: var(--bg-hover);
 }
 
 .block__chevron {
@@ -802,7 +851,7 @@ button {
 }
 
 .block__status--running {
-  color: var(--accent);
+  color: var(--fg-dim);
   font-size: 8px;
   animation: pulse 1.1s ease-in-out infinite;
 }
@@ -816,7 +865,7 @@ button {
 .block__cmd {
   flex: 1 1 auto;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -863,7 +912,9 @@ button {
   display: flex;
   gap: 2px;
   padding-left: 10px;
-  background: var(--bg-block);
+  /* Matches the head's hover fill, which is the only state these are visible in —
+     anything else and the buttons sit on a patch of a different colour. */
+  background: var(--bg-hover);
   opacity: 0;
   pointer-events: none;
 }
@@ -876,7 +927,7 @@ button {
 
 .block__action {
   padding: 2px 6px;
-  border-radius: 8px;
+  border-radius: 2px;
   color: var(--fg-dim);
   font-size: 11px;
 }
@@ -887,9 +938,9 @@ button {
 }
 
 .block__body {
-  padding: 0 10px 6px;
+  padding: 1px 12px 0 34px;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
@@ -908,7 +959,9 @@ button {
   padding: 6px 12px;
   color: var(--fg-faint);
   font-family: var(--mono);
-  font-size: 12.5px;
+  /* The same 13px the output it stands in for is set at — it sits where a block
+     body would, and half a pixel of difference only reads as a mistake. */
+  font-size: 13px;
   line-height: 1.45;
   font-style: italic;
 }
@@ -933,9 +986,11 @@ button {
   background: var(--border);
 }
 
+/* The live half of the session is simply the brighter of the two marks. It was in
+   the accent, which put a coloured word in the middle of the list for a divider
+   that is only there to be scrolled past. */
 .blocks__mark--now {
-  color: var(--accent);
-  opacity: 0.75;
+  color: var(--fg-dim);
 }
 
 /*
@@ -946,6 +1001,198 @@ button {
   min-height: 1.45em;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* ---------- the agent, as a block ---------- */
+
+/*
+ * A conversation in the list, where the question was asked.
+ *
+ * The one surface fill left in the app. Everything else sits flat on the pane and
+ * is separated by a hairline, which is right for output — a hundred commands read
+ * as one column of text. A conversation is not output: it is a question and an
+ * answer, and it has to be findable when scrolling back through a session. The
+ * --info edge names it and the fill gives it a body, and no other block gets both.
+ */
+.block--agent {
+  border-left-color: var(--info);
+  background: var(--bg-elevated);
+  padding: 6px 0 8px;
+}
+
+.block__status--agent {
+  color: var(--info);
+}
+
+/* The question is prose, so it is set in the interface face rather than in mono
+   like the commands around it — at the same size, because it is the point of the
+   row in exactly the way a command is. */
+.block__prompt {
+  flex: 1 1 auto;
+  color: var(--fg);
+  /* Stated rather than inherited: it sits in the same row as .block__cmd, which is
+     mono, and the two must not drift into each other. */
+  font-family: var(--ui);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+
+/* Which block's output the question was asked about, named in the head so the
+   answer below can be read without guessing what it was given. Mono and neutral:
+   it quotes a command, and it is a fact about the conversation rather than a
+   second --info thing competing with the edge the block already has. */
+.block__attach {
+  /* It shrinks and cuts itself rather than growing the row. The prompt and the
+     chips are the only things here that can give ground — .block__meta is
+     `flex: 0 0 auto`, so without this the timestamp is what gets pushed out. */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 180px;
+  padding: 1px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* What a collapsed conversation did, beside the question that started it, so a
+   folded block still says something. */
+.block__summary {
+  flex: 0 0 auto;
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+/*
+ * The answer is set to a measure rather than to the pane.
+ *
+ * Output should wrap at whatever width the pane happens to be — that is what the
+ * command produced. Prose should not: a line of English three hundred characters
+ * wide loses the reader on the way back to the start of the next one. The right
+ * inset holds it to about a paragraph, and is inset rather than a max-width so the
+ * left edge stays lined up with the block body above it.
+ */
+.block__answer {
+  /* 34px, not 32: every block reserves a 2px rule on its left edge, so a command's
+     output starts 36px in and an answer set to 32 would sit two pixels left of it —
+     two kinds of block in one list, not lining up with each other. */
+  padding: 2px 120px 0 34px;
+  color: var(--fg-dim);
+  font-family: var(--ui);
+  font-size: 13px;
+  line-height: 1.6;
+  user-select: text;
+}
+
+/* Code named inside a sentence, which is the one place mono belongs in prose. */
+.block__answer code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--fg);
+}
+
+.block__answer-error {
+  color: var(--fail);
+}
+
+/* Where progress lives now that the composer's spinner is gone. */
+.block__thinking {
+  color: var(--fg-faint);
+  font-size: 13px;
+}
+
+/*
+ * What the agent offers to do.
+ *
+ * This is the composer's proposal card, moved into the block and squared off. In
+ * the composer it grew and shrank the input under the pointer and sat a long way
+ * from the question that produced it; here it is directly under its own answer.
+ * Nothing on it runs by arriving — one of the buttons has to be pressed, which was
+ * true before the move and stays true after it.
+ */
+.proposal {
+  margin: 8px 12px 0 34px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+}
+
+.proposal__body {
+  padding: 7px 10px;
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
+/* Why, under what — inside the same frame, so it cannot be read as a second
+   proposal. */
+.proposal__note {
+  padding: 0 10px 7px;
+  color: var(--fg-dim);
+  font-size: 11px;
+}
+
+.proposal__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+}
+
+/* The only filled button in the app, and the only one there is ever meant to be:
+   the accent means focus, the active edge, the rail's active bar, and this. A
+   dialog's Save and the source-control Commit are emphatic in their own way (see
+   .btn--primary) precisely so that this one keeps meaning something. */
+.proposal__primary {
+  padding: 3px 12px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Already the loudest thing on the screen; hover only has to confirm the pointer
+   is on it. */
+.proposal__primary:hover {
+  filter: brightness(1.08);
+}
+
+.proposal__secondary {
+  padding: 3px 12px;
+  border: 1px solid var(--border-strong);
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+
+.proposal__secondary:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+/* Once it has been decided, the row says what was decided rather than leaving a
+   button that no longer does anything. */
+.proposal__state {
+  color: var(--fg-faint);
+  font-size: 12px;
+}
+
+.proposal__gap {
+  flex: 1 1 auto;
+}
+
+.proposal__warn {
+  color: var(--fail);
+  font-size: 11px;
 }
 
 /* ---------- live terminal ---------- */
@@ -983,14 +1230,25 @@ button {
   background: none;
 }
 
+/* And the buttons with it. Their patch exists to match the head's hover fill, so
+   where the head has none the patch is a grey rectangle floating over an unfilled
+   row instead of the invisible backing it is meant to be. */
+.pane__scroll--stream .block__actions {
+  background: none;
+}
+
 .pane__scroll--stream .block__chevron,
 .pane__scroll--stream .block__status {
   display: none;
 }
 
+/* The prompt character is a chevron, and chevrons are --fg-faint. In the accent it
+   was the one thing on this screen there are dozens of at once, which is exactly
+   how a colour that is supposed to mean "look here" stops meaning anything. The
+   failing one below still turns red, which is the reading worth having. */
 .pane__scroll--stream .block__cmd::before {
   content: '❯ ';
-  color: var(--accent);
+  color: var(--fg-faint);
 }
 
 .pane__scroll--stream .block--failed .block__cmd::before {
@@ -1007,6 +1265,14 @@ button {
 
 .pane__scroll--stream .pane__note {
   padding: 4px 12px;
+}
+
+/* The ruler is furniture too, and it is the one piece of it that is not inside the
+   scroller — it is the scroller's next sibling — so no descendant rule above can
+   reach it. Reached from the flag on the scroller instead, rather than asking the
+   pane to grow a second class that says the same thing twice. */
+.pane__scroll--stream + .ruler {
+  display: none;
 }
 
 .live--idle {
@@ -1026,7 +1292,7 @@ button {
   flex: 0 0 auto;
   border-top: 1px solid var(--border);
   background: var(--bg-chrome);
-  padding: 6px 8px 8px;
+  padding: 8px 12px 9px;
 }
 
 .composer__meta {
@@ -1039,29 +1305,52 @@ button {
 }
 
 /*
- * Context chips.
+ * ---------- status bar ----------
  *
- * Where you are, which branch, and whether anything is uncommitted — the three
- * things worth knowing before running a command, and previously either absent or
- * a run of grey text that read as one fact rather than three.
+ * Twenty-two pixels along the bottom, spanning the window under the rail. It owns
+ * the facts that are true of the session rather than of whatever has focus: the
+ * branch, how much is uncommitted, what is wrong, where you are, which shell.
+ * One type size, one colour, hairline above.
  */
-.chip {
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 22px;
+  flex: 0 0 auto;
+  padding: 0 10px;
+  background: var(--bg-chrome);
+  border-top: 1px solid var(--border);
+  color: var(--fg-dim);
+  font-size: 11px;
+  -webkit-app-region: no-drag;
+}
+
+/* Everything in the bar is a real button where it does something, so it is
+   reachable by keyboard — but it must not look like a row of buttons. */
+.statusbar__item {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  max-width: 46ch;
-  padding: 2px 9px;
-  border-radius: 999px;
-  background: var(--bg-elevated);
-  color: var(--fg-dim);
-  font-family: var(--mono);
-  font-size: 10.5px;
+  max-width: 44ch;
+  padding: 0 2px;
+  border: none;
+  border-radius: 2px;
+  background: none;
+  color: inherit;
+  font: inherit;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: pointer;
 }
 
-.chip__icon {
+.statusbar__item:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.statusbar__icon {
   width: 11px;
   height: 11px;
   flex: 0 0 auto;
@@ -1069,48 +1358,79 @@ button {
   stroke: currentColor;
   stroke-width: 1.3;
   stroke-linecap: round;
-  stroke-linejoin: round;
+}
+
+.statusbar__num {
+  font-variant-numeric: tabular-nums;
 }
 
 /*
- * The one chip that is a control rather than a report.
+ * The caret's position, which is the one thing down here that changes on every
+ * keystroke — and a bar that reflows as you type is a bar nobody can read.
  *
- * It carries the accent and a pointer so it reads as pressable next to chips that
- * only say where you are — the model and effort in use are a choice, and a choice
- * nobody can find is the same as no choice at all.
+ * Tabular figures make 1 and 4 the same width, so moving along a line does not
+ * shift anything; the reserved width holds the item at about the size of a
+ * two-figure line and column, so the encoding and the language to its right stay
+ * where they were put. Keyed off the data attribute rather than a class of its
+ * own: the attribute is what identifies this item, and this is the only thing the
+ * item needs that the plain .statusbar__item does not already give it.
  */
-.chip--claude {
-  border: 1px solid transparent;
-  color: var(--accent);
-  cursor: pointer;
+.statusbar__item[data-status='position'] {
+  min-width: 13ch;
+  font-variant-numeric: tabular-nums;
 }
 
-.chip--claude:hover,
-.chip--claude-open {
-  background: var(--bg-hover);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+.statusbar__bad {
+  color: var(--fail);
 }
 
-.chip--claude .chip__icon {
-  fill: currentColor;
-  stroke: none;
-}
-
-.chip__sub {
-  padding-left: 5px;
+/* The same colour the Problems panel gives a warning dot, so one count is not
+   reported in two vocabularies. Without it the triangle inherited --fg-dim from the
+   bar — the same colour as the digits either side of it — and read as punctuation
+   between two numbers rather than as the severity mark for the second. */
+.statusbar__warn {
   margin-left: 4px;
-  border-left: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-  color: var(--fg-dim);
+  color: var(--accent);
 }
 
-/* Pushes the switcher to the far end of the strip, away from the path. */
-.composer__gap {
+.statusbar__gap {
   flex: 1 1 auto;
+}
+
+.statusbar__path {
+  font-family: var(--mono);
+}
+
+/* Not a control: a label with nothing behind it stays plain rather than
+   pretending to be pressable. */
+.statusbar__label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.statusbar__claude {
+  color: var(--info);
+}
+
+.statusbar__claude:hover,
+.statusbar__claude--open {
+  background: var(--bg-hover);
+  color: var(--info);
+}
+
+.statusbar__sub {
+  color: var(--fg-faint);
 }
 
 .claude {
   position: relative;
   flex: 0 0 auto;
+}
+
+/* In the status bar the menu hangs off the bottom edge of the window, so it opens
+   upward from there rather than from the middle of the pane. */
+.claude--status {
+  display: inline-flex;
 }
 
 /* Opens upward: the strip sits at the bottom of the pane, so a menu hanging below
@@ -1125,7 +1445,6 @@ button {
   overflow-y: auto;
   padding: 5px;
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
   background: var(--bg-elevated);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
 }
@@ -1133,7 +1452,7 @@ button {
 .claude__heading {
   padding: 6px 8px 3px;
   color: var(--fg-faint);
-  font-size: 10.5px;
+  font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -1156,7 +1475,7 @@ button {
   width: 100%;
   padding: 5px 8px;
   border: none;
-  border-radius: 7px;
+  border-radius: 2px;
   background: none;
   color: var(--fg);
   text-align: left;
@@ -1173,15 +1492,23 @@ button {
   cursor: default;
 }
 
-/* Marked with a dot rather than a tick, so the row does not shift when it changes. */
+/* Marked with a dot rather than a tick, so the row does not shift when it changes,
+   and with the same inset edge the other two "this one is on" lists take — in
+   --info rather than the accent, because this menu belongs to the model chip and
+   --info is what the model chip is. Without the edge this rule was --bg-hover on
+   top of a :hover that is also --bg-hover, so pointing at any model made it look
+   selected and the selection appeared to follow the pointer down the list. */
 .claude__item--on {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  background: var(--bg-hover);
+  box-shadow: inset 2px 0 0 var(--info);
 }
 
 .claude__item--on .claude__name::after {
   content: ' ●';
-  color: var(--accent);
-  font-size: 9px;
+  color: var(--info);
+  /* A dot is a glyph, not type: it takes the 8px the running-block dot and the
+     problem dots take, rather than a text size that would swallow the row. */
+  font-size: 8px;
   vertical-align: middle;
 }
 
@@ -1196,11 +1523,13 @@ button {
   float: right;
   padding: 0 6px;
   border: none;
-  border-radius: 6px;
+  border-radius: 2px;
   background: none;
-  color: var(--accent);
+  /* A small text button in a heading, not the action the view is asking for — it
+     takes the same colour every other secondary button takes. */
+  color: var(--fg-dim);
   font: inherit;
-  font-size: 10px;
+  font-size: 11px;
   text-transform: none;
   letter-spacing: 0;
   cursor: pointer;
@@ -1208,6 +1537,7 @@ button {
 
 .claude__check:hover:not(:disabled) {
   background: var(--bg-hover);
+  color: var(--fg);
 }
 
 .claude__check:disabled {
@@ -1224,7 +1554,7 @@ button {
   align-items: center;
   gap: 7px;
   padding: 2px 0;
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .usage__label {
@@ -1236,16 +1566,17 @@ button {
 .usage__bar {
   flex: 1 1 auto;
   height: 4px;
-  border-radius: 999px;
   background: var(--border);
   overflow: hidden;
 }
 
+/* --info, like everything else that belongs to the model chip. A meter is a
+   reading, and a reading filled in the accent competes with the one button on
+   screen that is actually asking to be pressed. */
 .usage__fill {
   display: block;
   height: 100%;
-  border-radius: 999px;
-  background: var(--accent);
+  background: var(--info);
 }
 
 .usage__count {
@@ -1271,7 +1602,7 @@ button {
 .usage__note {
   padding: 4px 8px 2px;
   color: var(--fg-faint);
-  font-size: 10.5px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -1287,20 +1618,7 @@ button {
 .claude__note {
   display: block;
   color: var(--fg-faint);
-  font-size: 10.5px;
-}
-
-.chip--branch {
-  color: var(--ok);
-}
-
-.chip--branch .chip__icon {
-  fill: currentColor;
-  stroke: currentColor;
-}
-
-.chip--changes {
-  color: var(--accent);
+  font-size: 11px;
 }
 
 .composer__cwd {
@@ -1313,24 +1631,33 @@ button {
 
 .composer__badge {
   padding: 1px 6px;
-  border-radius: 999px;
+  border-radius: 2px;
   border: 1px solid var(--border-strong);
   flex: 0 0 auto;
 }
 
+/* The state is in the word, so only the word is coloured — the border stays the
+   one every other badge has. A second, dimmer accent around it made the badge read
+   as a control that had been half-pressed. */
 .composer__badge--warn {
   color: var(--accent);
-  border-color: var(--accent-dim);
+  border-color: var(--border-strong);
 }
 
+/*
+ * Square, like everything else that frames something.
+ *
+ * The rounded field read as a search box on a page rather than a prompt in a
+ * terminal, and it was the only radius left at this size once the blocks lost
+ * theirs. The border carries the focus instead — which is what the accent is for.
+ */
 .composer__row {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 9px;
   background: var(--bg);
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  padding: 6px 8px;
+  padding: 7px 9px;
 }
 
 .composer__row:focus-within {
@@ -1341,8 +1668,11 @@ button {
   border-color: var(--info);
 }
 
+/* Faint, not accented: it is a chevron marking where the line starts, and the row
+   already says what it is with its border and its intent chip. The agent's ✦ below
+   keeps --info, so the colour of this glyph is what tells the two modes apart. */
 .composer__sigil {
-  color: var(--accent);
+  color: var(--fg-faint);
   font-family: var(--mono);
   font-size: 13px;
   line-height: 1.5;
@@ -1352,6 +1682,55 @@ button {
 
 .composer__row--ai .composer__sigil {
   color: var(--info);
+}
+
+/* Right-aligned in the row, naming what Enter will do. */
+.composer__intent {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 1px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  color: var(--fg-dim);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  user-select: none;
+}
+
+.composer__intent--ai {
+  border-color: var(--info);
+  color: var(--info);
+}
+
+/* A reading of the label beside it, not a second label — so it takes no border and
+   no fill of its own, and repeats the intent's letter-spacing so the two words sit
+   together as one phrase rather than as a chip with a word stuck to it. */
+.composer__auto {
+  flex: 0 0 auto;
+  align-self: center;
+  color: var(--fg-faint);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  user-select: none;
+}
+
+/* What Enter will carry with it. Neutral even when the intent beside it is --info:
+   an attachment is the same fact in either mode, and two blue things in one row
+   read as one control that has been split in half. */
+.composer__attach {
+  flex: 0 0 auto;
+  /* The row is laid out from flex-start so the label stays put as the input grows
+     to several lines; the chip has to opt out of that the same way the intent
+     does, or it climbs to the top of a tall input. */
+  align-self: center;
+  padding: 1px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+  user-select: none;
 }
 
 .composer__input {
@@ -1383,8 +1762,8 @@ button {
 .composer__hint {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 10px;
-  padding: 5px 2px 0;
+  gap: 4px 14px;
+  padding: 6px 1px 0;
   color: var(--fg-faint);
   font-size: 11px;
 }
@@ -1394,38 +1773,19 @@ button {
   white-space: nowrap;
 }
 
+/* A key cap, not a drawing of one: the doubled bottom border was a bevel, and a
+   bevel is the one thing in this app that was pretending to be physical. */
 kbd {
   font-family: var(--ui);
-  font-size: 10px;
+  font-size: 11px;
   padding: 1px 4px;
   border: 1px solid var(--border-strong);
-  border-bottom-width: 2px;
-  border-radius: 7px;
+  border-radius: 2px;
   color: var(--fg-dim);
 }
 
-.composer__proposal {
-  margin-top: 6px;
-  border: 1px solid var(--info-border);
-  border-radius: var(--radius);
-  background: var(--info-bg);
-  padding: 8px 10px;
-}
-
-.composer__proposal-cmd {
-  font-family: var(--mono);
-  font-size: 13px;
-  color: var(--info-fg);
-  user-select: text;
-  word-break: break-all;
-}
-
-.composer__proposal-note {
-  margin-top: 4px;
-  color: var(--fg-dim);
-  font-size: 11.5px;
-}
-
+/* The card itself moved into the block and is `.proposal` now; what is left of the
+   name is a row of buttons, which the settings dialog still uses for its own. */
 .composer__proposal-actions {
   display: flex;
   gap: 6px;
@@ -1434,10 +1794,10 @@ kbd {
 
 .btn {
   padding: 3px 10px;
-  border-radius: 8px;
+  border-radius: 2px;
   border: 1px solid var(--border-strong);
   color: var(--fg-dim);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .btn:hover {
@@ -1445,22 +1805,48 @@ kbd {
   color: var(--fg);
 }
 
+/* A toggle that is on, which is not the same thing as the one action a view is
+   asking for. It gets the treatment the active panel tab gets — full-strength text
+   on the hover fill — because two of these can be on at once, and two accent fills
+   on one row means neither of them is pointing at anything. */
+.btn--on {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  color: var(--fg);
+}
+
+/*
+ * The important button of a dialog — emphatic, but not the accent.
+ *
+ * It used to have a palette of its own (a blue fill, border and label, three
+ * variables that existed only for this), and then briefly took the accent fill.
+ * Both were wrong in the same direction: the accent is spent on focus, the active
+ * edge, the rail's active bar and ONE filled button, and that one is the agent's
+ * Run — the only button in the app that is a decision blocking on an answer. A
+ * dialog's Save and the source-control Commit can both be on screen at the same
+ * time as a proposal, and three accent fills at once point at nothing.
+ *
+ * So this is the toggle-on treatment with weight behind it: full-strength text on
+ * the hover fill, a strong border, and the only bold label in its row. That is
+ * enough to be found without claiming to be the thing you are looking at.
+ */
 .btn--primary {
-  background: var(--primary-bg);
-  border-color: var(--primary-border);
-  color: var(--primary-fg);
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  color: var(--fg);
+  font-weight: 600;
 }
 
 .btn--primary:hover {
-  background: var(--info);
-  border-color: var(--info);
-  color: var(--primary-fg);
+  background: var(--bg-hover);
+  border-color: var(--fg-faint);
+  color: var(--fg);
 }
 
 .composer__error {
   margin-top: 6px;
   color: var(--fail);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .spinner {
@@ -1505,7 +1891,6 @@ kbd {
   overflow-y: auto;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 14px;
   /* No bottom padding of its own: the sticky footer below carries it, so that
      content scrolls all the way to the buttons rather than under a dead strip. */
   padding: 18px 20px 0;
@@ -1525,7 +1910,7 @@ kbd {
   display: block;
   margin-bottom: 5px;
   color: var(--fg-dim);
-  font-size: 11.5px;
+  font-size: 11px;
 }
 
 .field input,
@@ -1534,10 +1919,10 @@ kbd {
   padding: 6px 8px;
   background: var(--bg);
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: 2px;
   color: var(--fg);
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13px;
   outline: none;
   user-select: text;
 }
@@ -1581,7 +1966,7 @@ kbd {
 .theme-swatch {
   width: 22px;
   height: 14px;
-  border-radius: 7px;
+  border-radius: 2px;
   border: 1px solid var(--border-strong);
   flex: 0 0 auto;
 }
@@ -1597,8 +1982,11 @@ kbd {
   font-size: 11px;
 }
 
+/* A row that has detected a secret being typed is in one state, and it is in that
+   state whether or not it has focus — so it says so in the failure colour rather
+   than borrowing the accent for a warning the accent does not mean. */
 .composer__row--secret {
-  border-color: var(--accent);
+  border-color: var(--fail);
   background: var(--fail-bg);
 }
 
@@ -1611,7 +1999,6 @@ kbd {
 .complete {
   margin-bottom: 6px;
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
   background: var(--bg-elevated);
   overflow: hidden;
 }
@@ -1629,7 +2016,7 @@ kbd {
   padding: 4px 10px;
   text-align: left;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--fg-dim);
 }
 
@@ -1637,8 +2024,21 @@ kbd {
   background: var(--bg-hover);
 }
 
+/*
+ * The row under the keyboard cursor, told from the row under the pointer by an
+ * edge rather than by a second fill.
+ *
+ * It does have to differ from :hover above it, or the pointer and the cursor claim
+ * the same row. The fill that did that was --selection, the terminal's own
+ * selection colour — and that is the one token in the palette that never passes
+ * through the readability guard the others do, so nothing had ever checked what it
+ * puts text on. Measured across the nine shipped themes, the faint meta text on
+ * this row came out below the suite's 4.5:1 floor on six of them. An inset edge
+ * costs no contrast and is already how a tab says it is the active one.
+ */
 .complete__item--on {
-  background: var(--accent-dim);
+  background: var(--bg-hover);
+  box-shadow: inset 2px 0 0 var(--accent);
   color: var(--fg);
 }
 
@@ -1653,7 +2053,7 @@ kbd {
   flex: 0 0 auto;
   color: var(--fg-faint);
   font-family: var(--ui);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .complete__foot {
@@ -1675,7 +2075,6 @@ kbd {
   max-height: 76vh;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 14px;
   overflow: hidden;
 }
 
@@ -1694,7 +2093,7 @@ kbd {
   outline: none;
   color: var(--fg);
   font-family: var(--mono);
-  font-size: 13.5px;
+  font-size: 13px;
   user-select: text;
 }
 
@@ -1735,14 +2134,18 @@ kbd {
   background: var(--bg-hover);
 }
 
+/* The same edge the completion list uses, for the same reason and with the same
+   argument against filling it: this row carries faint meta text of its own. */
 .hist__item--on {
-  background: var(--accent-dim);
+  background: var(--bg-hover);
+  box-shadow: inset 2px 0 0 var(--accent);
+  color: var(--fg);
 }
 
 .hist__cmd {
   flex: 1 1 auto;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1801,15 +2204,81 @@ kbd {
   overflow: hidden;
 }
 
+/*
+ * The strip under the breadcrumbs: language on the left, save and revert on the
+ * right.
+ *
+ * --bg-chrome like every other strip of chrome in the app. It used to be elevated,
+ * which only became wrong when the breadcrumb row was put in above it: three
+ * stacked rows in three colours, the lightest in the middle, reading as a floating
+ * panel wedged between the tabs and the code. --bg-elevated belongs to conversation
+ * blocks now and to nothing else.
+ *
+ * Spaced apart rather than packed, because the element that used to push the two
+ * ends away from each other — the file name, which flexed — is drawn by the
+ * breadcrumbs now and is left only to the diff pane.
+ */
 .editor__bar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   flex: 0 0 auto;
   padding: 5px 8px 5px 10px;
-  background: var(--bg-elevated);
+  background: var(--bg-chrome);
   border-bottom: 1px solid var(--border);
-  font-size: 11.5px;
+  font-size: 11px;
+}
+
+/*
+ * Where the file sits, on its own row under the tabs.
+ *
+ * A tab has room for a name and nothing else, which is not enough in a repository
+ * that contains four files called index.ts. The path is set in mono because it is
+ * a path, and the directories stay dim while the file itself comes up to full
+ * strength — the folders are context, the file is the subject.
+ */
+.editor__crumbs {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 4px 10px 4px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.editor__crumb {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The separator is drawn by the row rather than rendered into it, so no crumb
+   carries a trailing slash and the last one needs no special case. */
+.editor__crumb + .editor__crumb::before {
+  content: ' / ';
+  color: var(--fg-faint);
+}
+
+/* The file, which is the one part of the path the row is actually about. It does
+   not give ground when the row is too narrow — the directories in front of it do. */
+.editor__crumb--file {
+  flex: 0 0 auto;
+  color: var(--fg);
+}
+
+/* The unsaved mark, as a glyph rather than a drawn circle: ● in the accent at
+   11px. It sits in the tab beside the label and is the only thing that says the
+   file has edits, so unlike the close button next to it, it is never faded out. */
+.editor__dirty {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 11px;
+  line-height: 1;
 }
 
 .editor__name {
@@ -1828,22 +2297,14 @@ kbd {
  *
  * `text-overflow` has no effect on a flex container's own text, so the ellipsis
  * declared on .editor__name never applied — a name too long for the bar was cut
- * off mid-character with nothing to say it had been. The flex container is still
- * needed to sit the unsaved dot beside the name.
+ * off mid-character with nothing to say it had been. The flex container around it
+ * stays: the diff pane sits a second label beside this one.
  */
 .editor__label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.editor__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex: 0 0 auto;
 }
 
 .editor__lang,
@@ -1857,6 +2318,26 @@ kbd {
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
+}
+
+/*
+ * A line the language server has something to say about.
+ *
+ * The class is handed to Monaco as a decoration, so the element it lands on is one
+ * Monaco owns and styles for itself — a bare `.editor__errorline` loses to the
+ * rules Monaco writes into the document at runtime, which is why the selector is
+ * anchored to `.monaco-editor` in both of the places a decoration can end up (a
+ * whole-line decoration in the overlays, an inline one on the line itself).
+ *
+ * The fill is the failure colour at twelve percent rather than a colour of its
+ * own, so it follows the theme and stays a tint of the same red as the rule down
+ * the left edge and the ✕ in the status bar.
+ */
+.monaco-editor .view-overlays .editor__errorline,
+.monaco-editor .view-lines .editor__errorline,
+.editor__errorline {
+  background: color-mix(in srgb, var(--fail) 12%, transparent);
+  box-shadow: inset 2px 0 0 var(--fail);
 }
 
 /* ---------- file tree ---------- */
@@ -1923,11 +2404,13 @@ kbd {
   opacity: 0.55;
 }
 
+/* A chevron, at the one size this app sets chevrons — the same 10px the block
+   heads use, so the two twisties in the window are the same mark. */
 .tree__twisty {
   flex: 0 0 auto;
-  width: 9px;
+  width: 10px;
   color: var(--fg-faint);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .tree__label {
@@ -2012,10 +2495,19 @@ kbd {
   bottom: 7px;
   min-width: 15px;
   padding: 0 3px;
-  border-radius: 12px;
-  background: var(--accent);
-  color: var(--bg);
-  font-size: 9px;
+  border-radius: 2px;
+  /* A count, not an alarm. The accent fill made every pending change the same
+     colour as focus, the active tab edge and the one primary button — which is the
+     one thing the accent is not allowed to mean.
+
+     It keeps a fill all the same, in the rail's own colour rather than a signal
+     one. The badge sits *over* the icon, not beside it, so without something behind
+     it the digits are drawn straight onto the glyph's strokes and neither can be
+     read. --bg-chrome makes that read as the icon being masked rather than as a
+     coloured chip, which is what the accent fill was doing wrong. */
+  background: var(--bg-chrome);
+  color: var(--fg-dim);
+  font-size: 11px;
   font-weight: 700;
   line-height: 15px;
   text-align: center;
@@ -2067,7 +2559,7 @@ kbd {
   color: var(--fg-faint);
   background: none;
   border: none;
-  border-radius: 7px;
+  border-radius: 2px;
   font-size: 12px;
   line-height: 1.4;
   cursor: pointer;
@@ -2119,7 +2611,7 @@ kbd {
 .tree__git {
   flex: 0 0 auto;
   padding-left: 4px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -2146,15 +2638,28 @@ kbd {
   padding: 0 8px 6px 12px;
 }
 
+/* The branch, with its drawn glyph. One rule rather than the two this used to be
+   split across — the other one added the flex layout from the diff-pane section,
+   several hundred lines away, and between them the name became an anonymous flex
+   item, which is a box `text-overflow` cannot put an ellipsis on. It clipped a long
+   branch mid-character instead, with nothing saying it had been clipped. */
 .scm__branch {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   flex: 1 1 auto;
+  min-width: 0;
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+/* The name is its own box so it has something to be truncated in. */
+.scm__branch-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--fg-dim);
-  font-family: var(--mono);
-  font-size: 11px;
 }
 
 .scm__track {
@@ -2178,23 +2683,31 @@ kbd {
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 2px;
   font-family: inherit;
   font-size: 12px;
 }
 
+/* Focus is one of the four things the accent is for, so it takes the accent
+   itself rather than a dimmed version of it that read as a disabled field. */
 .scm__message:focus {
   outline: none;
-  border-color: var(--accent-dim);
+  border-color: var(--accent);
 }
 
+/* Committing is the primary action of this view, and takes the same treatment a
+   dialog's primary takes — emphatic without the accent fill, which belongs to the
+   agent's Run alone. This sits in the sidebar, which is open at the same time as
+   the panel and the editor, so it is exactly the button that would have made the
+   accent mean three things at once. */
 .scm__commit-btn {
   padding: 4px 8px;
   color: var(--fg);
-  background: var(--primary-bg);
-  border: 1px solid var(--primary-border);
-  border-radius: 7px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
   font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -2207,7 +2720,6 @@ kbd {
 .scm__note {
   margin: 0 10px 6px;
   padding: 5px 7px;
-  border-radius: 7px;
   font-size: 11px;
   word-break: break-word;
 }
@@ -2237,16 +2749,16 @@ kbd {
   gap: 6px;
   padding: 6px 10px 3px 12px;
   color: var(--fg-faint);
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
 .scm__count {
   padding: 0 5px;
-  border-radius: 12px;
+  border-radius: 2px;
   background: var(--bg-hover);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .scm__row {
@@ -2303,7 +2815,7 @@ kbd {
   direction: rtl;
   text-align: left;
   color: var(--fg-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .scm__status {
@@ -2313,11 +2825,6 @@ kbd {
   font-family: var(--mono);
   font-size: 11px;
   font-weight: 700;
-}
-
-.scm__hint {
-  color: var(--fg-faint);
-  font-size: 10px;
 }
 
 .scm__clean {
@@ -2340,12 +2847,6 @@ kbd {
   color: var(--fg-faint);
 }
 
-.scm__branch {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
 .scm__branch-icon {
   flex: 0 0 auto;
   width: 13px;
@@ -2366,27 +2867,34 @@ kbd {
 .diff__waiting {
   flex: 0 0 auto;
   padding: 1px 6px;
-  border-radius: 12px;
+  border-radius: 2px;
   background: var(--info-bg);
   border: 1px solid var(--info-border);
   color: var(--info-fg);
-  font-size: 10px;
+  font-size: 11px;
   white-space: nowrap;
 }
 
+/* The two verdicts on a proposed change, each outlined in its own colour.
+   They are .block__action underneath, which inherits the global `button { border:
+   none }` — so the border has to be declared here rather than only coloured, or
+   both border-colour lines below are inert and the pair is told apart by text
+   alone. Drawn from currentColor so each takes the colour it already sets. */
 .diff__accept,
 .diff__reject {
+  border: 1px solid currentColor;
   font-weight: 600;
 }
 
 .diff__accept {
   color: var(--ok);
-  border-color: var(--ok);
 }
 
+/* The full failure colour, matching the way accept takes the full --ok beside it.
+   The dimmed border was left over from the block treatment that is gone, and it
+   made the two verdicts look like one enabled button and one disabled one. */
 .diff__reject {
   color: var(--fail);
-  border-color: var(--fail-border);
 }
 
 /* ---------- editor tabs ---------- */
@@ -2414,10 +2922,8 @@ kbd {
   gap: 5px;
   flex: 0 0 auto;
   max-width: 190px;
-  padding: 4px 6px 4px 10px;
+  padding: 5px 8px;
   border-right: 1px solid var(--border);
-  /* Reserved on every tab so the active marker does not resize the strip. */
-  border-top: 2px solid transparent;
   color: var(--fg-faint);
   font-size: 12px;
   cursor: pointer;
@@ -2429,9 +2935,13 @@ kbd {
   color: var(--fg-dim);
 }
 
+/* The edge is drawn inside the tab rather than reserved as a border on every one
+   of them, which is what lets the strip keep a single padding and still not move
+   when the active tab changes — the same mark the window tabs and the panel tabs
+   take, on the side the content is on. */
 .etab--active {
   background: var(--bg);
-  border-top-color: var(--accent);
+  box-shadow: inset 0 2px 0 var(--accent);
   color: var(--fg);
 }
 
@@ -2453,26 +2963,34 @@ kbd {
   height: 15px;
   padding: 0;
   border: none;
-  border-radius: 7px;
+  border-radius: 2px;
   background: none;
   color: inherit;
   font-size: 11px;
   line-height: 1;
   cursor: pointer;
   /* Faded until wanted, except on a dirty tab where the dot is the unsaved mark.
-     Not hidden: that would take it out of the tab order. */
+     Not hidden: that would take it out of the tab order. And not hit-testable
+     while it is invisible either, so a click near the edge of a tab selects the
+     tab rather than closing it. */
   opacity: 0;
+  pointer-events: none;
 }
 
+/*
+ * Opacity, because opacity is what was taken away.
+ *
+ * This rule restored `visibility`, which was never set to anything — so nothing
+ * here ever came back and the close button was drawn at opacity 0 on every tab,
+ * hovered or not. There is no `.etab--dirty` in this list, and nothing colours the
+ * cross: an unsaved file is marked by its own `.editor__dirty` dot beside the
+ * label, which is visible whether the pointer is on the tab or not.
+ */
 .etab:hover .etab__close,
 .etab:focus-within .etab__close,
-.etab--active .etab__close,
-.etab--dirty .etab__close {
-  visibility: visible;
-}
-
-.etab--dirty .etab__close {
-  color: var(--accent);
+.etab--active .etab__close {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .etab__close:hover {
@@ -2509,7 +3027,7 @@ kbd {
 
 .gh__hint code {
   padding: 0 3px;
-  border-radius: 5px;
+  border-radius: 2px;
   background: var(--bg-hover);
   font-family: var(--mono);
 }
@@ -2536,8 +3054,10 @@ kbd {
   cursor: pointer;
 }
 
+/* The underline is what says it opens something; the colour only has to say the
+   pointer is on it, which full-strength text does without spending the accent. */
 .gh__repo:hover {
-  color: var(--accent);
+  color: var(--fg);
   text-decoration: underline;
 }
 
@@ -2555,7 +3075,7 @@ kbd {
   justify-content: center;
   padding: 4px 6px;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: 2px;
   background: none;
   color: var(--fg-faint);
   font-size: 11px;
@@ -2632,7 +3152,7 @@ kbd {
   flex-wrap: wrap;
   align-items: center;
   gap: 5px;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .gh__author {
@@ -2643,7 +3163,7 @@ kbd {
 .gh__label {
   padding: 0 4px;
   border: 1px solid var(--border-strong);
-  border-radius: 12px;
+  border-radius: 2px;
   color: var(--fg-faint);
 }
 
@@ -2715,14 +3235,14 @@ kbd {
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 2px;
   font-family: var(--mono);
   font-size: 12px;
 }
 
 .find__box:focus {
   outline: none;
-  border-color: var(--accent-dim);
+  border-color: var(--accent);
 }
 
 .find__box--glob {
@@ -2737,7 +3257,7 @@ kbd {
 .find__toggle {
   padding: 1px 6px;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: 2px;
   background: none;
   color: var(--fg-faint);
   font-family: var(--mono);
@@ -2771,7 +3291,6 @@ kbd {
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-left-width: 3px;
-  border-radius: 7px;
   background: var(--bg-elevated);
   font-size: 12px;
 }
@@ -2812,7 +3331,7 @@ kbd {
   color: var(--fg-dim);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 2px;
   font-size: 11px;
   cursor: pointer;
 }
@@ -2900,7 +3419,7 @@ kbd {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--fg-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .find__hit {
@@ -2938,10 +3457,14 @@ kbd {
   white-space: pre;
 }
 
+/* What was matched. A highlight is one of the few things that genuinely needs a
+   fill rather than an edge, so it gets one — mixed toward the background from the
+   accent rather than taken from --selection, which is the terminal's raw colour and
+   is never checked against the text it would end up carrying. */
 .find__preview mark {
-  background: var(--accent-dim);
+  background: color-mix(in srgb, var(--accent) 26%, var(--bg));
   color: var(--fg);
-  border-radius: 5px;
+  border-radius: 2px;
 }
 
 /* ---------- quick open / command palette ---------- */
@@ -2964,7 +3487,6 @@ kbd {
   max-height: 60vh;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 9px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
   overflow: hidden;
 }
@@ -3030,7 +3552,7 @@ kbd {
   margin-left: auto;
   color: var(--fg-faint);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .qp__none {
@@ -3059,8 +3581,10 @@ kbd {
   padding: 1px 4px;
   color: var(--fg);
   background: var(--bg);
-  border: 1px solid var(--accent-dim);
-  border-radius: 5px;
+  /* At rest it is an input like any other; the accent arrives with focus, which
+     is what the accent is for. */
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
   font-family: var(--mono);
   font-size: 12px;
 }
@@ -3087,7 +3611,6 @@ kbd {
   padding: 4px 0;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 
@@ -3196,13 +3719,13 @@ kbd {
   flex: 0 0 auto;
   color: var(--fg-faint);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
 }
 
-/* Errors earn a red badge rather than the accent one used for pending changes. */
+/* Errors are told from pending changes by the colour of the number, both of them
+   masked from the glyph underneath by the same fill. */
 .activity__badge--bad {
-  background: var(--fail);
-  color: var(--bg);
+  color: var(--fail);
 }
 
 /* ---------- outline ---------- */
@@ -3231,7 +3754,7 @@ kbd {
   background: none;
   border: none;
   color: var(--fg-dim);
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   cursor: pointer;
@@ -3272,7 +3795,7 @@ kbd {
   flex: 0 0 auto;
   min-width: 30px;
   color: var(--fg-faint);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .outline__name {

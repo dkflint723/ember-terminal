@@ -8,7 +8,7 @@ import { openAt } from '../editor/navigate'
 import { lastSynced, noteSynced } from '../editor/synced'
 import { recordSelection } from '../state/ide'
 import { pendingUnsaved, setBufferReader } from '../state/session'
-import { samePath } from '@shared/paths'
+import { isInside, samePath } from '@shared/paths'
 
 interface Props {
   pane: EditorPaneState
@@ -17,21 +17,54 @@ interface Props {
   tabId: string
 }
 
+/** How much of the path a file outside the workspace is shown by. */
+const TAIL_CRUMBS = 3
+
 /**
- * Where a file sits, relative to the workspace, without its own name on the end.
- * Empty for a file at the root or outside the workspace entirely — in both cases
- * there is nothing useful to add beyond the tab's label.
+ * The breadcrumb row's segments, the file itself always last.
+ *
+ * Inside the workspace the path is shown relative to the root, which is how every
+ * other part of the app names a file and the only spelling anyone recognises at a
+ * glance. Outside it there is no root to shorten against, and an absolute path from
+ * the drive letter down would fill the row and push the name that matters off the
+ * end — so only the tail is kept, and the cut is marked so the result cannot be
+ * misread as a path relative to anything.
  */
-function locate(filePath: string | null, root: string | null): string {
-  if (!filePath) return ''
-  const parts = filePath.replace(/\\/g, '/').split('/')
-  parts.pop()
-  const dir = parts.join('/')
-  if (!root) return ''
-  const base = root.replace(/\\/g, '/')
-  if (!dir.toLowerCase().startsWith(base.toLowerCase())) return ''
-  return dir.slice(base.length).replace(/^\//, '')
+function crumbsFor(filePath: string | null, root: string | null, title: string): string[] {
+  if (!filePath) return [title]
+  const parts = filePath.replace(/\\/g, '/').split('/').filter(Boolean)
+  if (root && isInside(root, filePath)) {
+    const depth = root.replace(/\\/g, '/').split('/').filter(Boolean).length
+    const inside = parts.slice(depth)
+    if (inside.length > 0) return inside
+  }
+  if (parts.length <= TAIL_CRUMBS) return parts
+  return ['…', ...parts.slice(-TAIL_CRUMBS)]
 }
+
+/*
+ * Code at 13px sits on a 19px line, and holds that proportion at any other size.
+ *
+ * 19 is the design's measurement, and it is a measurement of the default font — but
+ * the font size is a setting, and a line height that stayed at 19 while the glyphs
+ * grew would have descenders landing in the row below. The ratio is what the design
+ * actually fixes; the pixels follow from it.
+ */
+const CODE_FONT_SIZE = 13
+const CODE_LINE_HEIGHT = 19
+
+function lineHeightFor(fontSize: number): number {
+  return Math.round((fontSize / CODE_FONT_SIZE) * CODE_LINE_HEIGHT)
+}
+
+/**
+ * The minimap's width, in the only unit Monaco will take for it.
+ *
+ * There is no pixel option: the panel is measured in source columns, and at scale 1
+ * a column is one CSS pixel wide however dense the display is. So 66 columns is the
+ * design's 66px, as a ceiling — a narrow pane gets a proportionally narrower map.
+ */
+const MINIMAP_COLUMNS = 66
 
 /** A document's line endings, as Monaco names them. */
 function eolOf(eol: 'crlf' | 'lf'): monaco.editor.EndOfLineSequence {
@@ -60,6 +93,9 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
   const setActiveDocument = useStore((s) => s.setActiveDocument)
   const closeDocument = useStore((s) => s.closeDocument)
   const moveDocument = useStore((s) => s.moveDocument)
+  // Subscribed rather than read once: the breadcrumb row is drawn against the
+  // workspace root, and opening a folder changes what every crumb should say.
+  const treeRoot = useStore((s) => s.treeRoot)
   /** Which tab is being dragged, and which one it is currently over. */
   const dragFrom = useRef<number | null>(null)
   const [dragOver, setDragOver] = useState<number | null>(null)
@@ -67,6 +103,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
   const [message, setMessage] = useState<string | null>(null)
 
   const document = activeDocument(pane)
+  const crumbs = crumbsFor(document.filePath, treeRoot, document.title)
 
   /*
    * Auto-save state, held in refs.
@@ -147,8 +184,32 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
       theme: MONACO_THEME_ID,
       fontFamily,
       fontSize,
+      lineHeight: lineHeightFor(fontSize),
       automaticLayout: true,
-      minimap: { enabled: true, size: 'proportional' },
+      // Bars rather than glyphs: at a column a pixel wide the characters are not
+      // legible as characters anyway, and the design asks for 2px bars — which is
+      // what a block-rendered minimap draws at scale 1.
+      minimap: {
+        enabled: true,
+        size: 'proportional',
+        maxColumn: MINIMAP_COLUMNS,
+        scale: 1,
+        renderCharacters: false
+      },
+      /*
+       * The gutter, as near as Monaco's options come to the design's 54px.
+       *
+       * It has no width of its own: Monaco builds it from the widest digit times a
+       * digit count, plus a lane for the folding controls, plus a glyph margin that
+       * nothing in this app draws into. Dropping the glyph margin and leaving the
+       * decorations to the folding lane puts the numbers in ~39px with ~16px of air
+       * between them and the code — 54px and 14px to within a pixel or two at the
+       * default font, and moving with the font size rather than staying behind it.
+       * The numbers are right-aligned already, which is Monaco's own default.
+       */
+      glyphMargin: false,
+      lineNumbersMinChars: 5,
+      lineDecorationsWidth: 0,
       scrollBeyondLastLine: false,
       renderWhitespace: 'selection',
       // Indentation lines, with the level the cursor is inside picked out. Nesting
@@ -161,11 +222,81 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     })
     editorRef.current = editor
 
+    /*
+     * Where the caret is, pushed into the store rather than read out of Monaco.
+     *
+     * The status bar shows the position and is a sibling of this pane rather than an
+     * ancestor of it, so there is nothing for it to subscribe to over here — Monaco's
+     * cursor is not React state. One-based, as an editor counts and as the bar says
+     * it out loud, and the selection travels as a character count because the size of
+     * what is held is the only part of a range anyone down there reads.
+     */
+    const reportCursor = (): void => {
+      const model = editor.getModel()
+      const at = editor.getPosition()
+      if (!model || !at) return
+      const selection = editor.getSelection()
+      useStore.getState().setCursorAt({
+        line: at.lineNumber,
+        column: at.column,
+        selected: selection ? model.getValueLengthInRange(selection) : 0
+      })
+    }
+    // Said once at the start as well as on every move: a file that has just opened
+    // has a caret at the top, and a bar that only hears about movement would have
+    // nothing to show until someone pressed an arrow key.
+    reportCursor()
+
+    /*
+     * The lines carrying an error, marked as lines.
+     *
+     * Driven from Monaco's markers — the same ones the squiggles and the Problems
+     * list are drawn from — so the three can never disagree about which line is
+     * wrong. Recomputed whole rather than diffed: markers arrive in per-file batches
+     * anyway, and a model swap empties the collection along with the view.
+     */
+    const errorLines = editor.createDecorationsCollection([])
+    const paintErrors = (): void => {
+      const model = editor.getModel()
+      if (!model) {
+        errorLines.clear()
+        return
+      }
+      const lines = new Set<number>()
+      for (const marker of monaco.editor.getModelMarkers({ resource: model.uri })) {
+        if (marker.severity !== monaco.MarkerSeverity.Error) continue
+        for (let line = marker.startLineNumber; line <= marker.endLineNumber; line++) lines.add(line)
+      }
+      errorLines.set(
+        [...lines].map((line) => ({
+          range: new monaco.Range(line, 1, line, 1),
+          options: { isWholeLine: true, className: 'editor__errorline' }
+        }))
+      )
+    }
+    paintErrors()
+
+    // Markers are global to Monaco rather than per editor, so this hears about every
+    // file; paintErrors reads back only the one this editor is showing.
+    const markerSub = monaco.editor.onDidChangeMarkers(() => paintErrors())
+
+    // A tab switch is a new caret and a different set of wrong lines, and neither
+    // event above fires for it.
+    const modelSub = editor.onDidChangeModel(() => {
+      reportCursor()
+      paintErrors()
+    })
+
+    // Several editors can be open at once and only one of them holds the caret the
+    // bar is describing, so taking focus is a position change like any other.
+    const focusSub = editor.onDidFocusEditorText(() => reportCursor())
+
     // Reported as it changes rather than read on demand: a tool call arrives from
     // a socket, and by then the editor may not be the focused thing on screen.
     const selectionSub = editor.onDidChangeCursorSelection((e) => {
       const model = editor.getModel()
       if (!model) return
+      reportCursor()
       recordSelection({
         filePath: activeDocument(useStore.getState().editorPane(pane.id) ?? pane).filePath,
         text: model.getValueInRange(e.selection),
@@ -246,22 +377,37 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     })
 
     // Claiming Ctrl+K stops Monaco starting one of its chords, which would eat the
-    // next keystroke and look like a freeze. The global handler does the rest, so
-    // this only has to prevent the chord.
+    // next keystroke and look like a freeze. Monaco swallows the event once it
+    // matches, so the global handler never sees it and this has to make the
+    // request itself.
+    //
+    // 'agent' rather than the toggle the same chord means in the composer: there
+    // is no visible reading to disagree with from over here, so pressing it can
+    // only mean "take me to Claude".
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK, () => {
       const s = useStore.getState()
       const tab = s.tabs.find((t) => t.id === s.activeTabId)
       if (!tab) return
       const target = Object.values(s.panes).find((p) => p.kind === 'terminal')?.id
-      if (target) s.requestAsk(target)
+      if (target) s.requestAsk(target, 'agent')
     })
 
     return () => {
       selectionSub.dispose()
+      focusSub.dispose()
+      modelSub.dispose()
+      markerSub.dispose()
       sub.dispose()
+      // The caret this pane was reporting no longer exists anywhere, and a position
+      // left in the bar for an editor that has gone is worse than none at all.
+      useStore.getState().setCursorAt(null)
       // Pending auto-saves would fire into a pane that no longer exists.
       for (const timer of autoSaveTimers.current.values()) window.clearTimeout(timer)
       autoSaveTimers.current.clear()
+      // The error lines are taken off explicitly because the model behind them is
+      // not going anywhere — it is shared, and reopening the file must not find it
+      // still wearing the marks of an editor that closed.
+      errorLines.clear()
       // Models are deliberately kept: they are keyed by file URI and shared, so
       // disposing them here would discard undo history on reopen and desync the
       // language server, which still considers the document open.
@@ -307,7 +453,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
   }, [theme])
 
   useEffect(() => {
-    editorRef.current?.updateOptions({ fontFamily, fontSize })
+    editorRef.current?.updateOptions({ fontFamily, fontSize, lineHeight: lineHeightFor(fontSize) })
   }, [fontFamily, fontSize])
 
   useEffect(() => {
@@ -479,9 +625,12 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
             key={doc.filePath ?? `untitled-${i}`}
             role="tab"
             aria-selected={i === pane.activeIndex}
+            /* Unsaved is said by the ● in .editor__dirty below, not by a modifier on
+               the tab: the dot is the whole of the signal, and a class nothing
+               styles reads to the next person as a hook that does something. */
             className={`etab ${i === pane.activeIndex ? 'etab--active' : ''} ${
-              doc.dirty ? 'etab--dirty' : ''
-            } ${dragOver === i ? 'etab--drop' : ''}`}
+              dragOver === i ? 'etab--drop' : ''
+            }`}
             title={doc.filePath ?? doc.title}
             draggable
             onDragStart={(e) => {
@@ -519,6 +668,16 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
             }}
           >
             <span className="etab__label">{doc.title}</span>
+            {/* The unsaved mark is its own thing rather than the close button in
+                disguise, which is how the tab used to say it: a control that means
+                "close" until the file is edited and then means "not saved" is a
+                control you have to think about before pressing, and hovering it
+                turned the only unsaved marker in the tab back into a cross. */}
+            {doc.dirty && (
+              <span className="editor__dirty" aria-label="Unsaved changes" title="Unsaved changes">
+                ●
+              </span>
+            )}
             <button
               className="etab__close"
               aria-label={`Close ${doc.title}`}
@@ -528,22 +687,29 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
                 requestClose(i)
               }}
             >
-              {doc.dirty ? '●' : '×'}
+              ×
             </button>
           </div>
         ))}
       </div>
 
-      <div className="editor__bar">
-        {/* The tab above already names the file, so this shows where it sits —
-            which is the thing you cannot tell from a name alone when two
-            directories both contain an index.ts. */}
-        <span className="editor__name" title={document.filePath ?? document.title}>
-          <span className="editor__label">
-            {locate(document.filePath, useStore.getState().treeRoot) || document.title}
+      {/* Where the file sits, a segment at a time — which is the thing the tab
+          cannot tell you when two directories both hold an index.ts. The crumbs are
+          rendered as immediate siblings and nothing else goes between them: the
+          stylesheet draws the ` / ` off their adjacency, so an element in the gap
+          would silently take every separator away. */}
+      <div className="editor__crumbs" title={document.filePath ?? document.title}>
+        {crumbs.map((crumb, i) => (
+          <span
+            key={`${i}-${crumb}`}
+            className={`editor__crumb ${i === crumbs.length - 1 ? 'editor__crumb--file' : ''}`}
+          >
+            {crumb}
           </span>
-          {document.dirty && <span className="editor__dot" title="Unsaved changes" />}
-        </span>
+        ))}
+      </div>
+
+      <div className="editor__bar">
         <span className="editor__lang">{document.language}</span>
         <button className="block__action" onClick={() => void save()} disabled={saving}>
           {saving ? 'saving…' : 'save'}

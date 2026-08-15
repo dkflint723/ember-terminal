@@ -266,15 +266,6 @@ function commands(): Command[] {
         s.togglePanel()
       }
     },
-    {
-      id: 'view.claude',
-      label: 'View: Toggle Claude',
-      hint: 'Ctrl+Shift+B',
-      run: () => {
-        s.setMode('ide')
-        s.toggleSecondary()
-      }
-    },
     { id: 'view.explorer', label: 'View: Explorer', hint: 'Ctrl+B', run: () => s.showSidebarView('explorer') },
     { id: 'view.search', label: 'View: Search', hint: 'Ctrl+Shift+F', run: () => s.showSidebarView('search') },
     { id: 'view.scm', label: 'View: Source Control', hint: 'Ctrl+Shift+G', run: () => s.showSidebarView('scm') },
@@ -349,13 +340,19 @@ function commands(): Command[] {
       hint: 'Ctrl+Shift+W',
       run: () => tab && s.closePane(tab.id, tab.activePaneId)
     },
+    // 'agent' rather than the toggle Ctrl+K performs: a command whose label is a
+    // sentence about asking Claude has to point the composer at Claude, whatever
+    // the buffer happened to read as. Which is also why the hint is Ctrl+Shift+B
+    // and not Ctrl+K — Ctrl+K flips the reading, so on the question buffers this
+    // command exists for it pins the shell, and a hint that names a key doing the
+    // opposite of the row it sits on is worse than no hint.
     {
       id: 'ai.ask',
       label: 'Ask Claude',
-      hint: 'Ctrl+K',
+      hint: 'Ctrl+Shift+B',
       run: () => {
         const target = Object.values(s.panes).find((p) => p.kind === 'terminal')?.id
-        if (target) s.requestAsk(target)
+        if (target) s.requestAsk(target, 'agent')
       }
     }
   ]

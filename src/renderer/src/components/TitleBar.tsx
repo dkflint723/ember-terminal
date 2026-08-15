@@ -10,18 +10,21 @@ import { activeDocument, useStore } from '../state/store'
  * it stays in the palette rather than taking a fourth slot here.
  */
 /**
- * The three layout toggles, in the idiom every editor uses: a box with the region
+ * The two layout toggles, in the idiom every editor uses: a box with the region
  * in question shaded, so the picture says which edge of the window it means.
  *
  * They toggle regions rather than splitting panes. Splitting is what Ctrl+Shift+D
  * and Ctrl+Shift+E do, and putting it here made the icons a lie — they are the
- * shape of VS Code's sidebar, panel and secondary-sidebar switches, and that is
- * what people reach for them expecting.
+ * shape of VS Code's sidebar and panel switches, and that is what people reach for
+ * them expecting.
+ *
+ * There was a third, for the right-hand sidebar Claude used to live in. Claude is
+ * a block in the list now, so there is no region for it to open and no switch for
+ * it to be.
  */
 interface LayoutState {
   sidebarOpen: boolean
   panelOpen: boolean
-  secondaryOpen: boolean
 }
 
 const REGIONS = [
@@ -52,21 +55,6 @@ const REGIONS = [
         s.togglePanel(true)
       } else s.togglePanel()
     }
-  },
-  {
-    id: 'secondary',
-    label: 'Toggle Claude',
-    hint: 'Ctrl+Shift+B',
-    fill: { x: 9, y: 3.5, width: 4.5, height: 9 },
-    on: (l: LayoutState) => l.secondaryOpen,
-    toggle: () => {
-      // Same bargain as the panel: arriving in the IDE this way shows Claude.
-      const s = useStore.getState()
-      if (s.mode !== 'ide') {
-        s.setMode('ide')
-        s.toggleSecondary(true)
-      } else s.toggleSecondary()
-    }
   }
 ]
 
@@ -89,11 +77,9 @@ export function TitleBar(): React.JSX.Element {
   const sidebarOpen = useStore((s) => s.sidebarOpen)
   const panelOpen = useStore((s) => s.panelOpen)
   const mode = useStore((s) => s.mode)
-  const secondaryOpen = useStore((s) => s.secondaryOpen)
   const layout: LayoutState = {
     sidebarOpen,
-    panelOpen: panelOpen && mode === 'ide',
-    secondaryOpen
+    panelOpen: panelOpen && mode === 'ide'
   }
   const toggleSettings = useStore((s) => s.toggleSettings)
 
@@ -211,26 +197,11 @@ export function TitleBar(): React.JSX.Element {
           </button>
 
           {menuOpen && (
-            <div
-              style={{
-                position: 'absolute',
-                top: 30,
-                left: 0,
-                zIndex: 30,
-                background: 'var(--bg-elevated)',
-                border: '1px solid var(--border-strong)',
-                borderRadius: 6,
-                padding: 4,
-                minWidth: 190,
-                WebkitAppRegion: 'no-drag'
-              } as React.CSSProperties}
-              onMouseLeave={() => setMenuOpen(false)}
-            >
+            <div className="titlebar__menu" onMouseLeave={() => setMenuOpen(false)}>
               {profiles.map((p) => (
                 <button
                   key={p.id}
-                  className="block__action"
-                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '5px 8px' }}
+                  className="titlebar__menu-item"
                   onClick={() => {
                     newTab(p.id)
                     setMenuOpen(false)
@@ -239,10 +210,9 @@ export function TitleBar(): React.JSX.Element {
                   {p.name}
                 </button>
               ))}
-              <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+              <div className="titlebar__menu-rule" />
               <button
-                className="block__action"
-                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '5px 8px' }}
+                className="titlebar__menu-item"
                 onClick={() => {
                   toggleSettings(true)
                   setMenuOpen(false)
@@ -269,7 +239,7 @@ export function TitleBar(): React.JSX.Element {
           the screen saying "No files open" with nothing offering the way back, and
           people restarted the app to get their terminal.
 
-          Named rather than drawn. The three beside it toggle regions and can share
+          Named rather than drawn. The two beside it toggle regions and can share
           one picture with a different part shaded; this changes what the window is,
           which is worth a word.
         */}
@@ -293,12 +263,12 @@ export function TitleBar(): React.JSX.Element {
             ) : (
               // A window with a sidebar and a panel: the shape it turns into.
               <>
+                {/* Square, like the three region icons beside it. */}
                 <rect
                   x="1.6"
                   y="2.6"
                   width="12.8"
                   height="10.8"
-                  rx="1.6"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="1.3"
@@ -320,12 +290,15 @@ export function TitleBar(): React.JSX.Element {
             onClick={r.toggle}
           >
             <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+              {/* Square. The rounded outline was the last soft corner left in the
+                  chrome once the blocks, the composer and the tabs lost theirs, and
+                  at 15px a 1.5 radius reads as a drawing error rather than a
+                  choice. */}
               <rect
                 x="1.5"
                 y="2.5"
                 width="13"
                 height="11"
-                rx="1.5"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="1.2"

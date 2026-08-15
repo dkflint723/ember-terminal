@@ -1,6 +1,14 @@
 import { useEffect } from 'react'
-import type { SessionLayout, SessionPane, SessionSnapshot } from '@shared/types'
-import { useStore, type EditorDocument, type LayoutNode, type Pane, type Tab } from './store'
+import type { PersistedBlock, SessionLayout, SessionPane, SessionSnapshot } from '@shared/types'
+import {
+  useStore,
+  type Block,
+  type ConversationBlock,
+  type EditorDocument,
+  type LayoutNode,
+  type Pane,
+  type Tab
+} from './store'
 
 /**
  * Writing the workspace down, and putting it back.
@@ -159,6 +167,45 @@ function currentText(filePath: string | null): string | null {
   }
 }
 
+/**
+ * A stored block, as the pane will hold it again.
+ *
+ * Both kinds come back marked as having come from before, which is the whole
+ * difference between a block that is a record and a block that looks like it just
+ * ran. A conversation comes back with `streaming` false whatever it was doing when
+ * the window closed: the request filling it in ended with the process that made
+ * it, and a block restored mid-stream would sit saying "Thinking…" for ever.
+ *
+ * A proposal is restored exactly as it was left, verdict included. Nothing here
+ * acts on one — a restored `run` is the record of something already done, and only
+ * an `open` one still has a button attached to it.
+ *
+ * The attachments come back with it, so a restored exchange still shows which
+ * commands it was asked about. They are what was stored rather than what the pane
+ * now holds: a block named by a chip may not have survived to this launch, and the
+ * question was still asked about it.
+ */
+function restoredBlock(saved: PersistedBlock): Block {
+  if (saved.kind === 'conversation') {
+    return {
+      kind: 'conversation',
+      id: saved.id,
+      prompt: saved.prompt,
+      answer: saved.answer,
+      streaming: false,
+      error: saved.error,
+      proposal: saved.proposal,
+      attached: saved.attached,
+      startedAt: saved.startedAt,
+      collapsed: saved.collapsed,
+      restored: true
+    }
+  }
+  // Blocks written before conversations existed carry no kind at all; they are the
+  // commands this list used to be made only of.
+  return { ...saved, kind: 'command', restored: true }
+}
+
 /** Rebuild the workspace. Returns false when there was nothing usable to restore. */
 export async function restore(snapshotIn: SessionSnapshot | null): Promise<boolean> {
   if (!snapshotIn || snapshotIn.tabs.length === 0 || snapshotIn.panes.length === 0) return false
@@ -183,13 +230,19 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
   }
 
   /*
-   * The commands each pane was holding when the app closed.
+   * The blocks each pane was holding when the app closed — the commands it ran and
+   * the conversations that were had about them.
    *
    * Kept in the database rather than in this snapshot: the session file is
    * rewritten on a debounce while the app runs, and rendered output would mean
    * megabytes of HTML written over and over. Fetched in one call for every pane at
    * once, since one round trip per pane is the kind of thing that makes a launch
    * feel slow for no reason.
+   *
+   * They arrive in the order they happened, which is the main process's job rather
+   * than this one's — `loadBlocks` orders by when each block started, not by when it
+   * was written down. Nothing here re-sorts them, so a pane comes back holding what
+   * that query returned, oldest first.
    */
   const terminalIds = snapshotIn.panes.filter((p) => p.kind === 'terminal').map((p) => p.id)
   const savedBlocks = await window.ember.loadBlocks(terminalIds)
@@ -197,6 +250,10 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
   for (const saved of snapshotIn.panes) {
     if (saved.kind === 'terminal') {
       const cwd = (await stillThere(saved.cwd)) ? saved.cwd : window.ember.homeDir
+      const blocks = (savedBlocks[saved.id] ?? []).map(restoredBlock)
+      for (const block of blocks) {
+        if (block.kind === 'conversation') noteConversationWritten(block)
+      }
       panes[saved.id] = {
         id: saved.id,
         kind: 'terminal',
@@ -204,9 +261,7 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
         // The title follows the directory, so a fallback must not keep the old name.
         title: cwd === saved.cwd ? saved.title : cwd.split(/[\\/]/).filter(Boolean).pop() || 'Shell',
         cwd,
-        // Marked as having come from before, which is the whole difference between
-        // a block that is a record and a block that looks like it just ran.
-        blocks: (savedBlocks[saved.id] ?? []).map((b) => ({ ...b, restored: true })),
+        blocks,
         mode: 'blocks',
         integration: 'pending',
         awaitingSecret: false,
@@ -330,6 +385,71 @@ export function unsavedWorkIsPreserved(): boolean {
   return preserving && !failing
 }
 
+/**
+ * Conversations, written down as they settle.
+ *
+ * A command block is kept by the terminal controller the moment the command
+ * finishes, because that is when everything about it is final. A conversation has
+ * no single such moment — the answer arrives, and the proposal is run or dismissed
+ * whenever the user gets to it — so it is written here, on the same debounce as the
+ * rest of the workspace, and written again whenever something about it changes.
+ *
+ * Which means the two kinds reach the database on different clocks, and the order
+ * they are written in is not the order they happened in: a question answered just
+ * before a command finishes waits out the debounce and lands after it. That is why
+ * nothing may put a pane back together by write order — `startedAt` travels with
+ * every block for exactly this reason, and history.ts reads by it.
+ *
+ * Not in the session snapshot itself, for the reason `restore` gives about blocks:
+ * that file is rewritten every 1.2 seconds while the app runs, and answers are not
+ * small. It goes to the same database the commands go to, through the same upsert.
+ */
+const conversationsWritten = new Map<string, string>()
+
+function persistedConversation(block: ConversationBlock): PersistedBlock {
+  return {
+    kind: 'conversation',
+    id: block.id,
+    prompt: block.prompt,
+    answer: block.answer,
+    error: block.error,
+    proposal: block.proposal,
+    attached: block.attached,
+    startedAt: block.startedAt,
+    collapsed: block.collapsed
+  }
+}
+
+/**
+ * Remember that this conversation is already on disk exactly as it stands.
+ *
+ * Called for restored blocks so the first autosave after a launch does not rewrite
+ * every conversation the pane came back with — they came out of the database this
+ * would be putting them into.
+ */
+function noteConversationWritten(block: ConversationBlock): void {
+  conversationsWritten.set(block.id, JSON.stringify(persistedConversation(block)))
+}
+
+function saveConversations(): void {
+  for (const pane of Object.values(useStore.getState().panes)) {
+    if (pane.kind !== 'terminal') continue
+    for (const block of pane.blocks) {
+      // A half-arrived answer is not worth keeping: what the next launch needs is
+      // the finished exchange, and the request producing this one will not survive
+      // to finish it.
+      if (block.kind !== 'conversation' || block.streaming) continue
+      const persisted = persistedConversation(block)
+      const signature = JSON.stringify(persisted)
+      // Without this every pass would rewrite every conversation in every pane, for
+      // as long as the session lasts.
+      if (conversationsWritten.get(block.id) === signature) continue
+      conversationsWritten.set(block.id, signature)
+      window.ember.saveBlock(pane.id, persisted)
+    }
+  }
+}
+
 /** Save on a debounce whenever the shape of the workspace changes. */
 export function useSessionAutosave(enabled: boolean): void {
   useEffect(() => {
@@ -359,6 +479,9 @@ export function useSessionAutosave(enabled: boolean): void {
      * changes rather than when it recurs.
      */
     const save = async (): Promise<void> => {
+      // Before the snapshot rather than after it: this is a send, not a round trip,
+      // and a failing session file should not take the conversations with it.
+      saveConversations()
       const res = await window.ember.sessionSave(snapshot())
       preserving = res.ok
       if (!res.ok && !failing) {
@@ -383,7 +506,12 @@ export function useSessionAutosave(enabled: boolean): void {
     const unsubscribe = useStore.subscribe(schedule)
     // The last word, and the only one guaranteed to include a final edit: the
     // debounce may not have fired when the window goes away.
-    const onLeave = (): void => void window.ember.sessionSave(snapshot())
+    const onLeave = (): void => {
+      // An answer that arrived in the last 1.2 seconds has not been through `save`
+      // yet, and the window is going.
+      saveConversations()
+      void window.ember.sessionSave(snapshot())
+    }
     window.addEventListener('beforeunload', onLeave)
     window.addEventListener('pagehide', onLeave)
 

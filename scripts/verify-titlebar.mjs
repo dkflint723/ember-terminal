@@ -62,7 +62,7 @@ await sleep(700)
 if (profiles.length > 1) {
   // With several shells it offers a menu. Playwright will only click something
   // visible and hit-testable, so this failing is the clipped menu coming back.
-  const entry = page.locator('.titlebar__newwrap .block__action').first()
+  const entry = page.locator('.titlebar__newwrap .titlebar__menu-item').first()
   check('the profile menu is visible', (await entry.count()) > 0 && (await entry.isVisible()))
   if (await entry.count()) {
     await entry.click()
@@ -78,13 +78,16 @@ check('choosing a shell opens a tab', (await tabCount()) === before + 1, `${befo
 if (profiles.length > 1) {
   await page.locator('.titlebar__new').click()
   await sleep(500)
-  check('the menu reopens', (await page.locator('.titlebar__newwrap .block__action').count()) > 0)
+  check(
+    'the menu reopens',
+    (await page.locator('.titlebar__newwrap .titlebar__menu-item').count()) > 0
+  )
 
   await page.keyboard.press('Escape')
   await sleep(500)
   check(
     'Escape closes it',
-    (await page.locator('.titlebar__newwrap .block__action').count()) === 0
+    (await page.locator('.titlebar__newwrap .titlebar__menu-item').count()) === 0
   )
 
   await page.locator('.titlebar__new').click()
@@ -93,7 +96,7 @@ if (profiles.length > 1) {
   await sleep(500)
   check(
     'and so does clicking away from it',
-    (await page.locator('.titlebar__newwrap .block__action').count()) === 0
+    (await page.locator('.titlebar__newwrap .titlebar__menu-item').count()) === 0
   )
 }
 
@@ -109,12 +112,16 @@ const paneBoxes = () =>
   )
 
 /*
- * --- the three layout toggles -------------------------------------------------
+ * --- the two layout toggles ---------------------------------------------------
  *
  * They used to split panes while wearing the icons of VS Code's sidebar, panel and
  * secondary-sidebar switches. They toggle those regions now, and each one reports
  * the state it is in, so this checks both halves: that pressing it changes the
  * layout, and that the button says so afterwards.
+ *
+ * There were three. The secondary sidebar was Claude's, and Claude is a block in
+ * the list now, so the region and its button went together — which is why this
+ * counts two and why nothing here looks for `.region--secondary`.
  */
 const region = (label) => page.locator(`.titlebar__split[aria-label="${label}"]`)
 const pressed = (label) =>
@@ -133,9 +140,16 @@ const shown = async (sel) =>
 
 const TOGGLES = [
   { label: 'Toggle the side bar', shows: '.sidebar' },
-  { label: 'Toggle the panel', shows: '.panel__bar' },
-  { label: 'Toggle Claude', shows: '.region--secondary' }
+  { label: 'Toggle the panel', shows: '.panel__bar' }
 ]
+
+// Counted, not assumed. A third button quietly reappearing — or one of these two
+// going missing — would otherwise leave the loop below silently checking less.
+check(
+  'the title bar offers exactly the two region toggles',
+  (await page.locator('.titlebar__split').count()) === TOGGLES.length,
+  `${await page.locator('.titlebar__split').count()} buttons`
+)
 
 for (const t of TOGGLES) {
   const before = await shown(t.shows)

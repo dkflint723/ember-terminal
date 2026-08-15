@@ -1,10 +1,25 @@
 import { memo } from 'react'
-import type { Block } from '../state/store'
+import type { CommandBlock } from '../state/store'
 
 interface Props {
-  block: Block
+  block: CommandBlock
   onToggle: () => void
   onRerun: (command: string) => void
+  /** True while this block's head is the one pinned to the top of the list. */
+  stuck?: boolean
+}
+
+/**
+ * When the command was run, to the second.
+ *
+ * A duration says how long something took but not when it happened, which is the
+ * question asked of a list you have scrolled back into — "was this before or after
+ * I changed that file".
+ */
+function formatTime(at: number): string {
+  const d = new Date(at)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
 function formatDuration(ms: number | null): string {
@@ -20,7 +35,7 @@ function formatDuration(ms: number | null): string {
  * The output HTML comes from xterm's serialize addon operating on bytes this app
  * captured from its own pty, so it is styling markup rather than remote content.
  */
-export const BlockView = memo(function BlockView({ block, onToggle, onRerun }: Props) {
+export const BlockView = memo(function BlockView({ block, onToggle, onRerun, stuck }: Props) {
   const copy = (e: React.MouseEvent, text: string): void => {
     e.stopPropagation()
     void navigator.clipboard.writeText(text)
@@ -32,6 +47,9 @@ export const BlockView = memo(function BlockView({ block, onToggle, onRerun }: P
   return (
     <div
       className={`block block--${block.status}`}
+      // Read by the ruler, which measures where each block sits rather than being
+      // told — the list is the thing that knows its own layout.
+      data-block-id={block.id}
       role="group"
       aria-label={`${block.command || 'interactive command'} — ${statusLabel}`}
     >
@@ -39,7 +57,7 @@ export const BlockView = memo(function BlockView({ block, onToggle, onRerun }: P
           tabbed to and Enter does nothing, so collapsing a block — and reaching the
           copy and re-run controls inside it — needed a mouse. */}
       <div
-        className="block__head"
+        className={`block__head ${stuck ? 'block__head--stuck' : ''}`}
         role="button"
         tabIndex={0}
         aria-expanded={!block.collapsed}
@@ -52,7 +70,7 @@ export const BlockView = memo(function BlockView({ block, onToggle, onRerun }: P
           onToggle()
         }}
       >
-        <span className="block__chevron">{block.collapsed ? '▶' : '▼'}</span>
+        <span className="block__chevron">{block.collapsed ? '▸' : '▼'}</span>
         {/*
           Status carries a glyph as well as a colour. Colour alone is unreadable
           for anyone with a colour vision deficiency, and no palette can fix that
@@ -90,10 +108,13 @@ export const BlockView = memo(function BlockView({ block, onToggle, onRerun }: P
           </button>
         </span>
 
+        {/* Exit code, then time of day, then duration — the order they are asked
+            about in: what happened, when, and how long it took. */}
         <span className="block__meta">
           {block.exitCode !== null && block.exitCode !== 0 && (
             <span className="block__exit">exit {block.exitCode}</span>
           )}
+          <span className="block__time">{formatTime(block.startedAt)}</span>
           <span>{formatDuration(block.durationMs)}</span>
         </span>
       </div>

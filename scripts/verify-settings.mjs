@@ -115,9 +115,16 @@ if (fs.existsSync(onDisk)) {
   check('and is not on disk in the clear', !raw.includes(KEY), raw.slice(0, 120))
 }
 
-// --- the key reaches the AI path --------------------------------------------
-// A bad key must come back as a rejection rather than a hang: the composer is
-// disabled while a request is in flight, so a stall reads as the app locking up.
+/*
+ * --- the key reaches the AI path ---------------------------------------------
+ *
+ * A bad key must come back as a rejection rather than a hang. The waiting is shown
+ * in the block now rather than by disabling the composer, so settling means the
+ * block has stopped saying "Thinking…" — and it can settle either way, since a key
+ * the API refuses produces an error where a working one would produce a proposal.
+ * Waiting for a proposal alone would hang out the full minute on exactly the case
+ * this is here to check.
+ */
 await page.click('.composer__input')
 await page.keyboard.press('Control+k')
 await sleep(400)
@@ -130,16 +137,25 @@ let settled = null
 for (let i = 0; i < 60; i++) {
   await sleep(1000)
   settled = await page.evaluate(() => {
-    const box = document.querySelector('.composer__input')
+    const all = document.querySelectorAll('.block--agent')
+    const block = all[all.length - 1]
     return {
-      disabled: box?.disabled ?? false,
-      text: document.querySelector('.composer__proposal, .proposal')?.textContent ?? ''
+      // The question goes to the list on send, so the composer is left empty and
+      // pointed back at the shell — which is what "usable again" means now that
+      // nothing disables it for the length of a request.
+      composer: document.querySelector('.composer__input')?.value ?? null,
+      thinking: !!block?.querySelector('.block__thinking'),
+      text: (block?.textContent ?? '').trim()
     }
   })
-  if (settled.text.length > 0) break
+  if (settled.text.length > 0 && !settled.thinking) break
 }
-check('the request settles rather than hanging', (settled?.text.length ?? 0) > 0, JSON.stringify(settled))
-check('and the composer is usable again', settled?.disabled === false, String(settled?.disabled))
+check(
+  'the request settles rather than hanging',
+  settled !== null && settled.text.length > 0 && !settled.thinking,
+  JSON.stringify(settled)
+)
+check('and the composer is empty and waiting', settled?.composer === '', String(settled?.composer))
 
 // Escape must always get back out of ask mode.
 await page.keyboard.press('Escape')

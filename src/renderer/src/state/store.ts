@@ -5,8 +5,19 @@ import { DEFAULT_THEME } from '../terminal/theme'
 import { lastSynced, noteSynced } from '../editor/synced'
 import { isInside, pathKey, samePath } from '@shared/paths'
 
+/**
+ * What a block is, now that there are two kinds of them.
+ *
+ * A conversation with the agent is an entry in the same list as the commands, not
+ * a column beside it: the answer belongs next to the error it is about, and the
+ * list is already the record of what happened in this shell. Anything persisted
+ * before this existed has no `kind` and is read as a command.
+ */
+export type BlockKind = 'command' | 'conversation'
+
 /** One command and everything it printed — the unit the UI is built around. */
-export interface Block {
+export interface CommandBlock {
+  kind: 'command'
   id: string
   command: string
   /** Serialized HTML of the command's output, filled in when it finishes. */
@@ -30,6 +41,65 @@ export interface Block {
    */
   restored?: boolean
 }
+
+/** What the agent offered to do, and whether it has been acted on. */
+export interface BlockProposal {
+  command: string
+  note: string
+  destructive: boolean
+  /**
+   * A proposal is never acted on by arriving. `open` is waiting on the user, and
+   * the other two are what they decided — kept rather than removed so a restored
+   * conversation cannot offer to run something a second time.
+   */
+  state: 'open' | 'run' | 'dismissed'
+}
+
+/**
+ * A command block handed to the agent along with the question.
+ *
+ * The block's id rather than a copy of its output, because the block is still in
+ * the list and is the thing the chip points back at — what gets sent is read off it
+ * at the moment of asking. The command travels alongside the id even though it
+ * could be looked up by it: a block can be trimmed out of the list, or cleared, and
+ * a chip that has forgotten what it attached is worse than no chip at all.
+ */
+export interface AttachedBlock {
+  blockId: string
+  /** What that block ran, which is what the chip is named after. */
+  command: string
+  /** True when the output sent with it was cut short, so the chip can say so. */
+  elided: boolean
+}
+
+/**
+ * One exchange with the agent, sitting in the list where the question was asked.
+ *
+ * The prompt is prose rather than a command, so it is rendered in the UI face; the
+ * answer streams in underneath. What it offers to do lives inside the block too,
+ * which is the point of moving it here — the proposal used to sit in the composer,
+ * where it was equally far from every command it might be about.
+ */
+export interface ConversationBlock {
+  kind: 'conversation'
+  id: string
+  prompt: string
+  answer: string
+  streaming: boolean
+  /** Set when the request itself failed, rather than the model declining. */
+  error: string | null
+  proposal: BlockProposal | null
+  /**
+   * The blocks the question was asked about, in the order they were attached.
+   * Empty for a question about nothing in particular, which is most of them.
+   */
+  attached: AttachedBlock[]
+  startedAt: number
+  collapsed: boolean
+  restored?: boolean
+}
+
+export type Block = CommandBlock | ConversationBlock
 
 export type PaneKind = 'terminal' | 'editor' | 'diff'
 
@@ -97,6 +167,24 @@ export interface EditorPaneState extends BasePane {
 /** The document a pane is currently showing. */
 export function activeDocument(pane: EditorPaneState): EditorDocument {
   return pane.documents[pane.activeIndex] ?? pane.documents[0]
+}
+
+/**
+ * Where the caret is, in the editor that has focus.
+ *
+ * Reported into the store rather than read on demand, because the thing that wants
+ * it is the status bar — a sibling of the editor rather than an ancestor of it —
+ * and Monaco's cursor is not something React can subscribe to from over there.
+ *
+ * One-based, as an editor counts and as the bar says it out loud. `selected` is a
+ * character count rather than the range it came from: what the bar reports is how
+ * much is held, and a range would be two more numbers nobody down there reads.
+ */
+export interface CursorAt {
+  line: number
+  column: number
+  /** Characters covered by the selection; zero when it is only a caret. */
+  selected: number
 }
 
 /**
@@ -184,11 +272,8 @@ interface Store {
   /** The bottom panel, and which of its views is on top. Only shown in IDE mode. */
   panelOpen: boolean
   panelView: PanelView
-  /** The right-hand sidebar, which holds Claude. Only shown in IDE mode. */
-  secondaryOpen: boolean
-  /** Region sizes, as a fraction of the window. */
+  /** The panel's height, as a fraction of the window. */
   panelHeight: number
-  secondaryWidth: number
   /** Root of the file tree; null until a terminal reports a directory. */
   treeRoot: string | null
   /**
@@ -216,17 +301,34 @@ interface Store {
    * of thing someone leaves to go and look at a diff.
    */
   commitDraft: string
+  /**
+   * Where the caret is in the editor that has one, and null when none does.
+   *
+   * The null is a reading in its own right rather than a gap: the status bar has to
+   * tell "there is no file open" from "there is a file open and the caret is at the
+   * top of it", and those two are the same absence if the field only ever holds
+   * numbers. One slot rather than one per pane, because what the bar reports is the
+   * editor being worked in — a second pane's caret is not a second thing to say.
+   */
+  cursorAt: CursorAt | null
   /** Command handed to a pane's input by history search, consumed on mount. */
   pendingInput: Record<string, string>
   /**
-   * A request to put a pane's composer into ask-Claude mode.
+   * A request to point a pane's composer at Claude.
    *
    * Routed through the store because Ctrl+K is advertised in the composer footer
    * but can be pressed from anywhere — including an editor pane, where Monaco
    * would otherwise take it as a chord prefix and swallow the next keystroke. The
-   * counter makes repeated presses distinguishable, so it still toggles.
+   * counter makes repeated presses distinguishable, so a second press registers
+   * as a second request rather than as the same state.
+   *
+   * `how` separates the override chord from everything else. Ctrl+K means "flip
+   * whatever reading is in effect", so it toggles; every entry point labelled
+   * "ask Claude" means agent outright, because the composer's reading is
+   * autodetected now and a toggle would pin *shell* on precisely the questions
+   * those entry points exist to send.
    */
-  askRequest: { paneId: string; n: number } | null
+  askRequest: { paneId: string; n: number; how: 'toggle' | 'agent' } | null
   /**
    * Bumped to open the model-and-effort switcher from somewhere that is not the
    * chip itself — the palette, for anyone who reaches for that first. A counter
@@ -269,8 +371,12 @@ interface Store {
   togglePanel(open?: boolean): void
   /** Show a panel view, opening the panel; picking the one already shown closes it. */
   showPanelView(view: PanelView): void
-  toggleSecondary(open?: boolean): void
-  setRegionSize(region: 'panel' | 'secondary', fraction: number): void
+  /*
+   * The panel is the only region left with a draggable edge, so this still names
+   * one rather than taking a bare number: the divider is written against a region
+   * and would otherwise have to know which measurement it was writing.
+   */
+  setRegionSize(region: 'panel', fraction: number): void
   setTreeRoot(path: string): void
   setGitStatus(status: GitStatus | null): void
   /** File a directory's repository status, or the absence of one. */
@@ -278,9 +384,12 @@ interface Store {
   /** Why git could not be read, when the reason is not simply "no repository here". */
   setGitError(error: string | null): void
   setCommitDraft(text: string): void
+  /** Report the caret, or pass null to say there is no longer one to report. */
+  setCursorAt(at: CursorAt | null): void
   setPendingInput(paneId: string, text: string): void
   clearPendingInput(paneId: string): void
-  requestAsk(paneId: string): void
+  /** Defaults to 'agent': only the Ctrl+K override asks for the reading to flip. */
+  requestAsk(paneId: string, how?: 'toggle' | 'agent'): void
   /** Open the Claude model-and-effort switcher. */
   requestAiPicker(): void
   openPalette(mode: 'files' | 'commands'): void
@@ -340,7 +449,10 @@ interface Store {
   patchPane(paneId: string, patch: Partial<TerminalPaneState>): void
 
   beginBlock(paneId: string, command: string): string
-  patchBlock(paneId: string, blockId: string, patch: Partial<Block>): void
+  patchBlock(paneId: string, blockId: string, patch: Partial<CommandBlock>): void
+  /** Open a conversation block for a question just asked, and return its id. */
+  beginConversation(paneId: string, prompt: string, attached?: AttachedBlock[]): string
+  patchConversation(paneId: string, blockId: string, patch: Partial<ConversationBlock>): void
   toggleBlock(paneId: string, blockId: string): void
   clearBlocks(paneId: string): void
 }
@@ -487,14 +599,13 @@ export const useStore = create<Store>((set, get) => ({
   mode: 'terminal',
   panelOpen: true,
   panelView: 'terminal',
-  secondaryOpen: false,
   panelHeight: 0.35,
-  secondaryWidth: 0.26,
   treeRoot: null,
   gitStatus: null,
   cwdGit: {},
   gitError: null,
   commitDraft: '',
+  cursorAt: null,
   pendingInput: {},
   askRequest: null,
   aiPickerRequest: 0,
@@ -528,7 +639,7 @@ export const useStore = create<Store>((set, get) => ({
     set((s) => {
       const next = mode ?? (s.mode === 'ide' ? 'terminal' : 'ide')
       if (next === s.mode) return s
-      const bare = next === 'ide' && !s.sidebarOpen && !s.secondaryOpen
+      const bare = next === 'ide' && !s.sidebarOpen
       return { mode: next, sidebarOpen: bare ? true : s.sidebarOpen }
     }),
 
@@ -540,15 +651,10 @@ export const useStore = create<Store>((set, get) => ({
       panelView: view
     })),
 
-  toggleSecondary: (open) => set((s) => ({ secondaryOpen: open ?? !s.secondaryOpen })),
-
   // Clamped, because a region dragged to the edge of the window cannot be dragged
   // back — there is nothing left of it to take hold of.
-  setRegionSize: (region, fraction) =>
-    set(() => {
-      const size = Math.min(0.8, Math.max(0.12, fraction))
-      return region === 'panel' ? { panelHeight: size } : { secondaryWidth: size }
-    }),
+  setRegionSize: (_region, fraction) =>
+    set(() => ({ panelHeight: Math.min(0.8, Math.max(0.12, fraction)) })),
 
   setTreeRoot: (treeRoot) => {
     // Servers are started once per language and told their root in the handshake,
@@ -581,11 +687,54 @@ export const useStore = create<Store>((set, get) => ({
     }),
   setGitError: (gitError) => set({ gitError }),
   setCommitDraft: (commitDraft) => set({ commitDraft }),
+
+  /*
+   * Dropped when it says what the store already holds.
+   *
+   * This is written from a cursor listener, which fires for selection changes as
+   * well as for movement, and often several times for one keystroke. Every write
+   * that lands re-renders the status bar and re-arms the session autosave, so the
+   * three-number comparison below is cheap next to what it saves — and a caret
+   * that has not moved should not be able to defer a workspace save.
+   */
+  setCursorAt: (at) =>
+    set((s) => {
+      const before = s.cursorAt
+      if (before === at) return {}
+      if (
+        before &&
+        at &&
+        before.line === at.line &&
+        before.column === at.column &&
+        before.selected === at.selected
+      ) {
+        return {}
+      }
+      return { cursorAt: at }
+    }),
+
   openPalette: (paletteMode) => set({ paletteMode }),
   closePalette: () => set({ paletteMode: null }),
 
-  requestAsk: (paneId) =>
-    set((s) => ({ askRequest: { paneId, n: (s.askRequest?.n ?? 0) + 1 } })),
+  /*
+   * Point a composer at Claude, and make sure it is a composer someone can see.
+   *
+   * The agent used to be a region of its own, so every chord that reached it opened
+   * something visible on the way. It is a block in the terminal's list now, and the
+   * terminal is not always on screen: in the IDE the shells region is hidden
+   * outright when the panel is closed, and covered by an opaque overlay whenever the
+   * panel is showing Problems or Output. Without this, Ctrl+Shift+B and the
+   * palette's "Ask Claude" would move focus into a textarea nobody can see and
+   * everything typed next would disappear into it.
+   *
+   * Only in the IDE. As a terminal the shells are the window, and there is nothing
+   * to reveal.
+   */
+  requestAsk: (paneId, how = 'agent') =>
+    set((s) => ({
+      askRequest: { paneId, n: (s.askRequest?.n ?? 0) + 1, how },
+      ...(s.mode === 'ide' ? { panelOpen: true, panelView: 'terminal' as PanelView } : {})
+    })),
 
   requestAiPicker: () => set((s) => ({ aiPickerRequest: s.aiPickerRequest + 1 })),
 
@@ -1308,7 +1457,8 @@ export const useStore = create<Store>((set, get) => ({
     set((s) => {
       const pane = s.panes[paneId]
       if (!pane || pane.kind !== 'terminal') return s
-      const block: Block = {
+      const block: CommandBlock = {
+        kind: 'command',
         id,
         command,
         output: '',
@@ -1327,6 +1477,15 @@ export const useStore = create<Store>((set, get) => ({
     return id
   },
 
+  /*
+   * The kind is checked here, not at every call site.
+   *
+   * This patch is command-shaped — output, exit code, status — and spreading it
+   * over a conversation would produce a block that is neither thing. Everything
+   * that calls this comes from the pty side, which only ever means a command, so
+   * an id that names a conversation is a mistake rather than a request: it leaves
+   * the block alone rather than half-rewriting it.
+   */
   patchBlock: (paneId, blockId, patch) =>
     set((s) => {
       const pane = s.panes[paneId]
@@ -1336,17 +1495,82 @@ export const useStore = create<Store>((set, get) => ({
           ...s.panes,
           [paneId]: {
             ...pane,
-            blocks: pane.blocks.map((b) => (b.id === blockId ? { ...b, ...patch } : b))
+            blocks: pane.blocks.map((b) =>
+              b.id === blockId && b.kind === 'command' ? { ...b, ...patch } : b
+            )
           }
         }
       }
     }),
 
+  /**
+   * Open a conversation in the list, where the question was asked.
+   *
+   * Created before the answer exists so the prompt is on screen the moment it is
+   * sent — the wait is part of the exchange, and a question that vanishes until an
+   * answer arrives reads as having been dropped.
+   *
+   * What the question was asked about is passed in rather than worked out here: the
+   * composer is where blocks are attached and detached, and by the time this runs
+   * the list is already settled. It defaults to none, because most questions are
+   * about nothing in particular.
+   */
+  beginConversation: (paneId, prompt, attached = []) => {
+    const id = uid()
+    set((s) => {
+      const pane = s.panes[paneId]
+      if (!pane || pane.kind !== 'terminal') return s
+      const block: ConversationBlock = {
+        kind: 'conversation',
+        id,
+        prompt,
+        answer: '',
+        streaming: true,
+        error: null,
+        proposal: null,
+        attached,
+        startedAt: Date.now(),
+        collapsed: false
+      }
+      // Same cap as a command: the list is one list, and a conversation takes a
+      // place in it like anything else.
+      const blocks = [...pane.blocks, block].slice(-400)
+      return { panes: { ...s.panes, [paneId]: { ...pane, blocks } } }
+    })
+    return id
+  },
+
+  patchConversation: (paneId, blockId, patch) =>
+    set((s) => {
+      const pane = s.panes[paneId]
+      if (!pane || pane.kind !== 'terminal') return s
+      return {
+        panes: {
+          ...s.panes,
+          [paneId]: {
+            ...pane,
+            blocks: pane.blocks.map((b) =>
+              b.id === blockId && b.kind === 'conversation' ? { ...b, ...patch } : b
+            )
+          }
+        }
+      }
+    }),
+
+  /*
+   * Collapsing is the one thing both kinds of block do, so this takes either.
+   *
+   * The branch is only about which patcher to go through: each is typed to its own
+   * kind, and there is deliberately no patcher over the union — a caller that could
+   * write to both would be able to send a command's fields to a conversation.
+   */
   toggleBlock: (paneId, blockId) => {
     const pane = get().terminalPane(paneId)
     const block = pane?.blocks.find((b) => b.id === blockId)
     if (!block) return
-    get().patchBlock(paneId, blockId, { collapsed: !block.collapsed })
+    const collapsed = !block.collapsed
+    if (block.kind === 'conversation') get().patchConversation(paneId, blockId, { collapsed })
+    else get().patchBlock(paneId, blockId, { collapsed })
   },
 
   // Forgotten on disk as well as on screen. A Clear that left them to come back at

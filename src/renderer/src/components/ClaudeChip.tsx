@@ -118,18 +118,18 @@ function Usage({
 }
 
 /**
- * Which Claude answers, and how hard it thinks, changed from where it is used.
+ * Which Claude answers, how hard it thinks, and what is left of the limits.
  *
- * Both lived in the settings dialog — the model as a text box you had to know the
- * id to fill in, and the effort not at all, since it was a constant in main. That
- * is the wrong place for either: the choice is made *while* asking something, and
- * it changes with the question. A slow, careful model is right for "why is this
- * failing" and wrong for the next `git status`.
+ * The first two lived in the settings dialog — the model as a text box you had to
+ * know the id to fill in, and the effort not at all, since it was a constant in
+ * main. That is the wrong place for either: the choice is made *while* asking
+ * something, and it changes with the question. A slow, careful model is right for
+ * "why is this failing" and wrong for the next `git status`.
  *
- * So it sits in the composer's own strip, next to the directory and the branch,
- * and says what is in effect without being opened.
+ * It sits in the status bar, with the rest of the standing state, and says what is
+ * in effect without being opened.
  */
-export function ClaudeChip(): React.JSX.Element {
+export function ClaudeStatus(): React.JSX.Element {
   const settings = useStore((s) => s.settings)
   const applySettings = useStore((s) => s.applySettings)
   const pickerRequest = useStore((s) => s.aiPickerRequest)
@@ -216,20 +216,19 @@ export function ClaudeChip(): React.JSX.Element {
   }
 
   return (
-    <div className="claude" ref={wrap}>
+    <div className="claude claude--status" ref={wrap}>
+      {/* Carries --info rather than --accent: the accent means focus and one
+          primary action now, and a standing readout is neither. */}
       <button
-        className={`chip chip--claude ${open ? 'chip--claude-open' : ''}`}
+        className={`statusbar__item statusbar__claude ${open ? 'statusbar__claude--open' : ''}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        title={`Claude model and effort (${modelLabel(model)}${effortAllowed ? `, ${effort} effort` : ''})`}
+        aria-label={`Claude: ${modelLabel(model)}${effortAllowed ? `, ${effort} effort` : ''}. Change model, effort, or see limits`}
+        title="Claude model, effort and limits"
         onClick={() => setOpen((o) => !o)}
       >
-        <svg viewBox="0 0 16 16" className="chip__icon" aria-hidden="true">
-          {/* A four-pointed star: the mark this app already uses for the AI prompt. */}
-          <path d="M8 1.6 9.5 6.5 14.4 8 9.5 9.5 8 14.4 6.5 9.5 1.6 8 6.5 6.5Z" />
-        </svg>
-        {modelLabel(model)}
-        {effortAllowed && <span className="chip__sub">{effort}</span>}
+        ✦ {modelLabel(model)}
+        {effortAllowed && <span className="statusbar__sub">· {effort}</span>}
       </button>
 
       {open && (
