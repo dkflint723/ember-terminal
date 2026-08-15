@@ -40,8 +40,16 @@ const server = http.createServer((req, res) => {
       // as a failure instead of an empty list.
     }
     received.push({ url: req.url, headers: req.headers, body: parsed })
-    res.writeHead(reply.status, { 'content-type': 'application/json' })
-    res.end(JSON.stringify(reply.body))
+    // A case can refuse a particular request rather than every one of them, which
+    // is how the zero-token probe's fallback is exercised.
+    const refusal = reply.reject?.(parsed) ?? null
+    // The rate-limit headers ride along with every answer, which is the only place
+    // the API says what is left — so the stub sends them like the real one does.
+    res.writeHead(refusal?.status ?? reply.status, {
+      'content-type': 'application/json',
+      ...(refusal ? {} : (reply.headers ?? {}))
+    })
+    res.end(JSON.stringify(refusal?.body ?? reply.body))
   })
 })
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -250,8 +258,183 @@ const noEffort = received[received.length - 1]
 check('so no effort is sent for it', noEffort?.body?.output_config?.effort === undefined, JSON.stringify(noEffort?.body?.output_config ?? null))
 check('though the model still is', noEffort?.body?.model === 'claude-haiku-4-5', String(noEffort?.body?.model))
 
-// Back to the default, and openable from the palette as well as the chip.
+/*
+ * --- what is left ------------------------------------------------------------
+ *
+ * There is no endpoint that reports rate limits; they arrive in the headers of
+ * ordinary answers. So the check is that a request's headers are kept and shown,
+ * that "check now" goes and gets a fresh set, and that a 429 is reported as the
+ * thing someone is looking for rather than swallowed.
+ */
 await dismiss()
+const usage = () =>
+  page.evaluate(() => ({
+    rows: Array.from(document.querySelectorAll('.usage__row')).map((r) =>
+      (r.textContent ?? '').replace(/\s+/g, ' ').trim()
+    ),
+    notes: Array.from(document.querySelectorAll('.usage__note')).map((n) =>
+      (n.textContent ?? '').replace(/\s+/g, ' ').trim()
+    )
+  }))
+
+const openMenu = async () => {
+  if ((await page.locator('.claude__menu').count()) === 0) {
+    await page.click('.chip--claude')
+    await sleep(500)
+  }
+}
+
+// The requests so far went out without limit headers, so there is nothing to show
+// and the menu has to say that rather than draw an empty meter.
+await openMenu()
+const empty = await usage()
+check(
+  'with no reading yet, it says so',
+  empty.notes.join(' ').includes('Nothing asked yet'),
+  JSON.stringify(empty.notes)
+)
+
+reply = {
+  status: 200,
+  headers: {
+    'anthropic-ratelimit-requests-limit': '1000',
+    'anthropic-ratelimit-requests-remaining': '994',
+    'anthropic-ratelimit-requests-reset': new Date(Date.now() + 120_000).toISOString(),
+    'anthropic-ratelimit-input-tokens-limit': '80000',
+    'anthropic-ratelimit-input-tokens-remaining': '61000',
+    'anthropic-ratelimit-input-tokens-reset': new Date(Date.now() + 60_000).toISOString(),
+    'anthropic-ratelimit-output-tokens-limit': '16000',
+    'anthropic-ratelimit-output-tokens-remaining': '15200',
+    'anthropic-ratelimit-output-tokens-reset': new Date(Date.now() + 60_000).toISOString()
+  },
+  body: message(JSON.stringify({ command: 'Get-Date', note: 'The time.', destructive: false }))
+}
+await page.keyboard.press('Escape')
+await sleep(300)
+await ask('what is the time')
+await dismiss()
+
+await openMenu()
+const shown = await usage()
+check('a request with limit headers fills it in', shown.rows.length === 3, JSON.stringify(shown.rows))
+check(
+  'requests remaining are shown against the limit',
+  shown.rows.some((r) => r.includes('requests') && r.includes('994') && r.includes('1000')),
+  JSON.stringify(shown.rows)
+)
+check(
+  'and tokens in a readable size',
+  shown.rows.some((r) => r.includes('input') && r.includes('61k')),
+  JSON.stringify(shown.rows)
+)
+check(
+  'with the age of the reading',
+  shown.notes.join(' ').includes('As of'),
+  JSON.stringify(shown.notes)
+)
+// Read without scrolling: the meters are the first thing in the menu.
+check(
+  'and it is what the menu opens on',
+  await page.evaluate(() => {
+    const menu = document.querySelector('.claude__menu')
+    const row = document.querySelector('.usage__row')
+    if (!menu || !row) return false
+    return row.getBoundingClientRect().bottom <= menu.getBoundingClientRect().bottom
+  })
+)
+await page.screenshot({ path: path.join(SHOT_DIR, '76-claude-usage.png') })
+
+// "Check now" makes the smallest request there is and reads its headers.
+const beforeCheck = received.length
+reply = {
+  status: 200,
+  headers: {
+    'anthropic-ratelimit-requests-limit': '1000',
+    'anthropic-ratelimit-requests-remaining': '42',
+    'anthropic-ratelimit-requests-reset': new Date(Date.now() + 300_000).toISOString()
+  },
+  body: { ...message(''), content: [], stop_reason: 'max_tokens' }
+}
+await page.locator('.claude__check').click()
+await sleep(2500)
+const checked = await usage()
+check('check now asks the API', received.length > beforeCheck, `${received.length - beforeCheck} requests`)
+const probe = received[received.length - 1]
+check('with the smallest request it can', probe?.body?.max_tokens === 0, JSON.stringify(probe?.body?.max_tokens))
+check(
+  'and shows what came back',
+  checked.rows.some((r) => r.includes('requests') && r.includes('42')),
+  JSON.stringify(checked.rows)
+)
+
+/*
+ * Not every model and thinking combination accepts a zero-token request, so the
+ * probe asks for one token when the smallest one is refused. Checked here because
+ * the fallback is the path that runs against a real API often enough to matter,
+ * and the stub is the only place it can be made to happen on demand.
+ */
+const beforeFallback = received.length
+let firstProbe = true
+reply = {
+  status: 200,
+  headers: {
+    'anthropic-ratelimit-requests-limit': '1000',
+    'anthropic-ratelimit-requests-remaining': '777',
+    'anthropic-ratelimit-requests-reset': new Date(Date.now() + 60_000).toISOString()
+  },
+  body: { ...message(''), content: [], stop_reason: 'max_tokens' },
+  reject: () => {
+    // Refuse the zero-token probe once, the way a model that will not take one does.
+    if (!firstProbe) return null
+    firstProbe = false
+    return {
+      status: 400,
+      body: { type: 'error', error: { type: 'invalid_request_error', message: 'max_tokens: 0' } }
+    }
+  }
+}
+await page.locator('.claude__check').click()
+await sleep(3000)
+const fellBack = await usage()
+check(
+  'a refused zero-token probe falls back to asking for one',
+  received.length - beforeFallback === 2,
+  `${received.length - beforeFallback} requests`
+)
+check(
+  'and the fallback is what reads the limits',
+  fellBack.rows.some((r) => r.includes('requests') && r.includes('777')),
+  JSON.stringify(fellBack.rows)
+)
+
+// A refusal to serve is the reading people go looking for, so it is kept.
+reply = {
+  status: 429,
+  headers: {
+    'retry-after': '37',
+    'anthropic-ratelimit-requests-limit': '1000',
+    'anthropic-ratelimit-requests-remaining': '0',
+    'anthropic-ratelimit-requests-reset': new Date(Date.now() + 37_000).toISOString()
+  },
+  body: { type: 'error', error: { type: 'rate_limit_error', message: 'slow down' } }
+}
+await page.locator('.claude__check').click()
+await sleep(2500)
+const limited = await usage()
+check(
+  'a rate limit is reported rather than swallowed',
+  limited.notes.join(' ').includes('37s'),
+  JSON.stringify(limited.notes)
+)
+check(
+  'with nothing left against the limit',
+  limited.rows.some((r) => r.includes('requests') && r.includes('0 / 1000')),
+  JSON.stringify(limited.rows)
+)
+
+// Back to the default, and openable from the palette as well as the chip.
+await page.keyboard.press('Escape')
+await sleep(300)
 await pick('Opus 5')
 await page.keyboard.press('Escape')
 await sleep(300)

@@ -43,7 +43,7 @@ export class ClaudeCliService {
       delete env.ANTHROPIC_API_KEY
       delete env.ELECTRON_RUN_AS_NODE
 
-      execFile(
+      const child = execFile(
         'claude',
         args,
         { env, timeout: timeoutMs, windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
@@ -52,6 +52,18 @@ export class ClaudeCliService {
           else resolve({ stdout, stderr })
         }
       )
+
+      /*
+       * Nothing is being piped in, so say so immediately.
+       *
+       * execFile leaves stdin an open pipe that is never written to. The CLI waits
+       * three seconds for something to arrive on it, gives up, and prints a warning
+       * about the wait — into the same stream this reads the answer from. So every
+       * request through this path came back as that warning: asking Claude while
+       * signed in through the browser, rather than with a key, failed outright and
+       * blamed the model for not returning a command.
+       */
+      child.stdin?.end()
     })
   }
 

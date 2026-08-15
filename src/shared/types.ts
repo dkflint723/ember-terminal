@@ -261,6 +261,34 @@ export interface AiCredential {
   detail: string | null
 }
 
+/** One rate-limited quantity, as the API reports it in a response header. */
+export interface AiLimit {
+  limit: number | null
+  remaining: number | null
+  /** When the window refills, ISO 8601 as sent. */
+  reset: string | null
+}
+
+/**
+ * What is left of the API's rate limits, read from the headers of a real answer.
+ *
+ * There is no endpoint that reports this — the numbers ride along with responses,
+ * so what can be shown is always "as of the last request", and asking for a fresh
+ * reading means making one. Only the API-key path has them at all: a Claude Code
+ * subscription's limits are not exposed outside a session, which the panel says
+ * rather than leaving an empty box to be read as "nothing left".
+ */
+export interface AiUsage {
+  /** When these numbers were read, epoch milliseconds. */
+  at: number
+  source: AiCredential['source']
+  requests: AiLimit
+  inputTokens: AiLimit
+  outputTokens: AiLimit
+  /** Seconds the API asked us to wait, when it turned a request away. */
+  retryAfter: number | null
+}
+
 /** One editor snippet, in the form the completion list needs it. */
 export interface Snippet {
   label: string
@@ -487,6 +515,10 @@ export interface EmberApi {
   keyEncryptionAvailable(): Promise<boolean>
   /** Which credential AI requests would use right now. */
   aiCredential(): Promise<AiCredential>
+  /** What the last answer's headers said was left, or null if none has come back. */
+  aiUsage(): Promise<AiUsage | null>
+  /** Ask for a fresh reading, by making the smallest request that carries one. */
+  aiCheckUsage(): Promise<{ ok: true; usage: AiUsage } | { ok: false; error: string }>
   /** Re-probe the Claude Code CLI, after the user has signed in or out. */
   claudeAccess(): Promise<ClaudeAccess>
   /** Tell every running server the workspace moved. */

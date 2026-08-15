@@ -1145,6 +1145,12 @@ button {
   margin-top: 4px;
 }
 
+/* Separates the readout above from the choices below. */
+.claude__heading--rule {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+
 .claude__item {
   display: block;
   width: 100%;
@@ -1182,6 +1188,100 @@ button {
 .claude__name {
   display: block;
   font-size: 12px;
+}
+
+/* Sits in the heading it belongs to, so the section reads "what is left — check
+   now" rather than putting a button where the next choice should be. */
+.claude__check {
+  float: right;
+  padding: 0 6px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 10px;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.claude__check:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.claude__check:disabled {
+  color: var(--fg-faint);
+  cursor: default;
+}
+
+.usage {
+  padding: 2px 8px 6px;
+}
+
+.usage__row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 0;
+  font-size: 10.5px;
+}
+
+.usage__label {
+  width: 48px;
+  flex: 0 0 auto;
+  color: var(--fg-faint);
+}
+
+.usage__bar {
+  flex: 1 1 auto;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.usage__fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.usage__count {
+  flex: 0 0 auto;
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage__of {
+  color: var(--fg-faint);
+}
+
+/* When the window refills, which is the number that decides whether to wait. */
+.usage__reset {
+  width: 30px;
+  flex: 0 0 auto;
+  color: var(--fg-faint);
+  font-family: var(--mono);
+  text-align: right;
+}
+
+.usage__note {
+  padding: 4px 8px 2px;
+  color: var(--fg-faint);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.usage__note--bad {
+  color: var(--fail);
+}
+
+.usage__note code {
+  font-family: var(--mono);
+  color: var(--fg-dim);
 }
 
 .claude__note {

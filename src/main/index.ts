@@ -230,6 +230,8 @@ function registerIpc(): void {
 
   ipcMain.handle('ai:run', (_e, req: AiRequest) => ai.run(req))
   ipcMain.handle('ai:credential', () => ai.credential())
+  ipcMain.handle('ai:usage', () => ai.usage())
+  ipcMain.handle('ai:check-usage', () => ai.checkUsage())
   // Refreshed rather than cached, because this is asked right after the user has
   // gone away and signed in.
   ipcMain.handle('ai:claudeAccess', () => {

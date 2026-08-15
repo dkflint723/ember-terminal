@@ -7,6 +7,7 @@ import type {
   IdeCall,
   LspEvent,
   AiCredential,
+  AiUsage,
   ClaudeAccess,
   ReplaceRequest,
   SearchQuery,
@@ -139,6 +140,9 @@ const api: EmberApi = {
   listProfiles: (): Promise<ShellProfile[]> => ipcRenderer.invoke('profiles:list'),
   ai: (req: AiRequest): Promise<AiResponse> => ipcRenderer.invoke('ai:run', req),
   aiCredential: (): Promise<AiCredential> => ipcRenderer.invoke('ai:credential'),
+  aiUsage: (): Promise<AiUsage | null> => ipcRenderer.invoke('ai:usage'),
+  aiCheckUsage: (): Promise<{ ok: true; usage: AiUsage } | { ok: false; error: string }> =>
+    ipcRenderer.invoke('ai:check-usage'),
   claudeAccess: (): Promise<ClaudeAccess> => ipcRenderer.invoke('ai:claudeAccess'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   keyEncryptionAvailable: (): Promise<boolean> => ipcRenderer.invoke('settings:encryption'),

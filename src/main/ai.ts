@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { AiCredential, AiRequest, AiResponse } from '../shared/types.js'
+import type { AiCredential, AiLimit, AiRequest, AiResponse, AiUsage } from '../shared/types.js'
 import { supportsEffort } from '../shared/models.js'
 import type { SettingsStore } from './settings.js'
 import type { ClaudeCliService } from './claude-cli.js'
@@ -149,6 +149,116 @@ export class AiService {
     private claude: ClaudeCliService
   ) {}
 
+  /**
+   * What the last answer's headers said was left.
+   *
+   * Held here rather than fetched on demand because there is nowhere to fetch it
+   * from: the API reports rate limits in the headers of ordinary responses, so the
+   * only way to learn the current numbers is to have just asked something. Every
+   * request updates this, including the ones that came back as errors — a 429 is
+   * the reading that matters most.
+   */
+  private lastUsage: AiUsage | null = null
+
+  usage(): AiUsage | null {
+    return this.lastUsage
+  }
+
+  private noteUsage(headers: Headers | undefined, source: AiCredential['source']): void {
+    if (!headers) return
+    const num = (name: string): number | null => {
+      const raw = headers.get(name)
+      if (raw === null) return null
+      const parsed = Number(raw)
+      return Number.isFinite(parsed) ? parsed : null
+    }
+    const limit = (kind: string): AiLimit => ({
+      limit: num(`anthropic-ratelimit-${kind}-limit`),
+      remaining: num(`anthropic-ratelimit-${kind}-remaining`),
+      reset: headers.get(`anthropic-ratelimit-${kind}-reset`)
+    })
+
+    const usage: AiUsage = {
+      at: Date.now(),
+      source,
+      requests: limit('requests'),
+      inputTokens: limit('input-tokens'),
+      outputTokens: limit('output-tokens'),
+      retryAfter: num('retry-after')
+    }
+    // A response that carried none of them says nothing about the limits, and
+    // replacing a real reading with an empty one would look like a quota of zero.
+    const known =
+      usage.requests.limit ??
+      usage.inputTokens.limit ??
+      usage.outputTokens.limit ??
+      usage.retryAfter
+    if (known === null) return
+    this.lastUsage = usage
+  }
+
+  /**
+   * Read the limits now, by making the smallest request that carries them.
+   *
+   * `max_tokens: 0` is the cheapest thing the messages endpoint accepts: it runs
+   * the prompt and returns immediately with no content and no output tokens
+   * billed. Some model and thinking combinations reject it outright, so a request
+   * for a single token is the fallback — still small, and still a real reading
+   * rather than a guess.
+   */
+  async checkUsage(): Promise<{ ok: true; usage: AiUsage } | { ok: false; error: string }> {
+    const apiKey = this.settings.resolveApiKey()
+    if (!apiKey) {
+      const credential = await this.credential()
+      return {
+        ok: false,
+        error:
+          credential.source === 'claude-code'
+            ? 'A Claude Code subscription does not report its limits outside a session. Run `claude` and use /usage.'
+            : 'No API key to ask with. Add one in Settings.'
+      }
+    }
+
+    const client = new Anthropic({ apiKey, timeout: 20_000, maxRetries: 0 })
+    const source = (await this.credential()).source
+    const probe = {
+      model: this.settings.get().aiModel,
+      messages: [{ role: 'user' as const, content: 'ping' }]
+    }
+
+    /*
+     * Compared against the reading held before this call rather than against null.
+     *
+     * Every exit here has to mean "this request produced these numbers". A probe
+     * that fails after a previous answer left a reading behind would otherwise
+     * return that one, and it would be presented as having just been taken — the
+     * one thing a freshness check must never do.
+     */
+    const before = this.lastUsage
+    const fresh = (): boolean => this.lastUsage !== null && this.lastUsage !== before
+
+    for (const maxTokens of [0, 1]) {
+      try {
+        const { response } = await client.messages
+          .create({ ...probe, max_tokens: maxTokens })
+          .withResponse()
+        this.noteUsage(response.headers, source)
+        break
+      } catch (err) {
+        // A rejected probe still answered, and the answer had headers on it — a
+        // rate limit is a reading, and the most useful one there is.
+        if (err instanceof Anthropic.APIError && err.headers) this.noteUsage(err.headers, source)
+        if (fresh()) break
+        if (maxTokens === 1) return { ok: false, error: this.describeError(err) }
+      }
+    }
+
+    if (!fresh()) {
+      return { ok: false, error: 'The API answered without saying anything about limits.' }
+    }
+    return { ok: true, usage: this.lastUsage as AiUsage }
+  }
+
   /** Which credential a request would use right now, for the settings dialog. */
   async credential(): Promise<AiCredential> {
     const fromSettings = this.settings.get().anthropicApiKey
@@ -250,6 +360,12 @@ export class AiService {
 
       return this.parseCommand(text)
     } catch (err) {
+      // A refusal, a rate limit, an overload: all of them answered, and the answer
+      // said what was left. The reading is worth keeping even when the request was
+      // not — especially a 429, which is the one someone goes looking for.
+      if (err instanceof Anthropic.APIError && err.headers) {
+        this.noteUsage(err.headers, this.settings.get().anthropicApiKey ? 'settings-key' : 'environment-key')
+      }
       return { ok: false, error: this.describeError(err) }
     }
   }
@@ -286,19 +402,29 @@ export class AiService {
     // Route refusals to a model with broader availability rather than surfacing
     // them to the user. `fallbacks: "default"` lets the server pick the right
     // substitute per refusal category, so there is no model list to maintain.
+    // Taken with the response rather than on its own, so the rate-limit headers
+    // that ride along with every answer can be kept — they are the only place the
+    // API says what is left.
+    const source = this.settings.get().anthropicApiKey ? 'settings-key' : 'environment-key'
     try {
-      return await client.beta.messages.create({
-        ...params,
-        betas: ['server-side-fallback-2026-07-01'],
-        fallbacks: 'default'
-      } as unknown as Anthropic.Beta.MessageCreateParamsNonStreaming)
+      const { data, response } = await client.beta.messages
+        .create({
+          ...params,
+          betas: ['server-side-fallback-2026-07-01'],
+          fallbacks: 'default'
+        } as unknown as Anthropic.Beta.MessageCreateParamsNonStreaming)
+        .withResponse()
+      this.noteUsage(response.headers, source)
+      return data
     } catch (err) {
       // If this deployment does not accept the fallback beta, the feature should
       // still work — just without the automatic retry.
       if (!this.isFallbackUnsupported(err)) throw err
-      return (await client.messages.create(
-        params as unknown as Anthropic.MessageCreateParamsNonStreaming
-      )) as unknown as Anthropic.Beta.BetaMessage
+      const { data, response } = await client.messages
+        .create(params as unknown as Anthropic.MessageCreateParamsNonStreaming)
+        .withResponse()
+      this.noteUsage(response.headers, source)
+      return data as unknown as Anthropic.Beta.BetaMessage
     }
   }
 
