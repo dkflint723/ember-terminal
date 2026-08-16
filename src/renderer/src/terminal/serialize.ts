@@ -1,5 +1,5 @@
 import type { IBufferCell, IBufferLine, Terminal } from '@xterm/xterm'
-import type { TerminalPalette } from '@shared/theme'
+import { contrastRatio, type TerminalPalette } from '@shared/theme'
 
 /**
  * Renders a terminal buffer to HTML as *logical* lines.
@@ -71,7 +71,7 @@ interface Style {
   css: string
 }
 
-function styleOf(cell: IBufferCell, palette: string[]): Style {
+function styleOf(cell: IBufferCell, palette: string[], theme: TerminalPalette): Style {
   const parts: string[] = []
 
   let fg: string | null = null
@@ -89,6 +89,30 @@ function styleOf(cell: IBufferCell, palette: string[]): Style {
     const nextBg = fg ?? 'var(--fg)'
     fg = nextFg
     bg = nextBg
+  }
+
+  /*
+   * A program that paints a background has chosen the fill, not the text on it.
+   *
+   * PowerShell marks directories with `ESC[44;1m` — a blue background and no
+   * foreground at all — so the names keep whatever the pane's default foreground
+   * happens to be. On a dark theme with a dark blue that is fine; on a theme whose
+   * blue is light it is light text on a light fill, and a listing became unreadable
+   * exactly where the shell was drawing attention to something.
+   *
+   * The fill is kept as asked and the text is made legible on it, using the theme's
+   * own two ends rather than black and white so a dark theme stays dark. Only for
+   * real colours: the inverse fallbacks above are CSS variables that resolve at
+   * paint time and cannot be measured here.
+   */
+  if (bg?.startsWith('#')) {
+    const onIt = fg?.startsWith('#') ? fg : theme.foreground
+    if (contrastRatio(onIt, bg) < 4.5) {
+      fg =
+        contrastRatio(theme.background, bg) >= contrastRatio(theme.foreground, bg)
+          ? theme.background
+          : theme.foreground
+    }
   }
 
   if (fg) parts.push(`color:${fg}`)
@@ -109,7 +133,12 @@ function styleOf(cell: IBufferCell, palette: string[]): Style {
 }
 
 /** Append one grid row's cells onto the logical line being built. */
-function appendRow(line: IBufferLine, palette: string[], runs: { style: Style; text: string }[]): void {
+function appendRow(
+  line: IBufferLine,
+  palette: string[],
+  theme: TerminalPalette,
+  runs: { style: Style; text: string }[]
+): void {
   const cell = line.getCell(0)
   if (!cell) return
 
@@ -120,7 +149,7 @@ function appendRow(line: IBufferLine, palette: string[], runs: { style: Style; t
 
     const chars = cell.getChars()
     const text = chars.length === 0 ? ' ' : chars
-    const style = styleOf(cell, palette)
+    const style = styleOf(cell, palette, theme)
     const last = runs[runs.length - 1]
     if (last && last.style.key === style.key) last.text += text
     else runs.push({ style, text })
@@ -143,7 +172,7 @@ export function renderBufferAsHtml(term: Terminal, theme: TerminalPalette): stri
       logical.push(current)
       current = []
     }
-    appendRow(line, palette, current)
+    appendRow(line, palette, theme, current)
   }
   logical.push(current)
 
