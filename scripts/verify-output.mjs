@@ -135,6 +135,45 @@ check(
 )
 
 /*
+ * --- and a command that prints nothing holds nothing -----------------------------
+ *
+ * The case above passes even when the repaint problem is present, because a command
+ * that prints something of its own leaves conpty little reason to resend the screen.
+ * A command that prints *nothing* is where the whole console arrived instead: `cd .`
+ * measured 22 rows and 450px, carrying four earlier commands' markers.
+ *
+ * Checked by marker rather than by size, so it reports what is wrong rather than
+ * that something is: a row count says a block is too tall, a foreign marker says
+ * whose output is in it.
+ */
+await run('cd .')
+const quiet = await page.evaluate(() => {
+  const all = document.querySelectorAll('.block')
+  const body = all[all.length - 1]?.querySelector('.block__body')
+  const text = body?.textContent ?? ''
+  return {
+    rows: body?.querySelectorAll('.row').length ?? 0,
+    foreign: ['MARKER-ONE', 'MARKER-TWO', 'HEAD', 'line 1'].filter((m) => text.includes(m)),
+    text: text.trim().slice(0, 60)
+  }
+})
+check('a command that prints nothing shows nothing', quiet.rows === 0, JSON.stringify(quiet))
+check(
+  'and carries no earlier command output',
+  quiet.foreign.length === 0,
+  JSON.stringify(quiet.foreign)
+)
+
+// The other direction, which a fix here is just as likely to get wrong: the next
+// command must still show what it printed.
+const afterQuiet = await run('Write-Output "AFTER-THE-QUIET-ONE"')
+check(
+  'and the next command still shows its own output',
+  afterQuiet.includes('AFTER-THE-QUIET-ONE'),
+  afterQuiet.slice(0, 60)
+)
+
+/*
  * --- a failing cmdlet reports its own failure ---------------------------------
  *
  * PowerShell never resets $LASTEXITCODE — it only holds the last *native* process's

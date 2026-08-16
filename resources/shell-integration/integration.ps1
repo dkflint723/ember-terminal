@@ -109,6 +109,33 @@ if (Get-Module -ListAvailable -Name PSReadLine) {
     $cursor = 0
     [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
     $Host.UI.Write("$__EmberESC]633;E;$(__Ember-Escape $line)$__EmberBEL")
+    <#
+      Clear the console before the command runs, so a block can only contain what
+      that command printed.
+
+      A block is cut from the bytes between the markers, and conpty does not stream
+      those bytes — it repaints. It keeps its own console screen buffer, and when it
+      decides to redraw it sends the whole of that buffer from home. The buffer
+      holds everything the session has printed, so the redraw lands inside whatever
+      command happens to be running and that command's block ends up holding the
+      output of the ones before it. `cd .`, which prints nothing at all, measured 22
+      rows and 450px of other commands' output.
+
+      Ember clears its own terminal after each command, which is why the screen
+      still looks right — but conpty is never told, so the two disagree and the
+      redraw is conpty resending a screen Ember has already thrown away. Removing
+      Ember's clear changes nothing, measured; conpty repaints from its own buffer
+      regardless. The console itself has to be cleared, and only the shell can do
+      that, because a write from Ember's side would be input to the shell rather
+      than a command to the console.
+
+      Cleared here rather than after the previous command so there is no window in
+      which a redraw can carry the old screen: from this point the console holds
+      this command and nothing else, so whatever conpty chooses to resend is this
+      command's own output. Ember's own clear stays, since it is what empties the
+      live view while the shell is idle.
+    #>
+    $Host.UI.Write("$__EmberESC[H$__EmberESC[2J$__EmberESC[3J")
     $Host.UI.Write("$__EmberESC]133;C$__EmberBEL")
     switch ($handler) {
       'AcceptLine' { [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine() }
