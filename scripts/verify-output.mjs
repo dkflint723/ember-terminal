@@ -53,6 +53,61 @@ const run = async (command, timeoutMs = 60_000) => {
   )
 }
 
+/*
+ * --- a block keeps the colours the shell gave it --------------------------------
+ *
+ * Under PowerShell's default rendering the colours are set as console attributes
+ * rather than written into the stream, and conpty then carries them in the screen
+ * repaints it sends at its own frame boundaries — which routinely fall outside a
+ * command's markers. The bytes a block is cut from held the text and none of the
+ * styling: a directory listing came back as plain text, coloured only on the live
+ * screen. The integration script now asks for `OutputRendering = 'Ansi'`, so the
+ * sequences arrive in line with the text they colour.
+ *
+ * Both halves are checked here, because they fail independently: that the styling
+ * survived at all, and that the text is readable on the fill. PowerShell marks
+ * directories with a background and NO foreground, so the names would otherwise
+ * keep the pane's default — light text on a light fill on a theme whose blue is
+ * light, unreadable exactly where the shell was drawing attention.
+ */
+await run('Write-Host "BLUEFILL" -BackgroundColor Blue')
+const painted = await page.evaluate(() => {
+  const lum = (c) => {
+    const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(c)
+    if (!m) return null
+    const ch = (v) => {
+      const s = v / 255
+      return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+    }
+    return 0.2126 * ch(+m[1]) + 0.7152 * ch(+m[2]) + 0.0722 * ch(+m[3])
+  }
+  const all = document.querySelectorAll('.block')
+  const body = all[all.length - 1]?.querySelector('.block__body')
+  const out = []
+  for (const span of body?.querySelectorAll('span[style*="background"]') ?? []) {
+    const cs = getComputedStyle(span)
+    const la = lum(cs.color)
+    const lb = lum(cs.backgroundColor)
+    if (la === null || lb === null) continue
+    const [hi, lo] = la > lb ? [la, lb] : [lb, la]
+    out.push({
+      text: (span.textContent ?? '').trim().slice(0, 12),
+      ratio: Number(((hi + 0.05) / (lo + 0.05)).toFixed(2))
+    })
+  }
+  return { runs: out, text: (body?.textContent ?? '').trim().slice(0, 40) }
+})
+check(
+  'a background the shell asked for survives into the block',
+  painted.runs.length > 0,
+  JSON.stringify(painted)
+)
+check(
+  'and the text on it is readable',
+  painted.runs.length > 0 && painted.runs.every((p) => p.ratio >= 4.5),
+  JSON.stringify(painted.runs)
+)
+
 // --- a line longer than the screen -------------------------------------------
 // 6000 characters wraps to far more rows than conpty's console buffer used to
 // hold, so the start of the line scrolled away before it could be captured.

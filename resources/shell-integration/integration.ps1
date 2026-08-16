@@ -18,6 +18,31 @@ $env:EMBER_INTEGRATION_LOADED = '1'
 $Global:__EmberESC = [char]0x1b
 $Global:__EmberBEL = [char]0x07
 
+<#
+  Ask PowerShell to write its colours into the stream.
+
+  Blocks are cut out of the pty byte stream between the markers below, and under
+  the default rendering PowerShell colours its output by setting console
+  attributes rather than by emitting escape sequences. ConPTY then carries those
+  colours in the screen repaints it sends at its own frame boundaries — which
+  routinely fall outside a command's markers, so the bytes a block is built from
+  held the text and none of the styling. A directory listing came back as plain
+  text with the colour visible only on the live screen.
+
+  `Ansi` makes PowerShell emit the sequences itself, in line with the text it is
+  colouring, so what a block is cut from is what was on screen. It is also what
+  PowerShell already does when it detects a capable terminal; naming it here stops
+  the answer depending on that detection.
+#>
+if ($null -ne $PSStyle) {
+  try {
+    $PSStyle.OutputRendering = 'Ansi'
+  } catch {
+    # Older hosts have no such setting, and a shell that will not load its
+    # integration is a worse outcome than a block without colour in it.
+  }
+}
+
 function Global:__Ember-Escape([string]$value) {
   if ($null -eq $value) { return '' }
   # Backslash-escape the control characters that would otherwise terminate the
