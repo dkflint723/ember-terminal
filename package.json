@@ -137,5 +137,11 @@
     "esbuild@0.25.12": true,
     "esbuild@0.28.2": true,
     "electron-winstaller@5.4.0": true
+  },
+  "overrides": {
+    "minimatch@10": "^10.2.3",
+    "monaco-editor": {
+      "dompurify": "^3.4.13"
+    }
   }
 }
