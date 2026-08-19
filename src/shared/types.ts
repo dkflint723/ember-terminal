@@ -560,6 +560,24 @@ export interface Settings {
    * touch.
    */
   uiZoom: number
+  /**
+   * Where the window was and how big, so it comes back the same shape.
+   *
+   * Null until a window has been closed once. Stored with the settings rather than
+   * with the session because it describes the window rather than the work in it: a
+   * launch that restores no session still opens somewhere, and it should be where
+   * it was left rather than in the middle of whatever monitor Windows picks.
+   */
+  windowBounds: { x: number; y: number; width: number; height: number } | null
+  windowMaximized: boolean
+  /**
+   * Look for a new version on launch.
+   *
+   * Off unless asked for. An update check is the app reaching out to a server on
+   * its own and then changing itself, which is not something to start doing to
+   * somebody because they installed a terminal.
+   */
+  autoUpdate: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -575,7 +593,10 @@ export const DEFAULT_SETTINGS: Settings = {
   notifyAfterSeconds: 10,
   autoSaveAfterSeconds: 0,
   recentFolders: [],
-  uiZoom: 1
+  uiZoom: 1,
+  windowBounds: null,
+  windowMaximized: false,
+  autoUpdate: false
 }
 
 /** The API the preload script exposes on `window.ember`. */
@@ -665,6 +686,14 @@ export interface EmberApi {
   write(paneId: string, data: string): void
   resize(paneId: string, cols: number, rows: number): void
   kill(paneId: string): void
+  /**
+   * The system clipboard, read through main.
+   *
+   * Writing works from the renderer, but reading needs a permission a sandboxed
+   * renderer does not have — and pasting into a terminal is not a thing to make
+   * conditional on a permission prompt.
+   */
+  clipboardRead(): Promise<string>
   onData(cb: (e: PtyDataEvent) => void): () => void
   onExit(cb: (e: PtyExitEvent) => void): () => void
   listProfiles(): Promise<ShellProfile[]>

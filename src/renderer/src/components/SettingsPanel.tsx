@@ -511,6 +511,20 @@ export function SettingsPanel(): React.JSX.Element | null {
             Layout and open files, including anything unsaved. Command output is not
             restored — a finished command from last week would only look live.
           </div>
+          <label className="field__check">
+            <input
+              type="checkbox"
+              checked={draft.autoUpdate}
+              onChange={(e) => field('autoUpdate', e.target.checked)}
+            />
+            <span>Check for a new version</span>
+          </label>
+          <div className="field__note">
+            Off unless asked for: an update check is Ember reaching out to a server on
+            its own and then replacing itself, which is a thing to be chosen rather
+            than inherited. A new version downloads in the background and is put in
+            place the next time Ember quits, never underneath a running shell.
+          </div>
         </div>
 
         <div className="field">

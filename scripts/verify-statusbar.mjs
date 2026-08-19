@@ -206,9 +206,15 @@ if (terminal) {
    */
   const here = path.basename(repo)
   check('it names the working directory', (terminal.cwd ?? '').endsWith(here), `${terminal.cwd}`)
+  /*
+   * Contains rather than ends with: the tooltip carries the full path and then says
+   * what clicking does, since the click browses the directory now and copying it
+   * moved to the right button. The path is what this checks; the hint is allowed to
+   * change wording without failing a check about the path.
+   */
   check(
     'and holds the whole path for a hover',
-    (terminal.cwdTitle ?? '').toLowerCase().endsWith(here.toLowerCase()),
+    (terminal.cwdTitle ?? '').toLowerCase().includes(here.toLowerCase()),
     terminal.cwdTitle
   )
 

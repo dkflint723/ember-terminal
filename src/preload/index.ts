@@ -124,6 +124,7 @@ const api: EmberApi = {
   resize: (paneId: string, cols: number, rows: number) =>
     ipcRenderer.send('pty:resize', paneId, cols, rows),
   kill: (paneId: string) => ipcRenderer.send('pty:kill', paneId),
+  clipboardRead: () => ipcRenderer.invoke('clipboard:read'),
 
   onData: (cb: (e: PtyDataEvent) => void) => {
     const listener = (_: unknown, e: PtyDataEvent): void => cb(e)

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, screen, shell } from 'electron'
 import { join } from 'node:path'
 import { PtyManager } from './pty.js'
 import { detectProfiles } from './profiles.js'
@@ -19,6 +19,7 @@ import { Notifier, focusWindow } from './notify.js'
 import { AiService } from './ai.js'
 import { ClaudeCliService } from './claude-cli.js'
 import {
+
   DEFAULT_SETTINGS,
   type AiRequest,
   type CompletionRequest,
@@ -29,6 +30,32 @@ import {
   type Settings,
   type SpawnRequest
 } from '../shared/types.js'
+
+/**
+ * Look for a new version, when that has been asked for.
+ *
+ * Off by default and checked only here: an app that reaches out to a server and
+ * then rewrites itself is doing something the person running it should have chosen,
+ * not something that comes with a terminal. `checkForUpdatesAndNotify` downloads in
+ * the background and tells the OS when a version is ready, which is installed on the
+ * next quit — nothing is replaced underneath a running shell.
+ *
+ * Imported where it is used so a launch with the setting off never loads it, and
+ * wrapped because there is nothing to check against until a release is published:
+ * a missing feed is an ordinary outcome here, not a fault worth interrupting for.
+ */
+async function maybeCheckForUpdate(): Promise<void> {
+  if (!settings.get().autoUpdate) return
+  if (!app.isPackaged) return
+  try {
+    const { autoUpdater } = await import('electron-updater')
+    autoUpdater.autoDownload = true
+    autoUpdater.on('error', (err) => console.error('Ember: update check failed', err))
+    await autoUpdater.checkForUpdatesAndNotify()
+  } catch (err) {
+    console.error('Ember: update check could not run', err)
+  }
+}
 
 const isDev = !app.isPackaged
 
@@ -90,10 +117,38 @@ function sendToRenderer(channel: string, payload: unknown): void {
   mainWindow.webContents.send(channel, payload)
 }
 
+/**
+ * Where the window should open.
+ *
+ * The remembered rectangle, but only if some display still contains it: monitors
+ * get unplugged and resolutions change, and a window restored onto a screen that is
+ * no longer there opens somewhere nobody can reach it. Falling back to the default
+ * size with no position lets Electron place it, which is the right answer for a
+ * first run as well.
+ */
+function openingBounds(): { x?: number; y?: number; width: number; height: number } {
+  const fallback = { width: 1180, height: 760 }
+  const saved = settings.get().windowBounds
+  if (!saved) return fallback
+
+  const visible = screen.getAllDisplays().some((d) => {
+    const a = d.workArea
+    // The title bar has to be reachable, so the test is on the top edge rather than
+    // on the whole rectangle: a window hanging off the bottom can still be dragged.
+    return (
+      saved.x + saved.width > a.x &&
+      saved.x < a.x + a.width &&
+      saved.y >= a.y - 8 &&
+      saved.y < a.y + a.height
+    )
+  })
+  return visible ? saved : fallback
+}
+
 function createWindow(): void {
+  const opening = openingBounds()
   mainWindow = new BrowserWindow({
-    width: 1180,
-    height: 760,
+    ...opening,
     minWidth: 520,
     minHeight: 360,
     show: false,
@@ -131,7 +186,12 @@ function createWindow(): void {
     if (Number.isFinite(zoom) && zoom !== 1) {
       mainWindow?.webContents.setZoomFactor(Math.min(Math.max(zoom, 0.6), 2.5))
     }
+    // Maximised before the first paint, for the same reason as the zoom: showing a
+    // 1180px window and then snapping it out is a flash the user has to watch.
+    if (settings.get().windowMaximized) mainWindow?.maximize()
     mainWindow?.show()
+    // After the window, never before: a launch should not wait on a network call.
+    setTimeout(() => void maybeCheckForUpdate(), 8000)
   })
 
   /*
@@ -158,6 +218,32 @@ function createWindow(): void {
       mainWindow.close()
     }
   })
+
+  /*
+   * Remember the window as it is moved and sized, not as it closes.
+   *
+   * On close the window may already be minimised or on its way out, and a
+   * minimised window's bounds are not where it lives. Recorded on a debounce
+   * instead, and only while it is in its normal state — a maximised window keeps
+   * the rectangle it would return to, which is what should come back when it is
+   * unmaximised again.
+   */
+  let boundsTimer: NodeJS.Timeout | null = null
+  const rememberBounds = (): void => {
+    if (boundsTimer) clearTimeout(boundsTimer)
+    boundsTimer = setTimeout(() => {
+      if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized()) return
+      const maximized = mainWindow.isMaximized()
+      settings.set({
+        windowMaximized: maximized,
+        ...(maximized ? {} : { windowBounds: mainWindow.getNormalBounds() })
+      })
+    }, 400)
+  }
+  mainWindow.on('resize', rememberBounds)
+  mainWindow.on('move', rememberBounds)
+  mainWindow.on('maximize', rememberBounds)
+  mainWindow.on('unmaximize', rememberBounds)
 
   const emitState = (): void =>
     sendToRenderer('window:state', { maximized: mainWindow?.isMaximized() ?? false })
@@ -449,6 +535,15 @@ function registerIpc(): void {
   })
   ipcMain.handle('settings:encryption', () => settings.encryptionAvailable())
 
+  /*
+   * Pasting into a terminal.
+   *
+   * The renderer can write to the clipboard on a keystroke, but reading it needs a
+   * permission the sandbox does not grant — and a paste that depends on a
+   * permission prompt is not a paste. Main has the clipboard already.
+   */
+  ipcMain.handle('clipboard:read', () => clipboard.readText())
+
   ipcMain.on('window:action', (_e, action: 'minimize' | 'maximize' | 'close') => {
     if (!mainWindow) return
     if (action === 'minimize') mainWindow.minimize()
@@ -476,6 +571,27 @@ if (!app.requestSingleInstanceLock()) {
   // The window draws its own chrome, and the default menu would bind accelerators
   // the app uses itself — Ctrl+R for history search would reload instead.
   Menu.setApplicationMenu(null)
+
+/*
+ * Anything that got away.
+ *
+ * Without these an unhandled rejection anywhere in main — an IPC handler, a git
+ * call, a language server dying mid-request — takes the process down with no
+ * message and no log, and the window vanishes with the shells still in it. There
+ * is nowhere useful to report to, so this does the one thing that helps: says what
+ * happened, on stderr, where a packaged build's console and a dev run both show it.
+ *
+ * Deliberately not exiting. Electron's default for an uncaught exception is to
+ * die, and for a terminal holding live shells that is the worse of the two risks:
+ * a main process carrying on in a slightly wrong state is recoverable by closing
+ * the window, and one that has already exited is not.
+ */
+process.on('uncaughtException', (error) => {
+  console.error('Ember: uncaught exception in main', error)
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('Ember: unhandled rejection in main', reason)
+})
 
   void app.whenReady().then(() => {
     settings = new SettingsStore()

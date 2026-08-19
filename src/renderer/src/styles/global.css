@@ -3856,3 +3856,130 @@ kbd {
   color: var(--fg-faint);
   font-size: 11px;
 }
+
+/* ---------- when the interface stops drawing ---------- */
+
+/*
+ * The one screen that has to work when nothing else did, so it asks for nothing:
+ * no icon font, no measured layout, no state. Centred in the window because at
+ * this point there is no window furniture left to sit under.
+ */
+.boom {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  max-width: 560px;
+  margin: 12vh auto;
+  padding: 20px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-chrome);
+  color: var(--fg);
+  font-family: var(--ui);
+  font-size: 13px;
+}
+
+.boom__title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.boom__note {
+  margin: 0;
+  color: var(--fg-dim);
+  line-height: 1.6;
+}
+
+/* The message, in the face the rest of the app reads errors in. */
+.boom__error {
+  align-self: stretch;
+  max-height: 30vh;
+  margin: 0;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fail);
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---------- find in a terminal's output ---------- */
+
+/*
+ * Sits above the block list rather than floating over it. A find bar that overlaps
+ * the text is covering the thing being looked for, and this pane already has a
+ * scroller that can simply be shorter for as long as the bar is open.
+ */
+.find {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-chrome);
+}
+
+.find__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 3px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.find__input:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* Tabular, so the count does not shuffle the buttons as it counts up. */
+.find__count {
+  flex: 0 0 auto;
+  min-width: 9ch;
+  color: var(--fg-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.find__step {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: none;
+  color: var(--fg-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.find__step:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+/*
+ * The matches themselves, painted over the text rather than wrapped around it.
+ *
+ * A highlight cannot change layout — no element is inserted — so a block's output
+ * keeps the exact markup a program's colours were serialized into, and copying a
+ * match copies the text and nothing else.
+ */
+::highlight(ember-find) {
+  background-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--fg);
+}
+
+/* The one being looked at, which has to be findable among the others. */
+::highlight(ember-find-current) {
+  background-color: var(--accent);
+  color: var(--bg);
+}

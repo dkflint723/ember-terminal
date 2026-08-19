@@ -128,6 +128,24 @@ export class TerminalController {
         this.onEscapeFocus?.()
         return false
       }
+
+      /*
+       * Copy and paste, on the chord every terminal uses.
+       *
+       * Plain Ctrl+C cannot be copy here — it is how a running program is
+       * interrupted, and taking that away would cost more than having no copy at
+       * all. So the shifted pair, as Windows Terminal, VS Code's terminal and
+       * GNOME Terminal all do. Returning false keeps the keystroke out of the pty,
+       * which would otherwise receive it as a control character.
+       */
+      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'c') {
+        this.copySelection()
+        return false
+      }
+      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'v') {
+        void this.paste()
+        return false
+      }
       return true
     })
 
@@ -537,28 +555,103 @@ export class TerminalController {
     })
   }
 
+  /** What is selected in the terminal, put on the clipboard. False if nothing is. */
+  copySelection(): boolean {
+    const text = this.term.getSelection()
+    if (text.length === 0) return false
+    void navigator.clipboard.writeText(text)
+    return true
+  }
+
+  /**
+   * The clipboard, typed into the shell.
+   *
+   * Written as input rather than onto the screen, because that is what a paste is:
+   * the shell echoes it, its own line editor sees it, and a program reading stdin
+   * receives it exactly as it would receive typing.
+   */
+  async paste(): Promise<void> {
+    const text = await window.ember.clipboardRead()
+    if (text.length > 0) window.ember.write(this.paneId, text)
+  }
+
+  private startShell(): void {
+    const pane = this.store().terminalPane(this.paneId)
+    void window.ember
+      .spawn({
+        paneId: this.paneId,
+        profileId: pane?.profileId ?? '',
+        cwd: pane?.cwd,
+        cols: this.term.cols,
+        rows: this.term.rows
+      })
+      .then((res) => {
+        if (!res.ok) {
+          this.term.write(`
+
+[31m${res.error ?? 'Failed to start shell.'}[0m
+
+`)
+        }
+      })
+  }
+
+  /**
+   * Start a new shell in a pane whose own has exited.
+   *
+   * Such a pane was a dead end: it kept its blocks, said `exited 1`, and the only
+   * thing left to do with it was close it — which threw the blocks away too. It is
+   * the same pane, so its history stays and the new shell opens where the old one
+   * was last standing.
+   *
+   * The capture state goes with it. Whatever the dying shell left half-collected
+   * belongs to no command that will ever finish, and keeping it would put it at the
+   * top of the first block of the new session.
+   */
+  restart(): void {
+    this.capture = ''
+    this.capturing = false
+    this.captureTrimmed = false
+    this.carry = ''
+    this.currentBlockId = null
+    this.pendingCommand = null
+    this.sawAltScreen = false
+    this.tail = ''
+
+    this.store().patchPane(this.paneId, {
+      exited: false,
+      exitCode: null,
+      integration: 'pending',
+      awaitingSecret: false,
+      mode: 'blocks'
+    })
+
+    this.term.write('[H[2J[3J')
+    this.watchForIntegration()
+    this.startShell()
+  }
+
   attach(container: HTMLElement): void {
     this.term.open(container)
     this.enableWebgl()
     this.refit()
 
+    /*
+     * Right-click copies a selection, or pastes when there is none.
+     *
+     * The convention Windows Terminal set, and worth having here because the app
+     * draws its own chrome: there is no menu bar to fall back on, and a terminal is
+     * the one place people reach for the mouse to move text around.
+     */
+    container.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+      if (!this.copySelection()) void this.paste()
+    })
+
     if (!this.spawned) {
       this.spawned = true
       this.watchForIntegration()
-      const pane = this.store().terminalPane(this.paneId)
-      void window.ember
-        .spawn({
-          paneId: this.paneId,
-          profileId: pane?.profileId ?? '',
-          cwd: pane?.cwd,
-          cols: this.term.cols,
-          rows: this.term.rows
-        })
-        .then((res) => {
-          if (!res.ok) {
-            this.term.write(`\r\n\x1b[31m${res.error ?? 'Failed to start shell.'}\x1b[0m\r\n`)
-          }
-        })
+      this.startShell()
     }
   }
 
@@ -697,6 +790,17 @@ export class TerminalController {
  * rather than in component state.
  */
 const registry = new Map<string, TerminalController>()
+
+/**
+ * The controller a pane already has, or nothing.
+ *
+ * `getController` builds one when there is none, which is right for a pane that is
+ * mounting and wrong for anyone else: a caller that only wants to send a command to
+ * a shell would otherwise create a second terminal for a pane that has one.
+ */
+export function existingController(paneId: string): TerminalController | undefined {
+  return registry.get(paneId)
+}
 
 export function getController(
   paneId: string,

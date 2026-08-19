@@ -5,6 +5,7 @@ import { AgentBlock } from './AgentBlock'
 import { BlockView } from './BlockView'
 import { InputEditor } from './InputEditor'
 import { OverviewRuler, useBlockGeometry } from './OverviewRuler'
+import { FindBar } from './FindBar'
 
 interface Props {
   pane: TerminalPaneState
@@ -157,6 +158,9 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
   // Where the blocks sit, for the ruler down the right edge and for knowing which
   // head is pinned. Measured from the DOM, so it follows wrapping and collapsing
   // without either of them having to report anything.
+  const findOpen = useStore((s) => s.findPaneId === pane.id)
+  const setFind = useStore((s) => s.setFind)
+
   const geometry = useBlockGeometry(scroller, pane.blocks)
 
   return (
@@ -167,6 +171,15 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
       // which must not have to infer readiness from UI label text.
       data-integration={pane.integration}
     >
+      {!raw && findOpen && (
+        <FindBar
+          scroller={scroller}
+          // The bar re-reads the pane when a command finishes under it, so output
+          // that lands while it is open is searchable without retyping.
+          revision={pane.blocks.length + lastSize}
+          onClose={() => setFind(null)}
+        />
+      )}
       {!raw && (
         <div className="pane__body">
         <div

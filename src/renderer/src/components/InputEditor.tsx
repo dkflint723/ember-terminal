@@ -705,9 +705,25 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
             </span>
           )}
           {pane.exited && (
-            <span className="composer__badge composer__badge--warn">
-              exited {pane.exitCode ?? ''}
-            </span>
+            <>
+              <span className="composer__badge composer__badge--warn">
+                exited {pane.exitCode ?? ''}
+              </span>
+              {/*
+                A shell that has gone used to leave the pane with nothing to do but
+                be closed — which threw away its blocks as well, and they are the
+                reason to still be looking at it. The pane is the same pane: the
+                history stays and the new shell opens where the old one was.
+              */}
+              <button
+                className="block__action"
+                data-restart="shell"
+                title="Start a new shell in this pane"
+                onClick={() => controller.restart()}
+              >
+                restart
+              </button>
+            </>
           )}
         </div>
       )}

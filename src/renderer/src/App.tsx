@@ -18,6 +18,8 @@ import { StatusBar } from './components/StatusBar'
 import { OutputPanel } from './components/OutputPanel'
 import { ProblemsPanel } from './components/ProblemsPanel'
 import { RegionDivider } from './components/RegionDivider'
+import { DirectoryPicker } from './components/DirectoryPicker'
+import { existingController } from './terminal/controller'
 
 export function App(): React.JSX.Element {
   const tabs = useStore((s) => s.tabs)
@@ -28,6 +30,29 @@ export function App(): React.JSX.Element {
   const panelOpen = useStore((s) => s.panelOpen)
   const panelView = useStore((s) => s.panelView)
   const panelHeight = useStore((s) => s.panelHeight)
+  const dirPicker = useStore((s) => s.dirPicker)
+  const setDirPicker = useStore((s) => s.setDirPicker)
+  /*
+   * The terminal the browser belongs to: the active pane when that is one, else the
+   * tab's first. The same rule the status bar uses to decide whose directory it is
+   * printing, so the path shown and the path browsed are always the same path.
+   */
+  const dirPickerPaneId = useStore((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId)
+    if (!tab) return null
+    const active = s.panes[tab.activePaneId]
+    if (active?.kind === 'terminal') return active.id
+    return Object.values(s.panes).find((p) => p.kind === 'terminal')?.id ?? null
+  })
+  const dirPickerCwd = useStore((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId)
+    if (!tab) return null
+    const active = s.panes[tab.activePaneId]
+    if (active?.kind === 'terminal') return active.cwd
+    const first = Object.values(s.panes).find((p) => p.kind === 'terminal')
+    return first?.kind === 'terminal' ? first.cwd : null
+  })
+
   const notice = useStore((s) => s.notice)
   const setNotice = useStore((s) => s.setNotice)
 
@@ -439,6 +464,23 @@ export function App(): React.JSX.Element {
        * shortcut is advertised in the composer footer, so it has to work from
        * anywhere rather than only from the composer itself.
        */
+      /*
+       * Find in this terminal's output.
+       *
+       * Ctrl+F is what everyone presses, and it did nothing here: the blocks are
+       * the whole history of a shell and there was no way through them but
+       * scrolling. Only for a terminal — an editor has Monaco's own find on the
+       * same chord, and that one is better than anything this would do.
+       */
+      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'f') {
+        const active = tab ? s.panes[tab.activePaneId] : undefined
+        if (active?.kind === 'terminal') {
+          e.preventDefault()
+          s.setFind(s.findPaneId === active.id ? null : active.id)
+          return
+        }
+      }
+
       if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         const target = askTarget()
@@ -636,6 +678,22 @@ export function App(): React.JSX.Element {
         <SettingsPanel />
         <HistorySearch />
         <Palette onOpenFile={(p) => void openPaths([p])} />
+        {dirPicker && dirPickerCwd && (
+          <DirectoryPicker
+            cwd={dirPickerCwd}
+            /*
+             * Sent as a command rather than set as state. The shell is the thing
+             * that has a working directory — writing one into the pane would make
+             * the label and the shell disagree the moment anything used it — and a
+             * `cd` in the list is also the record that the move happened.
+             */
+            onChangeDirectory={(path) => {
+              if (dirPickerPaneId) existingController(dirPickerPaneId)?.runCommand(`cd "${path}"`)
+            }}
+            onOpenFile={(p) => void openPaths([p])}
+            onClose={() => setDirPicker(false)}
+          />
+        )}
       </div>
 
       {/* Below the grid and across the whole window, under the rail as well —

@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
+import { Boom } from './components/Boom'
 import './styles/global.css'
 
 const host = document.getElementById('root')
@@ -10,4 +11,8 @@ if (!host) throw new Error('Root element missing from index.html')
  * sessions, and StrictMode's double-invoked effects would spawn two shells per
  * pane in development.
  */
-createRoot(host).render(<App />)
+createRoot(host).render(
+  <Boom>
+    <App />
+  </Boom>
+)

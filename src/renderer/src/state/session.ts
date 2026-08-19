@@ -344,15 +344,22 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
     activeTabId: tabs.find((t) => t.id === snapshotIn.activeTabId)?.id ?? tabs[0].id,
     treeRoot: root,
     /*
-     * A session with files open comes back as an IDE.
+     * Every launch opens as a terminal, whatever was open last time.
      *
-     * Restored editors are put straight into the tab's editor region rather than
-     * going through openFile, so nothing along the way asked for the mode that
-     * region is visible in. The window came back a plain terminal with its files
-     * loaded, present in the state and on screen nowhere — which reads as the
-     * restore having quietly dropped them.
+     * This used to come back as an IDE when the restored session had files in it,
+     * on the reasoning that editors restored straight into the tab's editor region
+     * never go through openFile, so nothing along the way asks for the mode that
+     * region is visible in — and a window that came back a plain terminal with its
+     * files loaded would be hiding them.
+     *
+     * That reasoning is about restore fidelity, and it loses to what the app is.
+     * Ember opens as a terminal and becomes an IDE on a keystroke; a launch that
+     * decides otherwise on the strength of a file left open days ago has taken that
+     * choice away, and the only way back was to close every editor. The files are
+     * still restored and still there — Ctrl+Shift+I, or the button in the title bar
+     * that already reads IDE, shows them exactly as they were left.
      */
-    mode: tabs.some((t) => t.editors) ? 'ide' : 'terminal',
+    mode: 'terminal',
     sidebarOpen: snapshotIn.sidebarOpen,
     sidebarView: snapshotIn.sidebarView
   })

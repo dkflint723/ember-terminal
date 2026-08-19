@@ -56,8 +56,27 @@ const shape = (page) =>
     shownPath: document.querySelector('.pane.editor')?.getAttribute('data-editor-path') ?? null,
     dirty: document.querySelector('.pane.editor')?.getAttribute('data-dirty') ?? null,
     sidebarOpen: !!document.querySelector('.sidebar'),
-    sidebarView: document.querySelector('.sidebar')?.getAttribute('data-view') ?? null
+    sidebarView: document.querySelector('.sidebar')?.getAttribute('data-view') ?? null,
+    mode: document.querySelector('.workspace')?.getAttribute('data-mode') ?? null,
+    modeButton: document.querySelector('.titlebar__mode')?.textContent?.trim() ?? null
   }))
+
+/**
+ * Bring the editors on screen before touching one.
+ *
+ * Every launch opens as a terminal now, whatever was restored, so the editor region
+ * is in the DOM but hidden — its tabs read fine and cannot be clicked. This is the
+ * one keystroke a person would use, rather than reaching past the mode into state.
+ */
+const showEditors = async (page) => {
+  const mode = await page.evaluate(
+    () => document.querySelector('.workspace')?.getAttribute('data-mode') ?? null
+  )
+  if (mode !== 'ide') {
+    await page.keyboard.press('Control+Shift+I')
+    await sleep(1200)
+  }
+}
 
 // --- build a workspace worth restoring --------------------------------------
 {
@@ -75,6 +94,8 @@ const shape = (page) =>
   await sleep(1500)
   await page.keyboard.press('Control+Shift+G')
   await sleep(800)
+
+  await showEditors(page)
 
   await page.locator('.etab', { hasText: 'one.ts' }).click()
   await sleep(600)
@@ -116,6 +137,22 @@ fs.writeFileSync(crlf, CRLF_TEXT, 'utf8')
   await page.waitForSelector('.pane', { timeout: 30_000 })
   await sleep(4000)
 
+  /*
+   * What a restored session opens as, before anything is touched.
+   *
+   * It used to come back as an IDE whenever the session had a file in it, so a file
+   * opened once and forgotten made every launch after it an IDE, and the only way
+   * back to a terminal was to close every editor. Ember opens as a terminal and
+   * becomes an IDE on a keystroke; restoring is not a reason to take that choice
+   * away. The files are still restored, which is what the rest of this section then
+   * goes on to prove — it just has to ask for them first.
+   */
+  const arrived = await shape(page)
+  check('a restored session opens as a terminal', arrived.mode === 'terminal', JSON.stringify(arrived.mode))
+  check('with the way to its files offered', arrived.modeButton === 'IDE', arrived.modeButton)
+  check('and nothing of the editor on screen', arrived.editorTabs.length === 0, JSON.stringify(arrived.editorTabs))
+
+  await showEditors(page)
   const after = await shape(page)
   check('the editor tabs came back', after.editorTabs.length === 3, JSON.stringify(after.editorTabs))
   check(
@@ -127,6 +164,7 @@ fs.writeFileSync(crlf, CRLF_TEXT, 'utf8')
   check('the split came back', after.terminals >= 2, `${after.terminals} terminals`)
   check('the sidebar reopened', after.sidebarOpen === true)
   check('on the same view', after.sidebarView === 'scm', after.sidebarView)
+
 
   // The point of keeping unsaved text: it has to be in the buffer, not just the file.
   const text = await page.evaluate(() =>
@@ -148,6 +186,7 @@ fs.writeFileSync(crlf, CRLF_TEXT, 'utf8')
    * unsaved, and the buffer's endings are what a save writes, so the next Ctrl+S
    * rewrote every line of it. Both halves are checked, the second against the bytes.
    */
+  await showEditors(page)
   await page.locator('.etab', { hasText: 'crlf.ts' }).click()
   await sleep(900)
   const converted = await shape(page)
@@ -190,6 +229,7 @@ fs.writeFileSync(crlf, CRLF_TEXT, 'utf8')
   // Only the active tab renders its panes, and the folder's tab is the one in front.
   await page.locator('.tab').first().click()
   await sleep(1500)
+  await showEditors(page)
   const opened = await shape(page)
   check(
     'launching on a folder still restores the last session',
@@ -197,6 +237,7 @@ fs.writeFileSync(crlf, CRLF_TEXT, 'utf8')
     JSON.stringify(opened.editorTabs)
   )
   // one.ts is the tab holding the unsaved edit; crlf.ts was left in front last time.
+  await showEditors(page)
   await page.locator('.etab', { hasText: 'one.ts' }).click()
   await sleep(1200)
   const text = await page.evaluate(() =>

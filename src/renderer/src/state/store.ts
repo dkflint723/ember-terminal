@@ -390,6 +390,17 @@ interface Store {
   clearPendingInput(paneId: string): void
   /** Defaults to 'agent': only the Ctrl+K override asks for the reading to flip. */
   requestAsk(paneId: string, how?: 'toggle' | 'agent'): void
+  /**
+   * Which terminal is showing its find bar, if any.
+   *
+   * One at a time on purpose: the bar searches the pane it belongs to, and two open
+   * at once would be two boxes competing for the same Escape and the same Enter.
+   */
+  findPaneId: string | null
+  setFind(paneId: string | null): void
+  /** Whether the directory browser is open over the workspace. */
+  dirPicker: boolean
+  setDirPicker(open: boolean): void
   /** Open the Claude model-and-effort switcher. */
   requestAiPicker(): void
   openPalette(mode: 'files' | 'commands'): void
@@ -597,6 +608,8 @@ export const useStore = create<Store>((set, get) => ({
   sidebarView: 'explorer',
   // A terminal until asked to be more than one.
   mode: 'terminal',
+  findPaneId: null,
+  dirPicker: false,
   panelOpen: true,
   panelView: 'terminal',
   panelHeight: 0.35,
@@ -730,6 +743,10 @@ export const useStore = create<Store>((set, get) => ({
    * Only in the IDE. As a terminal the shells are the window, and there is nothing
    * to reveal.
    */
+  setFind: (paneId) => set(() => ({ findPaneId: paneId })),
+
+  setDirPicker: (open) => set(() => ({ dirPicker: open })),
+
   requestAsk: (paneId, how = 'agent') =>
     set((s) => ({
       askRequest: { paneId, n: (s.askRequest?.n ?? 0) + 1, how },

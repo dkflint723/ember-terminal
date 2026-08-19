@@ -94,6 +94,7 @@ export function StatusBar(): React.JSX.Element | null {
   const cwdGit = useStore((s) => s.cwdGit)
   const showSidebarView = useStore((s) => s.showSidebarView)
   const setNotice = useStore((s) => s.setNotice)
+  const setDirPicker = useStore((s) => s.setDirPicker)
   const cursorAt = useStore((s) => s.cursorAt)
   const problems = useProblems()
 
@@ -248,9 +249,17 @@ export function StatusBar(): React.JSX.Element | null {
             <button
               className="statusbar__item statusbar__path"
               data-status="cwd"
-              aria-label={`Working directory ${cwd}. Copy path`}
-              title={cwd}
-              onClick={copyPath}
+              aria-label={`Working directory ${cwd}. Browse it`}
+              title={`${cwd}
+Click to browse · right-click to copy`}
+              onClick={() => setDirPicker(true)}
+              onContextMenu={(e) => {
+                // Copying the path is what this used to do, and it is still worth
+                // one gesture — just not the first one. Someone reading the path is
+                // usually about to go somewhere rather than to quote it.
+                e.preventDefault()
+                copyPath()
+              }}
             >
               {shortenPath(cwd, 42)}
             </button>
