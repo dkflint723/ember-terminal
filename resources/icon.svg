@@ -76,6 +76,11 @@
   <!-- The campfire, where the cursor would rest. -->
   <circle cx="354" cy="312" r="118" fill="url(#heat)" />
 
+  <!-- The bed of coals, behind the wood: the logs stand in it, not behind it. -->
+  <ellipse cx="352" cy="344" rx="56" ry="13" fill="#e2532a" fill-opacity="0.9" />
+  <ellipse cx="352" cy="342" rx="34" ry="8" fill="#ffb066" />
+  <ellipse cx="350" cy="341" rx="16" ry="5" fill="#ffe3b0" />
+
   <!-- The log behind, nearly upright, mostly char. -->
   <rect
     x="342" y="230" width="20" height="116" rx="9"
@@ -103,10 +108,10 @@
     fill="url(#wood)" transform="rotate(-19 374 296)"
   />
 
-  <!-- The bed of coals. -->
-  <ellipse cx="352" cy="348" rx="56" ry="13" fill="#e2532a" fill-opacity="0.9" />
-  <ellipse cx="352" cy="346" rx="34" ry="8" fill="#ffb066" />
-  <ellipse cx="350" cy="345" rx="16" ry="5" fill="#ffe3b0" />
+
+  <!-- The lip of the bed, in front of the feet — what tucks the wood in. -->
+  <ellipse cx="352" cy="353" rx="46" ry="7" fill="#e2532a" fill-opacity="0.95" />
+  <ellipse cx="352" cy="352" rx="24" ry="4.5" fill="#ffb066" fill-opacity="0.9" />
 
   <!-- Embers, adrift. -->
   <circle cx="384" cy="206" r="6.5" fill="#ffb066" fill-opacity="0.95" />
