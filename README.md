@@ -1,0 +1,109 @@
+<p align="center">
+  <img src="resources/icon.png" width="96" alt="Ember" />
+</p>
+
+<h1 align="center">Ember</h1>
+
+<p align="center">
+  A fast, block-based terminal for Windows that turns into an IDE on a keystroke —
+  with Claude riding along inside it.
+</p>
+
+![The terminal](docs/terminal.png)
+
+Every command runs as a **block**: a card holding the command, its output, its
+exit code and duration. Blocks collapse, copy, re-run, survive restarts, and are
+searchable across sessions. Ask a question instead of running a command and the
+answer arrives as a block too — the agent lives in the flow of work, not in a
+side panel.
+
+Press `Ctrl+Shift+I` and the same window is an IDE: Monaco with real language
+servers, a file tree, workspace search, problems, and git — while the terminal
+becomes the panel underneath. Nothing restarts and no shell is lost; press it
+again and it's a terminal.
+
+![The IDE](docs/ide.png)
+
+## Features
+
+- **Blocks** — collapse, copy command or output, re-run, jump by the overview
+  ruler. Restored on launch, bounded in memory and on disk.
+- **Shell integration** — PowerShell reports command boundaries, exit codes and
+  working directories through OSC 133. cmd, Git Bash and WSL run as plain
+  terminals.
+- **The agent** — Claude answers in-line, through your API key or the Claude
+  Code CLI. Model, effort and mode sit on a chip beside the prompt.
+- **IDE mode** — TypeScript, Python, YAML and PowerShell language servers,
+  go-to definition, snippets, auto-save, split panes, search and replace.
+- **Git** — status, staging, diffs, commits, branch and line counts in the
+  status chips; a GitHub panel checks out pull requests via `gh`.
+- **History** — every command searchable across sessions (`Ctrl+R`), with
+  inline secrets scrubbed before anything is written.
+- **Sessions** — the sidebar lists every open shell with its directory and
+  branch; the whole window restores on launch, unsaved edits included.
+- **Themes** — any VS Code color theme. Drop a `.json` into the themes folder
+  (Settings opens it) and it appears in the picker. Ten ship in the box,
+  including colour-blind-safe pairs.
+
+## Install
+
+Grab `Ember Setup <version>.exe` from
+[Releases](https://github.com/dkflint723/ember-terminal/releases) and run it.
+
+> The installer is not yet code-signed, so SmartScreen will ask whether you
+> mean it. Updates are **off by default**; turn them on in Settings, or use
+> "Check now" whenever you like — a new version installs when Ember quits,
+> never underneath a running shell.
+
+## Keyboard
+
+| Chord | Does |
+| --- | --- |
+| `Ctrl+Shift+I` | Terminal ↔ IDE |
+| `Ctrl+Shift+T` | New session |
+| `Ctrl+Tab` | Next session |
+| `Ctrl+B` | Side slot — sessions (terminal) or files (IDE) |
+| `Ctrl+J` | Panel |
+| `Ctrl+K` | Ask the agent about the last command |
+| `Ctrl+Enter` | Send the composer's text to the agent |
+| `Ctrl+P` / `Ctrl+Shift+P` | Files and sessions / commands |
+| `Ctrl+F` | Find in the terminal or editor |
+| `Ctrl+R` | Search command history |
+| `Ctrl+O` | Open a folder |
+| `Ctrl+Shift+F` `G` `H` `M` | Search, source control, GitHub, problems |
+| `Ctrl+Alt+S` | Save all |
+| `Ctrl+=` `-` `0` | Zoom |
+| `Ctrl+,` | Settings |
+
+## Building it
+
+```bash
+npm install
+```
+
+```bash
+npm run dev
+```
+
+```bash
+npm run dist
+```
+
+`dev` runs with hot reload; `dist` produces the NSIS installer in `release/`.
+
+### Verifying it
+
+The test suite is 36 Playwright scripts under `scripts/verify-*.mjs`, each of
+which launches the real app with a throwaway profile and drives it like a hand:
+
+```bash
+node scripts/verify.mjs
+```
+
+Every suite prints `PASS`/`FAIL` and exits nonzero on failure. They cover the
+terminal, blocks, session restore, the editor, LSP, git, themes, keyboard
+chords, the status chips, a11y, and the packaged build.
+
+## License
+
+[MIT](LICENSE)

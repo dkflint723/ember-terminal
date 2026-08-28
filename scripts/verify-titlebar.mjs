@@ -10,6 +10,7 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
+import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
@@ -118,6 +119,36 @@ const onFirst = await page.evaluate(
   () => document.querySelector('.sessions__card')?.getAttribute('aria-selected') ?? null
 )
 check('clicking a card makes it the session', onFirst === 'true', String(onFirst))
+
+// --- a card can be named by hand ---------------------------------------------
+await page.locator('.sessions__card').first().locator('.sessions__name').dblclick()
+await sleep(300)
+check('double-click opens the rename box', (await page.locator('.sessions__rename').count()) === 1)
+await page.locator('.sessions__rename').fill('build watch')
+await page.keyboard.press('Enter')
+await sleep(400)
+const cardName = await page
+  .locator('.sessions__card')
+  .first()
+  .locator('.sessions__name')
+  .textContent()
+check('and the name sticks to the card', cardName === 'build watch', String(cardName))
+// The snapshot writer debounces; the name must be in the file it writes, or a
+// restart would quietly hand the card back to the shell.
+await sleep(2600)
+const snapshot = fs.readFileSync(path.join(profile.dir, 'session.json'), 'utf8')
+check('the name reaches the session file', snapshot.includes('"build watch"'))
+await page.locator('.sessions__card').first().locator('.sessions__name').dblclick()
+await sleep(300)
+await page.locator('.sessions__rename').fill('')
+await page.keyboard.press('Enter')
+await sleep(400)
+const derived = await page
+  .locator('.sessions__card')
+  .first()
+  .locator('.sessions__name')
+  .textContent()
+check('an empty rename hands naming back', (derived ?? '').length > 0 && derived !== 'build watch', String(derived))
 
 await page.locator('.sessions__search').fill('definitely-nothing-is-called-this')
 await sleep(400)

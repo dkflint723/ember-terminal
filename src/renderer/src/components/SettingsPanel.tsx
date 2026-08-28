@@ -110,6 +110,8 @@ function ExplorerMenuField(): React.JSX.Element | null {
 }
 
 export function SettingsPanel(): React.JSX.Element | null {
+  /** What the last hand-run update check said, shown beside the button. */
+  const [updateNote, setUpdateNote] = useState('')
   const open = useStore((s) => s.settingsOpen)
   const toggle = useStore((s) => s.toggleSettings)
   const profiles = useStore((s) => s.profiles)
@@ -524,6 +526,19 @@ export function SettingsPanel(): React.JSX.Element | null {
             its own and then replacing itself, which is a thing to be chosen rather
             than inherited. A new version downloads in the background and is put in
             place the next time Ember quits, never underneath a running shell.
+          </div>
+          <div className="composer__proposal-actions">
+            <button
+              className="btn"
+              disabled={updateNote === 'Checking…'}
+              onClick={() => {
+                setUpdateNote('Checking…')
+                void window.ember.checkForUpdates().then(setUpdateNote)
+              }}
+            >
+              Check now
+            </button>
+            {updateNote && <span className="field__note">{updateNote}</span>}
           </div>
         </div>
 

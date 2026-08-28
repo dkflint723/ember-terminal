@@ -72,6 +72,7 @@ export function snapshot(): SessionSnapshot {
     tabs.push({
       editors: editors ?? undefined,
       id: tab.id,
+      name: tab.name,
       root,
       activePaneId: ids.includes(tab.activePaneId) ? tab.activePaneId : ids[0]
     })
@@ -326,6 +327,7 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
     const ids = [...collect(root), ...(editors ? collect(editors) : [])]
     tabs.push({
       id: tab.id,
+      name: tab.name,
       shells: root as LayoutNode,
       editors: (editors as LayoutNode) ?? null,
       activePaneId: ids.includes(tab.activePaneId) ? tab.activePaneId : ids[0]

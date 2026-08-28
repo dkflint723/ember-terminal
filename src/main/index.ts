@@ -1,5 +1,6 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, screen, shell } from 'electron'
 import { join } from 'node:path'
+import { appendFileSync } from 'node:fs'
 
 /*
  * Who this app is, declared before any window exists.
@@ -55,6 +56,28 @@ import {
 } from '../shared/types.js'
 
 /**
+ * Where a fault goes when there is no console: a packaged build's stderr lands
+ * nowhere, so every report is also appended to ember.log in userData — the file
+ * to ask for when something went wrong on a machine that is not this one.
+ */
+function reportFault(label: string, detail: unknown): void {
+  console.error(`Ember: ${label}`, detail)
+  try {
+    const line = detail instanceof Error ? (detail.stack ?? detail.message) : String(detail)
+    appendFileSync(
+      join(app.getPath('userData'), 'ember.log'),
+      `[${new Date().toISOString()}] ${label}: ${line}\n`
+    )
+  } catch {
+    // A log that cannot be written must not become its own crash.
+  }
+}
+
+/* One dialog, not one per fault: a crash loop that raised a box per throw would
+   bury the desktop. The first is the one that says where the log lives. */
+let faultShown = false
+
+/**
  * Look for a new version, when that has been asked for.
  *
  * Off by default and checked only here: an app that reaches out to a server and
@@ -73,10 +96,36 @@ async function maybeCheckForUpdate(): Promise<void> {
   try {
     const { autoUpdater } = await import('electron-updater')
     autoUpdater.autoDownload = true
-    autoUpdater.on('error', (err) => console.error('Ember: update check failed', err))
+    autoUpdater.on('error', (err) => reportFault('update check failed', err))
     await autoUpdater.checkForUpdatesAndNotify()
   } catch (err) {
-    console.error('Ember: update check could not run', err)
+    reportFault('update check could not run', err)
+  }
+}
+
+/**
+ * The same check, run by hand from Settings — and answered in words.
+ *
+ * The background check is deliberately silent, which also made it unaccountable:
+ * with nothing published yet there was no way to tell "no update" from "the
+ * check never ran". This one returns a sentence for the settings panel to show,
+ * whatever happened.
+ */
+async function checkForUpdateNow(): Promise<string> {
+  if (!app.isPackaged) return 'Update checks only run in the installed app.'
+  try {
+    const { autoUpdater } = await import('electron-updater')
+    autoUpdater.autoDownload = settings.get().autoUpdate
+    const result = await autoUpdater.checkForUpdates()
+    const found = result?.updateInfo?.version
+    if (!found) return 'The update service had nothing to say.'
+    if (found === app.getVersion()) return `Up to date — ${found} is the newest version.`
+    return settings.get().autoUpdate
+      ? `Version ${found} is available and downloading; it installs when Ember quits.`
+      : `Version ${found} is available. Turn on update checks to download it.`
+  } catch (err) {
+    reportFault('manual update check failed', err)
+    return `The check failed: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`
   }
 }
 
@@ -547,6 +596,7 @@ function registerIpc(): void {
     return { ...current, anthropicApiKey: null, hasApiKey: !!current.anthropicApiKey?.trim() }
   })
   ipcMain.handle('settings:set', (_e, patch: Partial<Settings>) => settings.set(patch))
+  ipcMain.handle('updates:check', () => checkForUpdateNow())
   ipcMain.handle('settings:noteFolder', (_e, folder: string) => settings.noteRecentFolder(folder))
   ipcMain.handle('settings:loadError', () => settings.takeLoadError())
   ipcMain.on('window:zoom', (_e, factor: number) => {
@@ -612,10 +662,18 @@ if (!app.requestSingleInstanceLock()) {
  * the window, and one that has already exited is not.
  */
 process.on('uncaughtException', (error) => {
-  console.error('Ember: uncaught exception in main', error)
+  reportFault('uncaught exception in main', error)
+  if (app.isPackaged && !faultShown) {
+    faultShown = true
+    dialog.showErrorBox(
+      'Ember hit a problem',
+      `Something failed in the background. Ember will keep running if it can.\n\n` +
+        `Details were written to:\n${join(app.getPath('userData'), 'ember.log')}`
+    )
+  }
 })
 process.on('unhandledRejection', (reason) => {
-  console.error('Ember: unhandled rejection in main', reason)
+  reportFault('unhandled rejection in main', reason)
 })
 
   void app.whenReady().then(() => {

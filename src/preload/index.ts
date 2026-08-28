@@ -139,6 +139,7 @@ const api: EmberApi = {
   },
 
   listProfiles: (): Promise<ShellProfile[]> => ipcRenderer.invoke('profiles:list'),
+  checkForUpdates: (): Promise<string> => ipcRenderer.invoke('updates:check'),
   ai: (req: AiRequest): Promise<AiResponse> => ipcRenderer.invoke('ai:run', req),
   aiCredential: (): Promise<AiCredential> => ipcRenderer.invoke('ai:credential'),
   aiUsage: (): Promise<AiUsage | null> => ipcRenderer.invoke('ai:usage'),

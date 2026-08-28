@@ -334,7 +334,14 @@ export interface SessionSnapshot {
    * earlier build still restores. `editors` is the middle of the IDE, and is
    * absent both in those older files and in any tab where nothing has been opened.
    */
-  tabs: { id: string; root: SessionLayout; editors?: SessionLayout; activePaneId: string }[]
+  tabs: {
+    id: string
+    /** The user's own name for the session, when they gave it one. */
+    name?: string
+    root: SessionLayout
+    editors?: SessionLayout
+    activePaneId: string
+  }[]
   panes: SessionPane[]
 }
 
@@ -707,6 +714,8 @@ export interface EmberApi {
   onData(cb: (e: PtyDataEvent) => void): () => void
   onExit(cb: (e: PtyExitEvent) => void): () => void
   listProfiles(): Promise<ShellProfile[]>
+  /** Ask for a new version now; resolves to a sentence describing what happened. */
+  checkForUpdates(): Promise<string>
   ai(req: AiRequest): Promise<AiResponse>
   /** `hasApiKey` says whether one is stored; the key itself never comes back. */
   getSettings(): Promise<Settings & { hasApiKey: boolean }>

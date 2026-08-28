@@ -432,6 +432,22 @@ button {
   text-overflow: ellipsis;
 }
 
+/* The name, while it is being typed: the same text in the same place, with just
+   enough box to say it is editable. */
+.sessions__rename {
+  min-width: 0;
+  width: 100%;
+  padding: 0 4px;
+  margin-left: -5px;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+  outline: none;
+}
+
 .sessions__branch {
   display: flex;
   align-items: center;

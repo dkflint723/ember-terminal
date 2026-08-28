@@ -490,8 +490,22 @@ export class TerminalController {
     if (!blockId) return
 
     const interactive = this.sawAltScreen
-    const output = interactive ? '' : await this.renderCapture()
+    let output = interactive ? '' : await this.renderCapture()
     this.capture = ''
+
+    /*
+     * Bounded in memory the way it already is on disk. The history and session
+     * layers cap what they keep, but the living copy went into the store whole —
+     * a command that printed fifty megabytes parked them there for the pane's
+     * lifetime. The tail is what someone scrolls back for; the cut lands on a
+     * row boundary so what is kept stays valid markup.
+     */
+    if (output.length > LIVE_OUTPUT_CAP) {
+      const cut = output.indexOf('<div', output.length - LIVE_OUTPUT_CAP)
+      output =
+        '<div class="row">… earlier output trimmed — the full text is in history (Ctrl+R) …</div>' +
+        (cut > 0 ? output.slice(cut) : output.slice(-LIVE_OUTPUT_CAP))
+    }
 
     const pane = this.store().terminalPane(this.paneId)
     const block = commandBlock(pane, blockId)
@@ -789,6 +803,9 @@ export class TerminalController {
  * Controllers outlive React renders, so they live in a registry keyed by pane id
  * rather than in component state.
  */
+/** How much of one command's rendered output the store keeps live. */
+const LIVE_OUTPUT_CAP = 512 * 1024
+
 const registry = new Map<string, TerminalController>()
 
 /**

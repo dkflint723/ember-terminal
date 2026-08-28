@@ -16,6 +16,13 @@ import type {
 /** Output is stored to make history searchable, not to reproduce a block. */
 const MAX_OUTPUT_CHARS = 8000
 
+/*
+ * History is a tool, not an archive: the blocks table has always been capped and
+ * this one grew forever. Twenty thousand commands is years of work for most
+ * people and a few megabytes on disk; past that, the oldest go.
+ */
+const MAX_HISTORY_ROWS = 20_000
+
 /**
  * How much of each pane comes back, and how much of each block.
  *
@@ -476,6 +483,13 @@ export class HistoryStore {
         command,
         output
       )
+      // The index rows first, while the base rows still exist to be selected by.
+      db.exec(`
+        DELETE FROM commands_fts WHERE rowid IN
+          (SELECT id FROM commands ORDER BY id DESC LIMIT -1 OFFSET ${MAX_HISTORY_ROWS});
+        DELETE FROM commands WHERE id IN
+          (SELECT id FROM commands ORDER BY id DESC LIMIT -1 OFFSET ${MAX_HISTORY_ROWS});
+      `)
     } catch {
       // A failed write loses one entry; nothing else should notice.
     }

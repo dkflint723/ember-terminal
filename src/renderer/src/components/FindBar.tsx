@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useStore } from '../state/store'
 
 interface Props {
+  /** The pane being searched — the bar reads its blocks to see into folded ones. */
+  paneId: string
   /** The scroller whose text is searched, and which is scrolled to a match. */
   scroller: React.RefObject<HTMLDivElement | null>
   /** Re-run the search when the blocks underneath change. */
@@ -30,22 +33,76 @@ function textNodes(root: Node): Text[] {
  * measurements all reading whatever was left behind. A highlight paints over the
  * text and owns nothing.
  */
-export function FindBar({ scroller, revision, onClose }: Props): React.JSX.Element {
+export function FindBar({ paneId, scroller, revision, onClose }: Props): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [index, setIndex] = useState(0)
   const input = useRef<HTMLInputElement>(null)
+  const pane = useStore((s) => s.terminalPane(paneId))
+  const setBlockCollapsed = useStore((s) => s.setBlockCollapsed)
 
   useEffect(() => input.current?.focus(), [])
 
-  // Recomputed when the query changes, and when the pane does: a command that
-  // finishes while the bar is open adds text that should be searchable too.
-  const ranges = useMemo(() => {
+  /*
+   * A folded block's text is not in the DOM — its body is unmounted — so walking
+   * the scroller silently skipped it, and "no matches" while the match sat in a
+   * collapsed build log was a wrong answer wearing a truthful face. The block
+   * data can always be read: any folded block whose text holds the query is
+   * unfolded so the walk below can see it, and the bar remembers which ones it
+   * opened so closing it folds them back the way they were.
+   *
+   * The plain text of each block is extracted once and cached against the size
+   * of its output — the same innerHTML → innerText trick the copy button uses.
+   */
+  const textCache = useRef(new Map<string, { size: number; text: string }>())
+  const opened = useRef(new Set<string>())
+  useEffect(() => {
+    const needle = query.toLowerCase()
+    if (!pane || needle.length === 0) return
+    for (const block of pane.blocks) {
+      if (!block.collapsed) continue
+      const raw = block.kind === 'command' ? block.output : block.answer
+      const key = block.id
+      const cached = textCache.current.get(key)
+      let text: string
+      if (cached && cached.size === raw.length) {
+        text = cached.text
+      } else {
+        const el = document.createElement('div')
+        el.innerHTML = raw
+        text = `${block.kind === 'command' ? block.command : ''}\n${el.innerText}`.toLowerCase()
+        textCache.current.set(key, { size: raw.length, text })
+      }
+      if (text.includes(needle)) {
+        setBlockCollapsed(paneId, block.id, false)
+        opened.current.add(block.id)
+      }
+    }
+  }, [query, revision, pane, paneId, setBlockCollapsed])
+
+  /** Close the bar and fold back what it unfolded — only what it unfolded. */
+  const close = (): void => {
+    for (const id of opened.current) setBlockCollapsed(paneId, id, true)
+    opened.current.clear()
+    onClose()
+  }
+
+  /*
+   * State rather than a memo, deliberately: unfolding a block above mounts its
+   * body on the NEXT commit, and a memo computed during render walks the DOM as
+   * it was. An effect runs after the commit and sees the newly mounted text.
+   */
+  const [ranges, setRanges] = useState<Range[]>([])
+  const collapsedKey = pane ? pane.blocks.filter((b) => b.collapsed).length : 0
+  useEffect(() => {
     const root = scroller.current
     const needle = query.toLowerCase()
-    if (!root || needle.length === 0) return [] as Range[]
+    if (!root || needle.length === 0) {
+      setRanges([])
+      return
+    }
 
     const found: Range[] = []
-    for (const node of textNodes(root)) {
+    outer: for (const node of textNodes(root)) {
       const hay = (node.textContent ?? '').toLowerCase()
       let at = hay.indexOf(needle)
       while (at !== -1) {
@@ -56,11 +113,11 @@ export function FindBar({ scroller, revision, onClose }: Props): React.JSX.Eleme
         at = hay.indexOf(needle, at + needle.length)
         // A pane holding a long build log can match thousands of times; past a few
         // hundred the count stops being useful and the paint starts costing.
-        if (found.length >= 2000) return found
+        if (found.length >= 2000) break outer
       }
     }
-    return found
-  }, [query, revision, scroller])
+    setRanges(found)
+  }, [query, revision, scroller, collapsedKey])
 
   // Clamp rather than reset: typing another character usually keeps you near the
   // match you were reading.
@@ -100,7 +157,7 @@ export function FindBar({ scroller, revision, onClose }: Props): React.JSX.Eleme
           setIndex(0)
         }}
         onKeyDown={(e) => {
-          if (e.key === 'Escape') onClose()
+          if (e.key === 'Escape') close()
           if (e.key === 'Enter') {
             e.preventDefault()
             step(e.shiftKey ? -1 : 1)
@@ -116,7 +173,7 @@ export function FindBar({ scroller, revision, onClose }: Props): React.JSX.Eleme
       <button className="find__step" aria-label="Next match" onClick={() => step(1)}>
         ▼
       </button>
-      <button className="find__step" aria-label="Close find" onClick={onClose}>
+      <button className="find__step" aria-label="Close find" onClick={close}>
         ✕
       </button>
     </div>

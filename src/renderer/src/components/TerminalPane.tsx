@@ -203,6 +203,7 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
     >
       {!raw && findOpen && (
         <FindBar
+          paneId={pane.id}
           scroller={scroller}
           // The bar re-reads the pane when a command finishes under it, so output
           // that lands while it is open is searchable without retyping.

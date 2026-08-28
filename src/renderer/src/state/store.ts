@@ -229,6 +229,12 @@ export type LayoutNode =
  */
 export interface Tab {
   id: string
+  /**
+   * The name the user typed on the card, if they did. It wins over everything
+   * derived — the shell keeps reporting its cwd into pane.title, and a rename
+   * that lived there would be overwritten on the next prompt.
+   */
+  name?: string
   /** Terminal panes: the whole window in terminal mode, the panel in IDE mode. */
   shells: LayoutNode
   /** Editor and diff panes, shown in the middle in IDE mode. Null until a file opens. */
@@ -420,6 +426,8 @@ interface Store {
   /** `alreadyConfirmed` is for closePane, which has asked about the same documents. */
   closeTab(tabId: string, alreadyConfirmed?: boolean): void
   setActiveTab(tabId: string): void
+  /** Name a session by hand; an empty string hands naming back to the shell. */
+  renameTab(tabId: string, name: string): void
   setActivePane(tabId: string, paneId: string): void
 
   /** `before` puts the new pane on the leading side: left of, or above, the source. */
@@ -474,6 +482,8 @@ interface Store {
   beginConversation(paneId: string, prompt: string, attached?: AttachedBlock[]): string
   patchConversation(paneId: string, blockId: string, patch: Partial<ConversationBlock>): void
   toggleBlock(paneId: string, blockId: string): void
+  /** Open or fold one block, stated rather than toggled — safe to repeat. */
+  setBlockCollapsed(paneId: string, blockId: string, collapsed: boolean): void
   clearBlocks(paneId: string): void
 }
 
@@ -826,6 +836,13 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   setActiveTab: (activeTabId) => set({ activeTabId }),
+  renameTab: (tabId, name) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        // An empty rename is "take the derived name back", not a blank card.
+        t.id === tabId ? { ...t, name: name.trim() || undefined } : t
+      )
+    })),
 
   setActivePane: (tabId, paneId) =>
     set((s) => ({
@@ -1604,7 +1621,13 @@ export const useStore = create<Store>((set, get) => ({
     const pane = get().terminalPane(paneId)
     const block = pane?.blocks.find((b) => b.id === blockId)
     if (!block) return
-    const collapsed = !block.collapsed
+    get().setBlockCollapsed(paneId, blockId, !block.collapsed)
+  },
+
+  setBlockCollapsed: (paneId, blockId, collapsed) => {
+    const pane = get().terminalPane(paneId)
+    const block = pane?.blocks.find((b) => b.id === blockId)
+    if (!block || block.collapsed === collapsed) return
     if (block.kind === 'conversation') get().patchConversation(paneId, blockId, { collapsed })
     else get().patchBlock(paneId, blockId, { collapsed })
   },

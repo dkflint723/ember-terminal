@@ -47,7 +47,13 @@ export function SessionList(): React.JSX.Element {
     }
   }, [menuOpen])
 
+  const renameTab = useStore((s) => s.renameTab)
+  /** Which card is being renamed, and the text as it is typed. */
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+
   const titleFor = (tab: Tab): string => {
+    if (tab.name) return tab.name
     const pane = panes[tab.activePaneId]
     if (!pane) return 'Shell'
     if (pane.kind === 'diff') return pane.title || 'Untitled'
@@ -174,7 +180,43 @@ export function SessionList(): React.JSX.Element {
             >
               <span className="sessions__icon" aria-hidden="true">&gt;_</span>
               <span className="sessions__text">
-                <span className="sessions__name">{titleFor(t)}</span>
+                {renaming === t.id ? (
+                  <input
+                    className="sessions__rename"
+                    aria-label="Rename session"
+                    autoFocus
+                    value={draft}
+                    spellCheck={false}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      e.stopPropagation()
+                      if (e.key === 'Enter') {
+                        renameTab(t.id, draft)
+                        setRenaming(null)
+                      }
+                      if (e.key === 'Escape') setRenaming(null)
+                    }}
+                    onBlur={() => {
+                      renameTab(t.id, draft)
+                      setRenaming(null)
+                    }}
+                  />
+                ) : (
+                  <span
+                    className="sessions__name"
+                    onDoubleClick={(e) => {
+                      // The card's own double-click would just select it twice;
+                      // on the name it means "let me say what this one is".
+                      e.stopPropagation()
+                      setDraft(t.name ?? '')
+                      setRenaming(t.id)
+                    }}
+                    title="Double-click to rename"
+                  >
+                    {titleFor(t)}
+                  </span>
+                )}
                 {sub.text && (
                   <span className="sessions__branch">
                     {sub.branch && (
