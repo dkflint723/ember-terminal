@@ -9,11 +9,19 @@
 ; finish page says so.
 
 !macro customInstall
-  ; The Start Menu shortcut carries the AppUserModelID the app sets at runtime, so
-  ; a window launched from it groups under that icon on the taskbar instead of
-  ; appearing as a second, unnamed button.
+  ; The shortcuts carry the AppUserModelID the app sets at runtime, so a window
+  ; launched from them groups under that icon on the taskbar instead of appearing
+  ; as a second, unnamed button. Re-stamped over electron-builder's own stamp
+  ; (which uses the bare appId), and freshly NAMED on purpose: the bare id spent
+  ; this project's development bound to electron.exe in shell caches that survive
+  ; icon-cache resets and reinstalls, so the shipped identity is one those caches
+  ; have never seen.
+  IfFileExists "$SMPROGRAMS\${PRODUCT_FILENAME}.lnk" 0 +2
+    WinShell::SetLnkAUMI "$SMPROGRAMS\${PRODUCT_FILENAME}.lnk" "dev.dkflint.ember.app"
+  IfFileExists "$DESKTOP\${PRODUCT_FILENAME}.lnk" 0 +2
+    WinShell::SetLnkAUMI "$DESKTOP\${PRODUCT_FILENAME}.lnk" "dev.dkflint.ember.app"
   WriteRegStr SHCTX "Software\Classes\Applications\${APP_EXECUTABLE_FILENAME}" \
-    "AppUserModelID" "dev.dkflint.ember"
+    "AppUserModelID" "dev.dkflint.ember.app"
 !macroend
 
 !macro customUnInstall

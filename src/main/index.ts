@@ -16,7 +16,13 @@ import { join } from 'node:path'
  * Electron — which the installed app then inherited.
  */
 if (process.platform === 'win32') {
-  app.setAppUserModelId(app.isPackaged ? 'dev.dkflint.ember' : 'dev.dkflint.ember.dev')
+  /*
+   * ".app", not the bare appId: years of dev runs bound the bare id to
+   * electron.exe in shell caches that survive icon-cache resets and reinstalls.
+   * A fresh id has no history, so the shell resolves it from the shortcut and
+   * the executable — which carry the right icon — instead of from a memory.
+   */
+  app.setAppUserModelId(app.isPackaged ? 'dev.dkflint.ember.app' : 'dev.dkflint.ember.dev')
 }
 import { PtyManager } from './pty.js'
 import { detectProfiles } from './profiles.js'
@@ -37,7 +43,6 @@ import { Notifier, focusWindow } from './notify.js'
 import { AiService } from './ai.js'
 import { ClaudeCliService } from './claude-cli.js'
 import {
-
   DEFAULT_SETTINGS,
   type AiRequest,
   type CompletionRequest,
