@@ -81,8 +81,18 @@
     x="342" y="230" width="20" height="116" rx="9"
     fill="url(#wood)" opacity="0.85" transform="rotate(4 352 288)"
   />
-  <!-- Fire showing between the front pair. -->
-  <ellipse cx="352" cy="316" rx="20" ry="34" fill="#ffe3b0" fill-opacity="0.9" filter="url(#soft)" />
+  <!-- The flame, rising from between the log tops — above the wood, where fire
+       actually shows, so the mark reads campfire rather than lantern. -->
+  <path
+    d="M352 178 C338 206 326 220 326 246 A26 26 0 0 0 378 246 C378 220 366 206 352 178 Z"
+    fill="url(#emberup)"
+  />
+  <path
+    d="M352 212 C345 226 340 234 340 246 A12 12 0 0 0 364 246 C364 234 359 226 352 212 Z"
+    fill="#ffe3b0" fill-opacity="0.9"
+  />
+  <!-- Firelight showing through the gap between the front pair. -->
+  <ellipse cx="352" cy="318" rx="16" ry="28" fill="#ffe3b0" fill-opacity="0.85" filter="url(#soft)" />
   <!-- The leaning pair, tops meeting, feet in the coals. -->
   <rect
     x="319" y="240" width="23" height="112" rx="10"
@@ -91,11 +101,6 @@
   <rect
     x="362" y="240" width="23" height="112" rx="10"
     fill="url(#wood)" transform="rotate(-19 374 296)"
-  />
-  <!-- Lit inner edges, where the fire touches the wood. -->
-  <path
-    d="M340 332 L327 258 M364 332 L377 258"
-    stroke="#ffd9a0" stroke-opacity="0.8" stroke-width="5" stroke-linecap="round"
   />
 
   <!-- The bed of coals. -->
