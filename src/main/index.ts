@@ -1,5 +1,18 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, screen, shell } from 'electron'
 import { join } from 'node:path'
+
+/*
+ * Who this app is, declared before any window exists.
+ *
+ * The Windows shell identifies a window by its AppUserModelID at the moment the
+ * window is created. This used to be set when the notifier was constructed —
+ * long after the window was up — so the taskbar had already filed the window
+ * under Electron's own identity and kept Electron's icon for it, and the Start
+ * Menu shortcut (which the installer stamps with this same id) never matched
+ * the running app. It matches electron-builder's appId, so a packaged build and
+ * a development one are the same application as far as the shell is concerned.
+ */
+if (process.platform === 'win32') app.setAppUserModelId('dev.dkflint.ember')
 import { PtyManager } from './pty.js'
 import { detectProfiles } from './profiles.js'
 import { SettingsStore } from './settings.js'
@@ -155,11 +168,13 @@ function createWindow(): void {
     backgroundColor: '#0c0c0c',
     // Set explicitly rather than left to the packager: without it the window and
     // taskbar show Electron's own icon in development, and the Explorer context
-    // menu entry — which reads its icon from this executable — would too.
+    // menu entry — which reads its icon from this executable — would too. The
+    // .ico on Windows, because it carries every size the shell asks for; a PNG
+    // gets scaled to the taskbar and arrives blurry or not at all.
     icon: join(
       app.isPackaged ? process.resourcesPath : app.getAppPath(),
       'resources',
-      'icon.png'
+      process.platform === 'win32' ? 'icon.ico' : 'icon.png'
     ),
     // Frameless so the tab strip can live in the title bar, the way Windows
     // Terminal does. The renderer draws its own caption buttons.

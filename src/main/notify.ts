@@ -5,18 +5,14 @@ import type { CommandNotice } from '../shared/types.js'
 /**
  * Desktop notifications for commands that finished while you were elsewhere.
  *
- * Windows will not show a toast from an application it cannot identify, so the
- * AppUserModelID has to be set before the first notification — without it they are
- * silently dropped, which looks exactly like the feature not working.
+ * Windows will not show a toast from an application it cannot identify. The
+ * AppUserModelID that identifies it is set at the very top of main/index.ts,
+ * before the window exists — setting it here, at construction time, was late
+ * enough that the taskbar had already filed the window under Electron's own
+ * identity and showed Electron's icon for the life of the process.
  */
 export class Notifier {
-  constructor(private focus: () => void) {
-    if (process.platform === 'win32') {
-      // Matches the appId electron-builder installs under, so a packaged build and
-      // a development one are the same application as far as the shell is concerned.
-      app.setAppUserModelId('dev.dkflint.ember')
-    }
-  }
+  constructor(private focus: () => void) {}
 
   get supported(): boolean {
     return Notification.isSupported()
