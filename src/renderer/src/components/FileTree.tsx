@@ -187,7 +187,7 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
   const draftRow = (dirPath: string, depth: number): React.JSX.Element | null => {
     if (!draft || draft.dir !== dirPath || draft.original) return null
     return (
-      <div className="tree__row tree__row--draft" style={{ paddingLeft: 6 + depth * 12 }}>
+      <div className="tree__row tree__row--draft" style={{ paddingLeft: 8 + depth * 14 }}>
         <span className="tree__twisty">{draft.kind === 'directory' ? '▸' : ''}</span>
         <input
           className="tree__input"
@@ -294,7 +294,7 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
           <div
             key={`rename-${entry.path}`}
             className="tree__row tree__row--draft"
-            style={{ paddingLeft: 6 + depth * 12 }}
+            style={{ paddingLeft: 8 + depth * 14 }}
           >
             <span className="tree__twisty">{entry.isDirectory ? '▸' : ''}</span>
             <input
@@ -326,7 +326,7 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
           className={`tree__row ${entry.hidden ? 'tree__row--hidden' : ''} ${
             status ? statusClass(status) : ''
           } ${selected === entry.path ? 'tree__row--selected' : ''}`}
-          style={{ paddingLeft: 6 + depth * 12 }}
+          style={{ paddingLeft: 8 + depth * 14 }}
           title={status ? `${entry.path} — ${STATUS_WORD[status] ?? status}` : entry.path}
           data-git={status ?? ''}
           data-path={entry.path}

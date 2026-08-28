@@ -93,7 +93,7 @@ const typed = await state()
 log('after typing →', JSON.stringify({ dirty: typed.dirty }))
 
 await page.evaluate(() => {
-  const b = Array.from(document.querySelectorAll('.editor__bar .block__action')).find((x) =>
+  const b = Array.from(document.querySelectorAll('.editor__actions .block__action')).find((x) =>
     x.textContent?.includes('save')
   )
   b?.dispatchEvent(new MouseEvent('click', { bubbles: true }))

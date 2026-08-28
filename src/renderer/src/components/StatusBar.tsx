@@ -187,7 +187,14 @@ export function StatusBar(): React.JSX.Element | null {
           title={git?.upstream ?? 'No upstream'}
           onClick={() => showSidebarView('scm')}
         >
-          <svg viewBox="0 0 16 16" width="11" height="11" className="statusbar__icon" aria-hidden="true">
+          <svg
+            viewBox="0 0 16 16"
+            width="11"
+            height="11"
+            className="statusbar__icon"
+            strokeWidth="1.4"
+            aria-hidden="true"
+          >
             <circle cx="4.5" cy="3.5" r="1.6" />
             <circle cx="4.5" cy="12.5" r="1.6" />
             <circle cx="11.5" cy="3.5" r="1.6" />
@@ -252,16 +259,18 @@ export function StatusBar(): React.JSX.Element | null {
                 (cursorAt.selected > 1 ? `, ${cursorAt.selected} characters selected` : '') +
                 '. Go to line'
               }
-              title="Go to line"
+              /* The indentation rides in the caret chip's tooltip rather than
+                 spending a chip of its own: it is a fact about the same buffer,
+                 asked about far less often than it would be looked at. */
+              title={
+                'Go to line' +
+                (indent ? ` — ${indent.spaces ? 'Spaces' : 'Tab Size'}: ${indent.width}` : '')
+              }
+              data-indent={indent ? `${indent.spaces ? 'Spaces' : 'Tab Size'}: ${indent.width}` : undefined}
               onClick={goToLine}
             >
               {position}
             </button>
-          )}
-          {indent && (
-            <span className="statusbar__label statusbar__num" data-status="indent" aria-live="off">
-              {`${indent.spaces ? 'Spaces' : 'Tab Size'}: ${indent.width}`}
-            </span>
           )}
           <span className="statusbar__label" data-status="language">
             {languageName(file.language)}

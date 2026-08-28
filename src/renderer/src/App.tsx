@@ -34,6 +34,18 @@ export function App(): React.JSX.Element {
   const panelHeight = useStore((s) => s.panelHeight)
   const dirPicker = useStore((s) => s.dirPicker)
   const setDirPicker = useStore((s) => s.setDirPicker)
+  const fontSize = useStore((s) => s.settings.fontSize)
+
+  /*
+   * The terminal font size, published where the stylesheet can reach it.
+   *
+   * xterm takes the setting through its own option, but the blocks are HTML — their
+   * text sizes are written in CSS relative to this variable, and without someone
+   * setting it the calc() rules quietly collapse to the inherited size.
+   */
+  useEffect(() => {
+    document.documentElement.style.setProperty('--font-size', `${fontSize}px`)
+  }, [fontSize])
   /*
    * The terminal the browser belongs to: the active pane when that is one, else the
    * tab's first. The same rule the status bar uses to decide whose directory it is
@@ -615,8 +627,13 @@ export function App(): React.JSX.Element {
           // the right-hand Claude sidebar's percentage width; with that region gone
           // every remaining column sizes itself, so the stylesheet can have them
           // back.
+          // The trailing auto row is the status chips, which live inside the
+          // content column now — the rail and the side slot run past them to the
+          // window's bottom edge, the way the picked design draws it.
           gridTemplateRows:
-            mode === 'ide' && panelOpen ? `1fr ${Math.round(panelHeight * 100)}%` : '1fr'
+            mode === 'ide' && panelOpen
+              ? `1fr ${Math.round(panelHeight * 100)}% auto`
+              : '1fr auto'
         }}
       >
         <ActivityBar />
@@ -671,15 +688,21 @@ export function App(): React.JSX.Element {
                   path={[]}
                   activePaneId={activeTab.activePaneId}
                 />
+                {/*
+                  Inside the body rather than beside it, so "cover everything but
+                  the bar" is spelled inset: 0 — the old placement repeated the
+                  bar's height as a magic number and drifted every time the bar
+                  changed. The terminal stays mounted underneath either way.
+                */}
+                {mode === 'ide' && panelView !== 'terminal' && (
+                  <div className="panel__overlay">
+                    {panelView === 'problems' && (
+                      <ProblemsPanel onOpen={(p, l, c) => void revealAt(p, l, c)} />
+                    )}
+                    {panelView === 'output' && <OutputPanel />}
+                  </div>
+                )}
               </div>
-              {mode === 'ide' && panelView !== 'terminal' && (
-                <div className="panel__overlay">
-                  {panelView === 'problems' && (
-                    <ProblemsPanel onOpen={(p, l, c) => void revealAt(p, l, c)} />
-                  )}
-                  {panelView === 'output' && <OutputPanel />}
-                </div>
-              )}
             </div>
           </>
         ) : (
@@ -711,11 +734,11 @@ export function App(): React.JSX.Element {
             onClose={() => setDirPicker(false)}
           />
         )}
-      </div>
 
-      {/* Below the grid and across the whole window, under the rail as well —
-          the facts it carries are about the session, not about one region of it. */}
-      <StatusBar />
+        {/* Inside the grid, in the content column: the chips line up with the
+            cards above them, and the rail and side slot own the full height. */}
+        <StatusBar />
+      </div>
 
       {/* Things that failed away from any panel of their own — a background save,
           the session file, writing settings — rather than being discarded. */}

@@ -26,7 +26,9 @@ export function Outline(): React.JSX.Element | null {
   const tabs = useStore((s) => s.tabs)
   const activeTabId = useStore((s) => s.activeTabId)
   const [symbols, setSymbols] = useState<Symbol[]>([])
-  const [collapsed, setCollapsed] = useState(false)
+  // Closed until asked for: the tree is the sidebar's job and the outline is a
+  // drill-down, so it starts as a single row rather than a second list.
+  const [collapsed, setCollapsed] = useState(true)
 
   // The document on screen, if the active pane is an editor.
   const tab = tabs.find((t) => t.id === activeTabId)

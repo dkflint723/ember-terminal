@@ -81,9 +81,9 @@ button {
 .titlebar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   height: 40px;
-  padding-left: 8px;
+  padding: 0 10px;
   background: color-mix(in srgb, var(--bg-chrome) 90%, transparent);
   border-bottom: 1px solid var(--card-border);
   flex: 0 0 auto;
@@ -204,17 +204,16 @@ button {
   display: flex;
   align-items: center;
   gap: 5px;
-  height: 24px;
-  padding: 0 9px;
+  padding: 4px 11px;
   border-radius: 8px;
-  border: 1px solid var(--card-border);
+  border: 1px solid var(--border-strong);
   background: color-mix(in srgb, var(--bg) 60%, transparent);
   /* Was `--fg-muted`, which is not a variable this app defines — the declaration
      was dropped as invalid and the label inherited full-brightness --fg, so the
      quietest control in the bar was the loudest thing in it. */
   color: var(--fg-dim);
   font: inherit;
-  font-size: 11px;
+  font-size: 11.5px;
   letter-spacing: 0.02em;
   cursor: pointer;
 }
@@ -238,13 +237,6 @@ button {
   color: var(--fg);
   background: var(--bg);
   border-color: var(--border-strong);
-}
-
-.titlebar__sep {
-  width: 1px;
-  height: 14px;
-  margin: 0 4px;
-  background: var(--border);
 }
 
 /* Holds the new-tab button and its menu, beside the scrolling strip rather than
@@ -316,19 +308,19 @@ button {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  width: 240px;
+  width: 260px;
   min-height: 0;
   padding: 10px;
-  background: color-mix(in srgb, var(--bg-chrome) 72%, transparent);
+  background: color-mix(in srgb, var(--bg-chrome) 78%, transparent);
   border-right: 1px solid color-mix(in srgb, var(--card-border) 70%, transparent);
 }
 
 .sessions__top {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 5px 9px;
-  border: 1px solid var(--card-border);
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   background: color-mix(in srgb, var(--bg) 82%, transparent);
   color: var(--fg-faint);
@@ -395,7 +387,7 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 10px;
+  padding: 9px 10px;
   border: 1px solid transparent;
   border-radius: 10px;
   cursor: pointer;
@@ -523,8 +515,8 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: min(400px, 42vw);
-  padding: 5px 12px;
+  width: min(426px, 42vw);
+  padding: 6px 12px;
   border: 1px solid var(--card-border);
   border-radius: 8px;
   background: color-mix(in srgb, var(--bg) 80%, transparent);
@@ -556,7 +548,7 @@ button {
 .caption-btn {
   display: grid;
   place-items: center;
-  width: 46px;
+  width: 34px;
   color: var(--fg-dim);
   /* Stated, because `button { font: inherit }` would otherwise hand these the
      body's 13px and draw the window controls larger than the tabs beside them. */
@@ -598,8 +590,10 @@ button {
   background: linear-gradient(180deg, var(--grad-top) 0%, var(--bg) 46%, var(--grad-bottom) 100%);
   display: grid;
   grid-template-columns: auto auto 1fr;
-  grid-template-rows: 1fr;
-  grid-template-areas: 'rail side shells';
+  grid-template-rows: 1fr auto;
+  grid-template-areas:
+    'rail side shells'
+    'rail side status';
 }
 
 /*
@@ -615,7 +609,8 @@ button {
 .workspace[data-mode='ide'] {
   grid-template-areas:
     'rail side editors'
-    'rail side shells';
+    'rail side shells'
+    'rail side status';
 }
 
 .activity {
@@ -624,8 +619,9 @@ button {
 
 .sidebar {
   grid-area: side;
+  position: relative;
   /* Translucent over the gradient, like the session list that shares this slot. */
-  background: color-mix(in srgb, var(--bg-chrome) 72%, transparent);
+  background: color-mix(in srgb, var(--bg-chrome) 78%, transparent);
   /*
    * Its width has to be stated, not implied.
    *
@@ -687,10 +683,6 @@ button {
   border-bottom: 1px solid var(--border);
 }
 
-.sidebar__title {
-  border-bottom: 1px solid var(--border);
-}
-
 .region--editors {
   grid-area: editors;
   border-bottom: 1px solid var(--border);
@@ -710,17 +702,17 @@ button {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
+  /* The panel overlay measures itself against this box. */
+  position: relative;
 }
 
 /* The panel's other views sit over the terminal rather than replacing it, so
    switching to Problems and back does not disturb a running command. */
 .panel__overlay {
+  /* Anchored to the region body, which starts where the bar ends — no measured
+     height to keep in step with the bar's. */
   position: absolute;
   inset: 0;
-  /* The bar's height, repeated. The overlay is positioned against the region
-     rather than laid out after the bar, so nothing keeps the two in step but this
-     line — change .panel__bar's height and change this with it. */
-  top: 26px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -730,10 +722,9 @@ button {
 .panel__bar {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   flex: 0 0 auto;
-  height: 30px;
-  padding: 0 6px 0 4px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -753,7 +744,7 @@ button {
   border: 1px solid transparent;
   border-radius: 7px;
   color: var(--fg-dim);
-  font-size: 12px;
+  font-size: 11.5px;
   cursor: pointer;
 }
 
@@ -778,6 +769,20 @@ button {
 
 .panel__spacer {
   flex: 1 1 auto;
+}
+
+/* The panel's dismissal, named by the chord that drives it. */
+.panel__dismiss {
+  border: none;
+  background: none;
+  padding: 2px 4px;
+  color: var(--fg-faint);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.panel__dismiss:hover {
+  color: var(--fg-dim);
 }
 
 /* The tabs stretch because their marker is an edge of the bar; the close button
@@ -889,7 +894,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 10px 14px 4px;
+  padding: 12px 16px 0;
   user-select: text;
 }
 
@@ -965,8 +970,8 @@ button {
   background: var(--card);
   border: 1px solid var(--card-border);
   border-radius: 10px;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
-  padding: 4px 0 6px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+  padding: 0;
   /* Not hidden: the head has to be able to stick to the top of the scroll
      container, and an ancestor that clips also stops sticky from working. */
   overflow: clip visible;
@@ -1006,8 +1011,8 @@ button {
   z-index: 1;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 1px 12px 1px 10px;
+  gap: 9px;
+  padding: 9px 14px;
   cursor: pointer;
 }
 
@@ -1035,7 +1040,7 @@ button {
 
 .block__chevron {
   color: var(--fg-faint);
-  font-size: 10px;
+  font-size: 9px;
   width: 10px;
   flex: 0 0 auto;
 }
@@ -1074,7 +1079,9 @@ button {
 .block__cmd {
   flex: 1 1 auto;
   font-family: var(--mono);
-  font-size: 13px;
+  /* Half a point under the terminal size: the head is an echo of the command,
+     not the output itself, and the design keeps it a shade quieter. */
+  font-size: calc(var(--font-size, 13px) - 0.5px);
   color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1088,7 +1095,7 @@ button {
   gap: 8px;
   flex: 0 0 auto;
   color: var(--fg-faint);
-  font-size: 11px;
+  font-size: 10.5px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1147,10 +1154,12 @@ button {
 }
 
 .block__body {
-  padding: 1px 12px 0 34px;
+  /* The 38px left edge lines the output up under the command text: 14 of head
+     padding, the chevron, the glyph, and the gaps between them. */
+  padding: 0 14px 12px 38px;
   font-family: var(--mono);
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: calc(var(--font-size, 13px) - 1px);
+  line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
   overflow-x: auto;
@@ -1207,7 +1216,7 @@ button {
  * pane instead of keeping the hard breaks it was captured with.
  */
 .block__body .row {
-  min-height: 1.45em;
+  min-height: 1.55em;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -1226,11 +1235,21 @@ button {
 .block--agent {
   border-color: color-mix(in srgb, var(--info) 40%, transparent);
   background: color-mix(in srgb, var(--info) 6%, var(--card));
-  padding: 6px 0 8px;
+}
+
+/* An answer reads as prose, so it is set as prose: the UI face, a touch larger
+   and looser than terminal output, held off the right edge like a paragraph. */
+.block--agent .block__body {
+  padding-right: 70px;
+  font-family: var(--ui);
+  font-size: 12.5px;
+  line-height: 1.6;
 }
 
 .block__status--agent {
   color: var(--info);
+  /* A point over the checks and crosses — the spark reads smaller than it is. */
+  font-size: 12px;
 }
 
 /* The question is prose, so it is set in the interface face rather than in mono
@@ -1509,12 +1528,13 @@ button {
 
 .composer {
   flex: 0 0 auto;
-  margin: 8px 14px 6px;
+  margin: 12px 16px 10px;
   background: var(--card);
-  border: 1px solid var(--card-border);
+  border: 1px solid var(--border-strong);
   border-radius: 12px;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26);
-  padding: 6px 12px 7px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.38);
+  /* The rows carry the inset themselves, so the two of them can disagree. */
+  padding: 0;
 }
 
 /* The card border carries the states the input row used to: attention while
@@ -1543,20 +1563,20 @@ button {
  * window being carved up.
  */
 [data-mode='ide'] .region--editors {
-  margin: 10px 14px 0 8px;
+  margin: 12px 16px 0;
   background: var(--card);
   border: 1px solid var(--card-border);
   border-radius: 10px;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
   overflow: hidden;
 }
 
 [data-mode='ide'] .region--shells {
-  margin: 10px 14px 2px 8px;
+  margin: 10px 16px 0;
   background: var(--card);
   border: 1px solid var(--card-border);
   border-radius: 10px;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
   overflow: hidden;
 }
 
@@ -1566,6 +1586,10 @@ button {
   box-shadow: none;
   background: none;
   margin: 0;
+}
+
+[data-mode='ide'] .composer__row {
+  padding: 7px 12px;
 }
 
 [data-mode='ide'] .composer {
@@ -1612,7 +1636,10 @@ button {
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
-  padding: 2px 14px 10px;
+  grid-area: status;
+  /* No top inset of its own while the composer above brings its bottom margin;
+     the IDE, whose panel card ends flush, gives the chips their own air. */
+  padding: 0 16px 14px;
   background: transparent;
   color: var(--fg-dim);
   font-size: 11px;
@@ -1626,10 +1653,10 @@ button {
   align-items: center;
   gap: 6px;
   max-width: 44ch;
-  padding: 3px 10px;
-  border: 1px solid var(--card-border);
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
   color: inherit;
   font: inherit;
   white-space: nowrap;
@@ -1646,8 +1673,14 @@ button {
   font-family: var(--mono);
 }
 
-.statusbar__item[data-status='changes'] {
+.statusbar__item[data-status='changes'],
+.statusbar__item[data-status='cwd'],
+.statusbar__item[data-status='position'] {
   font-family: var(--mono);
+}
+
+[data-mode='ide'] .statusbar {
+  padding-top: 10px;
 }
 
 .statusbar__item:hover {
@@ -1714,10 +1747,10 @@ button {
    pretending to be pressable. */
 .statusbar__label {
   flex: 0 0 auto;
-  padding: 3px 10px;
-  border: 1px solid var(--card-border);
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
   white-space: nowrap;
 }
 
@@ -1984,10 +2017,10 @@ button {
 .composer__row {
   display: flex;
   align-items: flex-start;
-  gap: 9px;
+  gap: 10px;
   background: none;
   border: none;
-  padding: 5px 3px;
+  padding: 10px 14px;
 }
 
 .composer__row:focus-within {
@@ -2087,13 +2120,19 @@ button {
  * broke instead — leaving "ask" beside its keys and "Claude" stranded on the line
  * below, which reads as two hints rather than one.
  */
+.composer__hint kbd {
+  padding: 0 4px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+}
+
 .composer__hint {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 14px;
-  padding: 6px 1px 0;
+  padding: 0 14px 9px;
   color: var(--fg-faint);
-  font-size: 11px;
+  font-size: 10.5px;
 }
 
 .composer__hint > *,
@@ -2557,9 +2596,28 @@ kbd {
   font-size: 11px;
 }
 
-/* The language stays left; the save pair huddles at the right edge together. */
+/* In the diff pane, which still has a bar, the buttons keep to the right edge. */
 .editor__bar > .block__action:first-of-type {
   margin-left: auto;
+}
+
+/* The right end of the breadcrumb row: message, language, save, revert. */
+.editor__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.editor__actions .block__action {
+  font-size: 10.5px;
+}
+
+.editor__actions .editor__lang {
+  /* Read by four suites and the IDE bridge; shown to people by the status chip.
+     One drawing of a fact is enough. */
+  display: none;
 }
 
 /*
@@ -2574,7 +2632,7 @@ kbd {
   display: flex;
   align-items: center;
   flex: 0 0 auto;
-  padding: 4px 10px 4px 12px;
+  padding: 4px 12px;
   border-bottom: 1px solid var(--border);
   color: var(--fg-dim);
   font-family: var(--mono);
@@ -2687,12 +2745,32 @@ kbd {
 }
 
 .tree__head {
+  /* An overlay on the header row, not a row of its own: the resting sidebar is
+     the workspace name and the tree, and the tools fade in when the pointer
+     arrives. Opacity rather than display, so the buttons keep their boxes and
+     anything driving them by selector can click without hovering first. */
+  position: absolute;
+  top: 7px;
+  right: 8px;
   display: flex;
   align-items: center;
   gap: 4px;
-  flex: 0 0 auto;
-  padding: 5px 6px 5px 10px;
-  border-bottom: 1px solid var(--border);
+  padding: 1px 3px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-chrome) 92%, transparent);
+  opacity: 0;
+  transition: opacity 120ms;
+}
+
+.sidebar:hover .tree__head,
+.tree__head:focus-within {
+  opacity: 1;
+}
+
+.sidebar .tree__root {
+  /* The header names the workspace now; a second copy of it would say nothing.
+     Kept in the DOM — two suites and the session snapshot read the root here. */
+  display: none;
 }
 
 .tree__root {
@@ -2717,14 +2795,25 @@ kbd {
 .tree__row {
   display: flex;
   align-items: center;
-  gap: 5px;
-  width: 100%;
-  padding: 2px 8px 2px 6px;
+  gap: 7px;
+  width: calc(100% - 20px);
+  margin: 0 10px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
   text-align: left;
   color: var(--fg-dim);
-  font-family: var(--mono);
   font-size: 12px;
   white-space: nowrap;
+}
+
+/* Files speak mono like their contents; directories keep the UI face. The twisty
+   is what tells them apart — only a directory has anything to unfold. */
+.tree__row:has(.tree__twisty:empty) {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  padding-top: 5px;
+  padding-bottom: 5px;
 }
 
 .tree__row:hover {
@@ -2742,7 +2831,7 @@ kbd {
   flex: 0 0 auto;
   width: 10px;
   color: var(--fg-faint);
-  font-size: 10px;
+  font-size: 9px;
 }
 
 .tree__label {
@@ -2776,10 +2865,13 @@ kbd {
 .activity {
   display: flex;
   flex-direction: column;
-  flex: 0 0 44px;
+  /* Width, not flex-basis: the rail is a grid item, and a grid quietly ignores
+     flex sizing — the column was collapsing to its content and squeezing every
+     glyph. The design gives the rail 44px of room. */
+  width: 44px;
   background: var(--bg-chrome);
   border-right: 1px solid var(--border);
-  padding-top: 4px;
+  padding-top: 12px;
 }
 
 .activity__item {
@@ -2787,7 +2879,7 @@ kbd {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 44px;
+  height: 33px;
   color: var(--fg-faint);
   background: none;
   border: none;
@@ -2806,13 +2898,19 @@ kbd {
 }
 
 .activity__icon {
-  width: 22px;
-  height: 22px;
+  width: 15px;
+  height: 15px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.4;
+  stroke-width: 1.3;
   stroke-linejoin: round;
   stroke-linecap: round;
+}
+
+/* The gear runs a point smaller than the views above it, as the design draws it. */
+.activity__icon--gear {
+  width: 14px;
+  height: 14px;
 }
 
 /* Filled shapes read better than outlines at this size for the folder glyph. */
@@ -2823,8 +2921,8 @@ kbd {
 
 .activity__badge {
   position: absolute;
-  right: 5px;
-  bottom: 7px;
+  right: 3px;
+  bottom: 2px;
   min-width: 15px;
   padding: 0 3px;
   border-radius: 2px;
@@ -2869,11 +2967,14 @@ kbd {
 
 .sidebar__title {
   flex: 0 0 auto;
-  padding: 9px 12px 7px;
-  color: var(--fg-dim);
-  font-size: 11px;
+  padding: 12px 18px 8px;
+  color: var(--fg-faint);
+  font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.1em;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* Inside the shell the tree is no longer the panel, so it drops its own frame. */
@@ -3238,10 +3339,10 @@ kbd {
 .etabs {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   flex: 0 0 auto;
   overflow-x: auto;
-  padding: 5px 8px;
+  padding: 7px 10px;
   border-bottom: 1px solid var(--border);
   scrollbar-width: none;
 }
@@ -3256,11 +3357,12 @@ kbd {
   gap: 5px;
   flex: 0 0 auto;
   max-width: 190px;
-  padding: 3px 10px;
+  padding: 4px 12px;
   border: 1px solid transparent;
   border-radius: 8px;
   color: var(--fg-faint);
-  font-size: 12px;
+  font-family: var(--mono);
+  font-size: 11.5px;
   cursor: pointer;
   user-select: none;
 }
@@ -3324,8 +3426,9 @@ kbd {
  * label, which is visible whether the pointer is on the tab or not.
  */
 .etab:hover .etab__close,
-.etab:focus-within .etab__close,
-.etab--active .etab__close {
+.etab:focus-within .etab__close {
+  /* Not on the active tab too: at rest a tab is just its name, and the ✕ waits
+     for the pointer — the design draws even the front tab clean. */
   opacity: 1;
   pointer-events: auto;
 }
@@ -3903,6 +4006,7 @@ kbd {
 
 .tree__row--selected {
   background: var(--bg-hover);
+  border-color: var(--border-strong);
   color: var(--fg);
 }
 

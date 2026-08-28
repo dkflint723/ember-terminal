@@ -42,13 +42,16 @@ export function PanelBar(): React.JSX.Element {
         </button>
       ))}
       <span className="panel__spacer" />
+      {/* The dismissal is named by its key rather than by an ✕ — the chord is
+          how the panel is actually driven, and the label teaches it. Still a
+          button: clicking the hint does what the chord does. */}
       <button
-        className="icon-btn"
+        className="panel__dismiss"
         title="Close panel (Ctrl+J)"
         aria-label="Close panel"
         onClick={() => togglePanel(false)}
       >
-        ✕
+        Ctrl+J
       </button>
     </div>
   )

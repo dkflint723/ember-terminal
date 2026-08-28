@@ -384,10 +384,12 @@ export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
      * foreground, because mixing a dark foreground into a light base only makes
      * mud.
      */
-    'grad-top': mix(fg, bg, dark ? 0.05 : 0.015),
-    'grad-bottom': dark ? mix('#000000', bg, 0.34) : mix(fg, bg, 0.045),
-    card: dark ? mix(fg, bg, 0.07) : mix('#ffffff', bg, 0.55),
-    'card-border': mix(fg, bg, dark ? 0.16 : 0.14),
+    'grad-top': mix(fg, bg, dark ? 0.08 : 0.02),
+    'grad-bottom': dark ? mix('#000000', bg, 0.44) : mix(fg, bg, 0.05),
+    card: dark ? mix(fg, bg, 0.085) : mix('#ffffff', bg, 0.55),
+    /* A whisper of the accent in the frame, which is what keeps the cards looking
+       lit by the theme rather than cut from grey card stock. */
+    'card-border': mix(mix(accent, fg, 0.35), bg, dark ? 0.2 : 0.15),
     'close-hover': dark ? '#c42b1c' : '#e11d48',
     selection: terminal.selectionBackground,
     // A heavy black scrim reads as muddy over a light theme, so lighten it there.

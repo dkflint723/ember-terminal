@@ -1,62 +1,95 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <!--
-    Ember's mark: a prompt chevron cut out of a glowing coal.
+    Ember's mark: the prompt, lit.
 
-    The chevron is the one symbol that means "terminal" at any size, and cutting it
-    out rather than drawing it on top means the glow shows through it — the shape
-    reads as heat escaping through a crack rather than an icon with a symbol
-    stuck on. At 16px the cutout survives when fine detail would not.
+    A deep-tide tile — the same ground and card border the app itself draws — with
+    the one symbol that means "terminal" at any size, and the ember living where
+    embers live in a terminal: in the cursor. The chevron invites; the coal-warm
+    block beside it is the app's one point of heat on a cold palette, which is
+    what makes it findable in a taskbar full of dark tiles. At 16px the shape
+    survives as a dark square, a light angle and a warm dot, in that order.
   -->
   <defs>
-    <radialGradient id="coal" cx="38%" cy="30%" r="85%">
-      <stop offset="0%" stop-color="#ffd9a0" />
-      <stop offset="28%" stop-color="#ff9d5c" />
-      <stop offset="62%" stop-color="#e2532a" />
-      <stop offset="100%" stop-color="#7a1f10" />
+    <linearGradient id="tide" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#123641" />
+      <stop offset="46%" stop-color="#0a212b" />
+      <stop offset="100%" stop-color="#04141d" />
+    </linearGradient>
+
+    <radialGradient id="coal" cx="38%" cy="32%" r="80%">
+      <stop offset="0%" stop-color="#ffe3b0" />
+      <stop offset="35%" stop-color="#ffa05e" />
+      <stop offset="75%" stop-color="#e2532a" />
+      <stop offset="100%" stop-color="#a53215" />
     </radialGradient>
+
+    <linearGradient id="flame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e2532a" />
+      <stop offset="55%" stop-color="#ff8a3d" />
+      <stop offset="100%" stop-color="#ffb066" />
+    </linearGradient>
 
     <radialGradient id="heat" cx="50%" cy="50%" r="50%">
       <stop offset="0%" stop-color="#ff8a3d" stop-opacity="0.55" />
-      <stop offset="70%" stop-color="#ff6a1f" stop-opacity="0.12" />
+      <stop offset="60%" stop-color="#ff6a1f" stop-opacity="0.16" />
       <stop offset="100%" stop-color="#ff6a1f" stop-opacity="0" />
     </radialGradient>
 
-    <linearGradient id="rim" x1="20%" y1="0%" x2="80%" y2="100%">
-      <stop offset="0%" stop-color="#ffcf95" stop-opacity="0.85" />
-      <stop offset="45%" stop-color="#ff8f4a" stop-opacity="0.25" />
-      <stop offset="100%" stop-color="#000000" stop-opacity="0.35" />
-    </linearGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="9" />
+    </filter>
 
-    <!-- A soft shadow under the mark, so it holds against the lit top-left. -->
-    <filter id="press" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#5c1608" flood-opacity="0.5" />
+    <filter id="drop" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="7" stdDeviation="9" flood-color="#000000" flood-opacity="0.38" />
     </filter>
   </defs>
 
-  <!-- Heat bleeding past the coal, so the mark is not a hard disc on dark chrome. -->
-  <circle cx="256" cy="268" r="250" fill="url(#heat)" />
+  <!-- The tile: the app's own ground, wearing the app's own card border. -->
+  <g filter="url(#drop)">
+    <rect x="36" y="36" width="440" height="440" rx="96" fill="url(#tide)" />
+    <rect
+      x="37.5" y="37.5" width="437" height="437" rx="94.5"
+      fill="none" stroke="#1f4e5c" stroke-width="3"
+    />
+    <!-- A whisper of the accent along the lit top edge, like the cards catch. -->
+    <rect
+      x="42" y="42" width="428" height="428" rx="90"
+      fill="none" stroke="#6fd0e0" stroke-opacity="0.10" stroke-width="2.5"
+    />
+  </g>
 
-  <!--
-    A rounded lozenge rather than a circle: it sits better beside the square icons
-    Windows puts in a taskbar, and gives the chevron room without shrinking it.
-  -->
-  <rect x="56" y="56" width="400" height="400" rx="132" fill="url(#coal)" />
-  <rect x="56" y="56" width="400" height="400" rx="132" fill="url(#rim)" />
-
-  <!-- A thin bright edge on the lit side, which is what makes it read as ember. -->
-  <rect
-    x="56" y="56" width="400" height="400" rx="132"
-    fill="none" stroke="#ffb877" stroke-opacity="0.55" stroke-width="4"
+  <!-- The chevron, with its own light bleeding a little into the tile. -->
+  <path
+    d="M164 172 L288 256 L164 340"
+    fill="none" stroke="#6fd0e0" stroke-opacity="0.4" stroke-width="72"
+    stroke-linecap="round" stroke-linejoin="round" filter="url(#soft)"
+  />
+  <path
+    d="M164 172 L288 256 L164 340"
+    fill="none" stroke="#6fd0e0" stroke-width="44"
+    stroke-linecap="round" stroke-linejoin="round"
   />
 
   <!--
-    The prompt, drawn rather than cut out. A cutout let the desktop through, which
-    reads well on a dark taskbar and disappears on a light one; a filled mark has
-    the same contrast wherever the icon lands. Warm off-white rather than pure
-    white, so it belongs to the same fire as everything behind it.
+    The ember: a block cursor at rest on the same line — lit. The flame rising off
+    it is what says "ember" rather than "orange rectangle", and the two sparks
+    drifting up say it recently moved. At small sizes the flame folds into the
+    coal's glow and the mark degrades to a warm dot, which is enough.
   -->
-  <g fill="#fff4e6" filter="url(#press)">
-    <path d="M188 168 L188 232 L246 262 L188 292 L188 356 L300 296 L300 228 Z" />
-    <rect x="252" y="316" width="112" height="40" rx="14" />
-  </g>
+  <circle cx="356" cy="304" r="112" fill="url(#heat)" />
+  <path
+    d="M356 208 C338 240 322 258 322 288 A34 34 0 0 0 390 288 C390 258 374 240 356 208 Z"
+    fill="url(#flame)"
+  />
+  <path
+    d="M356 254 C347 270 340 279 340 293 A16 16 0 0 0 372 293 C372 279 365 270 356 254 Z"
+    fill="#ffe3b0" fill-opacity="0.92"
+  />
+  <rect x="312" y="296" width="88" height="48" rx="13" fill="url(#coal)" />
+  <rect
+    x="312" y="296" width="88" height="48" rx="13"
+    fill="none" stroke="#ffd9a0" stroke-opacity="0.55" stroke-width="2.5"
+  />
+  <circle cx="404" cy="196" r="7" fill="#ffb066" fill-opacity="0.9" />
+  <circle cx="322" cy="176" r="4.5" fill="#ff8a3d" fill-opacity="0.7" />
 </svg>

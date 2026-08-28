@@ -20,9 +20,7 @@ const ENTRIES: Entry[] = [
     view: 'explorer',
     label: 'Explorer',
     hint: 'Explorer (Ctrl+B)',
-    icon: (
-      <path d="M3 3.5A1.5 1.5 0 0 1 4.5 2h3.2l1.4 1.8h6.4A1.5 1.5 0 0 1 17 5.3v9.2a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 14.5z" />
-    )
+    icon: <path d="M1.5 3.5h4.2l1.6 1.8h7.2v7.2h-13z" />
   },
   {
     view: 'search',
@@ -30,8 +28,8 @@ const ENTRIES: Entry[] = [
     hint: 'Search (Ctrl+Shift+F)',
     icon: (
       <>
-        <circle cx="8.6" cy="8.6" r="5.1" />
-        <path d="M12.4 12.4 L16.8 16.8" />
+        <circle cx="6.8" cy="6.8" r="4.2" />
+        <path d="M10 10l3.6 3.6" />
       </>
     )
   },
@@ -41,10 +39,10 @@ const ENTRIES: Entry[] = [
     hint: 'Source Control (Ctrl+Shift+G)',
     icon: (
       <>
-        <circle cx="5.5" cy="4.5" r="2.1" />
-        <circle cx="5.5" cy="14.5" r="2.1" />
-        <circle cx="14" cy="9.5" r="2.1" />
-        <path d="M5.5 6.6v5.8M7.6 5.6h2.6a2 2 0 0 1 2 2v.6M12.2 11.4v.6a2 2 0 0 1-2 2H7.6" />
+        <circle cx="4.5" cy="3.5" r="1.6" />
+        <circle cx="4.5" cy="12.5" r="1.6" />
+        <circle cx="11.5" cy="3.5" r="1.6" />
+        <path d="M4.5 5.1v5.8M11.5 5.1v1.3a2.8 2.8 0 0 1-2.8 2.8H4.5" />
       </>
     )
   },
@@ -53,12 +51,13 @@ const ENTRIES: Entry[] = [
     label: 'GitHub',
     hint: 'GitHub (Ctrl+Shift+H)',
     icon: (
-      // A pull request: a branch leaving a line and merging back into it.
+      // A pull request, drawn on the same grid as the branch beside it: the
+      // design ships no PR glyph, so this one borrows its circles and weight.
       <>
-        <circle cx="6" cy="4.5" r="2" />
-        <circle cx="6" cy="15" r="2" />
-        <circle cx="14" cy="9" r="2" />
-        <path d="M6 6.5v6.5M14 11v1.5a2 2 0 0 1-2 2H8M14 7V5.5a2 2 0 0 0-2-2H8.2" />
+        <circle cx="4.5" cy="3.5" r="1.6" />
+        <circle cx="4.5" cy="12.5" r="1.6" />
+        <circle cx="11.5" cy="12.5" r="1.6" />
+        <path d="M4.5 5.1v5.8M11.5 10.9V6.3a2.8 2.8 0 0 0-2.8-2.8H7.6" />
       </>
     )
   },
@@ -70,8 +69,8 @@ const ENTRIES: Entry[] = [
       // A warning triangle: the one shape that means "something is wrong here"
       // without needing a colour to say it.
       <>
-        <path d="M10 3.4 17.4 16.2H2.6Z" />
-        <path d="M10 8v3.4M10 13.6v.1" />
+        <path d="M8 2.2 14.6 13.4H1.4z" />
+        <path d="M8 6.6v3" />
       </>
     )
   }
@@ -110,7 +109,7 @@ export function ActivityBar(): React.JSX.Element {
             data-view={entry.view}
             onClick={() => show(entry.view)}
           >
-            <svg viewBox="0 0 20 20" className="activity__icon" aria-hidden="true">
+            <svg viewBox="0 0 16 16" className="activity__icon" aria-hidden="true">
               {entry.icon}
             </svg>
             {entry.view === 'scm' && pending > 0 && (
@@ -140,9 +139,13 @@ export function ActivityBar(): React.JSX.Element {
         data-view="settings"
         onClick={() => toggleSettings(true)}
       >
-        <svg viewBox="0 0 20 20" className="activity__icon" aria-hidden="true">
-          <circle cx="10" cy="10" r="2.6" />
-          <path d="M10 2.2v2M10 15.8v2M17.8 10h-2M4.2 10h-2M15.5 4.5l-1.4 1.4M5.9 14.1l-1.4 1.4M15.5 15.5l-1.4-1.4M5.9 5.9L4.5 4.5" />
+        <svg
+          viewBox="0 0 16 16"
+          className="activity__icon activity__icon--gear"
+          aria-hidden="true"
+        >
+          <circle cx="8" cy="8" r="2.4" />
+          <path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.9 3.9l1.4 1.4M10.7 10.7l1.4 1.4M12.1 3.9l-1.4 1.4M5.3 10.7l-1.4 1.4" />
         </svg>
       </button>
     </div>

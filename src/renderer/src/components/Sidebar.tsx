@@ -26,10 +26,22 @@ const TITLES: Record<string, string> = {
  */
 export function Sidebar({ onOpen, onOpenAt }: Props): React.JSX.Element {
   const view = useStore((s) => s.sidebarView)
+  const treeRoot = useStore((s) => s.treeRoot)
+
+  /*
+   * The explorer is titled by the workspace, not by itself. "EXPLORER" answered a
+   * question nobody asked — the tree below makes what the view is self-evident —
+   * while which project this window is holding is exactly what the header is for.
+   * The other views keep their names; they have no folder to be named after.
+   */
+  const title =
+    view === 'explorer' && treeRoot
+      ? treeRoot.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || TITLES[view]
+      : TITLES[view]
 
   return (
     <div className="sidebar" data-view={view}>
-      <div className="sidebar__title">{TITLES[view]}</div>
+      <div className="sidebar__title">{title}</div>
       {view === 'search' && <SearchPanel onOpen={onOpenAt} />}
       {view === 'scm' && <SourceControl />}
       {view === 'github' && <GitHubPanel />}

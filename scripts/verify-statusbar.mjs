@@ -154,17 +154,24 @@ const bar = () =>
       shell: item('shell'),
       position: item('position'),
       language: item('language'),
-      indent: item('indent'),
+      indent:
+        el.querySelector('[data-status="position"]')?.getAttribute('data-indent') ?? null,
       // A button with no name is read out as "button" and nothing else, so the ones
       // without a label are collected rather than counted — the summary should say
       // which item is unreachable, not how many are.
       unlabelled: Array.from(el.querySelectorAll('button'))
         .filter((b) => !(b.getAttribute('aria-label') ?? '').trim())
         .map((b) => (b.textContent ?? '').replace(/\s+/g, ' ').trim() || '(no text)'),
-      // Below the grid rather than inside it, which is what lets it span the window
-      // under the rail and the sidebar as well as the regions.
+      // Inside the grid's content column now: the chips line up with the cards
+      // above them and the rail and side slot run past them to the bottom edge.
       insideGrid: workspace ? workspace.contains(el) : null,
       width: Math.round(el.getBoundingClientRect().width),
+      // Where the content column starts — the bar's left edge should agree with
+      // the shells region's rather than with the window's.
+      left: Math.round(el.getBoundingClientRect().left),
+      regionLeft: Math.round(
+        document.querySelector('.region--shells')?.getBoundingClientRect().left ?? -1
+      ),
       windowWidth: document.documentElement.clientWidth,
       mode: workspace?.getAttribute('data-mode') ?? null
     }
@@ -267,11 +274,15 @@ if (terminal) {
     terminal.unlabelled.join(' | ')
   )
   check(
-    'the bar spans the window rather than a region of it',
-    terminal.insideGrid === false && Math.abs(terminal.width - terminal.windowWidth) <= 2,
+    'the bar sits in the content column, not across the window',
+    terminal.insideGrid === true &&
+      terminal.width < terminal.windowWidth - 40 &&
+      Math.abs(terminal.left - terminal.regionLeft) <= 2,
     JSON.stringify({
       insideGrid: terminal.insideGrid,
       width: terminal.width,
+      left: terminal.left,
+      regionLeft: terminal.regionLeft,
       window: terminal.windowWidth
     })
   )
@@ -348,7 +359,8 @@ if (editing) {
   check('a freshly opened file puts the caret at the top', atTheTop, editing.position)
   check('the language is named', /typescript/i.test(editing.language ?? ''), editing.language)
   // The pane is created with tabSize 2 and spaces, so both halves of this are facts
-  // about the editor rather than a guess at what looks right.
+  // about the editor rather than a guess at what looks right. The fact rides the
+  // caret chip now instead of holding a chip of its own, so it is read from there.
   check('the indentation is named', /^Spaces\b/.test(editing.indent ?? ''), editing.indent)
   check('and it gives the width', /\b2\b/.test(editing.indent ?? ''), editing.indent)
   check('the encoding stays out of the chips', !editing.text.includes('UTF-8'), editing.text)
@@ -359,8 +371,8 @@ if (editing) {
   )
   // The other half of the layout check, in the mode with a second region in the grid.
   check(
-    'and the bar still spans the window as an IDE',
-    editing.insideGrid === false && Math.abs(editing.width - editing.windowWidth) <= 2,
+    'and the bar keeps to the column as an IDE',
+    editing.insideGrid === true && editing.width < editing.windowWidth - 40,
     JSON.stringify({
       insideGrid: editing.insideGrid,
       width: editing.width,

@@ -64,7 +64,8 @@ export function TitleBar(): React.JSX.Element {
             stroke="currentColor"
             strokeWidth="1.2"
           />
-          <rect x="1.5" y="2.5" width="4.5" height="11" rx="2" fill="currentColor" opacity={slotOpen ? 0.85 : 0.25} />
+          <path d="M6 2.5v11" stroke="currentColor" strokeWidth="1.2" />
+          <rect x="1.5" y="2.5" width="4.5" height="11" fill="currentColor" opacity={slotOpen ? 0.25 : 0} />
         </svg>
       </button>
 
@@ -101,17 +102,7 @@ export function TitleBar(): React.JSX.Element {
         >
           <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
             {mode === 'ide' ? (
-              // A prompt, meaning the thing you get back.
-              <path
-                d="M3.4 4.6 7 8l-3.6 3.4M8.6 11.6h4.2"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            ) : (
-              // A window with a sidebar and a panel: the shape it turns into.
+              // A window with one bar across it: the terminal it turns back into.
               <>
                 <rect
                   x="1.6"
@@ -121,15 +112,29 @@ export function TitleBar(): React.JSX.Element {
                   rx="2"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="1.3"
+                  strokeWidth="1.2"
                 />
-                <path d="M5.8 2.6v10.8M5.8 10.2h8.6" stroke="currentColor" strokeWidth="1.3" />
+                <path d="M2 6h12" stroke="currentColor" strokeWidth="1.2" />
+              </>
+            ) : (
+              // A window with a sidebar, split once: the shape it turns into.
+              <>
+                <rect
+                  x="1.6"
+                  y="2.6"
+                  width="12.8"
+                  height="10.8"
+                  rx="2"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                />
+                <path d="M6 2.6v10.8M1.6 9.4H6" stroke="currentColor" strokeWidth="1.2" />
               </>
             )}
           </svg>
           {mode === 'ide' ? 'Terminal' : 'IDE'}
         </button>
-        <div className="titlebar__sep" aria-hidden="true" />
         <button
           className={`titlebar__split ${panelShown ? 'titlebar__split--on' : ''}`}
           aria-label="Toggle the panel"
@@ -148,9 +153,9 @@ export function TitleBar(): React.JSX.Element {
               stroke="currentColor"
               strokeWidth="1.2"
             />
-            {/* Filled while the region is open, outlined while it is not, so the
-                icon reports the layout as well as changes it. */}
-            <rect x="2.5" y="9" width="11" height="3.5" rx="1" fill="currentColor" opacity={panelShown ? 0.85 : 0.25} />
+            {/* One weight of fill either way — aria-pressed and the button's own
+                tint carry the state; the glyph stays the design's. */}
+            <rect x="1.5" y="9.5" width="13" height="4" fill="currentColor" opacity={0.3} />
           </svg>
         </button>
       </div>

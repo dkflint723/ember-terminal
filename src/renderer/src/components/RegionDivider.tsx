@@ -28,10 +28,21 @@ export function RegionDivider({ region }: Props): React.JSX.Element {
     const target = e.currentTarget as HTMLElement
     target.classList.add('divider--dragging')
 
+    /*
+     * The edge the panel is attached to is the top of the status row, not the
+     * bottom of the workspace — the chips took the grid's last row, so measuring
+     * from box.bottom would hand the panel their height as a phantom extra and
+     * the handle would jump away from the pointer on the first drag. The stored
+     * fraction stays a share of the whole workspace, which is what the grid's
+     * percentage track resolves against.
+     */
+    const edge =
+      workspace.querySelector('.statusbar')?.getBoundingClientRect().top ?? box.bottom
+
     const onMove = (ev: MouseEvent): void => {
       // Measured from the edge the region is attached to, so the handle stays
       // under the pointer rather than drifting as the region resizes.
-      setRegionSize(region, (box.bottom - ev.clientY) / box.height)
+      setRegionSize(region, (edge - ev.clientY) / box.height)
     }
 
     const onUp = (): void => {

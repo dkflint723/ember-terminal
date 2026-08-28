@@ -691,6 +691,22 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
             </button>
           </div>
         ))}
+        {/*
+          The strip's right edge: save state and the save pair, off the tabs the
+          way the window controls are off the title. The language is here too but
+          never drawn — the status chips show it to people, while four verify
+          suites and the IDE bridge read it out of the pane by class.
+        */}
+        <span className="editor__actions" role="presentation">
+          {message && <span className="editor__msg">{message}</span>}
+          <span className="editor__lang">{document.language}</span>
+          <button className="block__action" onClick={() => void save()} disabled={saving}>
+            {saving ? 'saving…' : 'save'}
+          </button>
+          <button className="block__action" onClick={() => void revert()} disabled={!document.dirty}>
+            revert
+          </button>
+        </span>
       </div>
 
       {/* Where the file sits, a segment at a time — which is the thing the tab
@@ -707,17 +723,6 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
             {crumb}
           </span>
         ))}
-      </div>
-
-      <div className="editor__bar">
-        <span className="editor__lang">{document.language}</span>
-        <button className="block__action" onClick={() => void save()} disabled={saving}>
-          {saving ? 'saving…' : 'save'}
-        </button>
-        <button className="block__action" onClick={() => void revert()} disabled={!document.dirty}>
-          revert
-        </button>
-        {message && <span className="editor__msg">{message}</span>}
       </div>
       <div className="editor__host" ref={host} />
     </div>
