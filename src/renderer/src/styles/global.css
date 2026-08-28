@@ -4447,6 +4447,36 @@ kbd {
  * keeps the exact markup a program's colours were serialized into, and copying a
  * match copies the text and nothing else.
  */
+/*
+ * Elevation, restated for the dark.
+ *
+ * The light themes get floating for free: a grey shadow on a pale ground is the
+ * whole illusion. On a dark ground that shadow is black on black — the user put
+ * it exactly: the floating is completely lost. Dark elevation is made of two
+ * other things: a deeper ambient shadow than daylight would ever need, and a
+ * one-pixel lit rim along the top edge, which is where a raised surface would
+ * catch what little light there is. Gated on the theme's own word for itself,
+ * and kept away from the IDE stream, whose rows are deliberately not cards.
+ */
+:root[data-theme-type='dark'] .pane__scroll:not(.pane__scroll--stream) .block {
+  box-shadow:
+    0 10px 26px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+:root[data-theme-type='dark'] .composer {
+  box-shadow:
+    0 12px 30px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 color-mix(in srgb, var(--fg) 10%, transparent);
+}
+
+:root[data-theme-type='dark'] [data-mode='ide'] .region--editors,
+:root[data-theme-type='dark'] [data-mode='ide'] .region--shells {
+  box-shadow:
+    0 10px 26px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 color-mix(in srgb, var(--fg) 7%, transparent);
+}
+
 /* A link under the pointer: an underline painted over the token, whatever
    colours its spans already carry, and a cursor that says it will open. */
 ::highlight(ember-link) {

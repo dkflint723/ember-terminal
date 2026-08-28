@@ -385,11 +385,13 @@ export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
      * mud.
      */
     'grad-top': mix(fg, bg, dark ? 0.08 : 0.02),
-    'grad-bottom': dark ? mix('#000000', bg, 0.44) : mix(fg, bg, 0.05),
-    card: dark ? mix(fg, bg, 0.085) : mix('#ffffff', bg, 0.55),
+    /* The ground falls away harder in the dark: a card can only read as floating
+       if what it floats over is visibly deeper than it is. */
+    'grad-bottom': dark ? mix('#000000', bg, 0.5) : mix(fg, bg, 0.05),
+    card: dark ? mix(fg, bg, 0.115) : mix('#ffffff', bg, 0.55),
     /* A whisper of the accent in the frame, which is what keeps the cards looking
        lit by the theme rather than cut from grey card stock. */
-    'card-border': mix(mix(accent, fg, 0.35), bg, dark ? 0.2 : 0.15),
+    'card-border': mix(mix(accent, fg, 0.35), bg, dark ? 0.24 : 0.15),
     'close-hover': dark ? '#c42b1c' : '#e11d48',
     selection: terminal.selectionBackground,
     // A heavy black scrim reads as muddy over a light theme, so lighten it there.
