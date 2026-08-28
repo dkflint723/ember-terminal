@@ -104,6 +104,14 @@ const showEditors = async (page) => {
   await page.keyboard.type('\nconst unsavedEdit = 42\n', { delay: 8 })
   await sleep(900)
 
+  // Enough output that the restored view has somewhere to be other than the
+  // end — without overflow, "weighted to the bottom" is true of any scroll
+  // position and the launch check below could never fail.
+  await page.locator('.composer__input').first().click()
+  await page.keyboard.type('1..160 | ForEach-Object { "restore filler line $_" }', { delay: 3 })
+  await page.keyboard.press('Enter')
+  await sleep(2500)
+
   const before = await shape(page)
   check('built three editor tabs', before.editorTabs.length === 3, JSON.stringify(before.editorTabs))
   check('with an unsaved edit', before.dirty === 'true', before.dirty)
@@ -151,6 +159,31 @@ fs.writeFileSync(crlf, CRLF_TEXT, 'utf8')
   check('a restored session opens as a terminal', arrived.mode === 'terminal', JSON.stringify(arrived.mode))
   check('with the way to its files offered', arrived.modeButton === 'IDE', arrived.modeButton)
   check('and nothing of the editor on screen', arrived.editorTabs.length === 0, JSON.stringify(arrived.editorTabs))
+
+  /*
+   * The view arrives at the end of the restored blocks and stays there while the
+   * layout keeps settling. The resize below is that settling, made deterministic:
+   * shrinking the window grows the distance to the end, and a pane that is
+   * following must close it again on its own. Without the follow logic this is
+   * exactly the launch complaint — a view parked above the end until dragged.
+   */
+  await sleep(1200)
+  const size = await app.evaluate(({ BrowserWindow }) => {
+    const w = BrowserWindow.getAllWindows()[0]
+    const [width, height] = w.getContentSize()
+    w.setContentSize(width, height - 140)
+    return { width, height }
+  })
+  await sleep(800)
+  const parked = await page.evaluate(() => {
+    const el = document.querySelector('.pane__scroll')
+    return el ? el.scrollHeight - el.scrollTop - el.clientHeight : -1
+  })
+  check('the restored view is weighted to the bottom', parked >= 0 && parked < 24, `${parked}px above the end`)
+  await app.evaluate(({ BrowserWindow }, s) => {
+    BrowserWindow.getAllWindows()[0].setContentSize(s.width, s.height)
+  }, size)
+  await sleep(500)
 
   await showEditors(page)
   const after = await shape(page)

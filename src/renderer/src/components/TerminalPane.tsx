@@ -151,6 +151,36 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
     if (el && stuck.current) el.scrollTop = el.scrollHeight
   }, [pane.blocks.length, running, lastSize, mode])
 
+  /*
+   * The deps above say when React knows the content changed. At launch that is
+   * not enough: a restored session scrolls to the end once, and then the layout
+   * keeps moving under it — the mono font arrives and reflows every block
+   * taller, the window is still settling into its saved bounds — none of which
+   * fires a scroll event or touches a dep. The view ends up parked above the
+   * end while `stuck` still says "following". So while following, the sizes
+   * themselves are watched: whatever grows, the end stays the place.
+   */
+  useEffect(() => {
+    const el = scroller.current
+    if (!el) return
+    const follow = (): void => {
+      if (stuck.current) el.scrollTop = el.scrollHeight
+    }
+    // The container changing size: window resize, panel drag, find bar.
+    const ro = new ResizeObserver(follow)
+    ro.observe(el)
+    // The content changing without a dep: blocks mounting on restore.
+    const mo = new MutationObserver(follow)
+    mo.observe(el, { childList: true, subtree: true })
+    // The font arriving, which reflows everything and notifies no one.
+    void document.fonts.ready.then(follow)
+    follow()
+    return () => {
+      ro.disconnect()
+      mo.disconnect()
+    }
+  }, [])
+
   const rerun = (command: string): void => {
     if (command.trim().length > 0) controller.runCommand(command)
   }

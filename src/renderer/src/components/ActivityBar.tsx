@@ -144,8 +144,11 @@ export function ActivityBar(): React.JSX.Element {
           className="activity__icon activity__icon--gear"
           aria-hidden="true"
         >
-          <circle cx="8" cy="8" r="2.4" />
-          <path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.9 3.9l1.4 1.4M10.7 10.7l1.4 1.4M12.1 3.9l-1.4 1.4M5.3 10.7l-1.4 1.4" />
+          {/* A cog, not a sun: the teeth grow out of the ring instead of floating
+              around a dot, which is the whole difference between the two. */}
+          <circle cx="8" cy="8" r="4.2" />
+          <circle cx="8" cy="8" r="1.7" />
+          <path d="M8 1.9v1.9M8 12.2v1.9M1.9 8h1.9M12.2 8h1.9M3.7 3.7l1.35 1.35M10.95 10.95l1.35 1.35M12.3 3.7l-1.35 1.35M5.05 10.95l-1.35 1.35" />
         </svg>
       </button>
     </div>

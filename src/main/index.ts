@@ -9,10 +9,15 @@ import { join } from 'node:path'
  * long after the window was up — so the taskbar had already filed the window
  * under Electron's own identity and kept Electron's icon for it, and the Start
  * Menu shortcut (which the installer stamps with this same id) never matched
- * the running app. It matches electron-builder's appId, so a packaged build and
- * a development one are the same application as far as the shell is concerned.
+ * the running app. The packaged id matches electron-builder's appId and the
+ * Start Menu shortcut. Development gets an id of its own, deliberately: a dev
+ * run is electron.exe, and every dev or test launch that claimed the installed
+ * app's id taught the shell's icon cache that this application looks like
+ * Electron — which the installed app then inherited.
  */
-if (process.platform === 'win32') app.setAppUserModelId('dev.dkflint.ember')
+if (process.platform === 'win32') {
+  app.setAppUserModelId(app.isPackaged ? 'dev.dkflint.ember' : 'dev.dkflint.ember.dev')
+}
 import { PtyManager } from './pty.js'
 import { detectProfiles } from './profiles.js'
 import { SettingsStore } from './settings.js'
