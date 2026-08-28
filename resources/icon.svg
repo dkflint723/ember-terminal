@@ -88,26 +88,27 @@
   />
   <!-- The flame, rising from between the log tops — above the wood, where fire
        actually shows, so the mark reads campfire rather than lantern. -->
-  <!-- A small lick peeling off to the left, out of step with the main tongue. -->
+  <!-- One tall tongue snaking in an S, the crest curling over to the left. -->
   <path
-    d="M326 210 C315 226 310 240 318 250 C326 258 336 252 334 240 C332 229 331 220 326 210 Z"
-    fill="url(#emberup)" fill-opacity="0.9"
-  />
-  <!-- The main tongue: edges that wave instead of taper, tip leaning right. -->
-  <path
-    d="M360 168
-       C345 190 354 204 338 222
-       C330 231 326 238 326 248
-       A26 25 0 0 0 378 248
-       C378 235 369 228 372 213
-       C374 202 366 186 360 168 Z"
+    d="M326 248
+       C324 234 338 227 347 214
+       C353 206 334 198 327 188
+       C322 179 328 174 334 171
+       C340 168 337 163 330 162
+       C331 154 341 149 350 153
+       C358 157 360 165 357 175
+       C354 183 351 185 350 191
+       C346 201 374 209 380 224
+       C383 234 380 242 378 248
+       A26 24 0 0 1 326 248 Z"
     fill="url(#emberup)"
   />
+  <!-- The bright core rides the same S, a beat behind. -->
   <path
-    d="M354 206
-       C345 220 351 230 343 240
-       A12 12 0 0 0 365 246
-       C368 232 359 222 354 206 Z"
+    d="M346 198
+       C337 212 351 220 342 232
+       A13 12 0 0 0 366 238
+       C370 224 353 214 346 198 Z"
     fill="#ffe3b0" fill-opacity="0.9"
   />
   <!-- Firelight showing through the gap between the front pair. -->
