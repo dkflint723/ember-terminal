@@ -45,6 +45,7 @@ import { AiService } from './ai.js'
 import { ClaudeCliService } from './claude-cli.js'
 import {
   DEFAULT_SETTINGS,
+  type ShellProfile,
   type AiRequest,
   type CompletionRequest,
   type HistoryQuery,
@@ -367,12 +368,27 @@ function registerIpc(): void {
   ipcMain.on('app:homeDir', (event) => {
     event.returnValue = app.getPath('home')
   })
-  const profiles = detectProfiles()
+  const detected = detectProfiles()
 
-  ipcMain.handle('profiles:list', () => profiles)
+  /*
+   * Recomputed per ask rather than captured once: the custom half lives in
+   * settings, and a shell added in the dialog should be spawnable without a
+   * relaunch. The icon is chosen by dialect — it is the part of the shape a
+   * person should not have to answer for.
+   */
+  const profiles = (): ShellProfile[] => [
+    ...detected,
+    ...settings.get().customProfiles.map((c) => ({
+      ...c,
+      icon: c.integration === 'powershell' ? 'pwsh' : c.integration === 'bash' ? 'bash' : 'cmd'
+    }))
+  ]
+
+  ipcMain.handle('profiles:list', () => profiles())
 
   ipcMain.handle('pty:spawn', (_e, req: SpawnRequest) => {
-    const profile = profiles.find((p) => p.id === req.profileId) ?? profiles[0]
+    const all = profiles()
+    const profile = all.find((p) => p.id === req.profileId) ?? all[0]
     if (!profile) return { ok: false, error: 'No shell found on this machine.' }
     try {
       ptys.spawn(req, profile)
@@ -511,7 +527,9 @@ function registerIpc(): void {
     mainWindow ? files.saveDialog(mainWindow, defaultPath) : null
   )
 
-  completion = new CompletionService(profiles)
+  // Completion only cares which dialects exist, and the detected set answers
+  // that; a custom shell added mid-session completes like its dialect.
+  completion = new CompletionService(detected)
   ipcMain.handle('completion:request', (_e, req: CompletionRequest) => completion.complete(req))
 
   ipcMain.on('history:record', (_e, entry: HistoryRecord) => history.record(entry))

@@ -14,6 +14,23 @@ export interface ShellProfile {
   icon: string
 }
 
+/**
+ * A shell the user taught Ember about, kept in settings.
+ *
+ * Detection can only ever guess at the well-known five; a specific WSL distro,
+ * a Developer PowerShell, nushell, or an ssh somewhere are all spawnable the
+ * moment someone writes down how. The icon is derived, not stored — these
+ * become full ShellProfiles when the list is served.
+ */
+export interface CustomProfile {
+  id: string
+  name: string
+  /** The executable, absolute or resolvable on PATH. */
+  path: string
+  args: string[]
+  integration: ShellProfile['integration']
+}
+
 export interface SpawnRequest {
   paneId: string
   profileId: string
@@ -552,6 +569,8 @@ export interface Settings {
    * Someone who wants that can say so; nobody should get it by not choosing.
    */
   aiMode: AiMode
+  /** Shells the user added by hand, served alongside the detected ones. */
+  customProfiles: CustomProfile[]
   /** Put the last window's tabs, splits and open files back on launch. */
   restoreSession: boolean
   /**
@@ -610,6 +629,7 @@ export const DEFAULT_SETTINGS: Settings = {
   notifyAfterSeconds: 10,
   autoSaveAfterSeconds: 0,
   recentFolders: [],
+  customProfiles: [],
   uiZoom: 1,
   windowBounds: null,
   windowMaximized: false,

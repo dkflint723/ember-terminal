@@ -343,6 +343,35 @@ button {
   outline: none;
 }
 
+/* One custom shell: name, command, arguments, dialect, and the way out. */
+.shellrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.shellrow input,
+.shellrow select {
+  min-width: 0;
+}
+
+.shellrow__name {
+  flex: 0 1 130px;
+}
+
+.shellrow__path {
+  flex: 1 1 auto;
+}
+
+.shellrow__args {
+  flex: 1 1 auto;
+}
+
+.shellrow__dialect {
+  flex: 0 0 auto;
+}
+
 .sessions__search::placeholder {
   color: var(--fg-faint);
 }

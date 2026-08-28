@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AiCredential, ClaudeAccess, Settings } from '@shared/types'
+import type { AiCredential, ClaudeAccess, CustomProfile, Settings } from '@shared/types'
 
 /**
  * How Claude access reads to the user, in one line.
@@ -109,6 +109,18 @@ function ExplorerMenuField(): React.JSX.Element | null {
   )
 }
 
+/** `-d Ubuntu` ⇄ ['-d','Ubuntu'], double quotes keeping spaces together. */
+function parseArgs(text: string): string[] {
+  const out: string[] = []
+  const re = /"([^"]*)"|(\S+)/g
+  for (let m = re.exec(text); m; m = re.exec(text)) out.push(m[1] ?? m[2])
+  return out
+}
+
+function joinArgs(args: string[]): string {
+  return args.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(' ')
+}
+
 export function SettingsPanel(): React.JSX.Element | null {
   /** What the last hand-run update check said, shown beside the button. */
   const [updateNote, setUpdateNote] = useState('')
@@ -117,6 +129,7 @@ export function SettingsPanel(): React.JSX.Element | null {
   const profiles = useStore((s) => s.profiles)
   const themes = useStore((s) => s.themes)
   const applySettings = useStore((s) => s.applySettings)
+  const setProfiles = useStore((s) => s.setProfiles)
   const [draft, setDraft] = useState<Settings | null>(null)
   const [saved, setSaved] = useState<Settings | null>(null)
   const [themeError, setThemeError] = useState<string | null>(null)
@@ -272,6 +285,9 @@ export function SettingsPanel(): React.JSX.Element | null {
       setSaveError(res.error ?? 'Settings could not be saved, and will be lost on restart.')
       return
     }
+    // Custom shells changed the list main serves; the + menu and the default
+    // picker should know without a relaunch.
+    setProfiles(await window.ember.listProfiles())
     toggle(false)
   }
 
@@ -317,6 +333,12 @@ export function SettingsPanel(): React.JSX.Element | null {
 
   const field = <K extends keyof Settings>(key: K, value: Settings[K]): void =>
     setDraft({ ...draft, [key]: value })
+
+  const patchCustom = (i: number, part: Partial<CustomProfile>): void =>
+    field(
+      'customProfiles',
+      draft.customProfiles.map((c, at) => (at === i ? { ...c, ...part } : c))
+    )
 
   return (
     <div className="modal-scrim" onMouseDown={close}>
@@ -398,6 +420,84 @@ export function SettingsPanel(): React.JSX.Element | null {
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="field">
+          <label>Custom shells</label>
+          {draft.customProfiles.map((shell, i) => (
+            <div key={shell.id} className="shellrow">
+              <input
+                className="shellrow__name"
+                placeholder="Name"
+                value={shell.name}
+                spellCheck={false}
+                onChange={(e) => patchCustom(i, { name: e.target.value })}
+              />
+              <input
+                className="shellrow__path"
+                placeholder="wsl.exe"
+                value={shell.path}
+                spellCheck={false}
+                onChange={(e) => patchCustom(i, { path: e.target.value })}
+              />
+              <input
+                className="shellrow__args"
+                placeholder="-d Ubuntu"
+                value={joinArgs(shell.args)}
+                spellCheck={false}
+                onChange={(e) => patchCustom(i, { args: parseArgs(e.target.value) })}
+              />
+              <select
+                className="shellrow__dialect"
+                value={shell.integration}
+                title="Which shell-integration dialect to inject, for blocks and prompts"
+                onChange={(e) =>
+                  patchCustom(i, { integration: e.target.value as CustomProfile['integration'] })
+                }
+              >
+                <option value="none">plain</option>
+                <option value="powershell">powershell</option>
+                <option value="bash">bash</option>
+              </select>
+              <button
+                className="icon-btn"
+                aria-label={`Remove ${shell.name || 'shell'}`}
+                title="Remove"
+                onClick={() =>
+                  field(
+                    'customProfiles',
+                    draft.customProfiles.filter((_, at) => at !== i)
+                  )
+                }
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          <div className="composer__proposal-actions">
+            <button
+              className="btn"
+              onClick={() =>
+                field('customProfiles', [
+                  ...draft.customProfiles,
+                  {
+                    id: `custom-${crypto.randomUUID()}`,
+                    name: '',
+                    path: '',
+                    args: [],
+                    integration: 'none' as const
+                  }
+                ])
+              }
+            >
+              Add shell…
+            </button>
+          </div>
+          <div className="field__note">
+            Anything spawnable: a WSL distro (<code>wsl.exe -d Ubuntu</code>), a Developer
+            PowerShell, nushell, ssh somewhere. Pick the dialect the shell actually speaks
+            and it gets blocks and prompt detection; plain runs it as a bare terminal.
+          </div>
         </div>
 
         <div className="field">
