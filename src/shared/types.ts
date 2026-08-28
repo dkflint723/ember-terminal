@@ -634,6 +634,8 @@ export interface EmberApi {
   explorerUnregister(): Promise<{ ok: boolean; error?: string }>
   openFileDialog(defaultPath?: string): Promise<FileOpenResult>
   readFile(path: string): Promise<FileReadResult>
+  /** Whether a path exists on disk — for keeping quiet about ones that don't. */
+  pathExists(path: string): Promise<boolean>
   readDir(path: string): Promise<DirReadResult>
   directoryExists(path: string): Promise<boolean>
   createPath(target: string, kind: 'file' | 'directory'): Promise<FileWriteResult>

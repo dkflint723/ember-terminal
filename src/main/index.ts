@@ -1,6 +1,6 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, screen, shell } from 'electron'
 import { join } from 'node:path'
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, existsSync } from 'node:fs'
 
 /*
  * Who this app is, declared before any window exists.
@@ -450,6 +450,9 @@ function registerIpc(): void {
     mainWindow ? files.openFolderDialog(mainWindow, defaultPath) : null
   )
   ipcMain.handle('file:read', (_e, filePath: string) => files.read(filePath))
+  // One boolean, so a click on something path-shaped can stay quiet when it
+  // leads nowhere instead of opening an empty tab.
+  ipcMain.handle('file:exists', (_e, filePath: string) => existsSync(filePath))
   ipcMain.handle('file:readDir', (_e, dirPath: string) => files.readDir(dirPath))
   ipcMain.handle('file:dirExists', (_e, dirPath: string) => files.directoryExists(dirPath))
   ipcMain.handle('file:create', (_e, target: string, kind: 'file' | 'directory') =>

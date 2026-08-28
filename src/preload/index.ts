@@ -53,6 +53,7 @@ const api: EmberApi = {
   openFolderDialog: (defaultPath?: string) =>
     ipcRenderer.invoke('file:openFolderDialog', defaultPath),
   readFile: (path: string) => ipcRenderer.invoke('file:read', path),
+  pathExists: (path: string): Promise<boolean> => ipcRenderer.invoke('file:exists', path),
   readDir: (path: string) => ipcRenderer.invoke('file:readDir', path),
   directoryExists: (path: string) => ipcRenderer.invoke('file:dirExists', path),
   createPath: (target: string, kind: 'file' | 'directory') =>

@@ -2914,8 +2914,10 @@ kbd {
 }
 
 .activity__icon {
-  width: 15px;
-  height: 15px;
+  /* Two points over the concept's 15: at real desktop distance the drawn size
+     read small, and the user said so — twice. The stroke stays 1.3. */
+  width: 17px;
+  height: 17px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.3;
@@ -2925,8 +2927,8 @@ kbd {
 
 /* The gear runs a point smaller than the views above it, as the design draws it. */
 .activity__icon--gear {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 
 /* Filled shapes read better than outlines at this size for the folder glyph. */
@@ -4416,6 +4418,17 @@ kbd {
  * keeps the exact markup a program's colours were serialized into, and copying a
  * match copies the text and nothing else.
  */
+/* A link under the pointer: an underline painted over the token, whatever
+   colours its spans already carry, and a cursor that says it will open. */
+::highlight(ember-link) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.block__body[data-link] {
+  cursor: pointer;
+}
+
 ::highlight(ember-find) {
   background-color: color-mix(in srgb, var(--accent) 30%, transparent);
   color: var(--fg);

@@ -1,5 +1,6 @@
-import { memo } from 'react'
-import type { CommandBlock } from '../state/store'
+import { memo, useRef } from 'react'
+import { useStore, type CommandBlock } from '../state/store'
+import { linkHitAt, setLinkHighlight, type LinkHit } from '../terminal/links'
 
 interface Props {
   block: CommandBlock
@@ -36,6 +37,68 @@ function formatDuration(ms: number | null): string {
  * captured from its own pty, so it is styling markup rather than remote content.
  */
 export const BlockView = memo(function BlockView({ block, onToggle, onRerun, stuck }: Props) {
+  /*
+   * A path or URL under the pointer opens; everything else stays plain text.
+   * The work runs at most once a frame, and only the block being pointed at
+   * pays for it — the hit test is bounded to this body by linkHitAt itself.
+   */
+  const hoverFrame = useRef(0)
+
+  const onBodyMove = (e: React.MouseEvent<HTMLDivElement>): void => {
+    const el = e.currentTarget
+    const x = e.clientX
+    const y = e.clientY
+    cancelAnimationFrame(hoverFrame.current)
+    hoverFrame.current = requestAnimationFrame(() => {
+      const hit = linkHitAt(el, x, y)
+      setLinkHighlight(hit ? hit.range : null)
+      if (hit) el.dataset.link = hit.kind
+      else delete el.dataset.link
+    })
+  }
+
+  const onBodyLeave = (e: React.MouseEvent<HTMLDivElement>): void => {
+    cancelAnimationFrame(hoverFrame.current)
+    setLinkHighlight(null)
+    delete e.currentTarget.dataset.link
+  }
+
+  /*
+   * Activation is read from the press itself, not from the browser's `click`.
+   *
+   * Chromium declines to synthesize a click for a real press-and-release on
+   * these serialized rows — observed directly: pointerdown, mousedown and
+   * mouseup all arrive on the row and no click ever follows, while the same
+   * gesture on the head's span forms one. Rather than depend on a synthesis
+   * rule that plainly excludes this content, the body does what a terminal
+   * does: notes where the press started, and if the release is the same place
+   * a moment later with nothing selected, that was a click.
+   */
+  const pressAt = useRef<{ x: number; y: number; at: number } | null>(null)
+
+  const onBodyDown = (e: React.MouseEvent<HTMLDivElement>): void => {
+    if (e.button === 0) pressAt.current = { x: e.clientX, y: e.clientY, at: Date.now() }
+  }
+
+  const onBodyUp = (e: React.MouseEvent<HTMLDivElement>): void => {
+    const press = pressAt.current
+    pressAt.current = null
+    if (!press || e.button !== 0) return
+    // A drag is a selection; a slow press is a hesitation. Neither navigates.
+    if (Math.abs(e.clientX - press.x) > 4 || Math.abs(e.clientY - press.y) > 4) return
+    if (Date.now() - press.at > 600) return
+    const selection = window.getSelection()
+    if (selection && !selection.isCollapsed) return
+    const hit = linkHitAt(e.currentTarget, e.clientX, e.clientY)
+    if (!hit) return
+    e.stopPropagation()
+    if (hit.kind === 'url') {
+      window.ember.openExternal(hit.url ?? '')
+      return
+    }
+    void openFileHit(hit, block.cwd)
+  }
+
   const copy = (e: React.MouseEvent, text: string): void => {
     e.stopPropagation()
     void navigator.clipboard.writeText(text)
@@ -120,7 +183,13 @@ export const BlockView = memo(function BlockView({ block, onToggle, onRerun, stu
       </div>
 
       {!block.collapsed && (
-        <div className="block__body">
+        <div
+          className="block__body"
+          onMouseMove={onBodyMove}
+          onMouseLeave={onBodyLeave}
+          onMouseDown={onBodyDown}
+          onMouseUp={onBodyUp}
+        >
           {block.status === 'running' ? (
             <span className="block__body--empty">running…</span>
           ) : block.interactive ? (
@@ -135,6 +204,30 @@ export const BlockView = memo(function BlockView({ block, onToggle, onRerun, stu
     </div>
   )
 })
+
+/**
+ * Resolve a clicked path against the directory its command ran in, prove it
+ * exists, and hand it to the app to reveal. The existence check is what keeps a
+ * false positive quiet: compiler output is full of things shaped like paths,
+ * and a click on one that leads nowhere should cost a small notice, not an
+ * empty editor tab.
+ */
+async function openFileHit(hit: LinkHit, cwd: string): Promise<void> {
+  const raw = hit.path ?? ''
+  const absolute = /^[A-Za-z]:[\\/]/.test(raw) || raw.startsWith('\\\\')
+  const full = absolute
+    ? raw
+    : `${cwd.replace(/[\\/]+$/, '')}\\${raw.replace(/^\.[\\/]/, '')}`
+  if (!(await window.ember.pathExists(full))) {
+    useStore.getState().setNotice(`${raw} is not there from this block's directory`, 'info')
+    return
+  }
+  window.dispatchEvent(
+    new CustomEvent('ember:open-path', {
+      detail: { path: full, line: hit.line ?? 1, column: hit.column ?? 1 }
+    })
+  )
+}
 
 /** Strip serialize-addon markup so "copy output" yields plain text. */
 function textFrom(html: string): string {

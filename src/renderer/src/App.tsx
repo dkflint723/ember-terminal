@@ -331,6 +331,23 @@ export function App(): React.JSX.Element {
    * Monaco's model itself — the position can only be set once that exists, which
    * is a render later.
    */
+  /*
+   * Paths clicked in block output arrive here as an event rather than as a prop
+   * threaded through the split tree: the block knows a path, the app knows how
+   * to show one, and nothing between them needs to know either. Clicking a path
+   * is an explicit ask to edit, so a terminal-mode click brings the IDE.
+   */
+  useEffect(() => {
+    const onOpenPath = (e: Event): void => {
+      const { path, line, column } = (e as CustomEvent<{ path: string; line: number; column: number }>).detail
+      const s = useStore.getState()
+      if (s.mode !== 'ide') s.setMode('ide')
+      void revealAt(path, line, Math.max(0, column - 1))
+    }
+    window.addEventListener('ember:open-path', onOpenPath)
+    return () => window.removeEventListener('ember:open-path', onOpenPath)
+  })
+
   const revealAt = async (filePath: string, line: number, column: number): Promise<void> => {
     await openPaths([filePath])
     const { modelUri, monaco } = await import('./editor/monaco')
