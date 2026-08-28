@@ -374,6 +374,20 @@ export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
     // The primary button's own three-colour palette is gone with the button that
     // used it: what is emphatic now is said with the hover fill and a strong border,
     // and the one accent fill left in the app is the agent's Run.
+    /*
+     * The Direction D surfaces, derived rather than authored per theme.
+     *
+     * The ground is a vertical gradient — barely lighter than the base at the top,
+     * settling darker below — and the blocks sit on it as cards. Every theme gets
+     * the treatment from its own base and foreground, so a new theme file needs no
+     * new keys to take part; a light theme's card leans on white rather than on its
+     * foreground, because mixing a dark foreground into a light base only makes
+     * mud.
+     */
+    'grad-top': mix(fg, bg, dark ? 0.05 : 0.015),
+    'grad-bottom': dark ? mix('#000000', bg, 0.34) : mix(fg, bg, 0.045),
+    card: dark ? mix(fg, bg, 0.07) : mix('#ffffff', bg, 0.55),
+    'card-border': mix(fg, bg, dark ? 0.16 : 0.14),
     'close-hover': dark ? '#c42b1c' : '#e11d48',
     selection: terminal.selectionBackground,
     // A heavy black scrim reads as muddy over a light theme, so lighten it there.

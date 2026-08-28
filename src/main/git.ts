@@ -135,10 +135,41 @@ export class GitService {
         '-z'
       ])
       const operation = await this.pendingOperation(root)
-      return { ok: true, status: { root, ...parseStatus(stdout as string), operation } }
+      const { insertions, deletions } = await this.lineStats(root)
+      return {
+        ok: true,
+        status: { root, ...parseStatus(stdout as string), operation, insertions, deletions }
+      }
     } catch (err) {
       return { ok: false, error: GitService.message(err) }
     }
+  }
+
+  /**
+   * Lines added and removed, worktree and index summed.
+   *
+   * Two `--shortstat` calls rather than one `HEAD` diff, because HEAD does not
+   * exist in a repository with no commits yet — and that is exactly the repository
+   * a brand-new project is. Any failure reads as zeros: the numbers are a
+   * statistic, and a statistic is never worth failing the status over.
+   */
+  private async lineStats(root: string): Promise<{ insertions: number; deletions: number }> {
+    const read = async (args: string[]): Promise<{ ins: number; del: number }> => {
+      try {
+        const { stdout } = await this.git(root, args)
+        const text = String(stdout)
+        const ins = /(\d+) insertion/.exec(text)
+        const del = /(\d+) deletion/.exec(text)
+        return { ins: ins ? Number(ins[1]) : 0, del: del ? Number(del[1]) : 0 }
+      } catch {
+        return { ins: 0, del: 0 }
+      }
+    }
+    const [work, index] = await Promise.all([
+      read(['diff', '--shortstat']),
+      read(['diff', '--cached', '--shortstat'])
+    ])
+    return { insertions: work.ins + index.ins, deletions: work.del + index.del }
   }
 
   /**
@@ -305,7 +336,7 @@ function decodeText(buffer: Buffer): string | null {
  * as a second NUL-terminated field, which is the one case where a record is not
  * self-contained.
  */
-function parseStatus(raw: string): Omit<GitStatus, 'root'> {
+function parseStatus(raw: string): Omit<GitStatus, 'root' | 'insertions' | 'deletions'> {
   const tokens = raw.split('\0')
   let branch: string | null = null
   let detached = false

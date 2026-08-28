@@ -85,11 +85,15 @@ const check = (label, ok, detail) => {
 
   const after = await chips()
   check('cd into a repository shows its branch', after.branch === 'main', after.branch)
-  check(
-    'and how much is uncommitted',
-    (after.changes ?? '').replace(/\s/g, '') === '±2',
-    after.changes
-  )
+  /*
+   * The chip carries three facts now: how many paths changed, and how many lines
+   * went in and out — read from `git diff --shortstat`, both sides of the index.
+   * This fixture has two changed paths and a one-line edit, so all three numbers
+   * are known exactly and each is asserted rather than pattern-matched.
+   */
+  const changes = (after.changes ?? '').replace(/\s/g, '')
+  check('and how many paths changed', changes.startsWith('2●'), after.changes)
+  check('with the lines added and removed', changes.includes('+1') && changes.includes('−1'), after.changes)
   check('with no folder opened to make it happen', after.workspace === false)
   await page.screenshot({ path: path.join(SHOT_DIR, '71-git-cwd-chips.png') })
 

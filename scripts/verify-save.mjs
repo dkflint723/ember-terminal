@@ -7,6 +7,7 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
+import { pickTab, tabCount } from './session-tabs.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -132,8 +133,7 @@ const openHere = async (name) => {
 await page.keyboard.press('Control+Shift+T')
 await sleep(1200)
 await openHere('one')
-const tabs = page.locator('.tab')
-check('the file is open in a second tab', (await tabs.count()) === 2, String(await tabs.count()))
+check('the file is open in a second tab', (await tabCount(page)) === 2, String(await tabCount(page)))
 
 await typeInEditor('// edited from the second tab')
 check(
@@ -153,8 +153,8 @@ check(
  * document on screen, and the first tab opens showing two.ts — checking it there
  * would pass without ever looking at the file this is about.
  */
-await tabs.first().click()
-await sleep(1200)
+await pickTab(page, 0)
+await sleep(600)
 await page.locator('.etab', { hasText: 'one.ts' }).first().click()
 await sleep(1500)
 check(

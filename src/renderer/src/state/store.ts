@@ -337,7 +337,7 @@ interface Store {
    */
   aiPickerRequest: number
   /** Which overlay is open: file quick-open, the command palette, or neither. */
-  paletteMode: 'files' | 'commands' | null
+  paletteMode: 'files' | 'commands' | 'global' | null
   /**
    * Something the user needs told, with nowhere of its own to appear.
    *
@@ -398,12 +398,21 @@ interface Store {
    */
   findPaneId: string | null
   setFind(paneId: string | null): void
+  /**
+   * Whether the session list is showing beside the rail, in terminal mode.
+   *
+   * The side slot is one slot: sessions fill it while the window is a terminal,
+   * the file sidebar fills it while the window is an IDE. This flag owns only the
+   * terminal half; `sidebarOpen` keeps owning the other.
+   */
+  sessionsOpen: boolean
+  toggleSessions(open?: boolean): void
   /** Whether the directory browser is open over the workspace. */
   dirPicker: boolean
   setDirPicker(open: boolean): void
   /** Open the Claude model-and-effort switcher. */
   requestAiPicker(): void
-  openPalette(mode: 'files' | 'commands'): void
+  openPalette(mode: 'files' | 'commands' | 'global'): void
   closePalette(): void
 
   /** Opens a tab and returns its *pane* id, which is what callers need to write to. */
@@ -609,6 +618,7 @@ export const useStore = create<Store>((set, get) => ({
   // A terminal until asked to be more than one.
   mode: 'terminal',
   findPaneId: null,
+  sessionsOpen: true,
   dirPicker: false,
   panelOpen: true,
   panelView: 'terminal',
@@ -639,8 +649,15 @@ export const useStore = create<Store>((set, get) => ({
     set((s) => ({
       // Clicking the icon of the view already showing collapses the sidebar, which
       // is what makes the activity bar a toggle rather than only a selector.
-      sidebarOpen: !(s.sidebarOpen && s.sidebarView === view),
-      sidebarView: view
+      sidebarOpen: !(s.mode === 'ide' && s.sidebarOpen && s.sidebarView === view),
+      sidebarView: view,
+      /*
+       * And the IDE with it. The side slot shows sessions while the window is a
+       * terminal and files while it is an IDE, so a request for the explorer or
+       * source control from a terminal is also a request for the mode those views
+       * live in — same bargain the panel toggle already makes.
+       */
+      mode: 'ide'
     })),
 
   /*
@@ -744,6 +761,8 @@ export const useStore = create<Store>((set, get) => ({
    * to reveal.
    */
   setFind: (paneId) => set(() => ({ findPaneId: paneId })),
+
+  toggleSessions: (open) => set((s) => ({ sessionsOpen: open ?? !s.sessionsOpen })),
 
   setDirPicker: (open) => set(() => ({ dirPicker: open })),
 

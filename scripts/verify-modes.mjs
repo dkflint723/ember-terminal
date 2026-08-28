@@ -78,6 +78,8 @@ const view = () =>
       // the right to count any more.
       asking: document.querySelectorAll('.composer__row--ai').length,
       panelBar: document.querySelectorAll('.panel__bar').length,
+      // The side slot: session cards in a terminal, nothing of them in an IDE.
+      sessions: document.querySelectorAll('.sessions').length,
       blocks: document.querySelectorAll('.block').length,
       // The button that says what the window is and turns it into the other thing.
       modeButton: document.querySelector('.titlebar__mode')?.textContent?.trim() ?? null,
@@ -105,6 +107,7 @@ await run('echo mode-marker-one')
 const start = await view()
 check('it opens as a terminal', start.mode === 'terminal', JSON.stringify(start))
 check('with no IDE furniture', start.panelBar === 0 && start.editors === 0, JSON.stringify(start))
+check('and the sessions in the side slot', start.sessions === 1, JSON.stringify(start))
 check('and a shell that ran something', start.blocks >= 1, JSON.stringify(start))
 // Compared as a number: the window scales CSS pixels, so a 1px rule computes to
 // something like 0.83px and a string comparison would fail on the zoom level.
@@ -119,6 +122,7 @@ await sleep(1500)
 const ide = await view()
 check('Ctrl+Shift+I turns it into an IDE', ide.mode === 'ide', JSON.stringify(ide))
 check('the panel appears', ide.panelBar === 1, JSON.stringify(ide))
+check('and the sessions give the slot to the files', ide.sessions === 0, JSON.stringify(ide))
 check('and the shell is in it', ide.shells >= 1, JSON.stringify(ide))
 check('carrying its blocks across', ide.blocks === start.blocks, `${start.blocks} → ${ide.blocks}`)
 check('drawn as a stream instead', ide.streamed === true)

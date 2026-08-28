@@ -1,9 +1,10 @@
-// The title bar: opening a tab, and the menu that does it.
+// The Direction D chrome: the title bar, and the session list that took the tabs.
 //
-// The new-tab button was dead for anyone with more than one shell installed. The
-// menu rendered, then the tab strip clipped it out of existence — a strip that
-// scrolls in one axis clips in both — so the button appeared to do nothing at all.
-// Nothing here was tested, which is how it survived.
+// The tab strip left the title bar for the side slot, where each session has room
+// to say where it stands and on which branch — and the strip's clipped dropdown
+// became an ordinary menu under the list's + button. The title bar kept the parts
+// that are about the window rather than about any one session: the side-slot
+// toggle, the search, the mode switch, the panel toggle, the caption buttons.
 //
 // Run: node scripts/verify-titlebar.mjs
 import { _electron as electron } from 'playwright-core'
@@ -35,135 +36,119 @@ const failures = []
 const check = (label, ok, detail) => {
   if (!ok) failures.push(`${label}${detail !== undefined ? ` — ${detail}` : ''}`)
 }
-const tabCount = () => page.locator('.tab').count()
+const cards = () => page.locator('.sessions__card').count()
 
 const profiles = await page.evaluate(() => window.ember.listProfiles())
-const before = await tabCount()
 
-// --- the new-tab button sits with the tabs ------------------------------------
-// The strip used to grow to fill the window, which left + stranded in the middle
-// of the title bar with empty space on both sides of it.
-const placement = await page.evaluate(() => {
-  const tabs = Array.from(document.querySelectorAll('.tab'))
-  const last = tabs[tabs.length - 1]?.getBoundingClientRect()
-  const plus = document.querySelector('.titlebar__new')?.getBoundingClientRect()
-  return last && plus ? { gap: Math.round(plus.left - last.right), width: window.innerWidth } : null
-})
+// --- the title bar carries the window's own controls --------------------------
+const bar = await page.evaluate(() => ({
+  toggle: document.querySelectorAll('.titlebar__icon').length,
+  togglePressed: document.querySelector('.titlebar__icon')?.getAttribute('aria-pressed') ?? null,
+  search: document.querySelectorAll('.titlebar__searchbox').length,
+  searchLabel: document.querySelector('.titlebar__searchbox')?.getAttribute('aria-label') ?? '',
+  splits: document.querySelectorAll('.titlebar__split').length,
+  mode: document.querySelector('.titlebar__mode')?.textContent?.trim() ?? null,
+  tabsInBar: document.querySelectorAll('.titlebar .sessions__card, .titlebar [role="tab"]').length
+}))
+check('the side-slot toggle is there and reports open', bar.toggle === 1 && bar.togglePressed === 'true', JSON.stringify(bar))
+check('the search is there and named', bar.search === 1 && bar.searchLabel.length > 0, JSON.stringify(bar))
+// One region toggle now: the panel. The side slot has its own button at the left
+// edge, and a third icon quietly reappearing would leave this loop checking less.
+check('exactly the one region toggle remains', bar.splits === 1, `${bar.splits} toggles`)
+check('the mode switch offers the IDE', bar.mode === 'IDE', bar.mode)
+check('and no tabs live in the title bar any more', bar.tabsInBar === 0, `${bar.tabsInBar}`)
+
+// --- the search opens the global palette --------------------------------------
+await page.click('.titlebar__searchbox')
+await page.waitForSelector('.qp__box', { timeout: 10_000 })
+const globalPick = await page.evaluate(() => ({
+  placeholder: document.querySelector('.qp__box')?.getAttribute('placeholder') ?? '',
+  sessionEntries: Array.from(document.querySelectorAll('.qp__detail')).filter(
+    (d) => d.textContent === 'session'
+  ).length
+}))
 check(
-  'the new-tab button sits beside the last tab',
-  placement !== null && placement.gap >= 0 && placement.gap < 40,
-  JSON.stringify(placement)
+  'clicking it opens the everything search',
+  /sessions/i.test(globalPick.placeholder),
+  globalPick.placeholder
 )
+check('with the open sessions listed', globalPick.sessionEntries >= 1, `${globalPick.sessionEntries}`)
+await page.keyboard.press('Escape')
+await sleep(400)
+check('and Escape puts it away', (await page.locator('.qp__box').count()) === 0)
 
-// --- the button opens a tab --------------------------------------------------
-await page.locator('.titlebar__new').click()
-await sleep(700)
+// --- the session list stands in the side slot ---------------------------------
+check('one session, one card', (await cards()) === 1, `${await cards()} cards`)
 
 if (profiles.length > 1) {
-  // With several shells it offers a menu. Playwright will only click something
-  // visible and hit-testable, so this failing is the clipped menu coming back.
-  const entry = page.locator('.titlebar__newwrap .titlebar__menu-item').first()
+  // With several shells the + offers a menu. It hangs inside the sidebar now, so
+  // there is no scrolling strip left to clip it out of existence.
+  await page.click('.sessions__new')
+  await sleep(500)
+  const entry = page.locator('.sessions__menu .titlebar__menu-item').first()
   check('the profile menu is visible', (await entry.count()) > 0 && (await entry.isVisible()))
   if (await entry.count()) {
     await entry.click()
     await sleep(1500)
   }
 } else {
-  await sleep(1000)
+  await page.click('.sessions__new')
+  await sleep(1200)
 }
+check('choosing a shell opens a card', (await cards()) === 2, `${await cards()} cards`)
 
-check('choosing a shell opens a tab', (await tabCount()) === before + 1, `${before} -> ${await tabCount()}`)
-
-// --- the menu can be dismissed ------------------------------------------------
 if (profiles.length > 1) {
-  await page.locator('.titlebar__new').click()
-  await sleep(500)
-  check(
-    'the menu reopens',
-    (await page.locator('.titlebar__newwrap .titlebar__menu-item').count()) > 0
-  )
-
+  await page.click('.sessions__new')
+  await sleep(400)
+  check('the menu reopens', (await page.locator('.sessions__menu .titlebar__menu-item').count()) > 0)
   await page.keyboard.press('Escape')
-  await sleep(500)
-  check(
-    'Escape closes it',
-    (await page.locator('.titlebar__newwrap .titlebar__menu-item').count()) === 0
-  )
-
-  await page.locator('.titlebar__new').click()
-  await sleep(500)
+  await sleep(400)
+  check('Escape closes it', (await page.locator('.sessions__menu').count()) === 0)
+  await page.click('.sessions__new')
+  await sleep(400)
   await page.locator('.pane').first().click({ position: { x: 60, y: 60 } })
-  await sleep(500)
-  check(
-    'and so does clicking away from it',
-    (await page.locator('.titlebar__newwrap .titlebar__menu-item').count()) === 0
-  )
+  await sleep(400)
+  check('and so does clicking away from it', (await page.locator('.sessions__menu').count()) === 0)
 }
 
-// --- the split controls ------------------------------------------------------
-// Left and right are only worth two buttons if they land on different sides, so
-// the geometry is measured rather than the pane count trusted.
-const paneBoxes = () =>
-  page.evaluate(() =>
-    Array.from(document.querySelectorAll('.pane')).map((p) => {
-      const r = p.getBoundingClientRect()
-      return { left: Math.round(r.left), top: Math.round(r.top) }
-    })
-  )
-
-/*
- * --- the two layout toggles ---------------------------------------------------
- *
- * They used to split panes while wearing the icons of VS Code's sidebar, panel and
- * secondary-sidebar switches. They toggle those regions now, and each one reports
- * the state it is in, so this checks both halves: that pressing it changes the
- * layout, and that the button says so afterwards.
- *
- * There were three. The secondary sidebar was Claude's, and Claude is a block in
- * the list now, so the region and its button went together — which is why this
- * counts two and why nothing here looks for `.region--secondary`.
- */
-const region = (label) => page.locator(`.titlebar__split[aria-label="${label}"]`)
-const pressed = (label) =>
-  page.evaluate(
-    (l) => document.querySelector(`.titlebar__split[aria-label="${l}"]`)?.getAttribute('aria-pressed'),
-    label
-  )
-
-/*
- * Visible, not merely present. The panel is hidden with display:none rather than
- * unmounted — a terminal that leaves the DOM leaves its pty with it — so counting
- * elements says it is still there when it is not on screen.
- */
-const shown = async (sel) =>
-  (await page.locator(sel).count()) > 0 && (await page.locator(sel).first().isVisible())
-
-const TOGGLES = [
-  { label: 'Toggle the side bar', shows: '.sidebar' },
-  { label: 'Toggle the panel', shows: '.panel__bar' }
-]
-
-// Counted, not assumed. A third button quietly reappearing — or one of these two
-// going missing — would otherwise leave the loop below silently checking less.
-check(
-  'the title bar offers exactly the two region toggles',
-  (await page.locator('.titlebar__split').count()) === TOGGLES.length,
-  `${await page.locator('.titlebar__split').count()} buttons`
+// --- the cards switch, filter, and close --------------------------------------
+await page.locator('.sessions__card').first().click()
+await sleep(600)
+const onFirst = await page.evaluate(
+  () => document.querySelector('.sessions__card')?.getAttribute('aria-selected') ?? null
 )
+check('clicking a card makes it the session', onFirst === 'true', String(onFirst))
 
-for (const t of TOGGLES) {
-  const before = await shown(t.shows)
-  await region(t.label).click()
-  await sleep(1200)
-  const after = await shown(t.shows)
-  check(`${t.label} changes the layout`, after !== before, `${before} -> ${after}`)
-  check(`${t.label} reports its state`, (await pressed(t.label)) === String(after), t.label)
+await page.locator('.sessions__search').fill('definitely-nothing-is-called-this')
+await sleep(400)
+check('a filter that matches nothing empties the list', (await cards()) === 0, `${await cards()}`)
+check(
+  'and says so',
+  (await page.locator('.sessions__none').count()) === 1
+)
+await page.locator('.sessions__search').fill('')
+await sleep(400)
+check('clearing it brings the cards back', (await cards()) === 2, `${await cards()}`)
 
-  // And back, so each toggle is left as it was found and the next one starts clean.
-  await region(t.label).click()
-  await sleep(1200)
-  check(`${t.label} toggles back`, (await shown(t.shows)) === before, `${after} -> back`)
-}
+// Closing goes through the ✕, which only shows itself on the pointed-at card.
+await page.locator('.sessions__card').nth(1).hover()
+await sleep(300)
+await page.locator('.sessions__card').nth(1).locator('.sessions__close').click()
+await sleep(900)
+check('the ✕ closes a session', (await cards()) === 1, `${await cards()} cards`)
+
+// --- the slot toggles, and the button tells the truth about it -----------------
+await page.keyboard.press('Control+b')
+await sleep(500)
+const hidden = await page.evaluate(() => ({
+  sessions: document.querySelectorAll('.sessions').length,
+  pressed: document.querySelector('.titlebar__icon')?.getAttribute('aria-pressed') ?? null
+}))
+check('Ctrl+B puts the list away', hidden.sessions === 0, JSON.stringify(hidden))
+check('and the toggle reports closed', hidden.pressed === 'false', JSON.stringify(hidden))
+await page.keyboard.press('Control+b')
+await sleep(500)
+check('and brings it back', (await page.locator('.sessions').count()) === 1)
 
 // --- the window controls can be named ----------------------------------------
 const named = await page.evaluate(() =>

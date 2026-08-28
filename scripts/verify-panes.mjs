@@ -9,6 +9,7 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
+import { pickTab, tabCount } from './session-tabs.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -46,7 +47,7 @@ const check = (label, ok, detail) => {
 }
 const view = () =>
   page.evaluate(() => ({
-    tabs: document.querySelectorAll('.tab').length,
+    tabs: document.querySelectorAll('.sessions__card').length,
     editors: document.querySelectorAll('.pane.editor').length,
     panes: document.querySelectorAll('.pane').length,
     shown: Array.from(document.querySelectorAll('.pane.editor')).map((p) =>
@@ -85,8 +86,7 @@ check(
 // whose active pane is not its own cannot act on it. Splitting is the cheapest
 // observable proof, since a split is made from whatever pane is active — and this
 // tab holds only a terminal, which is the simplest form of it.
-await page.locator('.tab').nth(1).click()
-await sleep(1200)
+await pickTab(page, 1)
 const before = (await view()).panes
 await page.keyboard.press('Control+Shift+D')
 await sleep(2000)
@@ -102,8 +102,8 @@ check('the requesting tab is still intact and can split', after > before, `${bef
  * model keyed by URI, so they are the same text, not a copy of it.
  */
 // Back to the tab that has the file open; the checks above left us on the other one.
-await page.locator('.tab').first().click()
-await sleep(1500)
+await pickTab(page, 0)
+await sleep(500)
 await page.locator('.pane.editor').first().click()
 await sleep(600)
 const beforeSplit = await view()

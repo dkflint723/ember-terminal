@@ -110,6 +110,7 @@ export function snapshot(): SessionSnapshot {
     version: 1,
     treeRoot: state.treeRoot,
     sidebarOpen: state.sidebarOpen,
+    sessionsOpen: state.sessionsOpen,
     sidebarView: state.sidebarView,
     activeTabId: tabs.find((t) => t.id === state.activeTabId)?.id ?? tabs[0]?.id ?? null,
     tabs,
@@ -361,6 +362,8 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
      */
     mode: 'terminal',
     sidebarOpen: snapshotIn.sidebarOpen,
+    // Older session files predate the list; open is what a fresh window does.
+    sessionsOpen: snapshotIn.sessionsOpen ?? true,
     sidebarView: snapshotIn.sidebarView
   })
 

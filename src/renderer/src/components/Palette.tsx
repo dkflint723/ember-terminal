@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { modelLabel } from '@shared/models'
-import { useStore } from '../state/store'
+import { activeDocument, useStore } from '../state/store'
 import { QuickPick, type QuickPickItem } from './QuickPick'
 
 interface Props {
@@ -17,6 +17,8 @@ interface Props {
  */
 export function Palette({ onOpenFile }: Props): React.JSX.Element | null {
   const mode = useStore((s) => s.paletteMode)
+  const tabs = useStore((s) => s.tabs)
+  const panes = useStore((s) => s.panes)
   const close = useStore((s) => s.closePalette)
   const treeRoot = useStore((s) => s.treeRoot)
   const [files, setFiles] = useState<string[]>([])
@@ -31,7 +33,7 @@ export function Palette({ onOpenFile }: Props): React.JSX.Element | null {
   // goes stale slowly, and walking the tree in the background forever to keep it
   // fresh would cost more than it saves.
   useEffect(() => {
-    if (mode !== 'files' || !treeRoot) return
+    if ((mode !== 'files' && mode !== 'global') || !treeRoot) return
     let live = true
     setLoading(true)
     void window.ember.listFiles(treeRoot).then((found) => {
@@ -48,6 +50,67 @@ export function Palette({ onOpenFile }: Props): React.JSX.Element | null {
   }, [mode, treeRoot])
 
   if (!mode) return null
+
+  /*
+   * The title bar's search: sessions, files and commands in one box.
+   *
+   * Not a fourth kind of search — it is the palette's own lists merged, because the
+   * box promises "whatever you name, from anywhere", and the way to keep that
+   * promise is to put everything nameable in one haystack. Tabs first so a session
+   * beats a file that happens to share its name.
+   */
+  if (mode === 'global') {
+    const root = (treeRoot ?? '').replace(/\\/g, '/')
+    const items: QuickPickItem[] = [
+      ...tabs.map((t) => {
+        const pane = panes[t.activePaneId]
+        const title =
+          pane?.kind === 'terminal'
+            ? pane.title
+            : pane?.kind === 'editor'
+              ? activeDocument(pane).title
+              : (pane?.title ?? 'Shell')
+        return {
+          id: `tab:${t.id}`,
+          label: title || 'Shell',
+          detail: 'session',
+          haystack: `${title} session tab`
+        }
+      }),
+      ...commandItems(),
+      ...files.map((full) => {
+        const relative = full.replace(/\\/g, '/').replace(`${root}/`, '')
+        const parts = relative.split('/')
+        return {
+          id: `file:${full}`,
+          label: parts.pop() ?? relative,
+          detail: parts.join('/'),
+          haystack: relative
+        }
+      })
+    ]
+
+    return (
+      <QuickPick
+        placeholder="Search sessions, files, commands…"
+        items={items}
+        empty={loading ? 'Listing…' : 'Nothing matches'}
+        onPick={(item) => {
+          close()
+          if (item.id.startsWith('tab:')) {
+            useStore.getState().setActiveTab(item.id.slice(4))
+            return
+          }
+          if (item.id.startsWith('file:')) {
+            onOpenFile(item.id.slice(5))
+            return
+          }
+          window.setTimeout(() => runCommand(item.id), 0)
+        }}
+        onClose={close}
+      />
+    )
+  }
 
   if (mode === 'files') {
     const root = (treeRoot ?? '').replace(/\\/g, '/')

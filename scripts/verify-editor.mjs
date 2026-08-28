@@ -71,7 +71,7 @@ const state = () =>
       editorPath: ed?.getAttribute('data-editor-path') ?? null,
       dirty: ed?.getAttribute('data-dirty') ?? null,
       language: ed?.querySelector('.editor__lang')?.textContent ?? null,
-      tabLabel: document.querySelector('.tab--active .tab__label')?.textContent ?? null,
+      tabLabel: document.querySelector('.etab--active .etab__label')?.textContent ?? null,
       // Distinct colours across tokens is the observable form of highlighting.
       distinctTokenColours: new Set(
         Array.from(document.querySelectorAll('.view-line span[class*="mtk"]')).map(

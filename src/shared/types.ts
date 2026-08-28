@@ -267,6 +267,14 @@ export interface GitStatus {
   changes: GitFileChange[]
   conflicts: GitFileChange[]
   /**
+   * Lines added and removed across the working tree and the index together — the
+   * `+77 −29` a person quotes about their day. Zero when the tree is clean, and
+   * zero when the numbers could not be read, because a chip that says nothing is
+   * better than one that fails a whole status for a statistic.
+   */
+  insertions: number
+  deletions: number
+  /**
    * A half-finished operation, which the change lists alone do not reveal: a merge
    * whose conflicts are all resolved looks exactly like a clean tree.
    */
@@ -318,6 +326,8 @@ export interface SessionSnapshot {
   treeRoot: string | null
   sidebarOpen: boolean
   sidebarView: 'explorer' | 'search' | 'scm' | 'github' | 'problems'
+  /** Terminal mode's session list. Optional so sessions from older builds load. */
+  sessionsOpen?: boolean
   activeTabId: string | null
   /**
    * `root` is the shells, and keeps its name so that a session written by an
@@ -584,7 +594,7 @@ export const DEFAULT_SETTINGS: Settings = {
   fontFamily: 'Cascadia Code, Cascadia Mono, Consolas, monospace',
   fontSize: 13,
   defaultProfileId: null,
-  themeId: 'ember-deep',
+  themeId: 'tidewater',
   anthropicApiKey: null,
   aiModel: 'claude-opus-5',
   aiEffort: 'low',

@@ -19,6 +19,7 @@ import { OutputPanel } from './components/OutputPanel'
 import { ProblemsPanel } from './components/ProblemsPanel'
 import { RegionDivider } from './components/RegionDivider'
 import { DirectoryPicker } from './components/DirectoryPicker'
+import { SessionList } from './components/SessionList'
 import { existingController } from './terminal/controller'
 
 export function App(): React.JSX.Element {
@@ -26,6 +27,7 @@ export function App(): React.JSX.Element {
   const panes = useStore((s) => s.panes)
   const activeTabId = useStore((s) => s.activeTabId)
   const sidebarOpen = useStore((s) => s.sidebarOpen)
+  const sessionsOpen = useStore((s) => s.sessionsOpen)
   const mode = useStore((s) => s.mode)
   const panelOpen = useStore((s) => s.panelOpen)
   const panelView = useStore((s) => s.panelView)
@@ -444,6 +446,18 @@ export function App(): React.JSX.Element {
         }
       }
 
+      /*
+       * Ctrl+B toggles whatever the side slot holds: the session list in a
+       * terminal, the file sidebar in an IDE. One chord for one slot, whichever
+       * face the window is wearing.
+       */
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b') {
+        e.preventDefault()
+        if (s.mode === 'terminal') s.toggleSessions()
+        else s.toggleSidebar()
+        return
+      }
+
       // Ctrl+J is the panel, as it is in VS Code. Outside the Shift block because
       // it takes no Shift.
       if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'j') {
@@ -522,13 +536,9 @@ export function App(): React.JSX.Element {
         return
       }
 
-      // Ctrl+B and Ctrl+Shift+G select a sidebar view, matching the editor
-      // convention: pressing one twice collapses the sidebar again.
-      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'b') {
-        e.preventDefault()
-        s.showSidebarView('explorer')
-        return
-      }
+      // Ctrl+Shift+G selects a sidebar view, matching the editor convention:
+      // pressing it twice collapses the sidebar again. Plain Ctrl+B is the slot
+      // toggle above — it never reaches here.
       if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'g') {
         e.preventDefault()
         s.showSidebarView('scm')
@@ -610,7 +620,14 @@ export function App(): React.JSX.Element {
         }}
       >
         <ActivityBar />
-        {sidebarOpen && (
+        {/*
+          One side slot, two occupants. Sessions fill it while the window is a
+          terminal; the file sidebar fills it while the window is an IDE. Rendering
+          both would stack them into the same grid area, and showing both at once
+          would spend ~500px before any output appeared.
+        */}
+        {mode === 'terminal' && sessionsOpen && <SessionList />}
+        {mode === 'ide' && sidebarOpen && (
           <Sidebar onOpen={(p) => void openPaths([p])} onOpenAt={(p, l, c) => void revealAt(p, l, c)} />
         )}
         {/*

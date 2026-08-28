@@ -66,24 +66,17 @@ function goToLine(): void {
 }
 
 /**
- * The 22px bar along the bottom, which owns the ambient facts.
+ * The ambient facts, as a row of chips floating on the ground.
  *
- * They used to sit as chips above the input: where you are, which branch, how much
- * is uncommitted. That put standing state inside the thing you type into, so the
- * composer grew every time the app learned something new about your surroundings —
- * and the facts moved every time the composer did. Down here they have one place,
- * one type size, and the composer goes back to being an input.
+ * They used to be a 22px solid bar. As chips each fact is its own pressable
+ * object — where you are, which branch, how much is changed — and a fact with
+ * nothing to say costs no space at all: the problem counts appear only once there
+ * is a problem to count, where the bar showed two zeros all day.
  *
- * The right-hand group has two readings. With a terminal in front of you it is where
- * you are and which shell that is; with a file in front of you it becomes the file's
- * own context — the caret, the indentation, the encoding, the language — because
- * those are the facts you are working against, and the directory a shell happens to
- * be standing in is not one of them while you are editing.
- *
- * Nothing is computed here that is not already in the store or in the buffer. The
- * counts are the same ones the activity rail badges read, deliberately: two places
- * reporting different numbers for the same repository is worse than not reporting
- * at all.
+ * The left group is about the session, always. The right group has two readings:
+ * with a terminal in front of you it is just the model chip; with a file it gains
+ * the file's own context — caret, indentation, language — because those are the
+ * facts you are working against while editing.
  */
 export function StatusBar(): React.JSX.Element | null {
   const tabs = useStore((s) => s.tabs)
@@ -116,10 +109,10 @@ export function StatusBar(): React.JSX.Element | null {
   const cwd = terminal?.cwd ?? null
 
   /*
-   * An editor, and only an editor, turns the right-hand group into a file's context.
-   * A diff pane is deliberately not one: it is two snapshots side by side with no
-   * caret to report and nothing to save, so it keeps the terminal reading rather
-   * than showing a position that belongs to some other pane.
+   * An editor, and only an editor, adds the file context. A diff pane is
+   * deliberately not one: it is two snapshots side by side with no caret to report
+   * and nothing to save, so it keeps the plain reading rather than showing a
+   * position that belongs to some other pane.
    */
   const editing = active?.kind === 'editor' ? active : null
   const file = editing ? activeDocument(editing) : null
@@ -165,6 +158,27 @@ export function StatusBar(): React.JSX.Element | null {
     // screen reader should hear that without the bar claiming to be a set of
     // controls first.
     <div className="statusbar" role="status" aria-label="Workspace status">
+      {cwd && (
+        <button
+          className="statusbar__item statusbar__path"
+          data-status="cwd"
+          aria-label={`Working directory ${cwd}. Browse it`}
+          title={`${cwd}${shell ? `\n${shell}` : ''}\nClick to browse · right-click to copy`}
+          onClick={() => setDirPicker(true)}
+          onContextMenu={(e) => {
+            // Copying the path is what this used to do, and it is still worth
+            // one gesture — just not the first one. Someone reading the path is
+            // usually about to go somewhere rather than to quote it.
+            e.preventDefault()
+            copyPath()
+          }}
+        >
+          <svg viewBox="0 0 16 16" width="11" height="11" className="statusbar__icon" aria-hidden="true">
+            <path d="M1.5 3.5h4.2l1.6 1.8h7.2v7.2h-13z" />
+          </svg>
+          {shortenPath(cwd, 42)}
+        </button>
+      )}
       {branch && (
         <button
           className="statusbar__item"
@@ -173,7 +187,7 @@ export function StatusBar(): React.JSX.Element | null {
           title={git?.upstream ?? 'No upstream'}
           onClick={() => showSidebarView('scm')}
         >
-          <svg viewBox="0 0 16 16" className="statusbar__icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="11" height="11" className="statusbar__icon" aria-hidden="true">
             <circle cx="4.5" cy="3.5" r="1.6" />
             <circle cx="4.5" cy="12.5" r="1.6" />
             <circle cx="11.5" cy="3.5" r="1.6" />
@@ -182,42 +196,56 @@ export function StatusBar(): React.JSX.Element | null {
           {branch}
         </button>
       )}
-      {changed !== null && (
+      {git && changed !== null && changed > 0 && (
         <button
           className="statusbar__item statusbar__num"
           data-status="changes"
-          aria-label={`${changed} changed ${changed === 1 ? 'path' : 'paths'}. Open source control`}
+          aria-label={
+            `${changed} changed ${changed === 1 ? 'path' : 'paths'}` +
+            (git.insertions || git.deletions
+              ? `, ${git.insertions} lines added, ${git.deletions} removed`
+              : '') +
+            '. Open source control'
+          }
           onClick={() => showSidebarView('scm')}
         >
-          ± {changed}
+          {changed} ●
+          {(git.insertions > 0 || git.deletions > 0) && (
+            <>
+              <span className="statusbar__ok">+{git.insertions}</span>
+              <span className="statusbar__bad">−{git.deletions}</span>
+            </>
+          )}
         </button>
       )}
-      <button
-        className="statusbar__item statusbar__num"
-        data-status="problems"
-        aria-label={`${errors} errors, ${warnings} warnings. Open problems`}
-        onClick={() => showSidebarView('problems')}
-      >
-        <span className="statusbar__bad">✕</span>
-        {errors}
-        <span className="statusbar__warn">⚠</span>
-        {warnings}
-      </button>
+      {/* Only once there is something to count. Two zeros standing all day made the
+          one moment they changed look exactly like every other moment. */}
+      {(errors > 0 || warnings > 0) && (
+        <button
+          className="statusbar__item statusbar__num"
+          data-status="problems"
+          aria-label={`${errors} errors, ${warnings} warnings. Open problems`}
+          onClick={() => showSidebarView('problems')}
+        >
+          <span className="statusbar__bad">✕</span>
+          {errors}
+          <span className="statusbar__warn">⚠</span>
+          {warnings}
+        </button>
+      )}
 
       <span className="statusbar__gap" />
 
-      <ClaudeStatus />
-      {file ? (
+      {file && (
         <>
           {cursorAt && (
             <button
               className="statusbar__item"
               data-status="position"
-              /* The bar is a live region so the error and warning counts announce
-                 themselves as they change. The caret is not that kind of fact: it
-                 changes on every arrow press, and an atomic live region re-reads
-                 the whole bar each time — branch, counts, model, encoding and all.
-                 It is opted out here rather than the region being weakened. */
+              /* The bar is a live region so the counts announce themselves as they
+                 change. The caret is not that kind of fact: it changes on every
+                 arrow press, and an atomic live region re-reads the whole bar each
+                 time. It is opted out here rather than the region being weakened. */
               aria-live="off"
               aria-label={
                 `Line ${cursorAt.line}, column ${cursorAt.column}` +
@@ -235,43 +263,12 @@ export function StatusBar(): React.JSX.Element | null {
               {`${indent.spaces ? 'Spaces' : 'Tab Size'}: ${indent.width}`}
             </span>
           )}
-          {/* Everything this app reads and writes is UTF-8 — stated rather than
-              detected, because a value that is always the same is not a reading,
-              and a control that cannot change it should not look like one. */}
-          <span className="statusbar__label">UTF-8</span>
           <span className="statusbar__label" data-status="language">
             {languageName(file.language)}
           </span>
         </>
-      ) : (
-        <>
-          {cwd && (
-            <button
-              className="statusbar__item statusbar__path"
-              data-status="cwd"
-              aria-label={`Working directory ${cwd}. Browse it`}
-              title={`${cwd}
-Click to browse · right-click to copy`}
-              onClick={() => setDirPicker(true)}
-              onContextMenu={(e) => {
-                // Copying the path is what this used to do, and it is still worth
-                // one gesture — just not the first one. Someone reading the path is
-                // usually about to go somewhere rather than to quote it.
-                e.preventDefault()
-                copyPath()
-              }}
-            >
-              {shortenPath(cwd, 42)}
-            </button>
-          )}
-          {shell && (
-            <span className="statusbar__label" data-status="shell">
-              {shell}
-            </span>
-          )}
-          <span className="statusbar__label">UTF-8</span>
-        </>
       )}
+      <ClaudeStatus />
     </div>
   )
 }

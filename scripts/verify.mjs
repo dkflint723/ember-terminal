@@ -149,10 +149,10 @@ log('shot: 04-splits.png')
 
 await page.keyboard.press('Control+Shift+KeyT')
 await sleep(1500)
-log('tabs after Ctrl+Shift+T →', await page.evaluate(() => document.querySelectorAll('.tab').length))
+log('tabs after Ctrl+Shift+T →', await page.evaluate(() => document.querySelectorAll('.sessions__card').length))
 
 // Switching back must restore the split layout, not a fresh pane.
-await page.evaluate(() => document.querySelector('.tab')?.dispatchEvent(
+await page.evaluate(() => document.querySelector('.sessions__card')?.dispatchEvent(
   new MouseEvent('mousedown', { bubbles: true })
 ))
 await sleep(1200)

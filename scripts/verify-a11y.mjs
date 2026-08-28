@@ -79,15 +79,17 @@ check(
   `${expandedBefore} -> ${expandedAfter}`
 )
 
-// --- the terminal tab strip ---------------------------------------------------
+// --- the session list -----------------------------------------------------------
+// The tab strip moved out of the title bar and into the side slot; the roles moved
+// with it, because the cards are still tabs however they are drawn.
 const strip = await page.evaluate(() => {
-  const list = document.querySelector('.titlebar__tabs')
-  const tab = document.querySelector('.tab')
+  const list = document.querySelector('.sessions__list')
+  const tab = document.querySelector('.sessions__card')
   return {
     role: list?.getAttribute('role') ?? null,
     tabRole: tab?.getAttribute('role') ?? null,
     tabIndex: tab?.getAttribute('tabindex') ?? null,
-    closeLabel: document.querySelector('.tab__close')?.getAttribute('aria-label') ?? null
+    closeLabel: document.querySelector('.sessions__close')?.getAttribute('aria-label') ?? null
   }
 })
 check('the tab strip is a tab list', strip.role === 'tablist', JSON.stringify(strip))
@@ -122,7 +124,10 @@ if (severityGlyphs.length > 0) {
 // --- the file tree is a tree ---------------------------------------------------
 // Every row used to be its own tab stop, so reaching anything past the first few
 // meant pressing Tab once per file, and nothing moved between them.
-await page.keyboard.press('Control+b')
+// Through the rail rather than Ctrl+B: the chord is a visibility toggle for the
+// side slot now, and what fills the slot depends on the mode — the icon is the
+// gesture that means "the explorer, specifically", and it brings the IDE with it.
+await page.click('.activity__item[data-view="explorer"]')
 await page.waitForSelector('.tree', { timeout: 10_000 })
 await sleep(1500)
 

@@ -80,79 +80,26 @@ button {
 
 .titlebar {
   display: flex;
-  align-items: stretch;
-  height: 36px;
-  background: var(--bg-chrome);
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding-left: 8px;
+  background: color-mix(in srgb, var(--bg-chrome) 90%, transparent);
+  border-bottom: 1px solid var(--card-border);
   flex: 0 0 auto;
   /* Everything in the title bar drags the window except explicit controls. */
   -webkit-app-region: drag;
 }
 
-.titlebar__tabs {
-  display: flex;
-  align-items: stretch;
-  min-width: 0;
-  /* Only as wide as the tabs themselves, shrinking when there are too many. It
-     used to grow to fill the bar, which pushed the new-tab button out into the
-     middle of the window instead of leaving it beside the last tab. The spacer
-     after it takes the slack. */
-  flex: 0 1 auto;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -webkit-app-region: no-drag;
-}
 
 .titlebar__tabs::-webkit-scrollbar {
   display: none;
 }
 
-.tab {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px 0 14px;
-  min-width: 150px;
-  max-width: 230px;
-  border-right: 1px solid var(--bg);
-  color: var(--fg-dim);
-  white-space: nowrap;
-}
 
-.tab:hover {
-  background: var(--bg-hover);
-}
 
-.tab--active {
-  background: var(--bg);
-  color: var(--fg);
-  box-shadow: inset 0 2px 0 var(--accent);
-}
 
-.tab__label {
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  /* The tab names a shell, and a shell's name is primary text like the command
-     it will run — the same 13px as everything else that is the point of a row. */
-  font-size: 13px;
-}
 
-.tab__close,
-.titlebar__new {
-  display: grid;
-  place-items: center;
-  /* 2px, not 8px: the round hit area read as a button floating on the tab. Small
-     controls get the same corner as inputs and key caps and nothing more. */
-  border-radius: 2px;
-  color: var(--fg-faint);
-  flex: 0 0 auto;
-}
-
-.tab__close {
-  width: 18px;
-  height: 18px;
-  font-size: 11px;
-}
 
 .titlebar__new {
   width: 26px;
@@ -160,11 +107,6 @@ button {
   font-size: 13px;
 }
 
-.tab__close:hover,
-.titlebar__new:hover {
-  background: var(--border-strong);
-  color: var(--fg);
-}
 
 /* A merge or rebase that is still open. The change lists cannot show this — once
    the conflicts are resolved they are empty — so it gets its own line. */
@@ -234,7 +176,7 @@ button {
   place-items: center;
   width: 26px;
   height: 24px;
-  border-radius: 2px;
+  border-radius: 6px;
   color: var(--fg-faint);
   background: none;
   border: none;
@@ -264,9 +206,9 @@ button {
   gap: 5px;
   height: 24px;
   padding: 0 9px;
-  border-radius: 2px;
-  border: 1px solid var(--border);
-  background: none;
+  border-radius: 8px;
+  border: 1px solid var(--card-border);
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
   /* Was `--fg-muted`, which is not a variable this app defines — the declaration
      was dropped as invalid and the label inherited full-brightness --fg, so the
      quietest control in the bar was the loudest thing in it. */
@@ -307,14 +249,6 @@ button {
 
 /* Holds the new-tab button and its menu, beside the scrolling strip rather than
    inside it, so the menu is not clipped by the strip's overflow. */
-.titlebar__newwrap {
-  position: relative;
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-  padding-left: 4px;
-  -webkit-app-region: no-drag;
-}
 
 .titlebar__new {
   align-self: center;
@@ -333,6 +267,7 @@ button {
   position: absolute;
   top: 30px;
   left: 0;
+  border-radius: 10px;
   z-index: 30;
   min-width: 190px;
   padding: 4px;
@@ -362,16 +297,261 @@ button {
   background: var(--border);
 }
 
-.titlebar__spacer {
-  flex: 1 1 auto;
-  min-width: 12px;
-}
 
 .titlebar__controls {
   display: flex;
   flex: 0 0 auto;
   -webkit-app-region: no-drag;
 }
+/* The side-slot toggle at the left edge: sessions in a terminal, files in an
+   IDE. One picture for one slot, filled while it is open. *//*
+ * The session list, filling the side slot while the window is a terminal.
+ *
+ * Cards rather than tabs: each session has room for where it stands and on which
+ * branch, which is what tells two shells apart once both are named after the same
+ * folder. Translucent over the gradient like everything else in the slot.
+ */
+.sessions {
+  grid-area: side;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 240px;
+  min-height: 0;
+  padding: 10px;
+  background: color-mix(in srgb, var(--bg-chrome) 72%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--card-border) 70%, transparent);
+}
+
+.sessions__top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 9px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  color: var(--fg-faint);
+}
+
+.sessions__glass {
+  flex: 0 0 auto;
+  stroke: currentColor;
+  fill: none;
+}
+
+.sessions__search {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 11.5px;
+  outline: none;
+}
+
+.sessions__search::placeholder {
+  color: var(--fg-faint);
+}
+
+.sessions__newwrap {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+}
+
+.sessions__new {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  color: var(--fg-dim);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sessions__new:hover {
+  color: var(--fg);
+}
+
+/* The profile menu hangs under the search row rather than under a 36px strip,
+   so it has the whole sidebar to exist in and nothing clips it. */
+.sessions__menu {
+  top: calc(100% + 6px);
+  left: auto;
+  right: 0;
+}
+
+.sessions__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.sessions__card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.sessions__card:hover {
+  background: var(--bg-hover);
+}
+
+.sessions__card--on {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.sessions__icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.sessions__text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.sessions__name {
+  color: var(--fg);
+  font-size: 12.5px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sessions__branch {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--fg-faint);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.sessions__branch svg {
+  flex: 0 0 auto;
+  stroke: currentColor;
+  fill: none;
+}
+
+/* Present but quiet until pointed at, like the old tab close. */
+.sessions__close {
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  padding: 1px 5px;
+  color: var(--fg-faint);
+  font-size: 10px;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.sessions__card:hover .sessions__close,
+.sessions__card:focus-within .sessions__close,
+.sessions__close:focus-visible {
+  opacity: 1;
+}
+
+.sessions__close:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.sessions__none {
+  padding: 10px;
+  color: var(--fg-faint);
+  font-size: 11.5px;
+}
+
+
+.titlebar__icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 26px;
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar__icon:hover {
+  background: var(--bg-hover);
+}
+
+/*
+ * The search sits in the drag region and is itself the one thing there that does
+ * not drag. It is a button dressed as a field: the typing happens in the palette
+ * it opens, so a real input here would be a second implementation of the same
+ * list.
+ */
+.titlebar__search {
+  flex: 1 1 auto;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+
+.titlebar__searchbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(400px, 42vw);
+  padding: 5px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  color: var(--fg-faint);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar__searchbox:hover {
+  border-color: var(--border-strong);
+  color: var(--fg-dim);
+}
+
+.titlebar__searchbox svg {
+  flex: 0 0 auto;
+  stroke: currentColor;
+  fill: none;
+}
+
+.titlebar__searchbox span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 
 .caption-btn {
   display: grid;
@@ -408,6 +588,14 @@ button {
   flex: 1 1 auto;
   min-height: 0;
   position: relative;
+  /*
+   * The Direction D ground: barely lighter than the base at the top, settling
+   * darker below. Derived per theme in theme.ts, so every theme keeps its own
+   * character. It lives on the workspace rather than on the panes, because the
+   * cards, the chips and the sidebar all float on one continuous surface - a
+   * fill per region would draw seams between things that are meant to share it.
+   */
+  background: linear-gradient(180deg, var(--grad-top) 0%, var(--bg) 46%, var(--grad-bottom) 100%);
   display: grid;
   grid-template-columns: auto auto 1fr;
   grid-template-rows: 1fr;
@@ -436,6 +624,8 @@ button {
 
 .sidebar {
   grid-area: side;
+  /* Translucent over the gradient, like the session list that shares this slot. */
+  background: color-mix(in srgb, var(--bg-chrome) 72%, transparent);
   /*
    * Its width has to be stated, not implied.
    *
@@ -467,7 +657,9 @@ button {
 
 .region--editors,
 .region--shells {
-  background: var(--bg);
+  /* Transparent so the window's gradient shows through: the blocks are cards on
+     the ground now, and a solid fill here would put a seam where none belongs. */
+  background: transparent;
 }
 
 .activity {
@@ -537,11 +729,11 @@ button {
 
 .panel__bar {
   display: flex;
-  align-items: stretch;
+  align-items: center;
+  gap: 2px;
   flex: 0 0 auto;
-  height: 26px;
-  padding: 0 6px 0 0;
-  background: var(--bg-chrome);
+  height: 30px;
+  padding: 0 6px 0 4px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -556,9 +748,10 @@ button {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 0 12px;
+  padding: 3px 11px;
   background: none;
-  border: none;
+  border: 1px solid transparent;
+  border-radius: 7px;
   color: var(--fg-dim);
   font-size: 12px;
   cursor: pointer;
@@ -572,7 +765,8 @@ button {
    content is on. */
 .panel__tab--active {
   color: var(--fg);
-  box-shadow: inset 0 -2px 0 var(--accent);
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
 }
 
 /* Runs with the label rather than sitting in a badge of its own — a count is part
@@ -690,8 +884,19 @@ button {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 0 0 4px;
+  /* Room for the cards to be cards: they need ground visible around them, and a
+     list that touches the window edges reads as the flat list this replaced. */
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 14px 4px;
   user-select: text;
+}
+
+/* Flex needs telling that children keep their own height: a column of cards must
+   grow downward, never stretch to share the viewport. */
+.pane__scroll > * {
+  flex: 0 0 auto;
 }
 
 /*
@@ -757,8 +962,10 @@ button {
    * Given to failures alone it shifted their text two pixels right of everything
    * else, which reads as a rendering fault rather than as emphasis.
    */
-  border-left: 2px solid transparent;
-  border-bottom: 1px solid var(--border);
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
   padding: 4px 0 6px;
   /* Not hidden: the head has to be able to stick to the top of the scroll
      container, and an ancestor that clips also stops sticky from working. */
@@ -776,8 +983,10 @@ button {
   contain-intrinsic-size: auto 46px;
 }
 
+/* Status is the card's own border, at partial strength so the text on it stays
+   the loud part - a full-strength red frame would shout louder than the error. */
 .block--failed {
-  border-left-color: var(--fail);
+  border-color: color-mix(in srgb, var(--fail) 42%, transparent);
 }
 
 /*
@@ -1015,8 +1224,8 @@ button {
  * --info edge names it and the fill gives it a body, and no other block gets both.
  */
 .block--agent {
-  border-left-color: var(--info);
-  background: var(--bg-elevated);
+  border-color: color-mix(in srgb, var(--info) 40%, transparent);
+  background: color-mix(in srgb, var(--info) 6%, var(--card));
   padding: 6px 0 8px;
 }
 
@@ -1219,6 +1428,16 @@ button {
  */
 .pane__scroll--stream .block {
   border: none;
+  background: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* And the list itself goes back to being a stream: no gaps, no inset. */
+.pane__scroll--stream {
+  display: block;
+  gap: 0;
+  padding: 0 0 4px;
 }
 
 .pane__scroll--stream .block__head {
@@ -1290,9 +1509,77 @@ button {
 
 .composer {
   flex: 0 0 auto;
+  margin: 8px 14px 6px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26);
+  padding: 6px 12px 7px;
+}
+
+/* The card border carries the states the input row used to: attention while
+   focused, the agent's colour while the row is pointed at Claude. */
+.composer:focus-within {
+  border-color: var(--border-strong);
+}
+
+.composer:has(.composer__row--ai) {
+  border-color: color-mix(in srgb, var(--info) 45%, transparent);
+}
+
+.composer:has(.composer__row--ai:focus-within) {
+  border-color: var(--info);
+}
+
+/*
+ * Inside the IDE's panel the composer goes flat again: a floating card inside a
+ * panel is a card in a card, and the four lines of output down there cannot spare
+ * the margins. Same input, two densities - like the blocks themselves.
+ */
+/*
+ * In the IDE the two regions are cards themselves: the editor above, the panel
+ * below, each framed on the shared gradient the way blocks are framed in the
+ * terminal. The margins are what make them read as objects rather than as the
+ * window being carved up.
+ */
+[data-mode='ide'] .region--editors {
+  margin: 10px 14px 0 8px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+}
+
+[data-mode='ide'] .region--shells {
+  margin: 10px 14px 2px 8px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+}
+
+/* A collapsed panel keeps its card from painting a stray frame. */
+[data-mode='ide'] .region--shells[data-collapsed='true'] {
+  border: none;
+  box-shadow: none;
+  background: none;
+  margin: 0;
+}
+
+[data-mode='ide'] .composer {
+  margin: 0;
+  background: transparent;
+  border: none;
   border-top: 1px solid var(--border);
-  background: var(--bg-chrome);
-  padding: 8px 12px 9px;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 5px 12px 6px;
+}
+
+[data-mode='ide'] .composer__hint {
+  display: none;
 }
 
 .composer__meta {
@@ -1312,15 +1599,21 @@ button {
  * branch, how much is uncommitted, what is wrong, where you are, which shell.
  * One type size, one colour, hairline above.
  */
+/*
+ * The ambient facts as floating chips rather than a solid bar.
+ *
+ * Each fact is its own bordered chip on the gradient, which is what makes them
+ * read as things that can be pressed - the bar made every item look like a label.
+ * The row sits on the ground with no fill of its own, so the last card's shadow
+ * falls onto the same surface the chips stand on.
+ */
 .statusbar {
   display: flex;
   align-items: center;
-  gap: 16px;
-  height: 22px;
+  gap: 8px;
   flex: 0 0 auto;
-  padding: 0 10px;
-  background: var(--bg-chrome);
-  border-top: 1px solid var(--border);
+  padding: 2px 14px 10px;
+  background: transparent;
   color: var(--fg-dim);
   font-size: 11px;
   -webkit-app-region: no-drag;
@@ -1331,18 +1624,30 @@ button {
 .statusbar__item {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   max-width: 44ch;
-  padding: 0 2px;
-  border: none;
-  border-radius: 2px;
-  background: none;
+  padding: 3px 10px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
   color: inherit;
   font: inherit;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
+}
+
+/* The chips that mean something carry their meaning on the frame: the branch is
+   the good colour, the model chip is the agent's. The counts stay neutral. */
+.statusbar__item[data-status='branch'] {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+  font-family: var(--mono);
+}
+
+.statusbar__item[data-status='changes'] {
+  font-family: var(--mono);
 }
 
 .statusbar__item:hover {
@@ -1397,6 +1702,10 @@ button {
   flex: 1 1 auto;
 }
 
+.statusbar__ok {
+  color: var(--ok);
+}
+
 .statusbar__path {
   font-family: var(--mono);
 }
@@ -1405,11 +1714,16 @@ button {
    pretending to be pressable. */
 .statusbar__label {
   flex: 0 0 auto;
+  padding: 3px 10px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
   white-space: nowrap;
 }
 
 .statusbar__claude {
   color: var(--info);
+  border-color: color-mix(in srgb, var(--info) 40%, transparent);
 }
 
 .statusbar__claude:hover,
@@ -1453,6 +1767,7 @@ button {
   overflow-y: auto;
   padding: 5px;
   border: 1px solid var(--border-strong);
+  border-radius: 10px;
   background: var(--bg-elevated);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
 }
@@ -1670,18 +1985,16 @@ button {
   display: flex;
   align-items: flex-start;
   gap: 9px;
-  background: var(--bg);
-  border: 1px solid var(--border-strong);
-  padding: 7px 9px;
+  background: none;
+  border: none;
+  padding: 5px 3px;
 }
 
 .composer__row:focus-within {
   border-color: var(--accent);
 }
 
-.composer__row--ai:focus-within {
-  border-color: var(--info);
-}
+/* The ai state paints the card, not the row - see .composer:has above. */
 
 /* Faint, not accented: it is a chevron marking where the line starts, and the row
    already says what it is with its border and its intent chip. The agent's ✦ below
@@ -1703,9 +2016,9 @@ button {
 .composer__intent {
   flex: 0 0 auto;
   align-self: center;
-  padding: 1px 7px;
+  padding: 1px 8px;
   border: 1px solid var(--border-strong);
-  border-radius: 2px;
+  border-radius: 8px;
   color: var(--fg-dim);
   font-size: 11px;
   letter-spacing: 0.03em;
@@ -1795,7 +2108,7 @@ kbd {
   font-size: 11px;
   padding: 1px 4px;
   border: 1px solid var(--border-strong);
-  border-radius: 2px;
+  border-radius: 5px;
   color: var(--fg-dim);
 }
 
@@ -2236,13 +2549,17 @@ kbd {
 .editor__bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   flex: 0 0 auto;
   padding: 5px 8px 5px 10px;
   background: var(--bg-chrome);
   border-bottom: 1px solid var(--border);
   font-size: 11px;
+}
+
+/* The language stays left; the save pair huddles at the right edge together. */
+.editor__bar > .block__action:first-of-type {
+  margin-left: auto;
 }
 
 /*
@@ -2920,9 +3237,11 @@ kbd {
  */
 .etabs {
   display: flex;
+  align-items: center;
+  gap: 4px;
   flex: 0 0 auto;
   overflow-x: auto;
-  background: var(--bg-chrome);
+  padding: 5px 8px;
   border-bottom: 1px solid var(--border);
   scrollbar-width: none;
 }
@@ -2937,8 +3256,9 @@ kbd {
   gap: 5px;
   flex: 0 0 auto;
   max-width: 190px;
-  padding: 5px 8px;
-  border-right: 1px solid var(--border);
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
   color: var(--fg-faint);
   font-size: 12px;
   cursor: pointer;
@@ -2954,9 +3274,11 @@ kbd {
    of them, which is what lets the strip keep a single padding and still not move
    when the active tab changes — the same mark the window tabs and the panel tabs
    take, on the side the content is on. */
+/* A pill, like the session cards: the D vocabulary says which one is open with a
+   fill and a frame rather than an accent edge. */
 .etab--active {
-  background: var(--bg);
-  box-shadow: inset 0 2px 0 var(--accent);
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
   color: var(--fg);
 }
 
@@ -3502,6 +3824,7 @@ kbd {
   max-height: 60vh;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
+  border-radius: 12px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
   overflow: hidden;
 }

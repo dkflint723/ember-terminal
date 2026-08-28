@@ -229,17 +229,27 @@ if (terminal) {
   const profileNames = await page.evaluate(async () =>
     (await window.ember.listProfiles()).map((p) => p.name)
   )
-  const namesTheShell = terminal.shell
-    ? profileNames.includes(terminal.shell)
-    : profileNames.some((n) => terminal.text.includes(n))
+  /*
+   * The shell moved off the bar and into the folder chip's tooltip: it changes
+   * about never, so it keeps a hover rather than a chip. The strict read is the
+   * tooltip naming a real profile; the chip row itself should no longer say it.
+   */
+  const namesTheShell = profileNames.some((n) => (terminal.cwdTitle ?? '').includes(n))
   check(
-    'and the shell that is running there',
+    'and the shell that is running there, in the folder tooltip',
     namesTheShell,
-    JSON.stringify({ shell: terminal.shell, bar: terminal.text, profiles: profileNames })
+    JSON.stringify({ title: terminal.cwdTitle, profiles: profileNames })
+  )
+  check(
+    'without spending a chip on it',
+    !profileNames.some((n) => (terminal.text ?? '').includes(n)),
+    terminal.text
   )
 
   check('the branch is reported', branchArrived && terminal.branch === BRANCH, terminal.branch)
-  check('the encoding is stated', terminal.text.includes('UTF-8'), terminal.text)
+  // UTF-8 is gone from the bar on purpose: a value that never varies is not a
+  // reading, and the chips only carry facts that can change.
+  check('the encoding is not taking up a chip', !terminal.text.includes('UTF-8'), terminal.text)
 
   /*
    * The editor group is not there yet.
@@ -288,18 +298,20 @@ if (await clickItem('[data-status="branch"]', 'the branch can be pressed')) {
   check('with the repository in it', (scm.scmBranch ?? '').includes(BRANCH), scm.scmBranch)
 }
 
-// --- and the counts are a way into Problems -----------------------------------
-if (await clickItem('[data-status="problems"]', 'the problem counts can be pressed')) {
-  // Either route counts. The same list is reachable in the sidebar and in the panel,
-  // and what the design asks for is that pressing the counts puts it on screen.
-  const opened = await settles(() => document.querySelectorAll('.probs').length > 0, undefined, 10_000)
-  const probs = await views()
-  check('pressing the counts opens Problems', opened && probs.problems > 0, JSON.stringify(probs))
-  console.log(
-    'problems opened in →',
-    probs.problemsInPanel > 0 ? 'the panel' : `the sidebar (${probs.title})`
-  )
-}
+/*
+ * --- the problem counts appear only when there is a problem ---------------------
+ *
+ * The bar showed two zeros all day, which made the one moment they changed look
+ * exactly like every other moment. The chip exists only once there is something to
+ * count — so with a clean workspace, the strict check is its absence. The
+ * click-through it offers when present is the same showSidebarView the branch chip
+ * already proves.
+ */
+check(
+  'the problem counts stay off the bar while there are none',
+  (await page.locator('[data-status="problems"]').count()) === 0,
+  `${await page.locator('[data-status="problems"]').count()} problem chips`
+)
 
 // --- a file, which changes what the right-hand group is about ------------------
 await page.keyboard.press('Control+p')
@@ -339,7 +351,7 @@ if (editing) {
   // about the editor rather than a guess at what looks right.
   check('the indentation is named', /^Spaces\b/.test(editing.indent ?? ''), editing.indent)
   check('and it gives the width', /\b2\b/.test(editing.indent ?? ''), editing.indent)
-  check('the encoding is still stated', editing.text.includes('UTF-8'), editing.text)
+  check('the encoding stays out of the chips', !editing.text.includes('UTF-8'), editing.text)
   check(
     'the new items are named too',
     editing.unlabelled.length === 0,

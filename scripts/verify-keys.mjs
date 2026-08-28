@@ -66,7 +66,7 @@ const reset = async () => {
 
 const CASES = [
   { keys: 'Control+Shift+F', shows: '.find__box', label: 'Ctrl+Shift+F opens search' },
-  { keys: 'Control+B', shows: '.tree', label: 'Ctrl+B opens the explorer' },
+  { keys: 'Control+B', shows: '.sidebar', label: 'Ctrl+B opens the sidebar', closeFirst: true },
   { keys: 'Control+Shift+G', shows: '.scm', label: 'Ctrl+Shift+G opens source control' },
   { keys: 'Control+Shift+M', shows: '.probs', label: 'Ctrl+Shift+M opens problems' },
   { keys: 'Control+P', shows: '.qp__box', label: 'Ctrl+P opens quick open' },
@@ -76,6 +76,17 @@ const CASES = [
 
 for (const c of CASES) {
   await focusEditor()
+  /*
+   * Ctrl+B is a visibility toggle, not a view selector — VS Code's own semantics,
+   * which the D chrome adopted when the chord also took over the session list. A
+   * toggle pressed onto an open sidebar closes it, so this case has to begin from
+   * a closed one or it would be proving the opposite of its label.
+   */
+  if (c.closeFirst && (await page.locator(c.shows).count()) > 0) {
+    await page.keyboard.press(c.keys)
+    await sleep(600)
+    await focusEditor()
+  }
   await page.keyboard.press(c.keys)
   await sleep(1000)
   const seen = await page.locator(c.shows).count()

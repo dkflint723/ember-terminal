@@ -49,7 +49,7 @@ const launch = (args) =>
 
 const shape = (page) =>
   page.evaluate(() => ({
-    tabs: document.querySelectorAll('.tab').length,
+    tabs: document.querySelectorAll('.sessions__card').length,
     panes: document.querySelectorAll('.pane').length,
     terminals: document.querySelectorAll('.pane:not(.editor)').length,
     editorTabs: Array.from(document.querySelectorAll('.etab__label')).map((l) => l.textContent),
@@ -227,7 +227,7 @@ fs.writeFileSync(crlf, CRLF_TEXT, 'utf8')
   check('the folder gets a tab of its own', landed.tabs >= 2, `${landed.tabs} tabs`)
 
   // Only the active tab renders its panes, and the folder's tab is the one in front.
-  await page.locator('.tab').first().click()
+  await page.locator('.sessions__card').first().click()
   await sleep(1500)
   await showEditors(page)
   const opened = await shape(page)
