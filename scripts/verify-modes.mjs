@@ -77,6 +77,7 @@ const view = () =>
       // Reaching Claude is a composer state now, not a region: there is nothing on
       // the right to count any more.
       asking: document.querySelectorAll('.composer__row--ai').length,
+      agent: document.querySelectorAll('.agent').length,
       panelBar: document.querySelectorAll('.panel__bar').length,
       // The side slot: session cards in a terminal, nothing of them in an IDE.
       sessions: document.querySelectorAll('.sessions').length,
@@ -169,32 +170,27 @@ check('and the shell stays in the panel', opened.shells >= 1, JSON.stringify(ope
 /*
  * --- reaching Claude ----------------------------------------------------------
  *
- * The chord used to open a sidebar on the right; the sidebar is gone and the agent
- * is a block in the list, so it points the active shell's composer at Claude
- * instead. Pressed from here, with an editor focused, which is the case worth
- * proving: the chord has to find a shell to ask from, and this is the only test
- * where the focused pane is not one.
- *
- * It sets asking rather than toggling it, which is the half worth a check of its
- * own. The composer classifies what is typed now, so a chord meaning "ask Claude"
- * that flipped whatever was in effect would take you away from the agent exactly
- * when the buffer already read as a question — and pressing it twice, which is what
- * people do when the first press is not obviously visible, used to undo itself.
- * Ctrl+K is the one that flips a reading, so Ctrl+K is what comes back.
+ * The chord's third life: a sidebar once, then the composer pinned to agent, and
+ * now the panel the user asked back into existence — the conversation surface on
+ * the right, toggled at will. Pressed from here with an editor focused, because
+ * the panel must not care which pane the hands were in. Ctrl+K keeps the pinning
+ * job the chord used to carry.
  */
-check('nothing is asking to begin with', (await view()).asking === 0)
-await page.keyboard.press('Control+Shift+B')
-await sleep(1200)
-const asked = await view()
-check('Ctrl+Shift+B points the composer at Claude', asked.asking === 1, JSON.stringify(asked))
+check('the Claude panel is not standing to begin with', (await view()).agent === 0)
 await page.keyboard.press('Control+Shift+B')
 await sleep(900)
-const again = await view()
-check('and pressing it again leaves it pointed there', again.asking === 1, JSON.stringify(again))
+check('Ctrl+Shift+B raises the Claude panel', (await view()).agent === 1, JSON.stringify(await view()))
+await page.keyboard.press('Control+Shift+B')
+await sleep(900)
+check('and pressing it again puts it away', (await view()).agent === 0, JSON.stringify(await view()))
+// Ctrl+K keeps its old job: it pins the composer's reading, in either direction.
+check('nothing is asking meanwhile', (await view()).asking === 0)
 await page.keyboard.press('Control+K')
 await sleep(900)
-const unasked = await view()
-check('while Ctrl+K flips it back to the shell', unasked.asking === 0, JSON.stringify(unasked))
+check('Ctrl+K points the composer at Claude', (await view()).asking === 1, JSON.stringify(await view()))
+await page.keyboard.press('Control+K')
+await sleep(900)
+check('and flips it back to the shell', (await view()).asking === 0, JSON.stringify(await view()))
 
 // --- the panel toggles --------------------------------------------------------
 await page.keyboard.press('Control+j')

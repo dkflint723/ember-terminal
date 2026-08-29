@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { parkModel, unparkModel } from '../editor/models'
+import type { AgentTurn } from '@shared/types'
 import { DEFAULT_SETTINGS, type GitStatus, type Settings, type ShellProfile } from '@shared/types'
 import type { ResolvedTheme, ThemeSummary } from '@shared/theme'
 import { DEFAULT_THEME } from '../terminal/theme'
@@ -236,6 +237,8 @@ export interface Tab {
    * that lived there would be overwritten on the next prompt.
    */
   name?: string
+  /** This session's conversation with the agent, newest last. */
+  thread: AgentTurn[]
   /** Terminal panes: the whole window in terminal mode, the panel in IDE mode. */
   shells: LayoutNode
   /** Editor and diff panes, shown in the middle in IDE mode. Null until a file opens. */
@@ -413,7 +416,16 @@ interface Store {
    * terminal half; `sidebarOpen` keeps owning the other.
    */
   sessionsOpen: boolean
+  /** Whether the Claude panel is on screen, and how wide it stands. */
+  agentOpen: boolean
+  agentWidth: number
   toggleSessions(open?: boolean): void
+  toggleAgent(open?: boolean): void
+  setAgentWidth(width: number): void
+  /** Append a turn to a session's thread. */
+  threadAppend(tabId: string, turn: AgentTurn): void
+  threadPatch(tabId: string, turnId: string, patch: Partial<AgentTurn>): void
+  threadClear(tabId: string): void
   /** Whether the directory browser is open over the workspace. */
   dirPicker: boolean
   setDirPicker(open: boolean): void
@@ -634,6 +646,8 @@ export const useStore = create<Store>((set, get) => ({
   mode: 'terminal',
   findPaneId: null,
   sessionsOpen: true,
+  agentOpen: false,
+  agentWidth: 380,
   dirPicker: false,
   panelOpen: true,
   panelView: 'terminal',
@@ -778,6 +792,22 @@ export const useStore = create<Store>((set, get) => ({
   setFind: (paneId) => set(() => ({ findPaneId: paneId })),
 
   toggleSessions: (open) => set((s) => ({ sessionsOpen: open ?? !s.sessionsOpen })),
+  toggleAgent: (open) => set((s) => ({ agentOpen: open ?? !s.agentOpen })),
+  setAgentWidth: (width) => set({ agentWidth: Math.min(720, Math.max(280, width)) }),
+  threadAppend: (tabId, turn) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, thread: [...t.thread, turn] } : t))
+    })),
+  threadPatch: (tabId, turnId, patch) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.id === tabId
+          ? { ...t, thread: t.thread.map((x) => (x.id === turnId ? { ...x, ...patch } : x)) }
+          : t
+      )
+    })),
+  threadClear: (tabId) =>
+    set((s) => ({ tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, thread: [] } : t)) })),
 
   setDirPicker: (open) => set(() => ({ dirPicker: open })),
 
@@ -801,6 +831,7 @@ export const useStore = create<Store>((set, get) => ({
   newTab: (profileId, cwd) => {
     const pane = makeTerminalPane(profileId, cwd ?? window.ember.homeDir)
     const tab: Tab = {
+      thread: [],
       id: uid(),
       shells: { type: 'leaf', paneId: pane.id },
       editors: null,

@@ -73,6 +73,14 @@ export function snapshot(): SessionSnapshot {
       editors: editors ?? undefined,
       id: tab.id,
       name: tab.name,
+      /*
+       * The last forty turns, with anything mid-stream written down as
+       * cancelled: a restored "streaming" would spin forever, and cancelled is
+       * the truth of what the restart did to it.
+       */
+      thread: tab.thread.slice(-40).map((turn) =>
+        turn.status === 'streaming' ? { ...turn, status: 'cancelled' as const } : turn
+      ),
       root,
       activePaneId: ids.includes(tab.activePaneId) ? tab.activePaneId : ids[0]
     })
@@ -112,6 +120,8 @@ export function snapshot(): SessionSnapshot {
     treeRoot: state.treeRoot,
     sidebarOpen: state.sidebarOpen,
     sessionsOpen: state.sessionsOpen,
+    agentOpen: state.agentOpen,
+    agentWidth: state.agentWidth,
     sidebarView: state.sidebarView,
     activeTabId: tabs.find((t) => t.id === state.activeTabId)?.id ?? tabs[0]?.id ?? null,
     tabs,
@@ -328,6 +338,7 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
     tabs.push({
       id: tab.id,
       name: tab.name,
+      thread: tab.thread ?? [],
       shells: root as LayoutNode,
       editors: (editors as LayoutNode) ?? null,
       activePaneId: ids.includes(tab.activePaneId) ? tab.activePaneId : ids[0]
@@ -366,6 +377,8 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
     sidebarOpen: snapshotIn.sidebarOpen,
     // Older session files predate the list; open is what a fresh window does.
     sessionsOpen: snapshotIn.sessionsOpen ?? true,
+    agentOpen: snapshotIn.agentOpen ?? false,
+    agentWidth: snapshotIn.agentWidth ?? 380,
     sidebarView: snapshotIn.sidebarView
   })
 

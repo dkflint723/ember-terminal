@@ -21,6 +21,7 @@ import { ProblemsPanel } from './components/ProblemsPanel'
 import { RegionDivider } from './components/RegionDivider'
 import { DirectoryPicker } from './components/DirectoryPicker'
 import { SessionList } from './components/SessionList'
+import { AgentPanel } from './components/AgentPanel'
 import { existingController } from './terminal/controller'
 
 export function App(): React.JSX.Element {
@@ -29,6 +30,7 @@ export function App(): React.JSX.Element {
   const activeTabId = useStore((s) => s.activeTabId)
   const sidebarOpen = useStore((s) => s.sidebarOpen)
   const sessionsOpen = useStore((s) => s.sessionsOpen)
+  const agentOpen = useStore((s) => s.agentOpen)
   const mode = useStore((s) => s.mode)
   const panelOpen = useStore((s) => s.panelOpen)
   const panelView = useStore((s) => s.panelView)
@@ -568,6 +570,7 @@ export function App(): React.JSX.Element {
         {/* Inside the grid, in the content column: the chips line up with the
             cards above them, and the rail and side slot own the full height. */}
         <StatusBar />
+        {agentOpen && <AgentPanel />}
       </div>
 
       {/* Things that failed away from any panel of their own — a background save,

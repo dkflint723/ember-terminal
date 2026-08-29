@@ -114,18 +114,15 @@ export const COMMANDS: Command[] = [
   },
   {
     /*
-     * Ctrl+Shift+B opened Claude's sidebar, and there is no sidebar any more —
-     * the agent is a block in the list. The chord is kept because it is what
-     * people already press to reach Claude, repointed at what reaching Claude
-     * means now: the composer, pinned to agent, on the active shell.
+     * Ctrl+Shift+B has always meant "reach Claude", through each of this
+     * chord's lives: first a sidebar, then the composer pinned to agent, and
+     * now the panel where the conversation actually lives — asked back into
+     * existence by the user, as the thread surface beside the terminal.
      */
-    id: 'agent.ask',
-    label: 'Ask the agent',
+    id: 'agent.panel',
+    label: 'Claude panel',
     chord: 'Ctrl+Shift+B',
-    run: ({ s, askTarget }) => {
-      const target = askTarget()
-      if (target) s.requestAsk(target, 'agent')
-    }
+    run: ({ s }) => s.toggleAgent()
   },
   {
     // One chord for one slot, whichever face the window is wearing.

@@ -8,6 +8,7 @@ import { useStore } from '../state/store'
  * they are standing on instead of a truncated name in 150px.
  */
 export function TitleBar(): React.JSX.Element {
+  const agentOpen = useStore((s) => s.agentOpen)
   const mode = useStore((s) => s.mode)
   const sessionsOpen = useStore((s) => s.sessionsOpen)
   const sidebarOpen = useStore((s) => s.sidebarOpen)
@@ -90,6 +91,17 @@ export function TitleBar(): React.JSX.Element {
       </div>
 
       <div className="titlebar__layout">
+        {/* Claude's own door, beside the layout controls: pressed while the
+            panel stands, the way the slot toggle reports the slot. */}
+        <button
+          className="titlebar__agent"
+          aria-label="Toggle the Claude panel"
+          aria-pressed={agentOpen}
+          title="Claude panel (Ctrl+Shift+B)"
+          onClick={() => useStore.getState().toggleAgent()}
+        >
+          ✦
+        </button>
         {/*
           The switch the app is built around. Named rather than drawn, because it
           changes what the window is, which is worth a word.

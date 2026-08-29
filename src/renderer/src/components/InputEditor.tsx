@@ -9,6 +9,7 @@ import {
   type CommandBlock,
   type TerminalPaneState
 } from '../state/store'
+import { sendToAgent } from './AgentPanel'
 import { refreshGitForCwd } from '../state/git'
 
 interface Props {
@@ -104,8 +105,6 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
 
   const pending = useStore((st) => st.pendingInput[pane.id])
   const clearBlocks = useStore((st) => st.clearBlocks)
-  const beginConversation = useStore((st) => st.beginConversation)
-  const patchConversation = useStore((st) => st.patchConversation)
 
   // History search hands a command over rather than running it, so the user can
   // read and edit it before committing.
@@ -310,20 +309,19 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
     setValue('')
     setOverride(null)
     setAttachments([])
-    const blockId = beginConversation(pane.id, prompt, sent)
 
     /*
-     * What the model is given to read.
-     *
-     * Attachments first and in the order they were chosen, then the tail of the
-     * session the explain path has always sent — minus anything already attached by
-     * hand, because the same failure twice is a longer request that says no more.
+     * Into the thread, not into a block. The conversation lives in the panel
+     * now — streaming, cancellable, and able to remember its own follow-ups —
+     * so the composer's part is to gather what the question was asked about
+     * and hand it over. The attached chips and the recent tail become plain
+     * text context, the same facts the block flow used to send.
      */
     const chosen = new Set(sent.map((a) => a.blockId))
     const recent = [
       ...sent.flatMap((a) => {
         const block = pane.blocks.find((b) => b.id === a.blockId)
-        return block && block.kind === 'command' ? [asContext(block)] : []
+        return block && block.kind === 'command' ? [block] : []
       }),
       ...pane.blocks
         .slice(-3)
@@ -331,78 +329,16 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
           (b): b is CommandBlock =>
             b.kind === 'command' && b.status !== 'running' && !chosen.has(b.id)
         )
-        .map(asContext)
-    ]
+        ].map((b) => {
+      // The same elision-aware rendering the block flow always sent, so the
+      // model is told when a long output was cut rather than left to guess.
+      const c = asContext(b)
+      const cut = c.elided ? ' [output elided]' : ''
+      return `$ ${c.command} (exit ${c.exitCode})${cut}
+${c.output}`
+    })
 
-    // Wrapped because nothing else ends the block: if this call rejects rather
-    // than resolving — main throwing, the window reloading mid-flight — the
-    // conversation would sit on "Thinking…" for the rest of the session with no
-    // explanation, which reads as the app having locked up.
-    try {
-      const res = await window.ember.ai({
-        intent: prompt,
-        shell: pane.profileId,
-        cwd: pane.cwd,
-        recent,
-        mode: requestMode
-      })
-
-      /*
-       * The destructive flag does not cross the IPC boundary as a flag.
-       *
-       * Main parses it out of the model's JSON and folds it into the note as a
-       * leading ⚠ — an AiResponse carries a command, one sentence, and nothing
-       * else. Reading the marker back off the sentence is what lets the block
-       * draw its own warning, and the sentence is then shown without it so the
-       * same caution is not made twice in two different vocabularies.
-       */
-      const note = (res.explanation ?? '').trim()
-      const destructive = note.startsWith('⚠')
-
-      /*
-       * Whether this one runs itself.
-       *
-       * The mode is read here, at the moment the answer lands, and nowhere else —
-       * which is what keeps a restored conversation inert. A proposal that comes
-       * back from the database carries the verdict it was given last time and is
-       * never put through this, so turning Auto on does not reach backwards and
-       * run what was left open yesterday.
-       *
-       * `auto` defers to the model's own warning, and that flag is a judgement
-       * rather than a guarantee — a command it failed to recognise as destructive
-       * runs. That is the trade the mode is, said plainly in the menu, and it is
-       * why manual is what you get without choosing.
-       *
-       * Read from the store here rather than through a selector above, so it is
-       * the setting in force at the moment the command would run and not the one
-       * that was showing when the question was sent. Someone who has second
-       * thoughts mid-request and switches back to Manual has just said no.
-       */
-      const aiMode = useStore.getState().settings.aiMode
-      const runItself =
-        res.ok && !!res.command && (aiMode === 'bypass' || (aiMode === 'auto' && !destructive))
-
-      patchConversation(pane.id, blockId, {
-        streaming: false,
-        answer: res.ok ? (destructive ? note.replace(/^⚠\s*/, '') : note) : '',
-        error: res.ok ? null : (res.error ?? 'Claude gave no answer and no reason.'),
-        // The proposal carries no note of its own: what came back is one sentence,
-        // and the block has already shown it above the card as the answer.
-        proposal:
-          res.ok && res.command
-            ? { command: res.command, note: '', destructive, state: runItself ? 'run' : 'open' }
-            : null
-      })
-
-      // After the patch, so the command block lands under the conversation that
-      // asked for it rather than racing the answer it belongs to.
-      if (runItself && res.command) controller.runCommand(res.command)
-    } catch (err) {
-      patchConversation(pane.id, blockId, {
-        streaming: false,
-        error: err instanceof Error ? err.message : 'Could not reach Claude.'
-      })
-    }
+    sendToAgent(prompt, recent)
   }
 
   /** Replace the span the backend nominated, and put the caret after it. */

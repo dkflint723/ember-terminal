@@ -14,7 +14,13 @@ import type {
 } from '../shared/types.js'
 
 /** Output is stored to make history searchable, not to reproduce a block. */
-const MAX_OUTPUT_CHARS = 8000
+/*
+ * Raised from 8000: a build log's middle was unrecallable — the living block
+ * keeps a bounded tail and this kept less than a screenful more. A hundred
+ * thousand characters holds the whole of almost any real command, and the FTS
+ * index price for it is megabytes against a history already capped by rows.
+ */
+const MAX_OUTPUT_CHARS = 100_000
 
 /*
  * History is a tool, not an archive: the blocks table has always been capped and

@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
-  AiRequest,
+  AiChatEvent,
+  AiChatRequest,
   CommandNotice,
   CompletionRequest,
   HistoryQuery,
@@ -14,7 +15,6 @@ import type {
   SessionSnapshot,
   HistoryRecord,
   PersistedBlock,
-  AiResponse,
   EmberApi,
   PtyDataEvent,
   PtyExitEvent,
@@ -148,7 +148,13 @@ const api: EmberApi = {
 
   listProfiles: (): Promise<ShellProfile[]> => ipcRenderer.invoke('profiles:list'),
   checkForUpdates: (): Promise<string> => ipcRenderer.invoke('updates:check'),
-  ai: (req: AiRequest): Promise<AiResponse> => ipcRenderer.invoke('ai:run', req),
+  aiChat: (req: AiChatRequest): void => ipcRenderer.send('ai:chat', req),
+  aiChatCancel: (requestId: string): void => ipcRenderer.send('ai:chat-cancel', requestId),
+  onAiChatEvent: (cb: (e: AiChatEvent) => void): (() => void) => {
+    const listener = (_e: unknown, event: AiChatEvent): void => cb(event)
+    ipcRenderer.on('ai:chat-event', listener)
+    return () => ipcRenderer.removeListener('ai:chat-event', listener)
+  },
   aiCredential: (): Promise<AiCredential> => ipcRenderer.invoke('ai:credential'),
   aiUsage: (): Promise<AiUsage | null> => ipcRenderer.invoke('ai:usage'),
   aiCheckUsage: (): Promise<{ ok: true; usage: AiUsage } | { ok: false; error: string }> =>

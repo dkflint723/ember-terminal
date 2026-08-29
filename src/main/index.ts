@@ -46,7 +46,7 @@ import { ClaudeCliService } from './claude-cli.js'
 import {
   DEFAULT_SETTINGS,
   type ShellProfile,
-  type AiRequest,
+  type AiChatRequest,
   type CompletionRequest,
   type HistoryQuery,
   type HistoryRecord,
@@ -404,7 +404,10 @@ function registerIpc(): void {
   )
   ipcMain.on('pty:kill', (_e, paneId: string) => ptys.kill(paneId))
 
-  ipcMain.handle('ai:run', (_e, req: AiRequest) => ai.run(req))
+  ipcMain.on('ai:chat', (_e, req: AiChatRequest) => {
+    void ai.chat(req, (event) => sendToRenderer('ai:chat-event', event))
+  })
+  ipcMain.on('ai:chat-cancel', (_e, requestId: string) => ai.cancelChat(requestId))
   ipcMain.handle('ai:credential', () => ai.credential())
   ipcMain.handle('ai:usage', () => ai.usage())
   ipcMain.handle('ai:check-usage', () => ai.checkUsage())

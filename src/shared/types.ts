@@ -345,6 +345,8 @@ export interface SessionSnapshot {
   sidebarView: 'explorer' | 'search' | 'scm' | 'github' | 'problems'
   /** Terminal mode's session list. Optional so sessions from older builds load. */
   sessionsOpen?: boolean
+  agentOpen?: boolean
+  agentWidth?: number
   activeTabId: string | null
   /**
    * `root` is the shells, and keeps its name so that a session written by an
@@ -353,6 +355,8 @@ export interface SessionSnapshot {
    */
   tabs: {
     id: string
+    /** The session's conversation with the agent, newest last. */
+    thread?: AgentTurn[]
     /** The user's own name for the session, when they gave it one. */
     name?: string
     root: SessionLayout
@@ -528,6 +532,38 @@ export interface IdeCall {
 export type GitDiffResult = GitDiffOk | { ok: false; error: string }
 export type GitSimpleResult = { ok: true } | { ok: false; error: string }
 export type GitCommitResult = { ok: true; summary: string } | { ok: false; error: string }
+
+/** One turn of a session's conversation with the agent. */
+export interface AgentTurn {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+  at: number
+  status: 'streaming' | 'done' | 'error' | 'cancelled'
+  error?: string
+}
+
+/** What the panel sends: the whole thread, plus where the session stands. */
+export interface AiChatRequest {
+  requestId: string
+  messages: { role: 'user' | 'assistant'; text: string }[]
+  cwd: string
+  shell: string
+  /** The file under the caret when the window is an IDE, capped by the sender. */
+  activeFile?: { path: string; text: string }
+  /** Command blocks the user attached, already rendered to plain text. */
+  attached?: string[]
+}
+
+/** Streaming events for one chat request, in arrival order. */
+export interface AiChatEvent {
+  requestId: string
+  /** A few more characters of the answer. */
+  delta?: string
+  /** Set once, last: the stream ended this way. */
+  done?: 'complete' | 'cancelled' | 'error'
+  error?: string
+}
 
 export interface LspEvent {
   type: 'message' | 'exit' | 'restarted'
@@ -753,7 +789,10 @@ export interface EmberApi {
   listProfiles(): Promise<ShellProfile[]>
   /** Ask for a new version now; resolves to a sentence describing what happened. */
   checkForUpdates(): Promise<string>
-  ai(req: AiRequest): Promise<AiResponse>
+  /** Start a streaming chat; events arrive on onAiChatEvent until done. */
+  aiChat(req: AiChatRequest): void
+  aiChatCancel(requestId: string): void
+  onAiChatEvent(cb: (e: AiChatEvent) => void): () => void
   /** `hasApiKey` says whether one is stored; the key itself never comes back. */
   getSettings(): Promise<Settings & { hasApiKey: boolean }>
   /** `persisted` is false when the value is in memory only and will not survive. */

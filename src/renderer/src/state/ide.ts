@@ -82,6 +82,38 @@ export function recordSelection(selection: {
 }
 
 /** Accept or reject a proposed change. Called by the diff pane's controls. */
+/**
+ * A proposal from the panel's own conversation, opened into the same diff flow
+ * the CLI uses. Registered with a settle that answers no one — nothing awaits
+ * these — but registered all the same, because Accept writes the file through
+ * resolveProposal and resolveProposal only acts on proposals it knows.
+ */
+export async function openLocalProposal(target: string, proposed: string): Promise<void> {
+  const state = useStore.getState()
+  let tabName = `✦ ${target.split(/[\\/]/).pop() ?? 'proposal'}`
+  while (pendingProposals.has(tabName)) tabName += '·'
+
+  const existing = await window.ember.readFile(target)
+  const original = existing.ok ? existing.content : ''
+  const tab = state.tabs.find((t) => t.id === state.activeTabId)
+  if (!tab) return
+
+  const { languageForPath } = await import('../editor/monaco')
+  const paneId = state.openDiffInSplit(tab.id, {
+    filePath: target,
+    title: tabName,
+    original,
+    modified: proposed,
+    originalLabel: existing.ok ? 'Current' : 'New file',
+    modifiedLabel: 'Proposed',
+    language: languageForPath(target),
+    staged: false,
+    proposal: { tabName, targetPath: target }
+  })
+  if (!paneId) return
+  pendingProposals.set(tabName, { paneId, settle: () => {} })
+}
+
 export async function resolveProposal(
   tabName: string,
   verdict: 'accept' | 'reject'

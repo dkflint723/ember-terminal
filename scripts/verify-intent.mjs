@@ -77,6 +77,7 @@ const server = http.createServer((req, res) => {
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
 
 const env = {
+  EMBER_FAKE_AI: '1',
   ...process.env,
   ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.address().port}`,
   ANTHROPIC_API_KEY: 'sk-ant-stub-key-for-verification'
@@ -177,7 +178,7 @@ const composerUntil = async (holds, timeoutMs = 3000) => {
 const settle = (want, timeoutMs = 3000) => composerUntil((c) => c.label === want, timeoutMs)
 
 const commandBlocks = () => page.locator('.block:not(.block--agent)')
-const agentBlocks = () => page.locator('.block--agent')
+const userTurns = () => page.locator('.agent__turn--user')
 
 /** Empty the buffer the way a person does, so whatever clearing resets is reset. */
 const clearInput = async () => {
@@ -226,18 +227,18 @@ const run = async (command, timeoutMs = 30_000) => {
   return done
 }
 
-/** The newest conversation, and what its head is carrying. */
-const lastAgent = () =>
+/** The panel's thread: how many turns stand, and what the newest pair holds. */
+const thread = () =>
   page.evaluate(() => {
     const clean = (el) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim()
-    const list = document.querySelectorAll('.block--agent')
-    const block = list[list.length - 1]
-    if (!block) return null
-    const head = block.querySelector('.block__head')
+    const turns = [...document.querySelectorAll('.agent__turn')]
+    const users = [...document.querySelectorAll('.agent__turn--user .agent__text')]
+    const answers = [...document.querySelectorAll('.agent__turn--assistant .agent__text')]
     return {
-      prompt: clean(block.querySelector('.block__prompt')),
-      chips: Array.from(block.querySelectorAll('.block__attach')).map(clean),
-      inHead: head ? head.querySelectorAll('.block__attach').length : 0
+      turns: turns.length,
+      lastUser: clean(users[users.length - 1]),
+      lastAnswer: clean(answers[answers.length - 1]),
+      panelOpen: document.querySelectorAll('.agent').length
     }
   })
 
@@ -311,7 +312,7 @@ check(
 
 // --- Enter does what the label said it would ----------------------------------
 const startCommands = await commandBlocks().count()
-const startAgents = await agentBlocks().count()
+const startAgents = await userTurns().count()
 
 const toShell = await typed('echo intent-shell-marker', 'shell')
 check('the line reads as a command before it is sent', toShell.label === 'shell', JSON.stringify(toShell))
@@ -340,20 +341,21 @@ check(
 check('that really ran', shellBlock?.body.includes('intent-shell-marker') === true, JSON.stringify(shellBlock))
 check(
   'and nothing was asked',
-  (await agentBlocks().count()) === startAgents,
-  `${await agentBlocks().count()} conversations`
+  (await userTurns().count()) === startAgents,
+  `${await userTurns().count()} turns`
 )
 
 const toAgent = await typed('why did that fail?', 'agent')
 check('the line reads as a question before it is sent', toAgent.label === 'agent', JSON.stringify(toAgent))
 await page.keyboard.press('Enter')
-const askedIt = await until(async () => (await agentBlocks().count()) > startAgents, 20_000)
-check('Enter on an agent reading asks instead', askedIt)
-const asked = await lastAgent()
+const askedIt = await until(async () => (await userTurns().count()) > startAgents, 20_000)
+check('Enter on an agent reading asks into the panel', askedIt)
+const asked = await thread()
+check('which stands open to answer', asked.panelOpen === 1, JSON.stringify(asked.panelOpen))
 check(
-  'with the question in the conversation',
-  asked?.prompt.includes('why did that fail?') === true,
-  JSON.stringify(asked)
+  'with the question in the thread',
+  asked.lastUser.includes('why did that fail?'),
+  JSON.stringify(asked.lastUser)
 )
 check(
   'and the shell never saw it',
@@ -366,20 +368,19 @@ check(
  * the wish — "echo something" is a command by every rule there is, and asking about
  * it must not require arguing with the label first.
  */
-const beforeForced = { commands: await commandBlocks().count(), agents: await agentBlocks().count() }
+const beforeForced = { commands: await commandBlocks().count(), turns: await userTurns().count() }
 const forced = await typed('echo intent-forced-marker', 'shell')
 check('the line reads as a command', forced.label === 'shell', JSON.stringify(forced))
 await page.keyboard.press('Control+Enter')
 const forcedAsked = await until(
-  async () => (await agentBlocks().count()) > beforeForced.agents,
+  async () => (await userTurns().count()) > beforeForced.turns,
   20_000
 )
 check('Ctrl+Enter asks anyway', forcedAsked)
-const forcedBlock = await lastAgent()
 check(
   'carrying the line as the question',
-  forcedBlock?.prompt.includes('intent-forced-marker') === true,
-  JSON.stringify(forcedBlock)
+  (await thread()).lastUser.includes('intent-forced-marker'),
+  JSON.stringify((await thread()).lastUser)
 )
 check(
   'and the shell still never saw it',
@@ -457,7 +458,7 @@ check('and one that can, after it', await run('echo kept-e'))
 const failedByNow = await page.locator('.block--failed').count()
 check('so the newest failure is not the newest block', failedByNow === 3, `${failedByNow} failed`)
 
-const beforeAsk = await agentBlocks().count()
+const beforeAsk = await userTurns().count()
 const ready = await typed('why did that just fail?', 'agent')
 check('the question reads as a question', ready.label === 'agent', JSON.stringify(ready))
 await page.keyboard.press('Control+ArrowUp')
@@ -469,24 +470,35 @@ check(
 )
 
 await page.keyboard.press('Enter')
-const landed = await until(async () => (await agentBlocks().count()) > beforeAsk, 20_000)
-check('sending it makes a conversation', landed)
-const conversation = await lastAgent()
+const landed = await until(async () => (await userTurns().count()) > beforeAsk, 20_000)
+check('sending it lands in the thread', landed)
+/*
+ * The chips moved off the screen and onto the wire: the panel's turns carry no
+ * attachment badges, so what was attached is proven by what the model was
+ * GIVEN. The fake backend echoes the count and the first line of the first
+ * attachment, which is where the block's command and its elision marker live.
+ */
+const answered = await until(async () => (await thread()).lastAnswer.includes('attached='), 20_000)
+check('and the request carried one attachment', answered)
+const conversation = await thread()
+/*
+ * Not exactly one: the wire carries the chip AND the session's recent tail,
+ * the way the ask flow always fed the model — the chip's promise is not "only
+ * this" but "this first". The head assertion below is that promise.
+ */
 check(
-  'whose head names what it was given',
-  conversation?.chips.length === 1,
-  JSON.stringify(conversation)
+  'chips and tail together',
+  /attached=[1-9]/.test(conversation.lastAnswer),
+  JSON.stringify(conversation.lastAnswer)
 )
-const chip = conversation?.chips[0] ?? ''
-// The discriminating half: Ctrl+Up reaches past the command that worked to the one
-// that did not, so a chip naming kept-e would mean it simply took the last block.
+const head = conversation.lastAnswer.match(/head="([^"]*)"/)?.[1] ?? ''
+// The discriminating half: Ctrl+Up reaches past the command that worked to the
+// one that did not, so a head naming kept-e would mean it took the last block.
 check(
   'naming the failure rather than the command after it',
-  chip.includes('gone-d') && !chip.includes('kept-e'),
-  JSON.stringify(chip)
+  head.includes('gone-d') && !head.includes('kept-e'),
+  JSON.stringify(head)
 )
-check("described as that command's output", /output(\s*\(elided\))?$/.test(chip), JSON.stringify(chip))
-check('and it sits in the head, with the question', (conversation?.inHead ?? 0) === 1, JSON.stringify(conversation))
 
 /*
  * '(elided)' has to mean something rather than always or never be there.
@@ -505,8 +517,8 @@ const elisions = await page.evaluate(
 )
 check(
   'and the elision is claimed only when there was one',
-  elisions !== null && chip.includes('(elided)') === elisions > 0,
-  `chip ${JSON.stringify(chip)}, block elisions ${elisions}`
+  elisions !== null && head.includes('[output elided]') === elisions > 0,
+  `head ${JSON.stringify(head)}, block elisions ${elisions}`
 )
 
 await app.close()

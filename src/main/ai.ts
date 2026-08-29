@@ -1,82 +1,14 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { AiCredential, AiLimit, AiRequest, AiResponse, AiUsage } from '../shared/types.js'
-import { supportsEffort } from '../shared/models.js'
+import type {
+  AiChatEvent,
+  AiChatRequest,
+  AiCredential,
+  AiLimit,
+  AiUsage
+} from '../shared/types.js'
 import type { SettingsStore } from './settings.js'
 import type { ClaudeCliService } from './claude-cli.js'
 
-/**
- * What the schema says, said in words, for the path that cannot enforce a schema.
- *
- * The fences are called out because models add them by habit: asked for JSON, a
- * model reliably returns it wrapped in a ```json block. The parser strips them
- * anyway, since asking nicely does not actually stop it.
- */
-const JSON_INSTRUCTION = [
-  'Reply with a single JSON object and nothing else — no prose, no explanation around it,',
-  'and no markdown code fences.',
-  '',
-  'Keys:',
-  '  command      string   the one command line to run',
-  '  note         string   one short sentence on what it does, or the risk if destructive',
-  '  destructive  boolean  true when it deletes, overwrites, or is otherwise hard to undo'
-].join('\n')
-
-/*
- * Thinking is always adaptive; how much of it is the user's setting.
- *
- * Low is the default because the request this app makes most often is a single
- * command line, where the wait is the thing being felt. (Disabling thinking
- * outright on Opus 5 risks leaking `<thinking>` tags into the visible response,
- * and low effort already gets most of the token and latency saving.) The switcher
- * beside the prompt raises it for the questions that are worth waiting for.
- */
-
-/**
- * `max_tokens` caps thinking plus response text together, so this is deliberately
- * far above the size of the answer itself — it is a ceiling, not a target.
- */
-const MAX_TOKENS = 8192
-
-const COMMAND_SCHEMA = {
-  type: 'object',
-  properties: {
-    command: {
-      type: 'string',
-      description:
-        'A single runnable command line for the requested shell. No prose, no markdown fences, no leading prompt characters.'
-    },
-    note: {
-      type: 'string',
-      description:
-        'One short sentence explaining what the command does, or naming the risk if it is destructive.'
-    },
-    destructive: {
-      type: 'boolean',
-      description:
-        'True when the command deletes data, overwrites files, changes permissions, or is otherwise hard to undo.'
-    }
-  },
-  required: ['command', 'note', 'destructive'],
-  additionalProperties: false
-}
-
-function commandSystemPrompt(shell: string, cwd: string): string {
-  return [
-    `You translate a natural-language request into one runnable command line for ${shell} on Windows.`,
-    `The user's working directory is ${cwd}.`,
-    '',
-    'Emit the command that a competent user of this shell would actually type: use the',
-    'idioms of the target shell rather than a generic POSIX equivalent, and prefer the',
-    'tools most likely to be installed over ones the user may not have.',
-    '',
-    'Put the whole thing on one line. If the request genuinely needs several steps, chain',
-    'them with the operator this shell uses. When a request is ambiguous, pick the reading',
-    'a careful colleague would and say which one you chose in the note.',
-    '',
-    'Set destructive to true whenever running the command could lose work — deletions,',
-    'overwrites, force pushes, recursive permission changes — so the UI can warn first.'
-  ].join('\n')
-}
 
 /**
  * The side panel, where the conversation is about the work rather than one command.
@@ -97,70 +29,6 @@ function chatSystemPrompt(shell: string, cwd: string): string {
   ].join('\n')
 }
 
-function explainSystemPrompt(shell: string): string {
-  return [
-    `You explain ${shell} command failures to the person who just hit one.`,
-    '',
-    'Lead with the cause in one sentence, then give the fix as a command they can run.',
-    'Keep it to a short paragraph: they are in the middle of something, not reading a manual.',
-    'If the output does not actually say why it failed, name the most likely cause and how',
-    'to confirm it rather than guessing at a fix.'
-  ].join('\n')
-}
-
-/**
- * The JSON object out of a reply that may be wrapped in prose or a code fence.
- *
- * The API path returns bare JSON because the schema is enforced, so this changes
- * nothing there. The CLI path has no schema to enforce, and a model asked for JSON
- * returns it fenced regardless of being told not to — measured, not assumed.
- */
-function unwrapJson(text: string): string {
-  const trimmed = text.trim()
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  const body = (fenced ? fenced[1] : trimmed).trim()
-
-  // Still tolerant of a sentence either side, which fences alone would not catch.
-  const start = body.indexOf('{')
-  const end = body.lastIndexOf('}')
-  return start !== -1 && end > start ? body.slice(start, end + 1) : body
-}
-
-function buildUserMessage(req: AiRequest): string {
-  const parts: string[] = []
-
-  if (req.recent && req.recent.length > 0) {
-    parts.push('Recent commands from this session:')
-    for (const r of req.recent) {
-      /*
-       * Cap each block: a runaway build log would otherwise dominate the request.
-       *
-       * The flag is read as well as the length, and it is the flag that does the
-       * work — the renderer caps at this same 4000 before it sends, so nothing
-       * arriving from the composer is ever longer than the test and the marker
-       * would never be appended. A log that was cut has to say so, or the model
-       * answers about the last thing it can see as though that were the whole of
-       * it. The length still stands for callers that do not set the flag.
-       */
-      const cut = r.output.length > 4000
-      const output = `${cut ? r.output.slice(0, 4000) : r.output}${cut || r.elided ? '\n…[truncated]' : ''}`
-      /*
-       * Where it ran is part of what happened, so each item says so for itself.
-       * The system prompt names only the directory the question is being asked
-       * from, and an attached failure need not have run there — it can predate a
-       * cd, or come from another pane — so without this the model answers about
-       * the wrong tree, and two failures from two directories are indistinguishable
-       * from two in one.
-       */
-      const where = r.cwd ? ` in ${r.cwd}` : ''
-      parts.push(`$ ${r.command}\n(exit ${r.exitCode}${where})\n${output}`)
-    }
-    parts.push('')
-  }
-
-  parts.push(req.mode === 'command' ? `Request: ${req.intent}` : req.intent)
-  return parts.join('\n')
-}
 
 export class AiService {
   constructor(
@@ -292,184 +160,131 @@ export class AiService {
     return { source: 'none', detail: access.installed ? access.error : null }
   }
 
-  /**
-   * The same question, asked through the Claude Code CLI.
+
+  /** Live chat streams, by request id, so a cancel can find its stream. */
+  private chatStreams = new Map<string, { abort: () => void }>()
+
+  /*
+   * The conversational path: the panel's threads, streamed a few characters at
+   * a time. Distinct from run() on purpose — run() bargains for one command
+   * line in JSON, while a thread wants prose with fenced proposals in it.
    *
-   * Structured outputs are not available here — the CLI has no equivalent flag — so
-   * the schema becomes an instruction and the answer is parsed defensively. That is
-   * a genuine step down in reliability for command generation, which is why an
-   * explicit API key still takes precedence over this path.
+   * EMBER_FAKE_AI is the verification suite's seam: with it set, the reply is a
+   * deterministic function of the last message and streams through the same
+   * sink, cancel and all, so the panel can be driven without a key or a network.
    */
-  private async runThroughClaudeCode(req: AiRequest): Promise<AiResponse> {
+  async chat(req: AiChatRequest, sink: (e: AiChatEvent) => void): Promise<void> {
+    if (process.env.EMBER_FAKE_AI) return this.fakeChat(req, sink)
+
+    const apiKey = this.settings.resolveApiKey()
+    if (!apiKey) return this.chatThroughClaudeCode(req, sink)
+
+    const client = new Anthropic({ apiKey, maxRetries: 1 })
+    const system = [
+      chatSystemPrompt(req.shell, req.cwd),
+      'When you propose changing a file, put its complete new content in a fenced',
+      'block whose info string is `lang path=<path>`. When you propose a shell',
+      'command to run, put it alone in a fenced block whose info string is `run`.',
+      req.activeFile
+        ? 'The user is editing ' + req.activeFile.path + ':\n' + req.activeFile.text
+        : '',
+      ...(req.attached ?? []).map((a) => 'Attached terminal output:\n' + a)
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+
+    try {
+      const stream = client.messages.stream({
+        model: this.settings.get().aiModel,
+        max_tokens: 4096,
+        system,
+        messages: req.messages.map((m) => ({ role: m.role, content: m.text }))
+      })
+      this.chatStreams.set(req.requestId, { abort: () => stream.controller.abort() })
+      stream.on('text', (delta) => sink({ requestId: req.requestId, delta }))
+      await stream.finalMessage()
+      sink({ requestId: req.requestId, done: 'complete' })
+    } catch (err) {
+      const aborted = err instanceof Error && err.name === 'AbortError'
+      sink(
+        aborted
+          ? { requestId: req.requestId, done: 'cancelled' }
+          : {
+              requestId: req.requestId,
+              done: 'error',
+              error: this.describeError(err)
+            }
+      )
+    } finally {
+      this.chatStreams.delete(req.requestId)
+    }
+  }
+
+  cancelChat(requestId: string): void {
+    this.chatStreams.get(requestId)?.abort()
+  }
+
+  /** The CLI path has no streaming yet: one answer, delivered as one delta. */
+  private async chatThroughClaudeCode(
+    req: AiChatRequest,
+    sink: (e: AiChatEvent) => void
+  ): Promise<void> {
     const access = await this.claude.access()
-    if (!access.installed) {
-      return {
-        ok: false,
-        error:
-          'No API key, and Claude Code is not installed. Add a key in Settings, or install Claude Code and sign in.'
-      }
+    if (!access.installed || !access.signedIn) {
+      sink({
+        requestId: req.requestId,
+        done: 'error',
+        error: 'No API key, and Claude Code is not signed in. Settings has both doors.'
+      })
+      return
     }
-    if (!access.signedIn) {
-      return {
-        ok: false,
-        error: 'Not signed in. Run `claude auth login`, or add an API key in Settings.'
-      }
-    }
-
-    const system =
-      req.mode === 'command'
-        ? `${commandSystemPrompt(req.shell, req.cwd)}\n\n${JSON_INSTRUCTION}`
-        : req.mode === 'chat'
-          ? chatSystemPrompt(req.shell, req.cwd)
-          : explainSystemPrompt(req.shell)
-
-    const answer = await this.claude.ask(
-      system,
-      buildUserMessage(req),
+    const transcript = req.messages
+      .map((m) => (m.role === 'user' ? 'User: ' : 'Claude: ') + m.text)
+      .join('\n\n')
+    const res = await this.claude.ask(
+      'You are Claude inside Ember, a Windows terminal and IDE. Continue the conversation; reply in plain markdown.',
+      transcript,
       this.settings.get().aiModel
     )
-    if (!answer.ok) return { ok: false, error: answer.error }
-    // Anything that is not asking for a command wants the prose back as it is.
-    if (req.mode !== 'command') return { ok: true, explanation: answer.text.trim() }
-    return this.parseCommand(answer.text)
+    if (res.ok) {
+      sink({ requestId: req.requestId, delta: res.text })
+      sink({ requestId: req.requestId, done: 'complete' })
+    } else {
+      sink({ requestId: req.requestId, done: 'error', error: res.error })
+    }
   }
 
-  async run(req: AiRequest): Promise<AiResponse> {
-    const apiKey = this.settings.resolveApiKey()
-    // No key is no longer the end of it: the user may be signed into Claude Code,
-    // which is the browser login this app can actually reuse.
-    if (!apiKey) return this.runThroughClaudeCode(req)
+  /** See chat(). Deterministic, so a suite can hold every promise to account. */
+  private async fakeChat(req: AiChatRequest, sink: (e: AiChatEvent) => void): Promise<void> {
+    const last = req.messages[req.messages.length - 1]?.text ?? ''
+    const attachedHead = (req.attached?.[0] ?? '').split(String.fromCharCode(10))[0].slice(0, 120)
+    let reply = `fake-reply(turns=${req.messages.length}, attached=${req.attached?.length ?? 0}, head="${attachedHead}"): ${last}`
+    const file = last.match(/make-file:(\S+)/)
+    if (file) {
+      reply =
+        'Writing it now.\n\n```ts path=' +
+        file[1] +
+        '\nexport const planted = true\n```\n\nDone.'
+    }
+    if (last.includes('run-echo')) {
+      reply = 'Run this:\n\n```run\necho panel-ran-this\n```'
+    }
 
-    // Bounded on purpose. Someone waiting on a one-line command has given up long
-    // before a default timeout would fire, and the composer is disabled while the
-    // request is in flight — an unbounded call is indistinguishable from a hang.
-    const client = new Anthropic({ apiKey, timeout: 45_000, maxRetries: 1 })
-    const model = this.settings.get().aiModel
-
+    let cancelled = false
+    this.chatStreams.set(req.requestId, { abort: () => (cancelled = true) })
+    const pace = process.env.EMBER_FAKE_AI_SLOW ? 60 : 5
     try {
-      const message = await this.create(client, model, req)
-
-      // A terminal assistant sits close to topics the safety classifiers watch,
-      // so a refusal is a normal outcome here rather than an exceptional one.
-      // It arrives as a successful response with an empty or partial content
-      // array, so this has to be checked before reading any block.
-      if (message.stop_reason === 'refusal') {
-        const category = message.stop_details?.category ?? 'unspecified'
-        return {
-          ok: false,
-          error: `Claude declined this request (${category}). Rephrasing it usually helps.`
+      for (let i = 0; i < reply.length; i += 8) {
+        if (cancelled) {
+          sink({ requestId: req.requestId, done: 'cancelled' })
+          return
         }
+        sink({ requestId: req.requestId, delta: reply.slice(i, i + 8) })
+        await new Promise((r) => setTimeout(r, pace))
       }
-
-      if (message.stop_reason === 'max_tokens') {
-        return { ok: false, error: 'The response was cut off before it finished. Try again.' }
-      }
-
-      const text = message.content
-        .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')
-        .map((b) => b.text)
-        .join('')
-        .trim()
-
-      if (text.length === 0) {
-        return { ok: false, error: 'Claude returned an empty response.' }
-      }
-
-      if (req.mode !== 'command') return { ok: true, explanation: text }
-
-      return this.parseCommand(text)
-    } catch (err) {
-      // A refusal, a rate limit, an overload: all of them answered, and the answer
-      // said what was left. The reading is worth keeping even when the request was
-      // not — especially a 429, which is the one someone goes looking for.
-      if (err instanceof Anthropic.APIError && err.headers) {
-        this.noteUsage(err.headers, this.settings.get().anthropicApiKey ? 'settings-key' : 'environment-key')
-      }
-      return { ok: false, error: this.describeError(err) }
-    }
-  }
-
-  private async create(
-    client: Anthropic,
-    model: string,
-    req: AiRequest
-  ): Promise<Anthropic.Beta.BetaMessage> {
-    const system =
-      req.mode === 'command'
-        ? commandSystemPrompt(req.shell, req.cwd)
-        : req.mode === 'chat'
-          ? chatSystemPrompt(req.shell, req.cwd)
-          : explainSystemPrompt(req.shell)
-
-    const outputConfig: Record<string, unknown> = {}
-    // Sent only where it is accepted: a model that takes no effort level rejects
-    // the whole request rather than ignoring the field.
-    if (supportsEffort(model)) outputConfig.effort = this.settings.get().aiEffort
-    if (req.mode === 'command') {
-      outputConfig.format = { type: 'json_schema', schema: COMMAND_SCHEMA }
-    }
-
-    const params = {
-      model,
-      max_tokens: MAX_TOKENS,
-      system,
-      thinking: { type: 'adaptive' as const },
-      output_config: outputConfig,
-      messages: [{ role: 'user' as const, content: buildUserMessage(req) }]
-    }
-
-    // Route refusals to a model with broader availability rather than surfacing
-    // them to the user. `fallbacks: "default"` lets the server pick the right
-    // substitute per refusal category, so there is no model list to maintain.
-    // Taken with the response rather than on its own, so the rate-limit headers
-    // that ride along with every answer can be kept — they are the only place the
-    // API says what is left.
-    const source = this.settings.get().anthropicApiKey ? 'settings-key' : 'environment-key'
-    try {
-      const { data, response } = await client.beta.messages
-        .create({
-          ...params,
-          betas: ['server-side-fallback-2026-07-01'],
-          fallbacks: 'default'
-        } as unknown as Anthropic.Beta.MessageCreateParamsNonStreaming)
-        .withResponse()
-      this.noteUsage(response.headers, source)
-      return data
-    } catch (err) {
-      // If this deployment does not accept the fallback beta, the feature should
-      // still work — just without the automatic retry.
-      if (!this.isFallbackUnsupported(err)) throw err
-      const { data, response } = await client.messages
-        .create(params as unknown as Anthropic.MessageCreateParamsNonStreaming)
-        .withResponse()
-      this.noteUsage(response.headers, source)
-      return data as unknown as Anthropic.Beta.BetaMessage
-    }
-  }
-
-  private isFallbackUnsupported(err: unknown): boolean {
-    if (!(err instanceof Anthropic.BadRequestError)) return false
-    return /fallback|beta/i.test(err.message)
-  }
-
-  private parseCommand(text: string): AiResponse {
-    try {
-      const parsed = JSON.parse(unwrapJson(text)) as {
-        command?: string
-        note?: string
-        destructive?: boolean
-      }
-      if (typeof parsed.command !== 'string' || parsed.command.trim().length === 0) {
-        return { ok: false, error: 'Claude did not return a command.' }
-      }
-      const note = parsed.destructive
-        ? `⚠ ${parsed.note ?? 'This command is destructive.'}`
-        : parsed.note
-      return { ok: true, command: parsed.command.trim(), explanation: note }
-    } catch {
-      // Structured outputs should make this unreachable, but a malformed body
-      // must not take the whole feature down.
-      return { ok: false, error: 'Could not read the command Claude returned.' }
+      sink({ requestId: req.requestId, done: 'complete' })
+    } finally {
+      this.chatStreams.delete(req.requestId)
     }
   }
 
