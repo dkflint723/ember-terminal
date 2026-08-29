@@ -1053,8 +1053,24 @@ button {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 12px 16px 0;
+  /*
+   * No top padding, deliberately.
+   *
+   * A sticky head comes to rest at the top of the scrollport's padding box, so
+   * twelve pixels of padding left a twelve-pixel band above every pinned
+   * command where the output of the block before it went scrolling past,
+   * unobscured — a pinned header floating in a stripe of unrelated text, which
+   * is exactly as hard to read as it sounds. With the padding gone the head
+   * rests flush against the top of the pane and nothing can pass above it; the
+   * air it used to give is handed to the first card instead, so the list looks
+   * the same at rest.
+   */
+  padding: 0 16px 0;
   user-select: text;
+}
+
+.pane__scroll > :first-child {
+  margin-top: 12px;
 }
 
 /* Flex needs telling that children keep their own height: a column of cards must
@@ -1181,7 +1197,9 @@ button {
 .block__head--stuck {
   background: var(--bg-chrome);
   border-bottom: 1px solid var(--border);
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.4);
+  /* Deeper now that it truly overhangs the output: the shadow is what says the
+     text is passing underneath the command rather than colliding with it. */
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.55);
   padding: 4px 12px;
 }
 

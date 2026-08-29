@@ -1,6 +1,6 @@
 {
   "name": "ember-terminal",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "A fast, block-based terminal for Windows",
   "main": "./out/main/index.js",
   "author": "dkflint723",

@@ -3,6 +3,16 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
+## 0.3.5 — 2026-08-29
+
+- **The pinned command sits still and stays readable.** A sticky header comes
+  to rest at the top of the scrollport's padding box, and the block list had
+  twelve pixels of it — so every pinned command floated in a twelve-pixel band
+  of the previous block's output, scrolling past behind it. The list gives its
+  top padding to the first card instead, which puts a pinned head flush against
+  the top of the pane where nothing can pass above it, and deepens its shadow so
+  the output plainly goes under the command rather than colliding with it.
+
 ## 0.3.4 — 2026-08-29
 
 - **The update installs where you can see it.** electron-updater applies an
