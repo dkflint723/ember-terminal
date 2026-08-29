@@ -52,6 +52,8 @@ const api: EmberApi = {
   dapRequest: (sessionId: string, command: string, args?: unknown) =>
     ipcRenderer.invoke('dap:request', sessionId, command, args),
   dapStop: (sessionId: string) => ipcRenderer.invoke('dap:stop', sessionId),
+  dapReverseReply: (sessionId: string, requestSeq: number, ok: boolean) =>
+    ipcRenderer.send('dap:reverseReply', sessionId, requestSeq, ok),
   onDapEvent: (cb: (payload: DapEventPayload) => void) => {
     const listener = (_: unknown, payload: DapEventPayload): void => cb(payload)
     ipcRenderer.on('dap:event', listener)

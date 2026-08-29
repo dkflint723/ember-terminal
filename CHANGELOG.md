@@ -5,6 +5,30 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Step debugging, grown up
+
+- **Crashes stop the debugger** — adapters' exception filters appear as
+  checkboxes in the Debug view; with "Uncaught exceptions" on, a throw pauses
+  where it happened instead of ending the run.
+- **launch.json works** — a workspace's `.vscode/launch.json` (comments and
+  trailing commas included) feeds the "F5 runs" picker, with
+  `${workspaceFolder}`/`${file}` substitution; attach configs attach, and an
+  "Attach to Node (port 9229)" entry is always on offer. Stopping an attached
+  session detaches — it never kills the process you attached to.
+- **The program runs as a block** — when a PowerShell pane is standing, the
+  debuggee runs in it via the protocol's own runInTerminal: real stdin, output
+  in a block, and the debug environment cleaned out of the shell afterwards.
+- **Pause and restart** — interrupt a runaway loop, or run the same thing
+  again (`Ctrl+Shift+F5`); breakpoints re-arrive on every fresh session.
+- **Breakpoints that behave** — they ride buffer edits, survive relaunches
+  (conditions included), travel with a session moved to a new window, and can
+  carry a condition or a log message from the Debug view; the margin dot says
+  which kind it is.
+- **A console and hover values** — evaluate expressions in the paused frame
+  from the Debug view; hover a name in the editor while stopped and the
+  adapter answers with its value. A status-bar chip says when a session is
+  live, and multi-threaded stops offer a thread switcher.
+
 ### Step debugging
 
 - **A debugger, spoken in DAP** — Ember grew a generic Debug Adapter Protocol

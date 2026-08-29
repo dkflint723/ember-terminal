@@ -69,6 +69,8 @@ class DapFramer {
 interface PendingRequest {
   resolve: (r: { ok: boolean; body?: unknown; error?: string }) => void
   timer: NodeJS.Timeout
+  /** Which command asked, so the response handler can special-case initialize. */
+  command: string
 }
 
 /** How long a single request may sit unanswered before the caller is released. */
@@ -89,6 +91,13 @@ export class DapSession {
   readonly id = randomUUID()
   /** The window that started the root session; children inherit it. */
   ownerWindowId: number
+  /**
+   * Whether this session launched its debuggee or attached to somebody else's.
+   * Stopping honours the difference: a launched process dies with its session,
+   * an attached one is detached from — killing a dev server somebody attached
+   * to for a look would be the debugger's worst possible manner.
+   */
+  requestKind: 'launch' | 'attach' = 'launch'
 
   private seq = 1
   private pending = new Map<number, PendingRequest>()
@@ -112,8 +121,10 @@ export class DapSession {
   /** Spawn (or connect) and run the initialize handshake. */
   async start(): Promise<void> {
     const env = { ...process.env, ...(this.adapter.env ?? {}) }
-    if (this.parent) {
-      // A child shares its parent's server process; only the socket is new.
+    if (this.parent && this.adapter.transport === 'tcp') {
+      // A child of a TCP server shares its parent's process; only the socket
+      // is new. A child of a stdio adapter falls through below and gets a
+      // process of its own — debugpy's subprocess sessions work exactly so.
       await this.connectWithRetry(this.parent.tcpPort ?? 0)
     } else if (this.adapter.transport === 'tcp') {
       this.tcpPort = await freePort()
@@ -145,10 +156,13 @@ export class DapSession {
       locale: 'en',
       supportsVariableType: true,
       supportsProgressReporting: false,
-      supportsRunInTerminalRequest: false,
+      supportsRunInTerminalRequest: true,
       supportsStartDebuggingRequest: true
     })
     if (!init.ok) throw new Error(init.error ?? 'The adapter refused to initialize.')
+    // Capabilities were already forwarded from onMessage, synchronously and
+    // before any queued 'initialized' event — the ordering the renderer's
+    // exception-filter setup depends on.
   }
 
   /** For TCP adapters: the port the server was handed. */
@@ -158,6 +172,16 @@ export class DapSession {
     if (!this.child) return
     this.child.on('error', (err) => this.fail(`The adapter could not start: ${err.message}`))
     this.child.on('exit', () => this.end())
+    // A TCP server's stdout is chatter, not protocol — but an unread pipe fills
+    // at 64KB and then every write in the adapter blocks. Drained as output.
+    if (this.adapter.transport === 'tcp') {
+      this.child.stdout?.on('data', (chunk: Buffer) =>
+        this.events.onEvent(this.id, 'output', {
+          category: 'console',
+          output: chunk.toString('utf8')
+        })
+      )
+    }
     // An adapter's stderr is its diagnostics channel; surface it as output.
     this.child.stderr?.on('data', (chunk: Buffer) =>
       this.events.onEvent(this.id, 'output', {
@@ -209,9 +233,19 @@ export class DapSession {
         this.pending.delete(seq)
         resolve({ ok: false, error: `The adapter never answered ${command}.` })
       }, REQUEST_TIMEOUT_MS)
-      this.pending.set(seq, { resolve, timer })
+      this.pending.set(seq, { resolve, timer, command })
     })
   }
+
+  /**
+   * Capabilities must reach the renderer before 'initialized' does: the
+   * renderer answers 'initialized' by sending exception filters, and filters it
+   * has not heard of yet are filters that never reach the adapter. The spec
+   * even allows 'initialized' to arrive before the initialize response, so the
+   * event is parked here until the capabilities have gone out.
+   */
+  private capabilitiesSent = false
+  private parkedInitialized: unknown = undefined
 
   private onMessage(msg: Record<string, unknown>): void {
     if (msg.type === 'response') {
@@ -219,6 +253,15 @@ export class DapSession {
       if (!pending) return
       clearTimeout(pending.timer)
       this.pending.delete(msg.request_seq as number)
+      if (pending.command === 'initialize' && msg.success === true && !this.capabilitiesSent) {
+        this.capabilitiesSent = true
+        this.events.onEvent(this.id, 'capabilities-known', msg.body ?? {})
+        if (this.parkedInitialized !== undefined) {
+          const body = this.parkedInitialized
+          this.parkedInitialized = undefined
+          this.events.onEvent(this.id, 'initialized', body)
+        }
+      }
       pending.resolve(
         msg.success === true
           ? { ok: true, body: msg.body }
@@ -228,6 +271,10 @@ export class DapSession {
     }
 
     if (msg.type === 'event') {
+      if (msg.event === 'initialized' && !this.capabilitiesSent) {
+        this.parkedInitialized = msg.body ?? null
+        return
+      }
       this.events.onEvent(this.id, msg.event as string, msg.body)
       if (msg.event === 'terminated' || msg.event === 'exited') {
         // The adapter said it is done; some never close their pipe after.
@@ -251,9 +298,23 @@ export class DapSession {
       return
     }
 
+    if (msg.type === 'request' && msg.command === 'runInTerminal') {
+      /*
+       * The adapter wants its program run in a real terminal — which is the
+       * renderer's to give: a pty pane where stdin works and the run becomes a
+       * block. The request parks here until the renderer says it is standing.
+       */
+      this.reverse.add(msg.seq as number)
+      this.events.onEvent(this.id, 'run-in-terminal', {
+        requestSeq: msg.seq,
+        ...(msg.arguments as Record<string, unknown>)
+      })
+      return
+    }
+
     if (msg.type === 'request') {
-      // Anything else the adapter asks of us — runInTerminal was declared
-      // unsupported — is declined honestly rather than left hanging.
+      // Anything else the adapter asks of us is declined honestly rather than
+      // left hanging.
       this.write({
         seq: this.seq++,
         type: 'response',
@@ -265,10 +326,26 @@ export class DapSession {
     }
   }
 
+  /** Reverse requests parked on the renderer, answered by seq when it reports. */
+  private reverse = new Set<number>()
+
+  respondReverse(requestSeq: number, success: boolean): void {
+    if (!this.reverse.delete(requestSeq)) return
+    this.write({
+      seq: this.seq++,
+      type: 'response',
+      request_seq: requestSeq,
+      success,
+      command: 'runInTerminal',
+      body: {}
+    })
+  }
+
   private async startChild(configuration: Record<string, unknown>, attach: boolean): Promise<void> {
+    const root = this.parent ?? this
+    const child = new DapSession(this.adapter, this.events, this.ownerWindowId, root)
+    child.requestKind = attach ? 'attach' : 'launch'
     try {
-      const root = this.parent ?? this
-      const child = new DapSession(this.adapter, this.events, this.ownerWindowId, root)
       root.children.push(child)
       this.events.register(child)
       this.events.onEvent(child.id, 'session-started', { parent: this.id })
@@ -282,6 +359,9 @@ export class DapSession {
         category: 'stderr',
         output: `A child session failed: ${err instanceof Error ? err.message : String(err)}\n`
       })
+      // A child that never stood up must not linger as a phantom that swallows
+      // pause requests and holds the run alive.
+      child.end()
     }
   }
 
@@ -339,13 +419,26 @@ export class DapService {
     ownerWindowId: number
   ): Promise<{ ok: boolean; sessionId?: string; error?: string }> {
     const session = new DapSession(adapter, this.events(ownerWindowId), ownerWindowId)
+    session.requestKind = req.launch.request === 'attach' ? 'attach' : 'launch'
     this.sessions.set(session.id, session)
     try {
       await session.start()
-      // Launch is not awaited to completion here: many adapters only answer it
-      // after configurationDone, which the renderer sends once breakpoints are
-      // down. Waiting would deadlock the handshake.
-      void session.request(req.launch.request === 'attach' ? 'attach' : 'launch', req.launch)
+      /*
+       * Launch is not awaited to completion here: many adapters only answer it
+       * after configurationDone, which the renderer sends once breakpoints are
+       * down. Waiting would deadlock the handshake. But the answer is not
+       * dropped either — a refused launch (an attach to a port nothing is
+       * listening on) would otherwise leave a session running nothing, saying
+       * nothing, forever.
+       */
+      void session.request(session.requestKind, req.launch).then((res) => {
+        if (res.ok) return
+        this.forward(ownerWindowId, session.id, 'output', {
+          category: 'stderr',
+          output: `${res.error ?? 'The launch failed.'}\n`
+        })
+        session.end()
+      })
       return { ok: true, sessionId: session.id }
     } catch (err) {
       session.end()
@@ -363,11 +456,19 @@ export class DapService {
     return session.request(command, args)
   }
 
+  reverseReply(sessionId: string, requestSeq: number, ok: boolean): void {
+    this.sessions.get(sessionId)?.respondReverse(requestSeq, ok)
+  }
+
   stop(sessionId: string): void {
     const session = this.sessions.get(sessionId)
     if (!session) return
     // Ask politely first; end() runs regardless when the adapter goes quiet.
-    void session.request('disconnect', { terminateDebuggee: true })
+    // A launched debuggee dies with its session; an attached one is somebody
+    // else's process, and stopping means letting go of it, not killing it.
+    void session.request('disconnect', {
+      terminateDebuggee: session.requestKind === 'launch'
+    })
     setTimeout(() => session.end(), 1200)
   }
 

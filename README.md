@@ -37,10 +37,13 @@ again and it's a terminal.
   or the Claude Code CLI; quick asks still answer in the flow.
 - **IDE mode** — TypeScript, Python, YAML and PowerShell language servers,
   go-to definition, snippets, auto-save, split panes, search and replace.
-- **Debugging** — breakpoints in the margin (`F9`), `F5` runs the active file,
-  step with `F10`/`F11`, variables and the call stack in the Debug view. Node
-  via bundled js-debug (`npm run fetch:js-debug` in a dev checkout); any DAP
-  adapter can be taught in settings.
+- **Debugging** — breakpoints in the margin (`F9`, with conditions and
+  logpoints), `F5` runs the active file or a `.vscode/launch.json` config,
+  attach included; step, pause, restart; exception filters; variables, threads
+  and the call stack in the Debug view, values on hover, a console that
+  evaluates in the paused frame — and the program runs as a real block in the
+  terminal, stdin and all. Node via bundled js-debug (`npm run fetch:js-debug`
+  in a dev checkout); any DAP adapter can be taught in settings.
 - **Git** — status, staging, diffs, commits, branch and line counts in the
   status chips; a GitHub panel checks out pull requests via `gh`.
 - **History** — every command searchable across sessions (`Ctrl+R`), with

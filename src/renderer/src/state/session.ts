@@ -8,6 +8,7 @@ import type {
   TerminalPaneTransfer
 } from '@shared/types'
 import { markAdopted } from '../terminal/controller'
+import { seedDebug, serializeDebug, useDebugStore } from './debug'
 import {
   useStore,
   type Block,
@@ -126,6 +127,7 @@ export function snapshot(): SessionSnapshot {
   return {
     version: 1,
     treeRoot: state.treeRoot,
+    debug: serializeDebug(),
     sidebarOpen: state.sidebarOpen,
     sessionsOpen: state.sessionsOpen,
     agentOpen: state.agentOpen,
@@ -403,6 +405,10 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
     sidebarView: snapshotIn.sidebarView
   })
 
+  // The marks come back with the workspace: where the breakpoints stood, which
+  // exception filters were on, and what F5 was set to run.
+  seedDebug(snapshotIn.debug)
+
   // Panes that did not survive to this launch have no way of ever asking for their
   // blocks again, so this is the moment they stop being anyone's.
   window.ember.keepBlocksFor(Object.keys(panes))
@@ -470,7 +476,10 @@ export function packTab(tabId: string): TabTransfer | null {
       activePaneId: ids.includes(tab.activePaneId) ? tab.activePaneId : ids[0]
     },
     terminals,
-    editors: editorPanes
+    editors: editorPanes,
+    // Breakpoints ride along: when this was the window's last session, the
+    // window follows it out and would otherwise take the marks with it.
+    debug: serializeDebug()
   }
 }
 
@@ -578,6 +587,13 @@ export async function adoptTransfer(transfer: TabTransfer | null): Promise<boole
     tabs: [...s.tabs, tab],
     activeTabId: tab.id
   }))
+
+  // A fresh window adopts the mover's debugging posture too; one that already
+  // holds marks of its own keeps them — merging two windows' breakpoint maps
+  // would need answers nobody has asked for yet.
+  if (transfer.debug && Object.keys(useDebugStore.getState().breakpoints).length === 0) {
+    seedDebug(transfer.debug)
+  }
 
   // This window answers for these blocks now; main prunes on the union.
   window.ember.keepBlocksFor(Object.keys(useStore.getState().panes))
@@ -725,6 +741,8 @@ export function useSessionAutosave(enabled: boolean): void {
     }
 
     const unsubscribe = useStore.subscribe(schedule)
+    // Breakpoints live in their own store, and a new one deserves writing down.
+    const unsubscribeDebug = useDebugStore.subscribe(schedule)
     // The last word, and the only one guaranteed to include a final edit: the
     // debounce may not have fired when the window goes away.
     const onLeave = (): void => {
@@ -739,6 +757,7 @@ export function useSessionAutosave(enabled: boolean): void {
     return () => {
       if (timer) window.clearTimeout(timer)
       unsubscribe()
+      unsubscribeDebug()
       window.removeEventListener('beforeunload', onLeave)
       window.removeEventListener('pagehide', onLeave)
     }

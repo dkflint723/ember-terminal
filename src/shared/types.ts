@@ -357,6 +357,19 @@ export interface SessionSnapshot {
   sessionsOpen?: boolean
   agentOpen?: boolean
   agentWidth?: number
+  /**
+   * The window's debugging posture: breakpoints with their conditions, which
+   * exception filters are on, and what F5 was last set to run. Sessions and
+   * their processes are not restorable; where the marks stood is.
+   */
+  debug?: {
+    breakpoints: {
+      path: string
+      lines: { line: number; condition?: string; logMessage?: string }[]
+    }[]
+    exceptionFilters?: Record<string, boolean>
+    launchChoice?: string
+  }
   activeTabId: string | null
   /**
    * `root` is the shells, and keeps its name so that a session written by an
@@ -415,6 +428,8 @@ export interface TabTransfer {
   }
   terminals: TerminalPaneTransfer[]
   editors: Extract<SessionPane, { kind: 'editor' }>[]
+  /** The source window's debugging posture, adopted when the new window has none. */
+  debug?: SessionSnapshot['debug']
 }
 
 /**
@@ -812,6 +827,11 @@ export interface EmberApi {
   ): Promise<{ ok: boolean; body?: unknown; error?: string }>
   /** Tear the session down, adapter process and all. */
   dapStop(sessionId: string): Promise<void>
+  /**
+   * Answer a reverse request the adapter made of the client — runInTerminal,
+   * once the command is actually standing in a terminal pane.
+   */
+  dapReverseReply(sessionId: string, requestSeq: number, ok: boolean): void
   onDapEvent(fn: (payload: DapEventPayload) => void): () => void
   sessionClear(): void
   notifyCommand(notice: CommandNotice): void

@@ -665,6 +665,9 @@ function registerIpc(): void {
     dap.request(sessionId, command, args)
   )
   ipcMain.handle('dap:stop', (_e, sessionId: string) => dap.stop(sessionId))
+  ipcMain.on('dap:reverseReply', (_e, sessionId: string, requestSeq: number, ok: boolean) =>
+    dap.reverseReply(sessionId, requestSeq, ok)
+  )
 
   /*
    * A session moving house. The new window is created holding the packed tab;

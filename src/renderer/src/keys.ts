@@ -105,6 +105,15 @@ export const COMMANDS: Command[] = [
     }
   },
   {
+    id: 'debug.restart',
+    label: 'Debug: restart',
+    chord: 'Ctrl+Shift+F5',
+    run: ({ s }) => {
+      if (s.mode !== 'ide') return false
+      void import('./state/debug').then((m) => m.debugRestart())
+    }
+  },
+  {
     id: 'debug.stepOver',
     label: 'Debug: step over',
     chord: 'F10',
@@ -137,16 +146,13 @@ export const COMMANDS: Command[] = [
     chord: 'F9',
     run: ({ s }) => {
       if (s.mode !== 'ide') return false
+      // Only when the caret is actually in an editor: cursorAt is one
+      // window-wide slot, and pairing it with some other pane's file would put
+      // the mark on the right line of the wrong document.
       const tab = s.tabs.find((t) => t.id === s.activeTabId)
       const pane = tab ? s.panes[tab.activePaneId] : undefined
-      const editor =
-        pane?.kind === 'editor'
-          ? pane
-          : Object.values(s.panes).find(
-              (p): p is Extract<typeof p, { kind: 'editor' }> => p.kind === 'editor'
-            )
-      if (!editor) return false
-      const doc = editor.documents[editor.activeIndex]
+      if (pane?.kind !== 'editor') return false
+      const doc = pane.documents[pane.activeIndex]
       const line = s.cursorAt?.line
       if (!doc?.filePath || !line) return false
       void import('./state/debug').then((m) => m.toggleBreakpoint(doc.filePath!, line))

@@ -5090,6 +5090,22 @@ button.scm__branch {
   border: 1.5px solid var(--fail);
 }
 
+/* A condition turns the dot into a diamond; a log message turns it blue —
+   the mark says which kind of promise it is before anyone hovers. */
+.dbg-breakpoint--conditional::before {
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+.dbg-breakpoint--log::before {
+  background: var(--info);
+}
+
+.dbg-breakpoint--log.dbg-breakpoint--wish::before {
+  background: transparent;
+  border-color: var(--info);
+}
+
 .dbg-stopped-line {
   background: color-mix(in srgb, var(--info) 14%, transparent);
 }
@@ -5231,6 +5247,132 @@ button.scm__branch {
 .dbg__bp-dot--wish {
   background: transparent;
   border: 1.5px solid var(--fail);
+}
+
+.dbg__bp-dot--conditional {
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+.dbg__bp-dot--log {
+  background: var(--info);
+}
+
+.dbg__bp-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.dbg__bp-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 3px 0 6px 14px;
+}
+
+.dbg__bp-input {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  padding: 3px 7px;
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.dbg__bp-input:focus {
+  border-color: var(--border-strong);
+}
+
+/* The launch picker borrows the settings field, at panel scale. */
+.dbg__launch {
+  margin-bottom: 0;
+}
+
+.dbg__launch select {
+  width: 100%;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.dbg__threads {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.dbg__thread {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--fg-dim);
+  font-size: 11px;
+}
+
+.dbg__thread--on {
+  border-color: var(--info);
+  color: var(--fg);
+  background: color-mix(in srgb, var(--info) 12%, transparent);
+}
+
+.dbg__exc {
+  font-size: 12px;
+  margin: 2px 0;
+}
+
+.dbg__repl {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 140px;
+  overflow-y: auto;
+  margin-bottom: 5px;
+}
+
+.dbg__repl-entry {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.dbg__repl-expr {
+  color: var(--fg-faint);
+}
+
+.dbg__repl-result {
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dbg__repl-err {
+  color: var(--fail);
+}
+
+.dbg__console-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  padding: 4px 8px;
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.dbg__console-input:focus {
+  border-color: color-mix(in srgb, var(--info) 60%, transparent);
+}
+
+/* The status bar's word on it: live while running, lit while paused. */
+.statusbar__debug {
+  color: var(--info-fg);
+}
+
+.statusbar__debug--paused {
+  border-color: var(--info);
+  background: color-mix(in srgb, var(--info) 12%, transparent);
 }
 
 .dbg__bp-name {

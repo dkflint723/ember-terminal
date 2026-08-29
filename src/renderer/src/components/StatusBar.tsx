@@ -2,6 +2,7 @@ import { isInside, pathKey, samePath, shortenPath } from '@shared/paths'
 import { activeDocument, paneIdsOf, useStore, type TerminalPaneState } from '../state/store'
 import { modelUri, monaco } from '../editor/monaco'
 import { useProblems } from './ProblemsPanel'
+import { useDebugStore } from '../state/debug'
 import { ClaudeStatus } from './ClaudeChip'
 
 /**
@@ -79,6 +80,7 @@ function goToLine(): void {
  * facts you are working against while editing.
  */
 export function StatusBar(): React.JSX.Element | null {
+  const debugStatus = useDebugStore((s) => s.status)
   const tabs = useStore((s) => s.tabs)
   const panes = useStore((s) => s.panes)
   const activeTabId = useStore((s) => s.activeTabId)
@@ -177,6 +179,21 @@ export function StatusBar(): React.JSX.Element | null {
             <path d="M1.5 3.5h4.2l1.6 1.8h7.2v7.2h-13z" />
           </svg>
           {shortenPath(cwd, 42)}
+        </button>
+      )}
+      {debugStatus !== 'idle' && (
+        <button
+          className={`statusbar__item statusbar__debug ${debugStatus === 'stopped' ? 'statusbar__debug--paused' : ''}`}
+          data-status="debug"
+          aria-label="Debugging. Open the Debug view"
+          title="A debug session is live — click for the Debug view"
+          onClick={() => {
+            const s = useStore.getState()
+            if (s.mode !== 'ide') s.setMode('ide')
+            s.showSidebarView('debug')
+          }}
+        >
+          {debugStatus === 'stopped' ? '⏸ paused' : '● debugging'}
         </button>
       )}
       {branch && (
