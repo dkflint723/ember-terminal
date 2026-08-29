@@ -4,3 +4,4 @@ release/
 .shots/
 *.log
 release/
+resources/js-debug/

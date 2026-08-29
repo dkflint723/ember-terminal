@@ -4,6 +4,7 @@ import { SourceControl } from './SourceControl'
 import { GitHubPanel } from './GitHubPanel'
 import { SearchPanel } from './SearchPanel'
 import { ProblemsPanel } from './ProblemsPanel'
+import { DebugPanel } from './DebugPanel'
 import { Outline } from './Outline'
 
 interface Props {
@@ -17,7 +18,8 @@ const TITLES: Record<string, string> = {
   search: 'Search',
   scm: 'Source Control',
   github: 'GitHub',
-  problems: 'Problems'
+  problems: 'Problems',
+  debug: 'Debug'
 }
 
 /**
@@ -46,6 +48,7 @@ export function Sidebar({ onOpen, onOpenAt }: Props): React.JSX.Element {
       {view === 'scm' && <SourceControl />}
       {view === 'github' && <GitHubPanel />}
       {view === 'problems' && <ProblemsPanel onOpen={onOpenAt} />}
+      {view === 'debug' && <DebugPanel onOpenAt={onOpenAt} />}
       {view === 'explorer' && (
         <>
           <FileTree onOpen={onOpen} />

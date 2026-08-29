@@ -37,6 +37,10 @@ again and it's a terminal.
   or the Claude Code CLI; quick asks still answer in the flow.
 - **IDE mode** — TypeScript, Python, YAML and PowerShell language servers,
   go-to definition, snippets, auto-save, split panes, search and replace.
+- **Debugging** — breakpoints in the margin (`F9`), `F5` runs the active file,
+  step with `F10`/`F11`, variables and the call stack in the Debug view. Node
+  via bundled js-debug (`npm run fetch:js-debug` in a dev checkout); any DAP
+  adapter can be taught in settings.
 - **Git** — status, staging, diffs, commits, branch and line counts in the
   status chips; a GitHub panel checks out pull requests via `gh`.
 - **History** — every command searchable across sessions (`Ctrl+R`), with
@@ -65,6 +69,10 @@ Grab `Ember Setup <version>.exe` from
 | `Ctrl+Shift+T` | New session |
 | `Ctrl+Shift+N` | New window |
 | `Ctrl+Shift+U` | Move session to new window |
+| `F5` | Debug: run the active file, or continue |
+| `F9` | Debug: toggle breakpoint |
+| `F10` / `F11` / `Shift+F11` | Debug: step over / in / out |
+| `Shift+F5` | Debug: stop |
 | `Ctrl+Tab` | Next session |
 | `Ctrl+B` | Side slot — sessions (terminal) or files (IDE) |
 | `Ctrl+J` | Panel |

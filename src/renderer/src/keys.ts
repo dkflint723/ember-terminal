@@ -81,6 +81,77 @@ export const COMMANDS: Command[] = [
       void import('./state/session').then((m) => void m.moveTabToWindow(tab.id))
     }
   },
+  /*
+   * Debugging chords, gated to the IDE: in a terminal the F-keys belong to
+   * whatever is running in it — cmd recalls history on F5 — so returning false
+   * there lets the keystroke carry on to the shell.
+   */
+  {
+    id: 'debug.start',
+    label: 'Debug: start or continue',
+    chord: 'F5',
+    run: ({ s }) => {
+      if (s.mode !== 'ide') return false
+      void import('./state/debug').then((m) => void m.startDebugging())
+    }
+  },
+  {
+    id: 'debug.stop',
+    label: 'Debug: stop',
+    chord: 'Shift+F5',
+    run: ({ s }) => {
+      if (s.mode !== 'ide') return false
+      void import('./state/debug').then((m) => m.stopDebugging())
+    }
+  },
+  {
+    id: 'debug.stepOver',
+    label: 'Debug: step over',
+    chord: 'F10',
+    run: ({ s }) => {
+      if (s.mode !== 'ide') return false
+      void import('./state/debug').then((m) => m.debugStepOver())
+    }
+  },
+  {
+    id: 'debug.stepIn',
+    label: 'Debug: step in',
+    chord: 'F11',
+    run: ({ s }) => {
+      if (s.mode !== 'ide') return false
+      void import('./state/debug').then((m) => m.debugStepIn())
+    }
+  },
+  {
+    id: 'debug.stepOut',
+    label: 'Debug: step out',
+    chord: 'Shift+F11',
+    run: ({ s }) => {
+      if (s.mode !== 'ide') return false
+      void import('./state/debug').then((m) => m.debugStepOut())
+    }
+  },
+  {
+    id: 'debug.toggleBreakpoint',
+    label: 'Debug: toggle breakpoint',
+    chord: 'F9',
+    run: ({ s }) => {
+      if (s.mode !== 'ide') return false
+      const tab = s.tabs.find((t) => t.id === s.activeTabId)
+      const pane = tab ? s.panes[tab.activePaneId] : undefined
+      const editor =
+        pane?.kind === 'editor'
+          ? pane
+          : Object.values(s.panes).find(
+              (p): p is Extract<typeof p, { kind: 'editor' }> => p.kind === 'editor'
+            )
+      if (!editor) return false
+      const doc = editor.documents[editor.activeIndex]
+      const line = s.cursorAt?.line
+      if (!doc?.filePath || !line) return false
+      void import('./state/debug').then((m) => m.toggleBreakpoint(doc.filePath!, line))
+    }
+  },
   {
     id: 'pane.close',
     label: 'Close pane',

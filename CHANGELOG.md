@@ -5,6 +5,23 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Step debugging
+
+- **A debugger, spoken in DAP** — Ember grew a generic Debug Adapter Protocol
+  client: any adapter that speaks DAP over stdio or a TCP port works, and
+  adapters can be taught in settings the way custom shells are.
+- **Node out of the box** — `npm run fetch:js-debug` bundles Microsoft's
+  js-debug (the debugger inside VS Code) into Ember's resources; release
+  builds include it. Multi-session brokering — js-debug's child-session
+  handshake — is handled, so real programs stop where you asked.
+- **The gestures you know** — click the glyph margin or press `F9` for a
+  breakpoint (hollow until the adapter verifies it), `F5` to run the active
+  file or continue, `F10`/`F11`/`Shift+F11` to step, `Shift+F5` to stop. The
+  F-keys act only in IDE mode; in the terminal they still belong to the shell.
+- **A Debug view on the rail** — controls, the call stack, variables that
+  expand on demand, the breakpoint list, and the program's own output. The
+  stopped line is painted in the editor and the file is brought to the front.
+
 ### A second window
 
 - **New window** — `Ctrl+Shift+N` opens another Ember window with its own

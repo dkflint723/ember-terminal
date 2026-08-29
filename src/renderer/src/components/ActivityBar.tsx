@@ -62,6 +62,18 @@ const ENTRIES: Entry[] = [
     )
   },
   {
+    view: 'debug',
+    label: 'Debug',
+    hint: 'Debug (F5 runs the active file)',
+    icon: (
+      // A play triangle wearing a bug's back: run, but watched.
+      <>
+        <path d="M5 3.4v9.2L12.6 8z" />
+        <path d="M3.2 5.2 1.6 4M3.2 8H1.2M3.2 10.8 1.6 12" />
+      </>
+    )
+  },
+  {
     view: 'problems',
     label: 'Problems',
     hint: 'Problems (Ctrl+Shift+M)',

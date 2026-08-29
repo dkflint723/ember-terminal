@@ -246,6 +246,16 @@ export function App(): React.JSX.Element {
 
   useEffect(() => window.ember.onOpenFiles((paths) => void openPaths(paths)), [])
 
+  // Debug events flow whether or not the panel is open — a breakpoint can be
+  // hit while the sidebar is showing the explorer.
+  useEffect(() => {
+    let dispose: (() => void) | null = null
+    void import('./state/debug').then((m) => {
+      dispose = window.ember.onDapEvent((payload) => m.handleDapEvent(payload))
+    })
+    return () => dispose?.()
+  }, [])
+
   /*
    * Settings saved in another window apply here without a relaunch: fonts and
    * flags through the store, the theme and the interface scale re-asserted

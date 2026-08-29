@@ -4,6 +4,8 @@ import type {
   AiChatRequest,
   CommandNotice,
   CompletionRequest,
+  DapEventPayload,
+  DebugStartRequest,
   HistoryQuery,
   IdeCall,
   LspEvent,
@@ -45,6 +47,16 @@ const api: EmberApi = {
   sessionSave: (snapshot: SessionSnapshot) => ipcRenderer.invoke('session:save', snapshot),
   sessionClear: () => ipcRenderer.send('session:clear'),
   newWindow: () => ipcRenderer.send('window:new'),
+  listDebugAdapters: () => ipcRenderer.invoke('dap:adapters'),
+  dapStart: (req: DebugStartRequest) => ipcRenderer.invoke('dap:start', req),
+  dapRequest: (sessionId: string, command: string, args?: unknown) =>
+    ipcRenderer.invoke('dap:request', sessionId, command, args),
+  dapStop: (sessionId: string) => ipcRenderer.invoke('dap:stop', sessionId),
+  onDapEvent: (cb: (payload: DapEventPayload) => void) => {
+    const listener = (_: unknown, payload: DapEventPayload): void => cb(payload)
+    ipcRenderer.on('dap:event', listener)
+    return () => ipcRenderer.removeListener('dap:event', listener)
+  },
   moveTabToNewWindow: (transfer: TabTransfer) => ipcRenderer.invoke('window:moveTab', transfer),
   takeAdoption: () => ipcRenderer.invoke('window:adoption'),
   onSettingsChanged: (cb: (settings: Settings & { hasApiKey: boolean }) => void) => {

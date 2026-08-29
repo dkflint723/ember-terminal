@@ -43,11 +43,14 @@ import { SnippetStore } from './snippets.js'
 import { Notifier, focusWindow } from './notify.js'
 import { AiService } from './ai.js'
 import { ClaudeCliService } from './claude-cli.js'
+import { DapService, detectAdapters } from './dap.js'
 import {
   DEFAULT_SETTINGS,
   type ShellProfile,
   type AiChatRequest,
   type CompletionRequest,
+  type DebugAdapter,
+  type DebugStartRequest,
   type HistoryQuery,
   type HistoryRecord,
   type PersistedBlock,
@@ -260,6 +263,7 @@ let startupFolders: string[] = []
 let ai: AiService
 let claudeCli: ClaudeCliService
 let ptys: PtyManager
+let dap: DapService
 /** Which window raised the last notification, so its click can land there. */
 let lastNoticeWindowId: number | null = null
 /**
@@ -474,6 +478,7 @@ function createWindow(seed: WindowSeed = {}): number {
       paneOwners.delete(paneId)
     }
     windows.delete(id)
+    dap?.stopOwnedBy(id)
     unsavedCounts.delete(id)
     keepSets.delete(id)
     parkedSnapshots.delete(id)
@@ -638,6 +643,28 @@ function registerIpc(): void {
   ipcMain.on('window:new', () => {
     createWindow()
   })
+
+  /*
+   * Debugging. The adapters are served the way shells are — detected plus
+   * taught — and the protocol itself passes through a thin generic client:
+   * the renderer speaks DAP, main speaks processes and sockets.
+   */
+  const adapters = (): DebugAdapter[] => [
+    ...detectAdapters(
+      join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'resources')
+    ),
+    ...settings.get().debugAdapters
+  ]
+  ipcMain.handle('dap:adapters', () => adapters())
+  ipcMain.handle('dap:start', (e, req: DebugStartRequest) => {
+    const adapter = adapters().find((a) => a.id === req?.adapterId)
+    if (!adapter) return { ok: false, error: `No debug adapter for '${req?.adapterId}'.` }
+    return dap.start(req, adapter, windowIdOf(e.sender) ?? 1)
+  })
+  ipcMain.handle('dap:request', (_e, sessionId: string, command: string, args?: unknown) =>
+    dap.request(sessionId, command, args)
+  )
+  ipcMain.handle('dap:stop', (_e, sessionId: string) => dap.stop(sessionId))
 
   /*
    * A session moving house. The new window is created holding the packed tab;
@@ -1012,6 +1039,9 @@ process.on('unhandledRejection', (reason) => {
       },
       () => ide.env()
     )
+    dap = new DapService((ownerWindowId, sessionId, event, body) =>
+      sendToWindow(ownerWindowId, 'dap:event', { sessionId, event, body })
+    )
 
     registerIpc()
 
@@ -1045,6 +1075,7 @@ process.on('unhandledRejection', (reason) => {
 
   app.on('before-quit', () => {
     quitting = true
+    dap?.dispose()
     ptys?.killAll()
     completion?.dispose()
     history?.close()

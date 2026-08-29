@@ -352,7 +352,7 @@ export interface SessionSnapshot {
   version: 1
   treeRoot: string | null
   sidebarOpen: boolean
-  sidebarView: 'explorer' | 'search' | 'scm' | 'github' | 'problems'
+  sidebarView: 'explorer' | 'search' | 'scm' | 'github' | 'problems' | 'debug'
   /** Terminal mode's session list. Optional so sessions from older builds load. */
   sessionsOpen?: boolean
   agentOpen?: boolean
@@ -415,6 +415,43 @@ export interface TabTransfer {
   }
   terminals: TerminalPaneTransfer[]
   editors: Extract<SessionPane, { kind: 'editor' }>[]
+}
+
+/**
+ * One debug adapter: a program that speaks the Debug Adapter Protocol.
+ *
+ * Detected ones come from probing the machine — VS Code ships js-debug, and an
+ * install of it is a working Node debugger sitting right there. Taught ones
+ * come from settings, exactly like custom shells: anything spawnable that
+ * speaks DAP over stdio, or that listens on a port when handed one.
+ */
+export interface DebugAdapter {
+  /** The DAP `type` this adapter answers for: 'pwa-node', 'debugpy', … */
+  id: string
+  name: string
+  /** The command to spawn; for 'tcp' transports `${port}` in args is filled in. */
+  command: string
+  args: string[]
+  transport: 'stdio' | 'tcp'
+  /** Extra environment for the adapter process, merged over Ember's own. */
+  env?: Record<string, string>
+  /** Languages whose files this adapter debugs, by extension, dots included. */
+  extensions: string[]
+}
+
+/** What the renderer asks main to start: which adapter, and what to run. */
+export interface DebugStartRequest {
+  adapterId: string
+  /** The DAP launch arguments, handed to the adapter as they are. */
+  launch: Record<string, unknown>
+}
+
+/** A protocol event or lifecycle notice from one debug session. */
+export interface DapEventPayload {
+  sessionId: string
+  /** DAP event name, or the two lifecycle notices 'session-started' / 'session-ended'. */
+  event: string
+  body: unknown
 }
 
 /** What the Claude Code CLI can tell us about how, or whether, the user is signed in. */
@@ -658,6 +695,8 @@ export interface Settings {
   aiMode: AiMode
   /** Shells the user added by hand, served alongside the detected ones. */
   customProfiles: CustomProfile[]
+  /** Debug adapters the user taught Ember about, served with the detected ones. */
+  debugAdapters: DebugAdapter[]
   /**
    * Chord overrides by command id — only the differences from the defaults.
    * The registry of commands and their default chords lives in renderer code;
@@ -728,6 +767,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoSaveAfterSeconds: 0,
   recentFolders: [],
   customProfiles: [],
+  debugAdapters: [],
   keybindings: {},
   uiZoom: 1,
   windowBounds: null,
@@ -756,6 +796,23 @@ export interface EmberApi {
   takeAdoption(): Promise<TabTransfer | null>
   /** Settings saved by another window; this one applies them without a round trip. */
   onSettingsChanged(fn: (settings: Settings & { hasApiKey: boolean }) => void): () => void
+  /** Debug adapters this machine can offer: detected ones plus those taught in settings. */
+  listDebugAdapters(): Promise<DebugAdapter[]>
+  /** Start a debug session; resolves once the adapter is up and launch is sent. */
+  dapStart(req: DebugStartRequest): Promise<{ ok: boolean; sessionId?: string; error?: string }>
+  /**
+   * One DAP request, passed through: stackTrace, scopes, variables, continue,
+   * next, stepIn, stepOut, setBreakpoints, pause, evaluate — the client stays
+   * thin and the protocol stays visible.
+   */
+  dapRequest(
+    sessionId: string,
+    command: string,
+    args?: unknown
+  ): Promise<{ ok: boolean; body?: unknown; error?: string }>
+  /** Tear the session down, adapter process and all. */
+  dapStop(sessionId: string): Promise<void>
+  onDapEvent(fn: (payload: DapEventPayload) => void): () => void
   sessionClear(): void
   notifyCommand(notice: CommandNotice): void
   notificationsSupported(): Promise<boolean>

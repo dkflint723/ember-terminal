@@ -10,6 +10,7 @@ import { recordSelection } from '../state/ide'
 import { pendingUnsaved, setBufferReader } from '../state/session'
 import { isInside, samePath } from '@shared/paths'
 import { computeGutters, gutterDecorations, hunkAtLine, revertHunk, type GutterHunk } from '../editor/gutters'
+import { wireDebugging } from '../editor/debugging'
 
 interface Props {
   pane: EditorPaneState
@@ -250,17 +251,13 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
         renderCharacters: false
       },
       /*
-       * The gutter, as near as Monaco's options come to the design's 54px.
-       *
-       * It has no width of its own: Monaco builds it from the widest digit times a
-       * digit count, plus a lane for the folding controls, plus a glyph margin that
-       * nothing in this app draws into. Dropping the glyph margin and leaving the
-       * decorations to the folding lane puts the numbers in ~39px with ~16px of air
-       * between them and the code — 54px and 14px to within a pixel or two at the
-       * default font, and moving with the font size rather than staying behind it.
-       * The numbers are right-aligned already, which is Monaco's own default.
+       * The glyph margin is the breakpoint lane. It was dropped when nothing
+       * drew into it — the design's 54px gutter measured without it — but a
+       * debugger needs somewhere for its dots and its arrow that the git bars
+       * do not already own, and this is the lane every editor puts them in.
+       * The gutter grows by one glyph column; the numbers stay right-aligned.
        */
-      glyphMargin: false,
+      glyphMargin: true,
       lineNumbersMinChars: 5,
       lineDecorationsWidth: 0,
       scrollBeyondLastLine: false,
@@ -332,6 +329,10 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     // Markers are global to Monaco rather than per editor, so this hears about every
     // file; paintErrors reads back only the one this editor is showing.
     const markerSub = monaco.editor.onDidChangeMarkers(() => paintErrors())
+
+    // Breakpoints in the glyph margin, and the stopped line when the debugger
+    // stands here — painted and clickable for as long as this editor lives.
+    const unwireDebugging = wireDebugging(editor)
 
     // The margin marks act: Alt+click puts that hunk back the way HEAD has it.
     const gutterClick = editor.onMouseDown((e) => {
@@ -466,6 +467,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
       focusSub.dispose()
       modelSub.dispose()
       gutterClick.dispose()
+      unwireDebugging()
       markerSub.dispose()
       sub.dispose()
       // The caret this pane was reporting no longer exists anywhere, and a position

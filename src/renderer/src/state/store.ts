@@ -106,7 +106,7 @@ export type Block = CommandBlock | ConversationBlock
 export type PaneKind = 'terminal' | 'editor' | 'diff'
 
 /** Which view the sidebar is showing, chosen from the activity bar. */
-export type SidebarView = 'explorer' | 'search' | 'scm' | 'github' | 'problems'
+export type SidebarView = 'explorer' | 'search' | 'scm' | 'github' | 'problems' | 'debug'
 
 /** A terminal, or the whole IDE around it. */
 export type WorkspaceMode = 'terminal' | 'ide'
