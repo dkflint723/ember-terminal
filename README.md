@@ -113,7 +113,7 @@ npm run dist
 
 ### Verifying it
 
-The test suite is 52 Playwright scripts under `scripts/verify-*.mjs`, each of
+The test suite is 54 Playwright scripts under `scripts/verify-*.mjs`, each of
 which launches the real app with a throwaway profile and drives it like a hand:
 
 ```bash
