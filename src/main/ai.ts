@@ -241,16 +241,25 @@ export class AiService {
     const transcript = req.messages
       .map((m) => (m.role === 'user' ? 'User: ' : 'Claude: ') + m.text)
       .join('\n\n')
-    const res = await this.claude.ask(
-      'You are Claude inside Ember, a Windows terminal and IDE. Continue the conversation; reply in plain markdown.',
-      transcript,
-      this.settings.get().aiModel
+    const system = [
+      chatSystemPrompt(req.shell, req.cwd),
+      'When you propose changing a file, put its complete new content in a fenced',
+      'block whose info string is `lang path=<path>`. When you propose a shell',
+      'command to run, put it alone in a fenced block whose info string is `run`.',
+      'Continue the conversation below; reply as Claude, in plain markdown.'
+    ].join('\n\n')
+
+    const stream = this.claude.askStream(system, transcript, this.settings.get().aiModel, (delta) =>
+      sink({ requestId: req.requestId, delta })
     )
-    if (res.ok) {
-      sink({ requestId: req.requestId, delta: res.text })
-      sink({ requestId: req.requestId, done: 'complete' })
-    } else {
-      sink({ requestId: req.requestId, done: 'error', error: res.error })
+    this.chatStreams.set(req.requestId, { abort: stream.cancel })
+    try {
+      const res = await stream.done
+      if ('cancelled' in res) sink({ requestId: req.requestId, done: 'cancelled' })
+      else if (res.ok) sink({ requestId: req.requestId, done: 'complete' })
+      else sink({ requestId: req.requestId, done: 'error', error: res.error })
+    } finally {
+      this.chatStreams.delete(req.requestId)
     }
   }
 
@@ -268,6 +277,16 @@ export class AiService {
     }
     if (last.includes('run-echo')) {
       reply = 'Run this:\n\n```run\necho panel-ran-this\n```'
+    }
+    if (last.includes('markdown-me')) {
+      reply = [
+        '# A heading',
+        '',
+        'Some **bold words** and `inline code` and a [link](https://example.com/docs).',
+        '',
+        '- first item',
+        '- second item'
+      ].join('\n')
     }
 
     let cancelled = false

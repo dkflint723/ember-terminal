@@ -128,6 +128,34 @@ const ran = await page.evaluate(() =>
 )
 check('Run puts the command through the session', ran)
 
+// --- prose renders as prose, and links stay in hand ----------------------------
+await ask('markdown-me')
+await waitAnswered('second item')
+const rendered = await page.evaluate(() => ({
+  headings: document.querySelectorAll('.agent__heading').length,
+  bold: document.querySelectorAll('.agent__text strong').length,
+  code: document.querySelectorAll('.agent__text code').length,
+  items: document.querySelectorAll('.agent__list li').length,
+  link: document.querySelector('.agent__text a')?.getAttribute('data-url') ?? null
+}))
+check('a heading is a heading', rendered.headings >= 1, JSON.stringify(rendered))
+check('bold is bold and code is code', rendered.bold >= 1 && rendered.code >= 1, JSON.stringify(rendered))
+check('the list has its items', rendered.items === 2, JSON.stringify(rendered))
+check('and the link knows where it points', rendered.link === 'https://example.com/docs', String(rendered.link))
+
+// --- the thread filter sifts ----------------------------------------------------
+await page.locator('.agent__filter').fill('markdown-me')
+await sleep(400)
+const sifted = await page.evaluate(() => ({
+  dimmed: document.querySelectorAll('.agent__turn--dimmed').length,
+  meta: [...document.querySelectorAll('.agent__meta')].map((m) => m.textContent).join(' ')
+}))
+check('non-matching turns step back', sifted.dimmed >= 1, JSON.stringify(sifted))
+check('and the count says how many match', /\d+ of \d+ turns match/.test(sifted.meta), sifted.meta)
+await page.locator('.agent__filter').fill('')
+await sleep(300)
+check('clearing brings everything back', (await page.locator('.agent__turn--dimmed').count()) === 0)
+
 // --- the composer sends into the same thread -----------------------------------
 const turnsBefore = await page.locator('.agent__turn').count()
 await page.locator('.composer__input').click()

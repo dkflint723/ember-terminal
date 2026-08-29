@@ -164,9 +164,141 @@ export class ClaudeCliService {
       return { ok: false, error: 'Could not read what Claude Code returned.' }
     }
   }
+
+  /**
+   * ask(), but the answer arrives as it is written.
+   *
+   * `--output-format stream-json` turns the CLI's print mode into JSONL events,
+   * and `--include-partial-messages` puts the model's own text deltas among
+   * them — the same stream the API path gets, one process further away. Falls
+   * back gracefully: an older CLI that rejects the flags, or a stream with no
+   * partials in it, still resolves with the final result text, delivered late
+   * but whole.
+   */
+  askStream(
+    system: string,
+    prompt: string,
+    model: string,
+    onDelta: (text: string) => void
+  ): AskStream {
+    const args = [
+      '-p',
+      prompt,
+      '--output-format',
+      'stream-json',
+      '--include-partial-messages',
+      '--verbose',
+      '--model',
+      model,
+      '--system-prompt',
+      system,
+      '--strict-mcp-config',
+      '--mcp-config',
+      '{"mcpServers":{}}',
+      '--setting-sources',
+      '',
+      '--no-session-persistence',
+      '--disallowed-tools',
+      'Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,Task,NotebookEdit,TodoWrite'
+    ]
+
+    const env = { ...process.env }
+    delete env.CLAUDE_CODE_SSE_PORT
+    delete env.ANTHROPIC_API_KEY
+    delete env.ELECTRON_RUN_AS_NODE
+
+    let cancelled = false
+    let child: ReturnType<typeof execFile> | null = null
+
+    const done = new Promise<AskResult | { ok: false; cancelled: true }>((resolve) => {
+      let streamedAny = false
+      let finalText = ''
+      let finalError: string | null = null
+      let carry = ''
+
+      child = execFile(
+        'claude',
+        args,
+        { env, timeout: 180_000, windowsHide: true, maxBuffer: 32 * 1024 * 1024 },
+        (error) => {
+          if (cancelled) {
+            resolve({ ok: false, cancelled: true })
+            return
+          }
+          if (error && !finalText) {
+            resolve({
+              ok: false,
+              error: missing(error)
+                ? 'Claude Code is not installed, so there is nothing to sign in to.'
+                : describe(error)
+            })
+            return
+          }
+          if (finalError) resolve({ ok: false, error: finalError })
+          else if (finalText) {
+            // A CLI without partials delivered nothing along the way; the
+            // whole answer goes out as one late delta so the caller need not
+            // care which kind of CLI answered.
+            if (!streamedAny) onDelta(finalText)
+            resolve({ ok: true, text: finalText })
+          } else resolve({ ok: false, error: 'Claude Code returned no answer.' })
+        }
+      )
+      child.stdin?.end()
+
+      child.stdout?.on('data', (chunk: string | Buffer) => {
+        carry += chunk.toString()
+        for (;;) {
+          const nl = carry.indexOf('\n')
+          if (nl === -1) return
+          const line = carry.slice(0, nl).trim()
+          carry = carry.slice(nl + 1)
+          if (!line) continue
+          try {
+            const event = JSON.parse(line) as {
+              type?: string
+              subtype?: string
+              is_error?: boolean
+              result?: string
+              event?: { type?: string; delta?: { type?: string; text?: string } }
+            }
+            if (event.type === 'stream_event') {
+              const delta = event.event?.delta
+              if (event.event?.type === 'content_block_delta' && delta?.type === 'text_delta' && delta.text) {
+                streamedAny = true
+                onDelta(delta.text)
+              }
+            } else if (event.type === 'result') {
+              if (event.is_error || event.subtype !== 'success') {
+                finalError = event.result || 'Claude Code returned an error.'
+              } else {
+                finalText = event.result ?? ''
+              }
+            }
+          } catch {
+            // A malformed line loses itself; the stream stays aligned.
+          }
+        }
+      })
+    })
+
+    return {
+      done,
+      cancel: () => {
+        cancelled = true
+        child?.kill()
+      }
+    }
+  }
 }
 
 export type AskResult = { ok: true; text: string } | { ok: false; error: string }
+
+export interface AskStream {
+  /** Resolves when the CLI finishes, however it finishes. */
+  done: Promise<AskResult | { ok: false; cancelled: true }>
+  cancel: () => void
+}
 
 /** Whether the failure was "there is no such program" rather than a real error. */
 function missing(err: unknown): boolean {

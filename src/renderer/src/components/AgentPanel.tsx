@@ -174,6 +174,8 @@ export function AgentPanel(): React.JSX.Element | null {
   const toggleAgent = useStore((s) => s.toggleAgent)
   const threadClear = useStore((s) => s.threadClear)
   const [draft, setDraft] = useState('')
+  /** A sieve over the thread: matching turns stay lit, the rest step back. */
+  const [filter, setFilter] = useState('')
   const scroll = useRef<HTMLDivElement>(null)
 
   const thread = tab?.thread ?? []
@@ -216,6 +218,14 @@ export function AgentPanel(): React.JSX.Element | null {
       <div className="agent__resize" role="separator" aria-orientation="vertical" onMouseDown={startResize} />
       <div className="agent__head">
         <span className="agent__title">✦ Claude</span>
+        <input
+          className="agent__filter"
+          placeholder="Search thread…"
+          aria-label="Search this conversation"
+          value={filter}
+          spellCheck={false}
+          onChange={(e) => setFilter(e.target.value)}
+        />
         <span className="agent__spacer" />
         <button
           className="icon-btn"
@@ -243,8 +253,22 @@ export function AgentPanel(): React.JSX.Element | null {
             remember, and proposals arrive as things you can apply.
           </div>
         )}
+        {filter.trim().length > 0 && (
+          <div className="agent__meta">
+            {thread.filter((t) => t.text.toLowerCase().includes(filter.trim().toLowerCase())).length}{' '}
+            of {thread.length} turns match
+          </div>
+        )}
         {thread.map((turn) => (
-          <div key={turn.id} className={`agent__turn agent__turn--${turn.role}`}>
+          <div
+            key={turn.id}
+            className={`agent__turn agent__turn--${turn.role} ${
+              filter.trim().length > 0 &&
+              !turn.text.toLowerCase().includes(filter.trim().toLowerCase())
+                ? 'agent__turn--dimmed'
+                : ''
+            }`}
+          >
             <div className="agent__who">{turn.role === 'user' ? 'you' : '✦ claude'}</div>
             {turn.role === 'user' ? (
               <div className="agent__text">{turn.text}</div>
@@ -294,11 +318,101 @@ export function AgentPanel(): React.JSX.Element | null {
   )
 }
 
+/*
+ * Markdown, at the size a panel needs and no larger: headings, lists, bold,
+ * italics, inline code, and links that open in the browser. No dependency —
+ * a renderer this small is easier to trust than a bundle, and everything it
+ * cannot parse falls through as the plain text it was.
+ */
+function inlineProse(text: string, keyBase: string): React.ReactNode[] {
+  const out: React.ReactNode[] = []
+  const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\s][^*]*\*)|(\[[^\]]+\]\(https?:[^\s)]+\))/g
+  let last = 0
+  let n = 0
+  for (let m = pattern.exec(text); m; m = pattern.exec(text)) {
+    if (m.index > last) out.push(text.slice(last, m.index))
+    const token = m[0]
+    const key = `${keyBase}-${n++}`
+    if (token.startsWith('`')) {
+      out.push(<code key={key}>{token.slice(1, -1)}</code>)
+    } else if (token.startsWith('**')) {
+      out.push(<strong key={key}>{token.slice(2, -2)}</strong>)
+    } else if (token.startsWith('[')) {
+      const label = token.slice(1, token.indexOf(']'))
+      const url = token.slice(token.indexOf('(') + 1, -1)
+      out.push(
+        <a
+          key={key}
+          href={url}
+          data-url={url}
+          onClick={(e) => {
+            e.preventDefault()
+            window.ember.openExternal(url)
+          }}
+        >
+          {label}
+        </a>
+      )
+    } else {
+      out.push(<em key={key}>{token.slice(1, -1)}</em>)
+    }
+    last = m.index + token.length
+  }
+  if (last < text.length) out.push(text.slice(last))
+  return out
+}
+
+function renderProse(text: string, keyBase: string): React.ReactNode[] {
+  const out: React.ReactNode[] = []
+  const lines = text.split('\n')
+  let list: string[] = []
+  let n = 0
+
+  const flushList = (): void => {
+    if (list.length === 0) return
+    const items = list
+    list = []
+    out.push(
+      <ul key={`${keyBase}-ul${n++}`} className="agent__list">
+        {items.map((item, i) => (
+          <li key={i}>{inlineProse(item, `${keyBase}-li${n}-${i}`)}</li>
+        ))}
+      </ul>
+    )
+  }
+
+  for (const line of lines) {
+    const bullet = line.match(/^\s*[-*]\s+(.*)$/)
+    if (bullet) {
+      list.push(bullet[1])
+      continue
+    }
+    flushList()
+    const heading = line.match(/^(#{1,3})\s+(.*)$/)
+    if (heading) {
+      out.push(
+        <div key={`${keyBase}-h${n++}`} className="agent__heading">
+          {inlineProse(heading[2], `${keyBase}-ht${n}`)}
+        </div>
+      )
+      continue
+    }
+    out.push(
+      <span key={`${keyBase}-p${n++}`}>
+        {inlineProse(line, `${keyBase}-pt${n}`)}
+        {'\n'}
+      </span>
+    )
+  }
+  flushList()
+  return out
+}
+
 function TurnBody({ turn }: { turn: AgentTurn }): React.JSX.Element {
   return (
     <div className="agent__text">
       {segmentsOf(turn.text).map((seg, i) => {
-        if (seg.kind === 'text') return <span key={i}>{seg.text}</span>
+        if (seg.kind === 'text') return <span key={i}>{renderProse(seg.text, `s${i}`)}</span>
         if (seg.kind === 'code')
           return (
             <pre key={i} className="agent__code">
