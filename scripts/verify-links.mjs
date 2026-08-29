@@ -35,19 +35,9 @@ const check = (label, ok, detail) => {
   if (!ok) failures.push(`${label}${detail !== undefined ? ` — ${detail}` : ''}`)
 }
 
-const run = async (cmd, settle = 2200, pinShell = false) => {
+const run = async (cmd, settle = 2200) => {
   await page.click('.composer__input')
   await page.keyboard.type(cmd, { delay: 4 })
-  // Prose reads as a question to the composer, and a question would go to the
-  // agent — Ctrl+K on a buffer the classifier calls agent pins it back to the
-  // shell, which is both the escape hatch a person has and a check that it works.
-  // The classifier settles on a short debounce, so the toggle waits it out: a
-  // press racing it toggles against the stale reading and pins the wrong side.
-  if (pinShell) {
-    await sleep(400)
-    await page.keyboard.press('Control+k')
-    await sleep(200)
-  }
   await page.keyboard.press('Enter')
   await sleep(settle)
 }
@@ -58,7 +48,7 @@ const run = async (cmd, settle = 2200, pinShell = false) => {
 // below scope to block BODIES, so the command echoed in the head cannot match.
 await run(`cd "${APP_DIR}"`, 2600)
 await run('echo scripts/verify-links.mjs:31:9')
-await run("echo 'just plain prose with no destination'", 2200, true)
+await run("echo 'just plain prose with no destination'")
 await run('echo https://example.com/docs')
 
 /**

@@ -543,6 +543,7 @@ function registerIpc(): void {
   ipcMain.handle('git:push', (_e, root: string, hasUpstream: boolean) => git.push(root, hasUpstream))
   ipcMain.handle('git:pull', (_e, root: string) => git.pull(root))
   ipcMain.handle('git:branches', (_e, root: string) => git.branches(root))
+  ipcMain.handle('git:headText', (_e, filePath: string) => git.headText(filePath))
   ipcMain.handle('git:checkout', (_e, root: string, name: string, create: boolean) =>
     create ? git.createBranch(root, name) : git.checkout(root, name)
   )

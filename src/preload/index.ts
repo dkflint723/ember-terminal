@@ -96,6 +96,8 @@ const api: EmberApi = {
   gitPush: (root: string, hasUpstream: boolean) => ipcRenderer.invoke('git:push', root, hasUpstream),
   gitPull: (root: string) => ipcRenderer.invoke('git:pull', root),
   gitBranches: (root: string) => ipcRenderer.invoke('git:branches', root),
+  gitHeadText: (filePath: string): Promise<string | null> =>
+    ipcRenderer.invoke('git:headText', filePath),
   gitCheckout: (root: string, name: string, create: boolean) =>
     ipcRenderer.invoke('git:checkout', root, name, create),
   gitDiff: (root: string, path: string, staged: boolean) =>

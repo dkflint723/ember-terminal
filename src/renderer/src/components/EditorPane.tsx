@@ -9,6 +9,7 @@ import { lastSynced, noteSynced } from '../editor/synced'
 import { recordSelection } from '../state/ide'
 import { pendingUnsaved, setBufferReader } from '../state/session'
 import { isInside, samePath } from '@shared/paths'
+import { computeGutters, gutterDecorations, hunkAtLine, revertHunk, type GutterHunk } from '../editor/gutters'
 
 interface Props {
   pane: EditorPaneState
@@ -100,9 +101,61 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
   const dragFrom = useRef<number | null>(null)
   const [dragOver, setDragOver] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
+  /*
+   * Change bars against HEAD. The committed text is cached per file and
+   * invalidated when the branch moves or a commit lands (both change what
+   * HEAD says); the hunks recompute from the live buffer on a short debounce.
+   */
+  const headTexts = useRef(new Map<string, string | null>())
+  // One spelling for the cache key: the store says C:\..., Monaco's fsPath says
+  // c:/..., and a Map treats those as strangers.
+  const headKey = (p: string): string => p.replace(/\\/g, '/').toLowerCase()
+  const gutterHunks = useRef<GutterHunk[]>([])
+  const gutterIds = useRef<string[]>([])
+  const gutterTimer = useRef(0)
+  const branch = useStore((s) => s.gitStatus?.branch ?? null)
+  const ahead = useStore((s) => s.gitStatus?.ahead ?? 0)
   const [message, setMessage] = useState<string | null>(null)
 
   const document = activeDocument(pane)
+
+  const paintGutters = (): void => {
+    const editor = editorRef.current
+    const model = editor?.getModel()
+    if (!editor || !model) return
+    // The model's own uri, not the render's document: the subscriptions that
+    // call this were made once, and a closed-over document goes stale the
+    // first time the tab switches under them.
+    const path = model.uri.scheme === 'file' ? model.uri.fsPath : null
+    const head = path ? headTexts.current.get(headKey(path)) : null
+    if (head === null || head === undefined) {
+      gutterHunks.current = []
+      gutterIds.current = model.deltaDecorations(gutterIds.current, [])
+      return
+    }
+    gutterHunks.current = computeGutters(head, model.getValue())
+    gutterIds.current = model.deltaDecorations(
+      gutterIds.current,
+      gutterDecorations(gutterHunks.current)
+    )
+  }
+
+  useEffect(() => {
+    const path = document.filePath
+    if (!path) return
+    let stale = false
+    // A commit or a branch switch changes what HEAD says about every file.
+    headTexts.current.delete(headKey(path))
+    void window.ember.gitHeadText(path).then((text) => {
+      if (stale) return
+      headTexts.current.set(headKey(path), text)
+      paintGutters()
+    })
+    return () => {
+      stale = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [document.filePath, branch, ahead])
   const crumbs = crumbsFor(document.filePath, treeRoot, document.title)
 
   /*
@@ -280,11 +333,25 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     // file; paintErrors reads back only the one this editor is showing.
     const markerSub = monaco.editor.onDidChangeMarkers(() => paintErrors())
 
+    // The margin marks act: Alt+click puts that hunk back the way HEAD has it.
+    const gutterClick = editor.onMouseDown((e) => {
+      if (!e.event.altKey) return
+      if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS) return
+      const line = e.target.position?.lineNumber
+      if (!line) return
+      const hunk = hunkAtLine(gutterHunks.current, line)
+      if (!hunk) return
+      e.event.preventDefault()
+      revertHunk(editor, hunk)
+    })
+
     // A tab switch is a new caret and a different set of wrong lines, and neither
     // event above fires for it.
     const modelSub = editor.onDidChangeModel(() => {
       reportCursor()
       paintErrors()
+      gutterIds.current = []
+      paintGutters()
     })
 
     // Several editors can be open at once and only one of them holds the caret the
@@ -308,6 +375,8 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     // Dirtiness is per document, and the edit always belongs to whichever one is on
     // screen — so the index is read at the time of the edit, not captured here.
     const sub = editor.onDidChangeModelContent(() => {
+      window.clearTimeout(gutterTimer.current)
+      gutterTimer.current = window.setTimeout(paintGutters, 300)
       const current = useStore.getState().editorPane(pane.id)
       if (!current) return
       const index = current.activeIndex
@@ -396,6 +465,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
       selectionSub.dispose()
       focusSub.dispose()
       modelSub.dispose()
+      gutterClick.dispose()
       markerSub.dispose()
       sub.dispose()
       // The caret this pane was reporting no longer exists anywhere, and a position

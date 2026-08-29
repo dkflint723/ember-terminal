@@ -478,8 +478,14 @@ check('sending it lands in the thread', landed)
  * GIVEN. The fake backend echoes the count and the first line of the first
  * attachment, which is where the block's command and its elision marker live.
  */
-const answered = await until(async () => (await thread()).lastAnswer.includes('attached='), 20_000)
-check('and the request carried one attachment', answered)
+// Wait for the stream to FINISH, not merely begin: the head fingerprint sits
+// at the end of the reply, and reading it mid-stream races the fake's pacing.
+const answered = await until(async () => {
+  const t = await thread()
+  const still = await page.evaluate(() => document.querySelectorAll('.agent__cursor').length > 0)
+  return !still && t.lastAnswer.includes('attached=')
+}, 20_000)
+check('and the request carried the attachments', answered)
 const conversation = await thread()
 /*
  * Not exactly one: the wire carries the chip AND the session's recent tail,

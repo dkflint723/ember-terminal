@@ -286,9 +286,8 @@ export function AgentPanel(): React.JSX.Element | null {
       <div className="agent__foot">
         <textarea
           className="agent__input"
-          placeholder={streaming ? 'Answering…' : 'Ask about this session…'}
+          placeholder={streaming ? 'Answering — your next question can wait here…' : 'Ask about this session…'}
           value={draft}
-          disabled={streaming}
           rows={2}
           spellCheck={false}
           onChange={(e) => setDraft(e.target.value)}

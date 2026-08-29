@@ -732,6 +732,8 @@ export interface EmberApi {
   gitPush(root: string, hasUpstream: boolean): Promise<GitSimpleResult>
   gitPull(root: string): Promise<GitSimpleResult>
   gitBranches(root: string): Promise<string[]>
+  /** The committed text of a file, or null when there is nothing to diff against. */
+  gitHeadText(filePath: string): Promise<string | null>
   gitCheckout(root: string, name: string, create: boolean): Promise<GitSimpleResult>
   openExternal(url: string): void
   search(query: SearchQuery): Promise<SearchResult>

@@ -179,6 +179,28 @@ export class GitService {
    * the index, an unstaged one is the index against what is on disk, and an
    * untracked file has nothing on the left at all.
    */
+  /**
+   * The file as HEAD has it, resolved from the file's own location — the
+   * gutters ask about whatever buffer is open, which need not live under the
+   * workspace root. Null when there is nothing to compare against: outside any
+   * repository, untracked, or binary.
+   */
+  async headText(filePath: string): Promise<string | null> {
+    try {
+      const { dirname, relative } = await import('node:path')
+      const dir = dirname(filePath)
+      const { stdout } = await this.git(dir, ['rev-parse', '--show-toplevel'])
+      const root = (stdout as string).trim()
+      if (!root) return null
+      const rel = relative(root, filePath).replace(/\\/g, '/')
+      if (rel.startsWith('..')) return null
+      if (!(await this.tracked(root, rel))) return null
+      return await this.showOrEmpty(root, `HEAD:${rel}`)
+    } catch {
+      return null
+    }
+  }
+
   async diff(root: string, path: string, staged: boolean): Promise<GitDiffResult> {
     try {
       /*

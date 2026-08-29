@@ -718,8 +718,17 @@ export function classifyIntent(buffer: string): Intent {
  * while `find the file that imports store.ts` — which has arguments-looking
  * tokens in it too — does not.
  */
+/**
+ * Commands whose whole job is to take arbitrary prose as their argument.
+ * English words after `echo` are not evidence of a question — printing a
+ * sentence is exactly what the command does — so only an actual question mark
+ * reads these as asking rather than telling.
+ */
+const ECHOING = new Set(['echo', 'write', 'write-output', 'write-host', 'print', 'printf'])
+
 function resolveAmbiguous(tokens: string[], rest: string[], question: boolean): Intent {
   if (question) return 'agent'
+  if (ECHOING.has(unquote(tokens[0]).toLowerCase())) return 'shell'
   if (hasEnglishWord(rest)) return 'agent'
   if (rest.some((t) => ARGUMENT_LIKE.test(t))) return 'shell'
   /*

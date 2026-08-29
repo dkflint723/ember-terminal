@@ -4793,6 +4793,41 @@ button.scm__branch {
   background: color-mix(in srgb, var(--info) 8%, transparent);
 }
 
+/*
+ * The editor margin's change bars: what the buffer says that HEAD does not.
+ * Green grew, blue changed, and the red wedge is where lines used to stand.
+ */
+.gutter-added,
+.gutter-modified {
+  width: 3px !important;
+  margin-left: 6px;
+  cursor: pointer;
+}
+
+.gutter-added {
+  background: var(--ok);
+}
+
+.gutter-modified {
+  background: var(--info);
+}
+
+.gutter-deleted {
+  width: 0 !important;
+  margin-left: 3px;
+  cursor: pointer;
+}
+
+.gutter-deleted::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: 0;
+  border-left: 7px solid var(--fail);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+}
+
 /* A link under the pointer: an underline painted over the token, whatever
    colours its spans already carry, and a cursor that says it will open. */
 ::highlight(ember-link) {
