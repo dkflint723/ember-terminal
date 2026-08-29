@@ -95,13 +95,30 @@ async function maybeCheckForUpdate(): Promise<void> {
   if (!settings.get().autoUpdate) return
   if (!app.isPackaged) return
   try {
-    const { autoUpdater } = await import('electron-updater')
+    const autoUpdater = await loadUpdater()
     autoUpdater.autoDownload = true
     autoUpdater.on('error', (err) => reportFault('update check failed', err))
     await autoUpdater.checkForUpdatesAndNotify()
   } catch (err) {
     reportFault('update check could not run', err)
   }
+}
+
+/*
+ * electron-updater is CommonJS, and what a dynamic import hands back differs
+ * between the dev server and the packaged bundle: dev synthesizes the named
+ * export, the packaged require does not — where it worked all through
+ * development and then failed in the one build users run. Both shapes are
+ * accepted here, which is the only place the difference is allowed to matter.
+ */
+async function loadUpdater(): Promise<typeof import('electron-updater').autoUpdater> {
+  const mod = (await import('electron-updater')) as {
+    autoUpdater?: typeof import('electron-updater').autoUpdater
+    default?: { autoUpdater?: typeof import('electron-updater').autoUpdater }
+  }
+  const updater = mod.autoUpdater ?? mod.default?.autoUpdater
+  if (!updater) throw new Error('electron-updater exposed no autoUpdater')
+  return updater
 }
 
 /**
@@ -115,7 +132,7 @@ async function maybeCheckForUpdate(): Promise<void> {
 async function checkForUpdateNow(): Promise<string> {
   if (!app.isPackaged) return 'Update checks only run in the installed app.'
   try {
-    const { autoUpdater } = await import('electron-updater')
+    const autoUpdater = await loadUpdater()
     autoUpdater.autoDownload = settings.get().autoUpdate
     const result = await autoUpdater.checkForUpdates()
     const found = result?.updateInfo?.version
