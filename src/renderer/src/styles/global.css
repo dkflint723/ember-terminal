@@ -5101,6 +5101,28 @@ button.scm__branch {
   flex: 0 0 auto;
 }
 
+/*
+ * An elevated window says so, and keeps saying so.
+ *
+ * Every shell in it runs as administrator, which is not a thing to discover by
+ * accident three commands later — so the badge sits in the title bar for the
+ * window's whole life, and the window wears a warm rim to tell it apart from
+ * the ordinary one at a glance.
+ */
+.titlebar__admin {
+  flex: 0 0 auto;
+  margin-right: 8px;
+  padding: 2px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  -webkit-app-region: no-drag;
+}
+
 /* The titlebar's door to it, lit while the panel stands. */
 .titlebar__agent {
   display: grid;

@@ -186,6 +186,16 @@ export function SessionList(): React.JSX.Element {
               <div className="titlebar__menu-rule" />
               <button
                 className="titlebar__menu-item"
+                title="Opens a second Ember running as administrator, after a permission prompt"
+                onClick={() => {
+                  window.ember.newAdminWindow()
+                  setMenuOpen(false)
+                }}
+              >
+                New admin window…
+              </button>
+              <button
+                className="titlebar__menu-item"
                 onClick={() => {
                   toggleSettings(true)
                   setMenuOpen(false)

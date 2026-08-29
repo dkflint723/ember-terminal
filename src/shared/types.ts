@@ -855,6 +855,12 @@ export interface EmberApi {
   sessionSave(snapshot: SessionSnapshot): Promise<{ ok: boolean; error?: string }>
   /** Open another Ember window, with its own fresh session. */
   newWindow(): void
+  /** Open a second Ember running as administrator, through a UAC prompt. */
+  newAdminWindow(): void
+  /** Whether THIS window is the elevated one. Fixed for the window's life. */
+  isAdmin: boolean
+  /** A message from main worth putting on the notice banner. */
+  onNotice(fn: (notice: { text: string; tone: 'info' | 'error' }) => void): () => void
   /** Hand the packed session to a new window; the ptys are re-pointed by main. */
   moveTabToNewWindow(transfer: TabTransfer): Promise<{ ok: boolean; error?: string }>
   /**

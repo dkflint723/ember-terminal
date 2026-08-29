@@ -285,6 +285,12 @@ export function App(): React.JSX.Element {
     []
   )
 
+  // Plain notices from main — a declined permission prompt, mostly.
+  useEffect(
+    () => window.ember.onNotice((n) => useStore.getState().setNotice(n.text, n.tone)),
+    []
+  )
+
   // Debug events flow whether or not the panel is open — a breakpoint can be
   // hit while the sidebar is showing the explorer.
   useEffect(() => {

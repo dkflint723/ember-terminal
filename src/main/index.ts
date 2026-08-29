@@ -10,7 +10,8 @@ import {
   shell
 } from 'electron'
 import { join } from 'node:path'
-import { appendFileSync, existsSync } from 'node:fs'
+import { appendFileSync, copyFileSync, existsSync, mkdirSync } from 'node:fs'
+import { spawn } from 'node:child_process'
 
 /*
  * Who this app is, declared before any window exists.
@@ -26,6 +27,23 @@ import { appendFileSync, existsSync } from 'node:fs'
  * app's id taught the shell's icon cache that this application looks like
  * Electron — which the installed app then inherited.
  */
+/**
+ * An admin window is a second Ember, elevated, standing beside the ordinary one.
+ *
+ * Windows cannot mix integrity levels inside one process, so an elevated window
+ * has to be an elevated process — the same answer Windows Terminal reaches for
+ * its elevated tabs. Deliberately NOT elevating the whole app: everything in it
+ * would gain administrator rights, including the language servers and the agent
+ * that proposes and runs commands, which is a great deal of privilege to hand
+ * over for the sake of one `Remove-Item` under Program Files.
+ *
+ * It runs on its own user-data directory, seeded from the ordinary one so it
+ * looks and behaves the same, because two processes writing one session file,
+ * one settings file and one history database would fight over all three.
+ */
+const ADMIN_FLAG = '--admin-window'
+const isAdminWindow = process.argv.includes(ADMIN_FLAG)
+
 if (process.platform === 'win32') {
   /*
    * ".app", not the bare appId: years of dev runs bound the bare id to
@@ -34,6 +52,26 @@ if (process.platform === 'win32') {
    * the executable — which carry the right icon — instead of from a memory.
    */
   app.setAppUserModelId(app.isPackaged ? 'dev.dkflint.ember.app' : 'dev.dkflint.ember.dev')
+}
+
+if (isAdminWindow) {
+  /*
+   * Before anything reads a path. The seed is a copy rather than a share: the
+   * elevated process would otherwise write files the ordinary one owns, and a
+   * settings file written by an administrator is a settings file the ordinary
+   * Ember may no longer be able to replace.
+   */
+  const ordinary = app.getPath('userData')
+  const mine = join(ordinary, 'admin-window')
+  try {
+    mkdirSync(mine, { recursive: true })
+    const from = join(ordinary, 'settings.json')
+    const to = join(mine, 'settings.json')
+    if (existsSync(from) && !existsSync(to)) copyFileSync(from, to)
+  } catch {
+    // A seed that cannot be copied costs the theme, not the window.
+  }
+  app.setPath('userData', mine)
 }
 import { PtyManager } from './pty.js'
 import { detectProfiles } from './profiles.js'
@@ -121,6 +159,10 @@ let faultShown = false
 async function maybeCheckForUpdate(): Promise<void> {
   if (!settings.get().autoUpdate) return
   if (!app.isPackaged) return
+  // Updates are the ordinary window's business. An elevated process installing
+  // an update would write the install with administrator rights, quietly
+  // changing who owns the application.
+  if (isAdminWindow) return
   try {
     const autoUpdater = await loadUpdater()
     autoUpdater.autoDownload = true
@@ -763,6 +805,9 @@ function registerIpc(): void {
   ipcMain.on('app:homeDir', (event) => {
     event.returnValue = app.getPath('home')
   })
+  ipcMain.on('app:isAdmin', (event) => {
+    event.returnValue = isAdminWindow
+  })
   const detected = detectProfiles()
 
   /*
@@ -872,6 +917,42 @@ function registerIpc(): void {
 
   ipcMain.on('window:new', () => {
     createWindow()
+  })
+
+  /*
+   * A window that runs as administrator, raised by UAC.
+   *
+   * Start-Process -Verb RunAs is the only way to cross the integrity boundary:
+   * a process cannot elevate itself, and pipes do not survive the crossing, so
+   * there is no way to keep an elevated shell inside this process. Declining
+   * the prompt is an ordinary answer, not a fault — PowerShell exits non-zero
+   * and nothing starts.
+   */
+  ipcMain.on('window:newAdmin', () => {
+    if (isAdminWindow) {
+      sendToAll('ui:notice', { text: 'This window is already running as administrator.', tone: 'info' })
+      return
+    }
+    const exe = process.execPath
+    const args = app.isPackaged ? [ADMIN_FLAG] : [app.getAppPath(), ADMIN_FLAG]
+    const list = args.map((a) => `'${a.replace(/'/g, "''")}'`).join(',')
+    const command = `Start-Process -FilePath '${exe.replace(/'/g, "''")}' -ArgumentList ${list} -Verb RunAs`
+    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], {
+      windowsHide: true,
+      stdio: 'ignore',
+      detached: true
+    })
+    child.on('exit', (code) => {
+      // A cancelled prompt is the usual non-zero here, and worth saying once.
+      if (code !== 0) {
+        sendToAll('ui:notice', {
+          text: 'The administrator window was not started — the permission prompt was declined.',
+          tone: 'info'
+        })
+      }
+    })
+    child.on('error', (err) => reportFault('admin window could not be launched', err))
+    child.unref()
   })
 
   /*
@@ -1280,7 +1361,18 @@ function registerIpc(): void {
 
 // A second instance should focus the existing window rather than opening a
 // duplicate that competes for the same shells.
-if (!app.requestSingleInstanceLock()) {
+/*
+ * Exempt from the single-instance lock, belt and braces.
+ *
+ * In practice the lock never sees it: Electron keys the lock on the user-data
+ * directory, and the admin window moved to its own before this line runs — so
+ * it holds a lock of its own. Removing this exemption changes nothing today,
+ * which a test proved by removing it. It stays because the exemption should be
+ * stated rather than inherited from a side effect of where its files live: the
+ * lock exists to stop a second ORDINARY Ember competing for one session, and
+ * this process is not that.
+ */
+if (!isAdminWindow && !app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', (_e, argv) => {
@@ -1352,7 +1444,13 @@ process.on('unhandledRejection', (reason) => {
     claudeCli = new ClaudeCliService()
     ai = new AiService(settings, claudeCli)
     ide = new IdeServer((name, args) => callRenderer(name, args))
-    ide.start([])
+    /*
+     * Not in the admin window: the bridge advertises itself to the Claude Code
+     * CLI through a lockfile and a port, and a second one would leave the CLI
+     * choosing between two Embers — with a fair chance of choosing the elevated
+     * one, which is the last place an agent's edits should land.
+     */
+    if (!isAdminWindow) ide.start([])
     ptys = new PtyManager(
       (paneId, data) => sendToPaneOwner(paneId, 'pty:data', { paneId, data }),
       (paneId, exitCode) => {

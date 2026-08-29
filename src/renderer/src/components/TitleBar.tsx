@@ -90,6 +90,11 @@ export function TitleBar(): React.JSX.Element {
         </button>
       </div>
 
+      {window.ember.isAdmin && (
+        <span className="titlebar__admin" title="Every shell in this window runs as administrator">
+          Administrator
+        </span>
+      )}
       <div className="titlebar__layout">
         {/* Claude's own door, beside the layout controls: pressed while the
             panel stands, the way the slot toggle reports the slot. */}

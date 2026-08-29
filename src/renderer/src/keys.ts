@@ -73,6 +73,12 @@ export const COMMANDS: Command[] = [
     run: () => window.ember.newWindow()
   },
   {
+    id: 'window.newAdmin',
+    label: 'New window as administrator',
+    chord: 'Ctrl+Shift+Alt+N',
+    run: () => window.ember.newAdminWindow()
+  },
+  {
     id: 'session.moveWindow',
     label: 'Move session to new window',
     chord: 'Ctrl+Shift+U',

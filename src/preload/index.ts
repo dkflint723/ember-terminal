@@ -70,6 +70,13 @@ const api: EmberApi = {
     ipcRenderer.on('updates:status', listener)
     return () => ipcRenderer.removeListener('updates:status', listener)
   },
+  newAdminWindow: () => ipcRenderer.send('window:newAdmin'),
+  isAdmin: ipcRenderer.sendSync('app:isAdmin') as boolean,
+  onNotice: (cb: (notice: { text: string; tone: 'info' | 'error' }) => void) => {
+    const listener = (_: unknown, n: { text: string; tone: 'info' | 'error' }): void => cb(n)
+    ipcRenderer.on('ui:notice', listener)
+    return () => ipcRenderer.removeListener('ui:notice', listener)
+  },
   onOpenSettings: (cb: () => void) => {
     const listener = (): void => cb()
     ipcRenderer.on('ui:openSettings', listener)

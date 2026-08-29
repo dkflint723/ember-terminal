@@ -3,6 +3,29 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
+## Unreleased
+
+### An administrator window, beside the ordinary one
+
+- **`Ctrl+Shift+Alt+N`, the command palette, or the + menu** opens a second
+  Ember running as administrator, after the usual permission prompt. Every
+  shell in it is elevated; the window you were already using is untouched and
+  keeps running as you.
+- **Deliberately not a mode for the whole app.** Windows cannot mix integrity
+  levels inside one process, so an elevated window has to be an elevated
+  process. Elevating all of Ember instead would hand administrator rights to
+  the language servers and to the agent that proposes and runs commands —
+  a great deal of privilege for the sake of one `Remove-Item` under Program
+  Files.
+- **It says what it is.** An Administrator badge sits in its title bar for the
+  window's whole life, because which window is elevated is not a thing to
+  discover by accident three commands later.
+- The elevated window keeps its own user-data directory, seeded from yours so
+  it looks and behaves the same, rather than fighting the ordinary window over
+  one session file, one settings file and one history database. It runs no
+  update checks and no Claude Code bridge: an agent's edits should not land in
+  the elevated window, and an update should not install itself as administrator.
+
 ## 0.3.8 — 2026-08-29
 
 An adversarial review of the update code found six real defects in it, all
