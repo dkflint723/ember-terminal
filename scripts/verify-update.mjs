@@ -100,6 +100,7 @@ delete env.ELECTRON_RUN_AS_NODE
 
 let statuses = []
 let note = ''
+let installButton = false
 const errors = []
 try {
   const app = await electron.launch({
@@ -125,8 +126,23 @@ try {
   for (let i = 0; i < 60; i++) {
     await sleep(500)
     statuses = await page.evaluate(() => window.__updateStatuses ?? [])
-    if (statuses.some((s) => /is downloaded/i.test(s) || /failed/i.test(s))) break
+    if (statuses.some((s) => s.stage === 'ready' || s.stage === 'error')) break
   }
+  /*
+   * And the button that acts on it is actually there. This is the bug this
+   * check exists for: the status text said "choose Install now" while no such
+   * button was rendered, because its visibility was matched against the
+   * message's wording and the wording had changed.
+   */
+  await page.keyboard.press('Control+Comma')
+  await page.waitForSelector('.modal--settings', { timeout: 10_000 })
+  await sleep(900)
+  installButton = await page.evaluate(() =>
+    [...document.querySelectorAll('.modal--settings .btn')].some((b) =>
+      (b.textContent ?? '').trim().toLowerCase().startsWith('install now')
+    )
+  )
+
   await app.close()
 } finally {
   fs.writeFileSync(FEED_CONFIG, originalFeed, 'utf8')
@@ -139,15 +155,23 @@ check('the feed is fetched', served.includes('/latest.yml'), JSON.stringify(serv
 check('the installer the feed names is fetched', served.includes(`/${payloadName}`), JSON.stringify(served))
 check(
   'progress is reported while it downloads',
-  statuses.some((s) => /Downloading the update/i.test(s)),
+  statuses.some((s) => s.stage === 'progress'),
   JSON.stringify(statuses)
 )
+/*
+ * The stage is what the Install now button keys off, and it is checked as a
+ * stage rather than as words: driving that button by matching the message text
+ * is exactly how it once vanished — the wording changed a release later and
+ * the button silently stopped appearing while the words still said to press it.
+ */
 check(
-  'and the finish is announced as something to act on',
-  statuses.some((s) => /ready to install/i.test(s) && /Install now/i.test(s)),
+  'and the finish is carried as a stage, not as prose',
+  statuses.some((s) => s.stage === 'ready' && /ready to install/i.test(s.text)),
   JSON.stringify(statuses)
 )
-check('nothing reported a failure', !statuses.some((s) => /failed/i.test(s)), JSON.stringify(statuses))
+check('nothing reported a failure', !statuses.some((s) => s.stage === 'error'), JSON.stringify(statuses))
+
+check('Settings offers Install now once an update is ready', installButton)
 
 // Staged under the feed's own spelling, ready for the quit that installs it.
 const staged = fs.existsSync(cache) ? fs.readdirSync(cache, { recursive: true }).map(String) : []

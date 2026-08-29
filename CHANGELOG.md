@@ -3,6 +3,21 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
+## 0.3.6 — 2026-08-29
+
+- **The Install now button is actually there.** It appeared only when the
+  status message matched certain words — and the message was reworded a release
+  later, so the button silently vanished while the text still told you to press
+  it. The updater now carries what a message *means* alongside what it says, and
+  the button keys off that. Prose is for reading; state is for deciding.
+- **The update notification does something when clicked.** It brings Ember
+  forward and opens Settings on the update, one deliberate press from
+  installing — deliberate because installing quits Ember, which is not
+  something a stray click on a toast should do.
+- **Installing asks about unsaved work first.** The installer is spawned before
+  the app quits, so a close prompt answered “cancel” would have left an
+  installer running against a still-open Ember. It asks up front instead.
+
 ## 0.3.5 — 2026-08-29
 
 - **The pinned command sits still and stays readable.** A sticky header comes

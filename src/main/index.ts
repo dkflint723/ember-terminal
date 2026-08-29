@@ -128,7 +128,10 @@ async function maybeCheckForUpdate(): Promise<void> {
     await autoUpdater.checkForUpdatesAndNotify()
   } catch (err) {
     reportFault('update check could not run', err)
-    sendToAll('updates:status', `The update check could not run: ${describeUpdateError(err)}`)
+    sendToAll('updates:status', {
+      text: `The update check could not run: ${describeUpdateError(err)}`,
+      stage: 'error'
+    })
   }
 }
 
@@ -181,10 +184,16 @@ function watchUpdater(updater: typeof import('electron-updater').autoUpdater): v
   }
   updater.on('error', (err) => {
     reportFault('update failed', err)
-    sendToAll('updates:status', `The update failed: ${describeUpdateError(err)}`)
+    sendToAll('updates:status', {
+      text: `The update failed: ${describeUpdateError(err)}`,
+      stage: 'error'
+    })
   })
   updater.on('download-progress', (progress) => {
-    sendToAll('updates:status', `Downloading the update — ${Math.round(progress.percent)}%.`)
+    sendToAll('updates:status', {
+      text: `Downloading the update — ${Math.round(progress.percent)}%.`,
+      stage: 'progress'
+    })
   })
   updater.on('update-downloaded', (info) => {
     /*
@@ -194,20 +203,35 @@ function watchUpdater(updater: typeof import('electron-updater').autoUpdater): v
      * and an older one means the installer aborted without a word.
      */
     settings.set({ pendingUpdateVersion: info.version })
-    sendToAll(
-      'updates:status',
-      `Version ${info.version} is ready to install. Choose “Install now” — the installer shows its progress and Ember reopens when it is done.`
-    )
+    sendToAll('updates:status', {
+      text: `Version ${info.version} is ready to install. Choose “Install now” — the installer shows its progress and Ember reopens when it is done.`,
+      stage: 'ready'
+    })
     /*
      * And on the desktop, because the window this concerns may be behind
      * everything else, or the person may be somewhere else entirely.
      */
     try {
       if (Notification.isSupported()) {
-        new Notification({
+        const toast = new Notification({
           title: `Ember ${info.version} is ready to install`,
-          body: 'Open Settings and choose Install now. Ember reopens when it is finished.'
-        }).show()
+          body: 'Click here to install it. Ember reopens when it is finished.'
+        })
+        /*
+         * A notification that says something is ready and then does nothing
+         * when pressed is a button that lies. Clicking brings the window
+         * forward and opens Settings on the update, where the install is one
+         * deliberate press away — deliberate because installing quits Ember,
+         * and quitting is not something a stray click on a toast should do.
+         */
+        toast.on('click', () => {
+          const win = windows.get(lastNoticeWindowId ?? -1) ?? mainWindow
+          focusWindow(win)
+          const id = win ? windowIdOf(win.webContents) : null
+          if (id !== null) sendToWindow(id, 'ui:openSettings', {})
+          else sendToAll('ui:openSettings', {})
+        })
+        toast.show()
       }
     } catch {
       // A notification that cannot be raised is not worth a crash.
@@ -231,10 +255,10 @@ function reportPendingUpdate(): void {
     return
   }
   logLine('updater', `promised ${promised}, still running ${app.getVersion()}`)
-  sendToAll(
-    'updates:status',
-    `Version ${promised} is downloaded and waiting. Choose “Install now” below to apply it.`
-  )
+  sendToAll('updates:status', {
+    text: `Version ${promised} is downloaded and waiting. Choose “Install now” below to apply it.`,
+    stage: 'ready'
+  })
 }
 
 /*
@@ -1079,9 +1103,35 @@ function registerIpc(): void {
    * Install the staged update now rather than waiting for a quit that may be a
    * long way off — or that already came and went without the installer taking.
    */
-  ipcMain.on('updates:installNow', () => {
+  ipcMain.on('updates:installNow', (e) => {
     void (async () => {
       try {
+        /*
+         * Unsaved work is asked about first, and here rather than at the close
+         * prompt, because quitAndInstall spawns the installer and only then
+         * quits: a close that got cancelled would leave an installer running
+         * against an app that is still open, which is the one outcome nothing
+         * downstream can recover from.
+         */
+        const unsaved = [...unsavedCounts.values()].reduce((a, b) => a + b, 0)
+        if (unsaved > 0) {
+          const win = windowFromEvent(e) ?? mainWindow
+          const choice = dialog.showMessageBoxSync(win ?? undefined!, {
+            type: 'warning',
+            buttons: ['Cancel', 'Install and discard'],
+            defaultId: 0,
+            cancelId: 0,
+            message: `${unsaved} ${unsaved === 1 ? 'file has' : 'files have'} unsaved changes.`,
+            detail: 'Installing closes Ember. Save them first, or install and lose them.'
+          })
+          if (choice !== 1) {
+            logLine('updater', 'install declined: unsaved work')
+            return
+          }
+          // Agreed to, so the close prompt must not ask the same question again
+          // and strand the installer behind a dialog.
+          unsavedCounts.clear()
+        }
         const updater = await loadUpdater()
         watchUpdater(updater)
         logLine('updater', 'install requested by hand')
@@ -1091,7 +1141,10 @@ function registerIpc(): void {
         updater.quitAndInstall(false, true)
       } catch (err) {
         reportFault('install now failed', err)
-        sendToAll('updates:status', `Could not install: ${describeUpdateError(err)}`)
+        sendToAll('updates:status', {
+          text: `Could not install: ${describeUpdateError(err)}`,
+          stage: 'error'
+        })
       }
     })()
   })

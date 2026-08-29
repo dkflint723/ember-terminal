@@ -488,6 +488,20 @@ export interface DapEventPayload {
   body: unknown
 }
 
+/**
+ * One thing the updater has to say, and what it means.
+ *
+ * The stage is carried rather than inferred: the Install now button used to
+ * appear by matching the message text, so rewording the message — which
+ * happened one release later — silently took the button away while the words
+ * still told people to press it. What a message *is* must not be a guess made
+ * from what it *says*.
+ */
+export interface UpdateStatus {
+  text: string
+  stage: 'progress' | 'ready' | 'error' | 'info'
+}
+
 /** What the Claude Code CLI can tell us about how, or whether, the user is signed in. */
 export interface ClaudeAccess {
   installed: boolean
@@ -853,7 +867,9 @@ export interface EmberApi {
    * and any failure. Pushed rather than polled, because a check that answers
    * "downloading" has not yet learned whether the download works.
    */
-  onUpdateStatus(fn: (status: string) => void): () => void
+  onUpdateStatus(fn: (status: UpdateStatus) => void): () => void
+  /** Main asking for the Settings dialog — the update notification was clicked. */
+  onOpenSettings(fn: () => void): () => void
   /** Settings saved by another window; this one applies them without a round trip. */
   onSettingsChanged(fn: (settings: Settings & { hasApiKey: boolean }) => void): () => void
   /** Debug adapters this machine can offer: detected ones plus those taught in settings. */

@@ -149,6 +149,14 @@ function joinArgs(args: string[]): string {
 export function SettingsPanel(): React.JSX.Element | null {
   /** What the last hand-run update check said, shown beside the button. */
   const [updateNote, setUpdateNote] = useState('')
+  /** Whether an update is staged and installable — carried, never inferred. */
+  const [updateReady, setUpdateReady] = useState(false)
+  /*
+   * The jump-to-section helper, reachable from an effect that is created long
+   * before it is: the dialog renders nothing until its settings have loaded,
+   * so the function itself does not exist when the listener is registered.
+   */
+  const jumpToRef = useRef<(id: string) => void>(() => {})
   /** Which command is listening for its new chord, if any. */
   const [capturing, setCapturing] = useState<string | null>(null)
   /** Which section the rail lights up — follows the scroll, and jumps on click. */
@@ -189,7 +197,26 @@ export function SettingsPanel(): React.JSX.Element | null {
 
   // The updater talks while it works; the note follows it rather than staying
   // on whatever the check said a minute ago.
-  useEffect(() => window.ember.onUpdateStatus(setUpdateNote), [])
+  useEffect(
+    () =>
+      window.ember.onUpdateStatus((status) => {
+        setUpdateNote(status.text)
+        if (status.stage === 'ready') setUpdateReady(true)
+        else if (status.stage === 'error') setUpdateReady(false)
+      }),
+    []
+  )
+
+  // Opened from the update notification: land on the section it is about.
+  useEffect(
+    () =>
+      window.ember.onOpenSettings(() => {
+        useStore.getState().toggleSettings(true)
+        setSection('system')
+        window.setTimeout(() => jumpToRef.current('system'), 120)
+      }),
+    []
+  )
 
   useEffect(() => {
     if (!open) return
@@ -395,6 +422,8 @@ export function SettingsPanel(): React.JSX.Element | null {
       ?.scrollIntoView({ block: 'start', behavior: 'smooth' })
     setSection(id)
   }
+  // Handed to the listener above, which was created before this existed.
+  jumpToRef.current = jumpTo
 
   /**
    * The rail follows the scroll: the lit entry is the last section whose top has
@@ -1072,7 +1101,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                   {/* Only once something is actually staged: a quit that never
                       comes, or an installer that quietly declined to run, should
                       not leave the update sitting on disk with no way to apply it. */}
-                  {/downloaded|did not install/i.test(updateNote) && (
+                  {updateReady && (
                     <button className="btn btn--primary" onClick={() => window.ember.installUpdateNow()}>
                       Install now
                     </button>

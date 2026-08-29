@@ -16,6 +16,7 @@ import type {
   SearchQuery,
   SessionSnapshot,
   TabTransfer,
+  UpdateStatus,
   HistoryRecord,
   PersistedBlock,
   EmberApi,
@@ -64,10 +65,15 @@ const api: EmberApi = {
   moveTabToNewWindow: (transfer: TabTransfer) => ipcRenderer.invoke('window:moveTab', transfer),
   takeAdoption: () => ipcRenderer.invoke('window:adoption'),
   installUpdateNow: () => ipcRenderer.send('updates:installNow'),
-  onUpdateStatus: (cb: (status: string) => void) => {
-    const listener = (_: unknown, status: string): void => cb(status)
+  onUpdateStatus: (cb: (status: UpdateStatus) => void) => {
+    const listener = (_: unknown, status: UpdateStatus): void => cb(status)
     ipcRenderer.on('updates:status', listener)
     return () => ipcRenderer.removeListener('updates:status', listener)
+  },
+  onOpenSettings: (cb: () => void) => {
+    const listener = (): void => cb()
+    ipcRenderer.on('ui:openSettings', listener)
+    return () => ipcRenderer.removeListener('ui:openSettings', listener)
   },
   onSettingsChanged: (cb: (settings: Settings & { hasApiKey: boolean }) => void) => {
     const listener = (_: unknown, s: Settings & { hasApiKey: boolean }): void => cb(s)

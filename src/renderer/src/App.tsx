@@ -278,9 +278,9 @@ export function App(): React.JSX.Element {
   useEffect(
     () =>
       window.ember.onUpdateStatus((status) => {
-        if (/^Downloading the update/.test(status)) return
-        const bad = /failed|could not|did not install/i.test(status)
-        useStore.getState().setNotice(status, bad ? 'error' : 'info')
+        // Progress is for the dialog; the banner is for outcomes.
+        if (status.stage === 'progress') return
+        useStore.getState().setNotice(status.text, status.stage === 'error' ? 'error' : 'info')
       }),
     []
   )
