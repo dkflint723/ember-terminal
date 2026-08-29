@@ -5,6 +5,19 @@ newest entry sits on top.
 
 ## 0.3.2 — 2026-08-29
 
+- **Updates install again.** Every release so far was un-installable: the feed
+  named `Ember-Setup-<version>.exe`, the build produced `Ember Setup
+  <version>.exe`, and GitHub — which rewrites spaces — stored a third spelling.
+  The feed downloaded, so the app announced an update, and the installer fetch
+  then 404'd in silence for ever. The build now produces exactly the name the
+  feed declares, and `npm run dist` refuses to finish if the two ever disagree
+  again.
+- **The updater says what it is doing.** It used to promise "downloading; it
+  installs when Ember quits" the moment a version was found and then never
+  speak again — a failed download looked exactly like a working one. Settings
+  now shows real progress, the finish, or the failure, and a 404 is reported as
+  a missing installer rather than a status code.
+
 - **The font picker actually changes the font.** Picking a family reached the
   xterm canvas and the editor, but every HTML surface in the app — the command
   blocks, the composer, the status chips, the agent's code, the debug view:

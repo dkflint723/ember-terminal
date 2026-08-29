@@ -15,7 +15,7 @@
     "verify": "npm run test:units && electron-vite build && node scripts/verify.mjs",
     "fetch:js-debug": "node scripts/fetch-js-debug.mjs",
     "package": "node scripts/fetch-js-debug.mjs && electron-vite build && electron-builder --win --dir",
-    "dist": "node scripts/fetch-js-debug.mjs && electron-vite build && electron-builder --win",
+    "dist": "node scripts/fetch-js-debug.mjs && electron-vite build && electron-builder --win && node scripts/check-release-assets.mjs",
     "verify:editor": "electron-vite build && node scripts/verify-editor.mjs",
     "verify:lsp": "electron-vite build && node scripts/verify-lsp.mjs",
     "verify:git": "electron-vite build && node scripts/verify-git.mjs",
@@ -106,6 +106,7 @@
     "asarUnpack": [
       "**/node_modules/**"
     ],
+    "artifactName": "${productName}-Setup-${version}.${ext}",
     "win": {
       "target": [
         "nsis"

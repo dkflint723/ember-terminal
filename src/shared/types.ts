@@ -838,6 +838,12 @@ export interface EmberApi {
    * Null for every window that was not created by one.
    */
   takeAdoption(): Promise<TabTransfer | null>
+  /**
+   * What the updater is doing, as it happens: download progress, the finish,
+   * and any failure. Pushed rather than polled, because a check that answers
+   * "downloading" has not yet learned whether the download works.
+   */
+  onUpdateStatus(fn: (status: string) => void): () => void
   /** Settings saved by another window; this one applies them without a round trip. */
   onSettingsChanged(fn: (settings: Settings & { hasApiKey: boolean }) => void): () => void
   /** Debug adapters this machine can offer: detected ones plus those taught in settings. */

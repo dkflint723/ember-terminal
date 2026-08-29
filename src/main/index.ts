@@ -103,11 +103,48 @@ async function maybeCheckForUpdate(): Promise<void> {
   try {
     const autoUpdater = await loadUpdater()
     autoUpdater.autoDownload = true
-    autoUpdater.on('error', (err) => reportFault('update check failed', err))
+    watchUpdater(autoUpdater)
     await autoUpdater.checkForUpdatesAndNotify()
   } catch (err) {
     reportFault('update check could not run', err)
+    sendToAll('updates:status', `The update check could not run: ${describeUpdateError(err)}`)
   }
+}
+
+/** The first line of whatever went wrong, as a sentence rather than a stack. */
+function describeUpdateError(err: unknown): string {
+  const text = err instanceof Error ? err.message : String(err)
+  const first = text.split('\n')[0]
+  // The failure this whole path was rebuilt for: a feed naming a file the
+  // release does not carry. Said plainly rather than as an HTTP status.
+  if (/status 404/i.test(first)) {
+    return 'the release is missing the installer its update feed names (404).'
+  }
+  return first
+}
+
+/**
+ * Say out loud what the updater is doing.
+ *
+ * It used to promise "downloading; it installs when Ember quits" the moment a
+ * version was found and then say nothing ever again — so a download that 404'd
+ * looked exactly like one that worked, and the update simply never arrived.
+ * Every window hears the progress, the finish, and the failure.
+ */
+let updaterWatched = false
+function watchUpdater(updater: typeof import('electron-updater').autoUpdater): void {
+  if (updaterWatched) return
+  updaterWatched = true
+  updater.on('error', (err) => {
+    reportFault('update failed', err)
+    sendToAll('updates:status', `The update failed: ${describeUpdateError(err)}`)
+  })
+  updater.on('download-progress', (progress) => {
+    sendToAll('updates:status', `Downloading the update — ${Math.round(progress.percent)}%.`)
+  })
+  updater.on('update-downloaded', (info) => {
+    sendToAll('updates:status', `Version ${info.version} is downloaded. It installs when Ember quits.`)
+  })
 }
 
 /*
@@ -140,16 +177,24 @@ async function checkForUpdateNow(): Promise<string> {
   try {
     const autoUpdater = await loadUpdater()
     autoUpdater.autoDownload = settings.get().autoUpdate
+    watchUpdater(autoUpdater)
     const result = await autoUpdater.checkForUpdates()
     const found = result?.updateInfo?.version
     if (!found) return 'The update service had nothing to say.'
     if (found === app.getVersion()) return `Up to date — ${found} is the newest version.`
-    return settings.get().autoUpdate
-      ? `Version ${found} is available and downloading; it installs when Ember quits.`
-      : `Version ${found} is available. Turn on update checks to download it.`
+    if (!settings.get().autoUpdate) {
+      return `Version ${found} is available. Turn on update checks to download it.`
+    }
+    /*
+     * The download reports its own outcome through updates:status as it goes.
+     * This line says only that it has begun, which is the one thing known to
+     * be true here — the sentence it replaced promised an install that a
+     * 404'd download could never deliver, and then never corrected itself.
+     */
+    return `Version ${found} found; downloading it now.`
   } catch (err) {
     reportFault('manual update check failed', err)
-    return `The check failed: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`
+    return `The check failed: ${describeUpdateError(err)}`
   }
 }
 

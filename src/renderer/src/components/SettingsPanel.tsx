@@ -187,6 +187,10 @@ export function SettingsPanel(): React.JSX.Element | null {
     setProbing(false)
   }
 
+  // The updater talks while it works; the note follows it rather than staying
+  // on whatever the check said a minute ago.
+  useEffect(() => window.ember.onUpdateStatus(setUpdateNote), [])
+
   useEffect(() => {
     if (!open) return
     void refreshAccess()

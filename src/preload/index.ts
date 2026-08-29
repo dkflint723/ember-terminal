@@ -63,6 +63,11 @@ const api: EmberApi = {
   },
   moveTabToNewWindow: (transfer: TabTransfer) => ipcRenderer.invoke('window:moveTab', transfer),
   takeAdoption: () => ipcRenderer.invoke('window:adoption'),
+  onUpdateStatus: (cb: (status: string) => void) => {
+    const listener = (_: unknown, status: string): void => cb(status)
+    ipcRenderer.on('updates:status', listener)
+    return () => ipcRenderer.removeListener('updates:status', listener)
+  },
   onSettingsChanged: (cb: (settings: Settings & { hasApiKey: boolean }) => void) => {
     const listener = (_: unknown, s: Settings & { hasApiKey: boolean }): void => cb(s)
     ipcRenderer.on('settings:changed', listener)
