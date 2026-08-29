@@ -3,13 +3,16 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
-## Unreleased
+## 0.3.1 — 2026-08-29
 
 - **Pickers, not spellings** — Font family is now a dropdown of the monospace
   faces this machine actually has, each option drawn in itself; the pick gets
   Consolas and monospace behind it as fallbacks. Claude model is the curated
   list with each model's note, plus an "Another model id" escape for anything
   newer than the build.
+- **The status chips find their band** — in terminal mode the path and Claude
+  chips sat bolted to the composer above; they now carry their own air and sit
+  a touch nearer the floor, the way the IDE always held them.
 
 ## 0.3.0 — 2026-08-28
 

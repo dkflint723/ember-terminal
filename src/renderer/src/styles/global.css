@@ -1850,9 +1850,13 @@ button {
   gap: 8px;
   flex: 0 0 auto;
   grid-area: status;
-  /* No top inset of its own while the composer above brings its bottom margin;
-     the IDE, whose panel card ends flush, gives the chips their own air. */
-  padding: 0 16px 14px;
+  /*
+   * The chips sit in their own band, not against the composer's hull: with no
+   * top inset they read as bolted to the card above, so the row brings air of
+   * its own and stands a touch nearer the floor than the card — the IDE keeps
+   * its own numbers below, where the panel's flush edge changes the math.
+   */
+  padding: 8px 16px 10px;
   background: transparent;
   color: var(--fg-dim);
   font-size: 11px;
@@ -1893,7 +1897,8 @@ button {
 }
 
 [data-mode='ide'] .statusbar {
-  padding-top: 10px;
+  /* As it has always sat in the IDE — the user signed off on this one. */
+  padding: 10px 16px 14px;
 }
 
 .statusbar__item:hover {
