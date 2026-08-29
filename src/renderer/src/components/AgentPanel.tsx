@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { activeDocument, useStore } from '../state/store'
 import type { AgentTurn, AiChatEvent } from '@shared/types'
 import { openLocalProposal } from '../state/ide'
+import { modelUri, monaco } from '../editor/monaco'
 import { existingController } from '../terminal/controller'
 
 /**
@@ -114,7 +115,10 @@ export function sendToAgent(prompt: string, attached?: string[]): void {
   if (s.mode === 'ide' && active?.kind === 'editor') {
     const doc = activeDocument(active)
     if (doc.filePath) {
-      const text = doc.savedContent.slice(0, FILE_CONTEXT_CAP)
+      // The buffer, not the file: unsaved edits are exactly the part of the
+      // context a question about the open file is most likely to be about.
+      const model = monaco.editor.getModel(modelUri(doc.filePath))
+      const text = (model?.getValue() ?? doc.savedContent).slice(0, FILE_CONTEXT_CAP)
       activeFile = { path: doc.filePath, text }
     }
   }
