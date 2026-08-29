@@ -3,8 +3,33 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
-## Unreleased
+## 0.3.8 — 2026-08-29
 
+An adversarial review of the update code found six real defects in it, all
+fixed here. Five were in the machinery added over the previous four releases —
+which is a fair account of how much of this system was written faster than it
+was checked.
+
+- **Install now works on the first click after a launch.** The updater only
+  learns where its staged installer is once a download has run in that
+  process, so a fresh launch reported "no update filepath" about a file that
+  was sitting on disk, valid. It is now pointed at its own cache before
+  installing. The previous release's "self-heal" made this worse by deleting
+  the note in response — destroying the only record that the app was behind —
+  and that has been removed.
+- **The close prompt cannot veto an install.** Agreeing to discard unsaved work
+  cleared a count that every window rewrites within milliseconds, so the close
+  prompt could reappear and cancel a quit whose installer had already been
+  spawned. An install now latches, and the prompt stands aside for it.
+- **Quitting for an install no longer costs you your windows.** A flag set
+  before an install that can fail without throwing stayed set for the rest of
+  the run, and closed windows stopped being dropped from the saved session.
+- **Every window learns about a waiting update**, not only the first one — the
+  update notification opens whichever window is in front, and that one now has
+  an Install now button in it.
+- **A newer download supersedes an older staged one.** The button stayed live
+  while a newer version downloaded, and pressing it installed the older file
+  and cancelled the download in flight.
 - **A vanished installer stops being offered.** The waiting-update note put an
   Install now button on screen without checking the staged installer was still
   there, so a cleared cache — or a note that outlived what it pointed at — gave

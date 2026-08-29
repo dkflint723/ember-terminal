@@ -204,14 +204,15 @@ function watchUpdater(updater: typeof import('electron-updater').autoUpdater): v
   updater.on('error', (err) => {
     reportFault('update failed', err)
     /*
-     * A staged installer that has gone is a note pointing at nothing: the
-     * button it puts on screen can only fail. The note is torn up so the offer
-     * stops being made, and the next check downloads the update afresh.
+     * Deliberately not tearing up the note here.
+     *
+     * "No update filepath" almost never means the installer is missing: the
+     * updater only learns where its staged file is once a download has run in
+     * THIS process, so a fresh launch says it about a file that is sitting on
+     * disk, valid — which is exactly the click reportPendingUpdate exists to
+     * offer. Deleting the note there destroyed the one record that the app is
+     * behind. installNow teaches the updater about its cache instead.
      */
-    const message = err instanceof Error ? err.message : String(err)
-    if (/no update filepath/i.test(message)) {
-      settings.set({ pendingUpdateVersion: null })
-    }
     sendToAll('updates:status', {
       text: `The update failed: ${describeUpdateError(err)}`,
       stage: 'error'
@@ -230,6 +231,7 @@ function watchUpdater(updater: typeof import('electron-updater').autoUpdater): v
      * the next launch whether it worked: same version running means it did,
      * and an older one means the installer aborted without a word.
      */
+    downloadedThisRun = info.version
     settings.set({ pendingUpdateVersion: info.version })
     sendToAll('updates:status', {
       text: `Version ${info.version} is ready to install. Choose “Install now” — the installer shows its progress and Ember reopens when it is done.`,
@@ -267,6 +269,19 @@ function watchUpdater(updater: typeof import('electron-updater').autoUpdater): v
   })
 }
 
+/** The version whose download completed in this process, if any. */
+let downloadedThisRun: string | null = null
+/**
+ * True from the moment an install is agreed to until the app goes.
+ *
+ * The close prompt must not ask about unsaved work a second time: the install
+ * dialog already asked, and by the time windows close the installer has been
+ * spawned — a prompt answered "cancel" there would veto the quit and leave an
+ * installer running against a live app. Clearing the unsaved counts is not
+ * enough on its own, because every renderer rewrites them within milliseconds.
+ */
+let installing = false
+
 /**
  * Whether the update we were promised last time actually arrived.
  *
@@ -275,7 +290,7 @@ function watchUpdater(updater: typeof import('electron-updater').autoUpdater): v
  * indistinguishable from never having downloaded anything, and the app would
  * go on running the old version for ever with a full installer sitting on disk.
  */
-function reportPendingUpdate(): void {
+function reportPendingUpdate(targetId?: number): void {
   const promised = settings.get().pendingUpdateVersion
   if (!promised) return
   /*
@@ -291,10 +306,18 @@ function reportPendingUpdate(): void {
     return
   }
   logLine('updater', `promised ${promised}, still running ${app.getVersion()}`)
-  sendToAll('updates:status', {
+  const status = {
     text: `Version ${promised} is downloaded and waiting. Choose “Install now” below to apply it.`,
-    stage: 'ready'
-  })
+    stage: 'ready' as const
+  }
+  /*
+   * Told to one window or to all. A window opened after the download would
+   * otherwise never hear it — its Settings would offer no way to install, and
+   * the update notification, which lands on whichever window is in front,
+   * could open exactly that one.
+   */
+  if (targetId !== undefined) sendToWindow(targetId, 'updates:status', status)
+  else sendToAll('updates:status', status)
 }
 
 /*
@@ -599,12 +622,11 @@ function createWindow(seed: WindowSeed = {}): number {
     win.show()
     // After the window, never before: a launch should not wait on a network call —
     // and once per app, not once per window.
-    if (primary) {
-      // Whether the last run's promised update actually landed, asked while
-      // there is finally a window to answer to.
-      setTimeout(() => reportPendingUpdate(), 2500)
-      setTimeout(() => void maybeCheckForUpdate(), 8000)
-    }
+    // Whether a promised update landed, asked of every window as it opens: one
+    // created later still needs to know there is something to install.
+    setTimeout(() => reportPendingUpdate(id), 2500)
+    // The check itself is the app's business, not each window's.
+    if (primary) setTimeout(() => void maybeCheckForUpdate(), 8000)
   })
 
   /*
@@ -619,6 +641,9 @@ function createWindow(seed: WindowSeed = {}): number {
   // one window's edits must not wave the next window's close through.
   let closingConfirmed = false
   win.on('close', (event) => {
+    // An install already asked about unsaved work and already spawned the
+    // installer; asking again here could veto a quit that has to happen.
+    if (installing) return
     const unsaved = unsavedCounts.get(id) ?? 0
     if (unsaved === 0 || closingConfirmed) return
     event.preventDefault()
@@ -1170,8 +1195,44 @@ function registerIpc(): void {
         }
         const updater = await loadUpdater()
         watchUpdater(updater)
+
+        /*
+         * The updater only knows where its staged installer is once a download
+         * has run in this process — `installerPath` is the download helper's
+         * file, and that helper does not exist until then. After a relaunch it
+         * has to be pointed at its own cache, which a check does: the cached
+         * file is validated against the feed and reported as downloaded again
+         * without fetching it twice. Without this, the first click after a
+         * launch fails on a perfectly good installer.
+         */
+        if (!downloadedThisRun) {
+          logLine('updater', 'no download this run; asking the updater to find its cache')
+          updater.autoDownload = true
+          const ready = new Promise<boolean>((resolve) => {
+            const done = (): void => resolve(true)
+            updater.once('update-downloaded', done)
+            setTimeout(() => {
+              updater.removeListener('update-downloaded', done)
+              resolve(Boolean(downloadedThisRun))
+            }, 120_000)
+          })
+          await updater.checkForUpdates()
+          if (!(await ready)) {
+            sendToAll('updates:status', {
+              text: 'The update could not be prepared. Check for updates again.',
+              stage: 'error'
+            })
+            return
+          }
+        }
+
         logLine('updater', 'install requested by hand')
-        quitting = true
+        /*
+         * Latched before the spawn, and never unset: from here the close
+         * handler must not prompt, because the installer is on its way and a
+         * cancelled quit would leave it running against a live app.
+         */
+        installing = true
         // Visible, and it puts Ember back afterwards: isSilent false shows the
         // installer's own progress, isForceRunAfter relaunches when it ends.
         updater.quitAndInstall(false, true)

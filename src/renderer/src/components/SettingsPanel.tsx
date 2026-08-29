@@ -201,8 +201,10 @@ export function SettingsPanel(): React.JSX.Element | null {
     () =>
       window.ember.onUpdateStatus((status) => {
         setUpdateNote(status.text)
+        // A download that has started supersedes whatever was staged before it,
+        // and installing the older file would cancel the one now arriving.
         if (status.stage === 'ready') setUpdateReady(true)
-        else if (status.stage === 'error') setUpdateReady(false)
+        else setUpdateReady(false)
       }),
     []
   )
