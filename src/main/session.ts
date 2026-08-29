@@ -3,13 +3,25 @@ import { readFileSync, renameSync, writeFileSync, existsSync, rmSync } from 'nod
 import { join } from 'node:path'
 import type { SessionSnapshot } from '../shared/types.js'
 
+/** One window's remembered life: where it stood, and what it held. */
+export interface StoredWindow {
+  bounds: { x: number; y: number; width: number; height: number } | null
+  maximized: boolean
+  snapshot: SessionSnapshot
+}
+
 /**
- * The last window's shape, on disk.
+ * The last windows' shapes, on disk.
  *
  * Written through a temporary file and renamed into place, because the moment this
  * is most likely to be interrupted is exactly when it matters — the app closing, or
  * the machine going down. A half-written session file would take the workspace with
  * it, and a rename is the closest thing to atomic the filesystem offers.
+ *
+ * The file grew from one window to a list of them. Version 1 files — one bare
+ * snapshot — still load, as a single window; version 2 holds every window that was
+ * open, each with its own bounds. A window closed while others live is dropped from
+ * the list at that moment: closing it was the statement that it should not return.
  *
  * A snapshot that cannot be read is discarded rather than repaired. Getting a
  * slightly wrong workspace back is more confusing than getting a fresh one.
@@ -21,32 +33,62 @@ export class SessionStore {
   /** Unsaved buffers live in here, so it has to be bounded somewhere. */
   private static readonly MAX_BYTES = 24 * 1024 * 1024
 
-  load(): SessionSnapshot | null {
+  /** The windows as they last reported themselves, keyed by ember window id. */
+  private entries = new Map<number, StoredWindow>()
+
+  load(): StoredWindow[] {
     try {
-      if (!existsSync(this.file)) return null
-      const parsed = JSON.parse(readFileSync(this.file, 'utf8')) as SessionSnapshot
-      // Version is the only compatibility promise made; anything else is a file
-      // from a future or broken build and is not worth guessing at.
-      if (parsed?.version !== 1 || !Array.isArray(parsed.tabs)) return null
-      /*
-       * Shape-checked, not just version-checked.
-       *
-       * The renderer walked these fields without guarding them, so a file that
-       * parsed as JSON but was structurally wrong threw partway through boot. That
-       * left a window with no tabs at all, and the autosave then wrote the empty
-       * result back over the file — losing the workspace and any unsaved text in it
-       * because one field had the wrong type.
-       */
-      if (!wellFormed(parsed)) return null
-      return parsed
+      if (!existsSync(this.file)) return []
+      const parsed = JSON.parse(readFileSync(this.file, 'utf8')) as {
+        version?: number
+        windows?: unknown
+        tabs?: unknown
+      }
+
+      // A version-1 file is one window's bare snapshot; it comes back as a list
+      // of one so nothing upstream has to know the file was ever shaped that way.
+      if (parsed?.version === 1) {
+        const snapshot = parsed as unknown as SessionSnapshot
+        if (!Array.isArray(snapshot.tabs) || !wellFormed(snapshot)) return []
+        return [{ bounds: null, maximized: false, snapshot }]
+      }
+
+      if (parsed?.version !== 2 || !Array.isArray(parsed.windows)) return []
+      const out: StoredWindow[] = []
+      for (const raw of parsed.windows as StoredWindow[]) {
+        const snapshot = raw?.snapshot
+        if (!snapshot || snapshot.version !== 1 || !Array.isArray(snapshot.tabs)) continue
+        if (!wellFormed(snapshot)) continue
+        out.push({
+          bounds: validBounds(raw.bounds) ? raw.bounds : null,
+          maximized: raw.maximized === true,
+          snapshot
+        })
+      }
+      return out
     } catch {
-      return null
+      return []
     }
   }
 
-  save(snapshot: SessionSnapshot): { ok: boolean; error?: string } {
+  /** One window's latest word about itself; the whole file is rewritten with it. */
+  saveFor(windowId: number, entry: StoredWindow): { ok: boolean; error?: string } {
+    this.entries.set(windowId, entry)
+    return this.write()
+  }
+
+  /**
+   * A window closed while others live chose not to come back. Called only then —
+   * the last window's close is the app closing, and that one must be kept.
+   */
+  dropWindow(windowId: number): void {
+    if (!this.entries.delete(windowId)) return
+    this.write()
+  }
+
+  private write(): { ok: boolean; error?: string } {
     try {
-      const body = JSON.stringify(snapshot)
+      const body = JSON.stringify({ version: 2, windows: [...this.entries.values()] })
       if (body.length > SessionStore.MAX_BYTES) {
         return { ok: false, error: 'Session is too large to store.' }
       }
@@ -59,12 +101,25 @@ export class SessionStore {
   }
 
   clear(): void {
+    this.entries.clear()
     try {
       rmSync(this.file, { force: true })
     } catch {
       // Nothing to do about it, and nothing worth failing for.
     }
   }
+}
+
+function validBounds(b: StoredWindow['bounds']): b is NonNullable<StoredWindow['bounds']> {
+  return (
+    !!b &&
+    Number.isFinite(b.x) &&
+    Number.isFinite(b.y) &&
+    Number.isFinite(b.width) &&
+    Number.isFinite(b.height) &&
+    b.width >= 200 &&
+    b.height >= 120
+  )
 }
 
 /** A layout node the renderer's walk can survive: leaves and splits, all the way down. */

@@ -12,7 +12,7 @@ import { disposeController } from './terminal/controller'
 import { activateTheme, refreshThemeList } from './state/theming'
 import { useGitStatusPolling } from './state/git'
 import { useIdeBridge } from './state/ide'
-import { restore, unsavedWorkIsPreserved, useSessionAutosave } from './state/session'
+import { adoptTransfer, restore, unsavedWorkIsPreserved, useSessionAutosave } from './state/session'
 import { setRevealer } from './editor/navigate'
 import { PanelBar } from './components/PanelBar'
 import { StatusBar } from './components/StatusBar'
@@ -203,7 +203,18 @@ export function App(): React.JSX.Element {
        * and the folder joins it — the same thing a second instance does with one.
        */
       let restored = false
-      if (settings.restoreSession) {
+      /*
+       * A session moved from another window claims this one first — it exists
+       * because of that move, and the adoption stands whether or not restore is
+       * on: the tab is live work from this very run, not a memory.
+       */
+      try {
+        const adoption = await window.ember.takeAdoption()
+        if (adoption) restored = await adoptTransfer(adoption)
+      } catch (err) {
+        console.error('Could not adopt the moved session; starting fresh.', err)
+      }
+      if (!restored && settings.restoreSession) {
         try {
           restored = await restore(await window.ember.sessionLoad())
         } catch (err) {
@@ -234,6 +245,24 @@ export function App(): React.JSX.Element {
   }, [newTab, setProfiles, applySettings])
 
   useEffect(() => window.ember.onOpenFiles((paths) => void openPaths(paths)), [])
+
+  /*
+   * Settings saved in another window apply here without a relaunch: fonts and
+   * flags through the store, the theme and the interface scale re-asserted
+   * because each is applied per window by whoever changes it.
+   */
+  useEffect(
+    () =>
+      window.ember.onSettingsChanged((next) => {
+        const before = useStore.getState().settings
+        useStore.getState().applySettings(next)
+        if (next.themeId !== before.themeId) void activateTheme(next.themeId)
+        if (Number.isFinite(next.uiZoom) && next.uiZoom !== before.uiZoom) {
+          window.ember.setZoom(next.uiZoom)
+        }
+      }),
+    []
+  )
 
   // Handed to the editor panes, which need it for Go to Definition but sit several
   // levels down a tree that has no other use for it.

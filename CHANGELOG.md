@@ -5,6 +5,28 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A second window
+
+- **New window** — `Ctrl+Shift+N` opens another Ember window with its own
+  sessions, shells, and workspace. Each window closes on its own terms, warns
+  about its own unsaved files, and gets its own notifications.
+- **Move a session to a new window** — `Ctrl+Shift+U`, the command palette, or
+  right-click a session card. The session travels whole: blocks, thread, name,
+  editors with unsaved text — and the shell itself stays alive through the
+  move, environment and all; nothing is respawned. Refused politely while a
+  command is running. A window whose last session moves out follows it.
+- **Every window comes back** — the session file now remembers all open
+  windows, each with its own place on screen. Closing a window while others
+  live is remembered as "don't bring this one back"; quitting brings back
+  everything.
+- **Settings travel** — a font, theme, or interface-size change saved in one
+  window applies to the others without a relaunch.
+- **Session cards have a right-click menu** — Move to new window, Rename,
+  Close.
+- Fixed in passing: saving any setting used to hand the stored API key back to
+  the renderer in the response; the write path now redacts it the way the read
+  path always has.
+
 ### Shells, met on their own terms
 
 - **Custom shells start where you say** — a "Start in" line on each custom

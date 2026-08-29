@@ -664,6 +664,14 @@ export class TerminalController {
 
     if (!this.spawned) {
       this.spawned = true
+      /*
+       * A pane that moved here from another window already has its shell — main
+       * re-pointed the pty at this window before the source let go. Spawning
+       * would put a second shell under a pane that is showing the first one's
+       * history. The refit above already sent this window's dimensions, which
+       * nudges ConPTY into repainting the prompt where the eye expects it.
+       */
+      if (takeAdopted(this.paneId)) return
       this.watchForIntegration()
       this.startShell()
     }
@@ -810,6 +818,23 @@ export class TerminalController {
 const LIVE_OUTPUT_CAP = 512 * 1024
 
 const registry = new Map<string, TerminalController>()
+
+/**
+ * Panes that arrived from another window with their shells alive. Consumed on
+ * first attach — the one moment a controller would otherwise spawn — and never
+ * again, so a later restart in the same pane behaves like any other.
+ */
+const adopted = new Set<string>()
+
+export function markAdopted(paneIds: string[]): void {
+  for (const id of paneIds) adopted.add(id)
+}
+
+function takeAdopted(paneId: string): boolean {
+  if (!adopted.has(paneId)) return false
+  adopted.delete(paneId)
+  return true
+}
 
 /**
  * The controller a pane already has, or nothing.

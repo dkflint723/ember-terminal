@@ -52,8 +52,10 @@ import {
   type HistoryRecord,
   type PersistedBlock,
   type ReplaceRequest,
+  type SessionSnapshot,
   type Settings,
-  type SpawnRequest
+  type SpawnRequest,
+  type TabTransfer
 } from '../shared/types.js'
 
 /**
@@ -149,7 +151,68 @@ async function checkForUpdateNow(): Promise<string> {
 
 const isDev = !app.isPackaged
 
+/**
+ * Every window, keyed by an ember window id handed out at creation. `mainWindow`
+ * survives as the primary — the first window, the one whose bounds live in
+ * settings and the one background messages fall back to; when it closes with
+ * others still open, one of them inherits the title.
+ */
+const windows = new Map<number, BrowserWindow>()
+let nextWindowId = 0
 let mainWindow: BrowserWindow | null = null
+/**
+ * Which window each pane's output belongs to. Written when a shell is spawned,
+ * re-pointed when a session moves to another window, cleared when it dies —
+ * this map is what makes a moved tab's shell keep talking, to the new place.
+ */
+const paneOwners = new Map<string, number>()
+/** Unsaved-document counts, per window — each close prompt asks about its own. */
+const unsavedCounts = new Map<number, number>()
+/** Session snapshots waiting for restored windows that have not booted yet. */
+const parkedSnapshots = new Map<number, SessionSnapshot>()
+/** Packed sessions waiting for the windows a move created. */
+const parkedTransfers = new Map<number, TabTransfer>()
+/**
+ * Each window's last "keep these blocks" report. The database prune runs on the
+ * union: one window listing only its own panes must never delete another's.
+ */
+const keepSets = new Map<number, string[]>()
+
+function windowIdOf(contents: Electron.WebContents): number | null {
+  for (const [id, win] of windows) {
+    if (!win.isDestroyed() && win.webContents === contents) return id
+  }
+  return null
+}
+
+function windowFromEvent(e: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): BrowserWindow | null {
+  const win = BrowserWindow.fromWebContents(e.sender)
+  return win && !win.isDestroyed() ? win : null
+}
+
+function sendToWindow(id: number, channel: string, payload: unknown): void {
+  const win = windows.get(id)
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return
+  win.webContents.send(channel, payload)
+}
+
+function sendToAll(channel: string, payload: unknown): void {
+  for (const id of windows.keys()) sendToWindow(id, channel, payload)
+}
+
+/** A pane's messages go to the window that holds it; the primary is the fallback. */
+function sendToPaneOwner(paneId: string, channel: string, payload: unknown): void {
+  const owner = paneOwners.get(paneId)
+  if (owner !== undefined && windows.has(owner)) sendToWindow(owner, channel, payload)
+  else sendToRenderer(channel, payload)
+}
+
+function focusedEmberWindow(): BrowserWindow | null {
+  const focused = BrowserWindow.getFocusedWindow()
+  if (focused && !focused.isDestroyed()) return focused
+  return mainWindow
+}
+
 let settings: SettingsStore
 let themes: ThemeStore
 let completion: CompletionService
@@ -179,11 +242,16 @@ let nextIdeCall = 0
 const pendingIdeCalls = new Map<number, (result: unknown) => void>()
 
 function callRenderer(name: string, args: Record<string, unknown>): Promise<unknown> {
-  if (!mainWindow) return Promise.resolve({ success: false, message: 'No window is open.' })
+  // The window the user is looking at: a CLI asking about "the editor" means the
+  // one in front of them, which with several windows is not always the primary.
+  const target = focusedEmberWindow()
+  if (!target || target.webContents.isDestroyed()) {
+    return Promise.resolve({ success: false, message: 'No window is open.' })
+  }
   const id = ++nextIdeCall
   return new Promise((resolve) => {
     pendingIdeCalls.set(id, resolve)
-    sendToRenderer('ide:call', { id, name, args })
+    target.webContents.send('ide:call', { id, name, args })
   })
 }
 /** Drained once by the renderer at boot; refilled when a second instance starts. */
@@ -191,11 +259,15 @@ let startupFiles: string[] = []
 let startupFolders: string[] = []
 let ai: AiService
 let claudeCli: ClaudeCliService
-/** How many editor documents hold unsaved changes, as last reported by the renderer. */
-let unsavedCount = 0
-/** Set once the user has agreed to lose them, so the second close goes through. */
-let closingConfirmed = false
 let ptys: PtyManager
+/** Which window raised the last notification, so its click can land there. */
+let lastNoticeWindowId: number | null = null
+/**
+ * Set the moment a quit begins. The app quits by closing every window, and
+ * each of those closes would otherwise read as "the user closed this one" —
+ * dropping every session entry but the last window's on the way down.
+ */
+let quitting = false
 
 /**
  * Ptys can exit while the window is being torn down, so every send has to check
@@ -216,12 +288,9 @@ function sendToRenderer(channel: string, payload: unknown): void {
  * size with no position lets Electron place it, which is the right answer for a
  * first run as well.
  */
-function openingBounds(): { x?: number; y?: number; width: number; height: number } {
-  const fallback = { width: 1180, height: 760 }
-  const saved = settings.get().windowBounds
-  if (!saved) return fallback
-
-  const visible = screen.getAllDisplays().some((d) => {
+/** Whether some display still contains this rectangle's title bar. */
+function onSomeScreen(saved: { x: number; y: number; width: number; height: number }): boolean {
+  return screen.getAllDisplays().some((d) => {
     const a = d.workArea
     // The title bar has to be reachable, so the test is on the top edge rather than
     // on the whole rectangle: a window hanging off the bottom can still be dragged.
@@ -232,12 +301,50 @@ function openingBounds(): { x?: number; y?: number; width: number; height: numbe
       saved.y < a.y + a.height
     )
   })
-  return visible ? saved : fallback
 }
 
-function createWindow(): void {
-  const opening = openingBounds()
-  mainWindow = new BrowserWindow({
+function openingBounds(): { x?: number; y?: number; width: number; height: number } {
+  const fallback = { width: 1180, height: 760 }
+  const saved = settings.get().windowBounds
+  if (!saved) return fallback
+  return onSomeScreen(saved) ? saved : fallback
+}
+
+/** What a new window is born holding: a restored session, a moved one, or nothing. */
+interface WindowSeed {
+  snapshot?: SessionSnapshot | null
+  transfer?: TabTransfer | null
+  bounds?: { x: number; y: number; width: number; height: number } | null
+  maximized?: boolean
+}
+
+function createWindow(seed: WindowSeed = {}): number {
+  const id = ++nextWindowId
+  const primary = mainWindow === null
+
+  /*
+   * Where it opens. The primary keeps its settings-remembered rectangle, the way
+   * it always has. A restored secondary gets the bounds its session entry wrote
+   * down; anything else — a fresh Ctrl+Shift+N, a moved tab — opens offset from
+   * the window the user is looking at, the way every multi-window app says
+   * "this one is new".
+   */
+  let opening: { x?: number; y?: number; width: number; height: number }
+  if (primary) {
+    opening = openingBounds()
+  } else if (seed.bounds && onSomeScreen(seed.bounds)) {
+    opening = seed.bounds
+  } else {
+    const anchor = focusedEmberWindow()?.getNormalBounds()
+    opening = anchor
+      ? { x: anchor.x + 34, y: anchor.y + 34, width: anchor.width, height: anchor.height }
+      : { width: 1180, height: 760 }
+  }
+
+  if (seed.snapshot) parkedSnapshots.set(id, seed.snapshot)
+  if (seed.transfer) parkedTransfers.set(id, seed.transfer)
+
+  const win = new BrowserWindow({
     ...opening,
     minWidth: 520,
     minHeight: 360,
@@ -272,18 +379,23 @@ function createWindow(): void {
     }
   })
 
-  mainWindow.on('ready-to-show', () => {
+  windows.set(id, win)
+  if (primary) mainWindow = win
+
+  win.on('ready-to-show', () => {
     // Before it is shown, so the first frame is already the right size.
     const zoom = settings.get().uiZoom
     if (Number.isFinite(zoom) && zoom !== 1) {
-      mainWindow?.webContents.setZoomFactor(Math.min(Math.max(zoom, 0.6), 2.5))
+      win.webContents.setZoomFactor(Math.min(Math.max(zoom, 0.6), 2.5))
     }
     // Maximised before the first paint, for the same reason as the zoom: showing a
     // 1180px window and then snapping it out is a flash the user has to watch.
-    if (settings.get().windowMaximized) mainWindow?.maximize()
-    mainWindow?.show()
-    // After the window, never before: a launch should not wait on a network call.
-    setTimeout(() => void maybeCheckForUpdate(), 8000)
+    const wantsMax = primary ? settings.get().windowMaximized : seed.maximized === true
+    if (wantsMax) win.maximize()
+    win.show()
+    // After the window, never before: a launch should not wait on a network call —
+    // and once per app, not once per window.
+    if (primary) setTimeout(() => void maybeCheckForUpdate(), 8000)
   })
 
   /*
@@ -294,20 +406,24 @@ function createWindow(): void {
    * restore does preserve unsaved buffers, but it can be switched off, it has a
    * size limit, and neither is something to bet someone's work on without asking.
    */
-  mainWindow.on('close', (event) => {
-    if (unsavedCount === 0 || closingConfirmed || !mainWindow) return
+  // Per window, because each window holds its own documents: agreeing to lose
+  // one window's edits must not wave the next window's close through.
+  let closingConfirmed = false
+  win.on('close', (event) => {
+    const unsaved = unsavedCounts.get(id) ?? 0
+    if (unsaved === 0 || closingConfirmed) return
     event.preventDefault()
-    const choice = dialog.showMessageBoxSync(mainWindow, {
+    const choice = dialog.showMessageBoxSync(win, {
       type: 'warning',
       buttons: ['Cancel', 'Close without saving'],
       defaultId: 0,
       cancelId: 0,
-      message: `${unsavedCount} ${unsavedCount === 1 ? 'file has' : 'files have'} unsaved changes.`,
+      message: `${unsaved} ${unsaved === 1 ? 'file has' : 'files have'} unsaved changes.`,
       detail: 'Closing now discards them.'
     })
     if (choice === 1) {
       closingConfirmed = true
-      mainWindow.close()
+      win.close()
     }
   })
 
@@ -320,35 +436,61 @@ function createWindow(): void {
    * the rectangle it would return to, which is what should come back when it is
    * unmaximised again.
    */
+  // Only the primary writes settings: that is the rectangle a plain launch
+  // opens with. Secondary windows are remembered through their session entries,
+  // whose bounds are stamped every time that window saves its session.
   let boundsTimer: NodeJS.Timeout | null = null
   const rememberBounds = (): void => {
+    if (!primary) return
     if (boundsTimer) clearTimeout(boundsTimer)
     boundsTimer = setTimeout(() => {
-      if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized()) return
-      const maximized = mainWindow.isMaximized()
+      if (win.isDestroyed() || win.isMinimized() || mainWindow !== win) return
+      const maximized = win.isMaximized()
       settings.set({
         windowMaximized: maximized,
-        ...(maximized ? {} : { windowBounds: mainWindow.getNormalBounds() })
+        ...(maximized ? {} : { windowBounds: win.getNormalBounds() })
       })
     }, 400)
   }
-  mainWindow.on('resize', rememberBounds)
-  mainWindow.on('move', rememberBounds)
-  mainWindow.on('maximize', rememberBounds)
-  mainWindow.on('unmaximize', rememberBounds)
+  win.on('resize', rememberBounds)
+  win.on('move', rememberBounds)
+  win.on('maximize', rememberBounds)
+  win.on('unmaximize', rememberBounds)
 
   const emitState = (): void =>
-    sendToRenderer('window:state', { maximized: mainWindow?.isMaximized() ?? false })
-  mainWindow.on('maximize', emitState)
-  mainWindow.on('unmaximize', emitState)
+    sendToWindow(id, 'window:state', { maximized: !win.isDestroyed() && win.isMaximized() })
+  win.on('maximize', emitState)
+  win.on('unmaximize', emitState)
 
-  mainWindow.on('closed', () => {
-    ptys.killAll()
-    mainWindow = null
+  win.on('closed', () => {
+    /*
+     * This window's shells die with it — and only this window's. The map is
+     * walked rather than asked, because a pane whose owner is gone must never
+     * outlive it as an orphan process.
+     */
+    for (const [paneId, owner] of [...paneOwners]) {
+      if (owner !== id) continue
+      ptys.kill(paneId)
+      paneOwners.delete(paneId)
+    }
+    windows.delete(id)
+    unsavedCounts.delete(id)
+    keepSets.delete(id)
+    parkedSnapshots.delete(id)
+    parkedTransfers.delete(id)
+    /*
+     * Closing a window while others live is the statement that it should not
+     * come back; the last window's close — and every close on the way out of a
+     * quit — is the app closing, and stays kept.
+     */
+    if (!quitting && windows.size > 0) session.dropWindow(id)
+    if (mainWindow === win) {
+      mainWindow = windows.values().next().value ?? null
+    }
   })
 
   // Links from terminal output open in the real browser, never in-app.
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
     return { action: 'deny' }
   })
@@ -363,20 +505,21 @@ function createWindow(): void {
    * which is where a web page belongs.
    */
   const stayPut = (event: Electron.Event, url: string): void => {
-    const current = mainWindow?.webContents.getURL()
+    const current = win.isDestroyed() ? null : win.webContents.getURL()
     if (!current || url === current) return
     event.preventDefault()
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
   }
-  mainWindow.webContents.on('will-navigate', stayPut)
-  mainWindow.webContents.on('will-redirect', stayPut)
+  win.webContents.on('will-navigate', stayPut)
+  win.webContents.on('will-redirect', stayPut)
 
   const devUrl = process.env.ELECTRON_RENDERER_URL
   if (isDev && devUrl) {
-    void mainWindow.loadURL(devUrl)
+    void win.loadURL(devUrl)
   } else {
-    void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    void win.loadFile(join(__dirname, '../renderer/index.html'))
   }
+  return id
 }
 
 function registerIpc(): void {
@@ -403,11 +546,13 @@ function registerIpc(): void {
 
   ipcMain.handle('profiles:list', () => profiles())
 
-  ipcMain.handle('pty:spawn', (_e, req: SpawnRequest) => {
+  ipcMain.handle('pty:spawn', (e, req: SpawnRequest) => {
     const all = profiles()
     const profile = all.find((p) => p.id === req.profileId) ?? all[0]
     if (!profile) return { ok: false, error: 'No shell found on this machine.' }
     try {
+      // The spawner owns the pane's output until a move says otherwise.
+      paneOwners.set(req.paneId, windowIdOf(e.sender) ?? 1)
       ptys.spawn(req, profile)
       return { ok: true }
     } catch (err) {
@@ -419,7 +564,10 @@ function registerIpc(): void {
   ipcMain.on('pty:resize', (_e, paneId: string, cols: number, rows: number) =>
     ptys.resize(paneId, cols, rows)
   )
-  ipcMain.on('pty:kill', (_e, paneId: string) => ptys.kill(paneId))
+  ipcMain.on('pty:kill', (_e, paneId: string) => {
+    paneOwners.delete(paneId)
+    ptys.kill(paneId)
+  })
 
   ipcMain.on('ai:chat', (_e, req: AiChatRequest) => {
     void ai.chat(req, (event) => sendToRenderer('ai:chat-event', event))
@@ -435,13 +583,18 @@ function registerIpc(): void {
     return claudeCli.access(true)
   })
 
-  ipcMain.handle('file:startupFiles', () => {
+  // Only the primary drains the command line: restored secondary windows boot
+  // at the same moment, and whichever asked first used to walk off with the
+  // file the user double-clicked.
+  ipcMain.handle('file:startupFiles', (e) => {
+    if (windowFromEvent(e) !== mainWindow) return []
     const pending = startupFiles
     startupFiles = []
     return pending
   })
 
-  ipcMain.handle('file:startupFolders', () => {
+  ipcMain.handle('file:startupFolders', (e) => {
+    if (windowFromEvent(e) !== mainWindow) return []
     const pending = startupFolders
     startupFolders = []
     return pending
@@ -450,10 +603,73 @@ function registerIpc(): void {
   ipcMain.handle('explorer:status', () =>
     explorer.supported ? explorer.isRegistered() : Promise.resolve(false)
   )
-  ipcMain.handle('session:load', () => session.load())
-  ipcMain.handle('session:save', (_e, snapshot) => session.save(snapshot))
+  // Each window is served the snapshot parked for it at creation, and writes
+  // its own entry back — stamped with where the window stands, so a restored
+  // secondary opens where it was rather than wherever the cascade lands.
+  ipcMain.handle('session:load', (e) => {
+    const id = windowIdOf(e.sender)
+    if (id === null) return null
+    const parked = parkedSnapshots.get(id) ?? null
+    parkedSnapshots.delete(id)
+    return parked
+  })
+  ipcMain.handle('session:save', (e, snapshot: SessionSnapshot) => {
+    const id = windowIdOf(e.sender)
+    const win = windowFromEvent(e)
+    if (id === null || !win) return { ok: false, error: 'No window.' }
+    /*
+     * A window with nothing in it has nothing to restore. This is also what
+     * closes the race a move opens: the source window's farewell save — fired
+     * from beforeunload after its tab walked out — must not resurrect the
+     * session entry its close just dropped.
+     */
+    if (!Array.isArray(snapshot?.tabs) || snapshot.tabs.length === 0) {
+      session.dropWindow(id)
+      return { ok: true }
+    }
+    return session.saveFor(id, {
+      bounds: win.isMinimized() ? null : win.getNormalBounds(),
+      maximized: win.isMaximized(),
+      snapshot
+    })
+  })
   ipcMain.on('session:clear', () => session.clear())
-  ipcMain.on('notify:command', (_e, notice) => {
+
+  ipcMain.on('window:new', () => {
+    createWindow()
+  })
+
+  /*
+   * A session moving house. The new window is created holding the packed tab;
+   * the ptys are re-pointed at it here, before the source lets go, so not a
+   * byte of shell output has anywhere to fall between the two.
+   */
+  ipcMain.handle('window:moveTab', (_e, transfer: TabTransfer) => {
+    if (
+      typeof transfer?.tab?.id !== 'string' ||
+      !Array.isArray(transfer.terminals) ||
+      !Array.isArray(transfer.editors)
+    ) {
+      return { ok: false, error: 'Malformed transfer.' }
+    }
+    const id = createWindow({ transfer })
+    for (const pane of transfer.terminals) {
+      if (typeof pane?.id === 'string') paneOwners.set(pane.id, id)
+    }
+    return { ok: true }
+  })
+
+  ipcMain.handle('window:adoption', (e) => {
+    const id = windowIdOf(e.sender)
+    if (id === null) return null
+    const parked = parkedTransfers.get(id) ?? null
+    parkedTransfers.delete(id)
+    return parked
+  })
+  ipcMain.on('notify:command', (e, notice) => {
+    const sender = windowFromEvent(e)
+    // The click should land the user back on the window whose command finished.
+    lastNoticeWindowId = windowIdOf(e.sender)
     /*
      * Suppressed only when the user can actually see the window.
      *
@@ -465,11 +681,7 @@ function registerIpc(): void {
      * keyboard rather than what is on screen.
      */
     const watching =
-      mainWindow &&
-      !mainWindow.isDestroyed() &&
-      mainWindow.isFocused() &&
-      mainWindow.isVisible() &&
-      !mainWindow.isMinimized()
+      sender && sender.isFocused() && sender.isVisible() && !sender.isMinimized()
     if (watching) return
     notifier.show(notice)
   })
@@ -479,12 +691,14 @@ function registerIpc(): void {
   ipcMain.handle('explorer:register', () => explorer.register())
   ipcMain.handle('explorer:unregister', () => explorer.unregister())
 
-  ipcMain.handle('file:openDialog', (_e, defaultPath?: string) =>
-    mainWindow ? files.openDialog(mainWindow, defaultPath) : { ok: false, error: 'No window.' }
-  )
-  ipcMain.handle('file:openFolderDialog', (_e, defaultPath?: string) =>
-    mainWindow ? files.openFolderDialog(mainWindow, defaultPath) : null
-  )
+  ipcMain.handle('file:openDialog', (e, defaultPath?: string) => {
+    const win = windowFromEvent(e) ?? mainWindow
+    return win ? files.openDialog(win, defaultPath) : { ok: false, error: 'No window.' }
+  })
+  ipcMain.handle('file:openFolderDialog', (e, defaultPath?: string) => {
+    const win = windowFromEvent(e) ?? mainWindow
+    return win ? files.openFolderDialog(win, defaultPath) : null
+  })
   ipcMain.handle('file:read', (_e, filePath: string) => files.read(filePath))
   // One boolean, so a click on something path-shaped can stay quiet when it
   // leads nowhere instead of opening an empty tab.
@@ -550,9 +764,10 @@ function registerIpc(): void {
   ipcMain.handle('file:write', (_e, filePath: string, content: string) =>
     files.write(filePath, content)
   )
-  ipcMain.handle('file:saveDialog', (_e, defaultPath?: string) =>
-    mainWindow ? files.saveDialog(mainWindow, defaultPath) : null
-  )
+  ipcMain.handle('file:saveDialog', (e, defaultPath?: string) => {
+    const win = windowFromEvent(e) ?? mainWindow
+    return win ? files.saveDialog(win, defaultPath) : null
+  })
 
   // Live, so a custom shell added mid-session completes like its dialect —
   // a snapshot taken here would never find it.
@@ -567,7 +782,19 @@ function registerIpc(): void {
   )
   ipcMain.handle('blocks:load', (_e, paneIds: string[]) => history.loadBlocks(paneIds))
   ipcMain.on('blocks:clear', (_e, paneId: string) => history.clearBlocks(paneId))
-  ipcMain.on('blocks:keep', (_e, paneIds: string[]) => history.keepOnlyBlocksFor(paneIds))
+  /*
+   * The prune runs on the union of every window's report plus every pane that
+   * is currently owned. One window restoring and listing only its own panes
+   * used to be the whole truth; with several windows it would be a deletion of
+   * everyone else's history.
+   */
+  ipcMain.on('blocks:keep', (e, paneIds: string[]) => {
+    const id = windowIdOf(e.sender)
+    if (id !== null) keepSets.set(id, paneIds.filter((p) => typeof p === 'string'))
+    const union = new Set<string>(paneOwners.keys())
+    for (const list of keepSets.values()) for (const p of list) union.add(p)
+    history.keepOnlyBlocksFor([...union])
+  })
   ipcMain.handle('history:search', (_e, query: HistoryQuery) => history.search(query))
   ipcMain.handle('history:suggest', (_e, prefix: string, cwd: string) =>
     history.suggest(prefix, cwd)
@@ -582,9 +809,10 @@ function registerIpc(): void {
     return themes.load(id) ?? themes.load(DEFAULT_SETTINGS.themeId)
   })
 
-  ipcMain.handle('themes:import', async () => {
-    if (!mainWindow) return { ok: false, error: 'No window.' }
-    const picked = await dialog.showOpenDialog(mainWindow, {
+  ipcMain.handle('themes:import', async (e) => {
+    const win = windowFromEvent(e) ?? mainWindow
+    if (!win) return { ok: false, error: 'No window.' }
+    const picked = await dialog.showOpenDialog(win, {
       title: 'Import a VS Code theme or .vsix extension',
       filters: [{ name: 'VS Code theme or extension', extensions: ['json', 'vsix'] }],
       properties: ['openFile']
@@ -613,9 +841,10 @@ function registerIpc(): void {
   ipcMain.on('themes:openFolder', () => void shell.openPath(themes.userDir()))
 
   ipcMain.handle('snippets:for', (_e, languageId: string) => snippets.forLanguage(languageId))
-  ipcMain.handle('snippets:import', async () => {
-    if (!mainWindow) return { ok: false, error: 'No window.' }
-    const picked = await dialog.showOpenDialog(mainWindow, {
+  ipcMain.handle('snippets:import', async (e) => {
+    const win = windowFromEvent(e) ?? mainWindow
+    if (!win) return { ok: false, error: 'No window.' }
+    const picked = await dialog.showOpenDialog(win, {
       title: 'Import snippets or a .vsix extension',
       filters: [{ name: 'Snippets or extension', extensions: ['json', 'code-snippets', 'vsix'] }],
       properties: ['openFile']
@@ -645,18 +874,42 @@ function registerIpc(): void {
     const current = settings.get()
     return { ...current, anthropicApiKey: null, hasApiKey: !!current.anthropicApiKey?.trim() }
   })
-  ipcMain.handle('settings:set', (_e, patch: Partial<Settings>) => settings.set(patch))
+  ipcMain.handle('settings:set', (e, patch: Partial<Settings>) => {
+    const res = settings.set(patch)
+    /*
+     * The other windows hear about it, so a font changed in one applies in all.
+     * The key never travels: the broadcast carries the same redacted shape the
+     * settings read hands out.
+     */
+    const senderId = windowIdOf(e.sender)
+    const redacted = {
+      ...res.settings,
+      anthropicApiKey: null,
+      hasApiKey: !!res.settings.anthropicApiKey?.trim()
+    }
+    for (const id of windows.keys()) {
+      if (id !== senderId) sendToWindow(id, 'settings:changed', redacted)
+    }
+    /*
+     * Redacted on the way back, the same as settings:get. The write path used
+     * to return the merged settings raw, which handed the stored key to the
+     * renderer every time anyone saved a font size — the exact thing the read
+     * path was built to never do.
+     */
+    return { ...res, settings: redacted }
+  })
   ipcMain.handle('updates:check', () => checkForUpdateNow())
   ipcMain.handle('settings:noteFolder', (_e, folder: string) => settings.noteRecentFolder(folder))
   ipcMain.handle('settings:loadError', () => settings.takeLoadError())
-  ipcMain.on('window:zoom', (_e, factor: number) => {
+  ipcMain.on('window:zoom', (e, factor: number) => {
     // Clamped: a zoom of 0 leaves an invisible window with no way back to the
     // control that set it.
     const clamped = Math.min(Math.max(Number.isFinite(factor) ? factor : 1, 0.6), 2.5)
-    mainWindow?.webContents.setZoomFactor(clamped)
+    windowFromEvent(e)?.webContents.setZoomFactor(clamped)
   })
-  ipcMain.on('window:unsaved', (_e, count: number) => {
-    unsavedCount = Math.max(0, count)
+  ipcMain.on('window:unsaved', (e, count: number) => {
+    const id = windowIdOf(e.sender)
+    if (id !== null) unsavedCounts.set(id, Math.max(0, count))
   })
   ipcMain.handle('settings:encryption', () => settings.encryptionAvailable())
 
@@ -669,12 +922,13 @@ function registerIpc(): void {
    */
   ipcMain.handle('clipboard:read', () => clipboard.readText())
 
-  ipcMain.on('window:action', (_e, action: 'minimize' | 'maximize' | 'close') => {
-    if (!mainWindow) return
-    if (action === 'minimize') mainWindow.minimize()
-    else if (action === 'close') mainWindow.close()
-    else if (mainWindow.isMaximized()) mainWindow.unmaximize()
-    else mainWindow.maximize()
+  ipcMain.on('window:action', (e, action: 'minimize' | 'maximize' | 'close') => {
+    const win = windowFromEvent(e)
+    if (!win) return
+    if (action === 'minimize') win.minimize()
+    else if (action === 'close') win.close()
+    else if (win.isMaximized()) win.unmaximize()
+    else win.maximize()
   })
 }
 
@@ -685,12 +939,15 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', (_e, argv) => {
     // Opening a file while Ember is already running should surface it here rather
-    // than starting a competing instance.
+    // than starting a competing instance — in the window the user last stood in.
+    const target = focusedEmberWindow()
     const opened = fileArgs(argv, app.getAppPath())
-    if (opened.length > 0) sendToRenderer('file:open', opened)
-    if (!mainWindow) return
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.focus()
+    if (opened.length > 0 && target && !target.webContents.isDestroyed()) {
+      target.webContents.send('file:open', opened)
+    }
+    if (!target) return
+    if (target.isMinimized()) target.restore()
+    target.focus()
   })
 
   // The window draws its own chrome, and the default menu would bind accelerators
@@ -731,11 +988,15 @@ process.on('unhandledRejection', (reason) => {
     themes = new ThemeStore()
     history = new HistoryStore()
     files = new FileService()
-    lsp = new LspService((payload) => sendToRenderer('lsp:message', payload))
+    // Every window: each renderer keeps only the documents it holds, and
+    // ignores diagnostics about files that are open somewhere else.
+    lsp = new LspService((payload) => sendToAll('lsp:message', payload))
     git = new GitService()
     github = new GitHubService()
     session = new SessionStore()
-    notifier = new Notifier(() => focusWindow(mainWindow))
+    notifier = new Notifier(() =>
+      focusWindow(windows.get(lastNoticeWindowId ?? -1) ?? mainWindow)
+    )
     const startup = pathArgs(process.argv, app.getAppPath())
     startupFiles = startup.files
     startupFolders = startup.folders
@@ -744,13 +1005,33 @@ process.on('unhandledRejection', (reason) => {
     ide = new IdeServer((name, args) => callRenderer(name, args))
     ide.start([])
     ptys = new PtyManager(
-      (paneId, data) => sendToRenderer('pty:data', { paneId, data }),
-      (paneId, exitCode) => sendToRenderer('pty:exit', { paneId, exitCode }),
+      (paneId, data) => sendToPaneOwner(paneId, 'pty:data', { paneId, data }),
+      (paneId, exitCode) => {
+        sendToPaneOwner(paneId, 'pty:exit', { paneId, exitCode })
+        paneOwners.delete(paneId)
+      },
       () => ide.env()
     )
 
     registerIpc()
-    createWindow()
+
+    /*
+     * Every window that was open comes back, each with its own session. The
+     * first stored entry is the primary; the rest only return when restore is
+     * on — with it off there is nothing to put in them, and a pile of empty
+     * windows would be the memory the user asked not to keep.
+     */
+    const stored = session.load()
+    createWindow({ snapshot: stored[0]?.snapshot ?? null })
+    if (settings.get().restoreSession) {
+      for (const entry of stored.slice(1)) {
+        createWindow({
+          snapshot: entry.snapshot,
+          bounds: entry.bounds,
+          maximized: entry.maximized
+        })
+      }
+    }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -763,6 +1044,7 @@ process.on('unhandledRejection', (reason) => {
   })
 
   app.on('before-quit', () => {
+    quitting = true
     ptys?.killAll()
     completion?.dispose()
     history?.close()

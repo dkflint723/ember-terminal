@@ -376,6 +376,47 @@ export interface SessionSnapshot {
   panes: SessionPane[]
 }
 
+/**
+ * A live terminal pane crossing between windows.
+ *
+ * The blocks travel as the opaque objects the renderer holds — main only
+ * ferries them, and typing them here would mean teaching main a shape it has
+ * no business acting on. The pty itself never moves: main re-points its output
+ * at the adopting window, and the shell never notices.
+ */
+export interface TerminalPaneTransfer {
+  id: string
+  profileId: string
+  cwd: string
+  title: string
+  exited: boolean
+  exitCode: number | null
+  integration: 'pending' | 'ready' | 'absent'
+  blocks: unknown[]
+}
+
+/**
+ * One session, packed to move to another window.
+ *
+ * Terminals travel live — blocks, standing, and the pty they are attached to.
+ * Editors travel the way the session file writes them down, unsaved text
+ * included, and the adopting window re-reads the files the same way a restore
+ * does. The move is refused at the source while a command is running: a block
+ * split across two windows mid-stream belongs to neither.
+ */
+export interface TabTransfer {
+  tab: {
+    id: string
+    name?: string
+    thread: AgentTurn[]
+    root: SessionLayout
+    editors?: SessionLayout | null
+    activePaneId: string
+  }
+  terminals: TerminalPaneTransfer[]
+  editors: Extract<SessionPane, { kind: 'editor' }>[]
+}
+
 /** What the Claude Code CLI can tell us about how, or whether, the user is signed in. */
 export interface ClaudeAccess {
   installed: boolean
@@ -704,6 +745,17 @@ export interface EmberApi {
   onOpenFolder(cb: (folder: string) => void): () => void
   sessionLoad(): Promise<SessionSnapshot | null>
   sessionSave(snapshot: SessionSnapshot): Promise<{ ok: boolean; error?: string }>
+  /** Open another Ember window, with its own fresh session. */
+  newWindow(): void
+  /** Hand the packed session to a new window; the ptys are re-pointed by main. */
+  moveTabToNewWindow(transfer: TabTransfer): Promise<{ ok: boolean; error?: string }>
+  /**
+   * The session parked for this window by a move, claimed once at boot.
+   * Null for every window that was not created by one.
+   */
+  takeAdoption(): Promise<TabTransfer | null>
+  /** Settings saved by another window; this one applies them without a round trip. */
+  onSettingsChanged(fn: (settings: Settings & { hasApiKey: boolean }) => void): () => void
   sessionClear(): void
   notifyCommand(notice: CommandNotice): void
   notificationsSupported(): Promise<boolean>

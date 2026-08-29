@@ -67,6 +67,21 @@ export const COMMANDS: Command[] = [
     run: ({ s }) => s.newTab(s.profiles[0]?.id ?? '')
   },
   {
+    id: 'window.new',
+    label: 'New window',
+    chord: 'Ctrl+Shift+N',
+    run: () => window.ember.newWindow()
+  },
+  {
+    id: 'session.moveWindow',
+    label: 'Move session to new window',
+    chord: 'Ctrl+Shift+U',
+    run: ({ tab }) => {
+      if (!tab) return false
+      void import('./state/session').then((m) => void m.moveTabToWindow(tab.id))
+    }
+  },
+  {
     id: 'pane.close',
     label: 'Close pane',
     chord: 'Ctrl+Shift+W',

@@ -572,6 +572,12 @@ button {
   color: var(--fg);
 }
 
+/* The card's right-click menu stands where the pointer asked, over everything. */
+.sessions__context {
+  position: fixed;
+  z-index: 40;
+}
+
 /* What a card's shells are doing while you look elsewhere: a breathing dot for
    a running command, a red one for a failure in a tab that is not on screen. */
 .sessions__dot {

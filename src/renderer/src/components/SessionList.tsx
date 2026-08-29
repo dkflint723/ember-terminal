@@ -29,6 +29,22 @@ export function SessionList(): React.JSX.Element {
   const [filter, setFilter] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const menuWrap = useRef<HTMLDivElement>(null)
+  /** A card's right-click menu: which card, and where the pointer asked. */
+  const [context, setContext] = useState<{ tabId: string; x: number; y: number } | null>(null)
+
+  useEffect(() => {
+    if (!context) return
+    const dismiss = (e: Event): void => {
+      if (e instanceof KeyboardEvent && e.key !== 'Escape') return
+      setContext(null)
+    }
+    window.addEventListener('keydown', dismiss, true)
+    window.addEventListener('mousedown', dismiss, true)
+    return () => {
+      window.removeEventListener('keydown', dismiss, true)
+      window.removeEventListener('mousedown', dismiss, true)
+    }
+  }, [context])
 
   // Escape or a click anywhere else closes the profile menu — a menu that only
   // closed when the pointer happened to leave it stayed on screen indefinitely.
@@ -226,6 +242,10 @@ export function SessionList(): React.JSX.Element {
               aria-selected={t.id === activeTabId}
               tabIndex={t.id === activeTabId ? 0 : -1}
               onMouseDown={() => setActiveTab(t.id)}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                setContext({ tabId: t.id, x: e.clientX, y: e.clientY })
+              }}
               onKeyDown={(e) => {
                 const index = shown.findIndex((x) => x.id === t.id)
                 if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -316,6 +336,47 @@ export function SessionList(): React.JSX.Element {
         })}
         {shown.length === 0 && <div className="sessions__none">Nothing matches</div>}
       </div>
+
+      {context && (
+        <div
+          className="titlebar__menu sessions__context"
+          style={{ left: context.x, top: context.y }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <button
+            className="titlebar__menu-item"
+            onClick={() => {
+              const tabId = context.tabId
+              setContext(null)
+              void import('../state/session').then((m) => void m.moveTabToWindow(tabId))
+            }}
+          >
+            Move to new window
+          </button>
+          <button
+            className="titlebar__menu-item"
+            onClick={() => {
+              const tab = tabs.find((t) => t.id === context.tabId)
+              setDraft(tab?.name ?? '')
+              setRenaming(context.tabId)
+              setContext(null)
+            }}
+          >
+            Rename
+          </button>
+          <div className="titlebar__menu-rule" />
+          <button
+            className="titlebar__menu-item"
+            onClick={() => {
+              const tabId = context.tabId
+              setContext(null)
+              closeTab(tabId)
+            }}
+          >
+            Close
+          </button>
+        </div>
+      )}
     </aside>
   )
 }

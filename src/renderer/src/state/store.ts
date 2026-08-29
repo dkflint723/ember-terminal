@@ -438,6 +438,12 @@ interface Store {
   newTab(profileId: string, cwd?: string): string
   /** `alreadyConfirmed` is for closePane, which has asked about the same documents. */
   closeTab(tabId: string, alreadyConfirmed?: boolean): void
+  /**
+   * Remove a tab whose panes now belong to another window: the state goes, the
+   * shells do not. The pty kills that make closeTab a close are exactly what a
+   * move must never do.
+   */
+  releaseTab(tabId: string): void
   setActiveTab(tabId: string): void
   /** Name a session by hand; an empty string hands naming back to the shell. */
   renameTab(tabId: string, name: string): void
@@ -869,6 +875,24 @@ export const useStore = create<Store>((set, get) => ({
     const nextActive =
       get().activeTabId === tabId
         ? (nextTabs[idx] ?? nextTabs[idx - 1])?.id ?? null
+        : get().activeTabId
+
+    set({ tabs: nextTabs, panes: nextPanes, activeTabId: nextActive })
+  },
+
+  releaseTab: (tabId) => {
+    const { tabs, panes } = get()
+    const tab = tabs.find((t) => t.id === tabId)
+    if (!tab) return
+
+    const nextPanes = { ...panes }
+    for (const id of paneIdsOf(tab)) delete nextPanes[id]
+
+    const idx = tabs.findIndex((t) => t.id === tabId)
+    const nextTabs = tabs.filter((t) => t.id !== tabId)
+    const nextActive =
+      get().activeTabId === tabId
+        ? ((nextTabs[idx] ?? nextTabs[idx - 1])?.id ?? null)
         : get().activeTabId
 
     set({ tabs: nextTabs, panes: nextPanes, activeTabId: nextActive })

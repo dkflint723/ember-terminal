@@ -1,6 +1,6 @@
 // Rebinding: a chord changed in Settings changes what the window answers to.
 //
-// The mode switch moves from Ctrl+Shift+I to Ctrl+Shift+U by pressing it into
+// The mode switch moves from Ctrl+Shift+I to Ctrl+Shift+Y by pressing it into
 // the capture button, and then both sides of the promise are held: the old
 // chord must do nothing, the new one must flip the mode, the override must be
 // in settings.json, and the reset must give the default back.
@@ -51,9 +51,9 @@ check(
   'clicking the chord starts listening',
   (await row().locator('.keyrow__chord').textContent()) === 'press keys…'
 )
-await page.keyboard.press('Control+Shift+U')
+await page.keyboard.press('Control+Shift+Y')
 await sleep(300)
-check('the press becomes the chord', (await row().locator('.keyrow__chord').textContent()) === 'Ctrl+Shift+U')
+check('the press becomes the chord', (await row().locator('.keyrow__chord').textContent()) === 'Ctrl+Shift+Y')
 check('and a way back to the default appears', (await row().locator('[title="Back to the default"]').count()) === 1)
 
 await page.locator('.modal .btn', { hasText: 'Save' }).click()
@@ -63,16 +63,16 @@ await sleep(1000)
 await page.keyboard.press('Control+Shift+I')
 await sleep(500)
 check('the old chord no longer answers', (await modeNow()) === 'terminal', await modeNow())
-await page.keyboard.press('Control+Shift+U')
+await page.keyboard.press('Control+Shift+Y')
 await sleep(500)
 check('the new chord flips the mode', (await modeNow()) === 'ide', await modeNow())
-await page.keyboard.press('Control+Shift+U')
+await page.keyboard.press('Control+Shift+Y')
 await sleep(500)
 
 const stored = JSON.parse(fs.readFileSync(path.join(profile.dir, 'settings.json'), 'utf8'))
 check(
   'the override is written down',
-  stored.keybindings?.['mode.toggle'] === 'Ctrl+Shift+U',
+  stored.keybindings?.['mode.toggle'] === 'Ctrl+Shift+Y',
   JSON.stringify(stored.keybindings)
 )
 

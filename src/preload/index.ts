@@ -13,6 +13,7 @@ import type {
   ReplaceRequest,
   SearchQuery,
   SessionSnapshot,
+  TabTransfer,
   HistoryRecord,
   PersistedBlock,
   EmberApi,
@@ -43,6 +44,14 @@ const api: EmberApi = {
   sessionLoad: () => ipcRenderer.invoke('session:load'),
   sessionSave: (snapshot: SessionSnapshot) => ipcRenderer.invoke('session:save', snapshot),
   sessionClear: () => ipcRenderer.send('session:clear'),
+  newWindow: () => ipcRenderer.send('window:new'),
+  moveTabToNewWindow: (transfer: TabTransfer) => ipcRenderer.invoke('window:moveTab', transfer),
+  takeAdoption: () => ipcRenderer.invoke('window:adoption'),
+  onSettingsChanged: (cb: (settings: Settings & { hasApiKey: boolean }) => void) => {
+    const listener = (_: unknown, s: Settings & { hasApiKey: boolean }): void => cb(s)
+    ipcRenderer.on('settings:changed', listener)
+    return () => ipcRenderer.removeListener('settings:changed', listener)
+  },
   notifyCommand: (notice: CommandNotice) => ipcRenderer.send('notify:command', notice),
   notificationsSupported: () => ipcRenderer.invoke('notify:supported'),
   explorerSupported: () => ipcRenderer.invoke('explorer:supported'),

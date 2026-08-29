@@ -63,6 +63,8 @@ Grab `Ember Setup <version>.exe` from
 | --- | --- |
 | `Ctrl+Shift+I` | Terminal ↔ IDE |
 | `Ctrl+Shift+T` | New session |
+| `Ctrl+Shift+N` | New window |
+| `Ctrl+Shift+U` | Move session to new window |
 | `Ctrl+Tab` | Next session |
 | `Ctrl+B` | Side slot — sessions (terminal) or files (IDE) |
 | `Ctrl+J` | Panel |

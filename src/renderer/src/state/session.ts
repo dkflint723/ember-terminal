@@ -1,5 +1,13 @@
 import { useEffect } from 'react'
-import type { PersistedBlock, SessionLayout, SessionPane, SessionSnapshot } from '@shared/types'
+import type {
+  PersistedBlock,
+  SessionLayout,
+  SessionPane,
+  SessionSnapshot,
+  TabTransfer,
+  TerminalPaneTransfer
+} from '@shared/types'
+import { markAdopted } from '../terminal/controller'
 import {
   useStore,
   type Block,
@@ -218,6 +226,55 @@ function restoredBlock(saved: PersistedBlock): Block {
   return { ...saved, kind: 'command', restored: true }
 }
 
+/**
+ * Rebuild one editor pane from its written-down form: documents re-read from
+ * disk, unsaved text carried in through `pendingUnsaved`. Shared between a
+ * session restore and a tab adopted from another window — both hold editors the
+ * same way on the wire.
+ *
+ * Documents are re-read so a file changed by something else since the pane was
+ * written down comes back as it is now rather than as it was. The line endings
+ * come off the file too: they are what the buffer is normalised to and what a
+ * save writes back, so a file converted to CRLF in between would otherwise come
+ * back LF, look unsaved on open, and have every line rewritten by the next
+ * Ctrl+S. A file that has since been deleted is dropped rather than restored as
+ * an empty buffer that would overwrite it if saved.
+ */
+async function buildEditorPane(
+  saved: Extract<SessionPane, { kind: 'editor' }>,
+  languageForPath: (p: string) => string
+): Promise<Pane | null> {
+  const documents = []
+  for (const doc of saved.documents) {
+    let savedContent = ''
+    let eol = doc.eol
+    if (doc.filePath) {
+      const read = await window.ember.readFile(doc.filePath)
+      if (!read.ok && doc.unsaved === undefined) continue
+      savedContent = read.ok ? read.content : ''
+      if (read.ok) eol = read.eol
+    }
+    documents.push({
+      filePath: doc.filePath,
+      title: doc.title,
+      savedContent,
+      language: doc.language || languageForPath(doc.filePath ?? ''),
+      eol,
+      dirty: doc.unsaved !== undefined && doc.unsaved !== savedContent
+    })
+    if (doc.unsaved !== undefined) pendingUnsaved.set(doc.filePath ?? '', doc.unsaved)
+  }
+  if (documents.length === 0) return null
+
+  return {
+    id: saved.id,
+    kind: 'editor',
+    documents,
+    activeIndex: Math.min(saved.activeIndex, documents.length - 1),
+    error: null
+  }
+}
+
 /** Rebuild the workspace. Returns false when there was nothing usable to restore. */
 export async function restore(snapshotIn: SessionSnapshot | null): Promise<boolean> {
   if (!snapshotIn || snapshotIn.tabs.length === 0 || snapshotIn.panes.length === 0) return false
@@ -283,44 +340,8 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
       continue
     }
 
-    // Editor documents are re-read from disk, so a file changed by something else
-    // since the session was written comes back as it is now rather than as it was.
-    const documents = []
-    for (const doc of saved.documents) {
-      let savedContent = ''
-      // The line endings come back off the file too, not from the snapshot. They
-      // are what the editor's buffer is normalised to and therefore what a save
-      // writes back, so a file converted to CRLF between sessions would otherwise
-      // be restored as LF, look unsaved the moment it was opened, and have every
-      // line of it rewritten by the next Ctrl+S.
-      let eol = doc.eol
-      if (doc.filePath) {
-        const read = await window.ember.readFile(doc.filePath)
-        // A file that has since been deleted or renamed is dropped rather than
-        // restored as an empty buffer that would overwrite it if saved.
-        if (!read.ok && doc.unsaved === undefined) continue
-        savedContent = read.ok ? read.content : ''
-        if (read.ok) eol = read.eol
-      }
-      documents.push({
-        filePath: doc.filePath,
-        title: doc.title,
-        savedContent,
-        language: doc.language || languageForPath(doc.filePath ?? ''),
-        eol,
-        dirty: doc.unsaved !== undefined && doc.unsaved !== savedContent
-      })
-      if (doc.unsaved !== undefined) pendingUnsaved.set(doc.filePath ?? '', doc.unsaved)
-    }
-    if (documents.length === 0) continue
-
-    panes[saved.id] = {
-      id: saved.id,
-      kind: 'editor',
-      documents,
-      activeIndex: Math.min(saved.activeIndex, documents.length - 1),
-      error: null
-    }
+    const pane = await buildEditorPane(saved, languageForPath)
+    if (pane) panes[saved.id] = pane
   }
 
   // A layout referring to a pane that could not be rebuilt would render nothing,
@@ -385,6 +406,181 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
   // Panes that did not survive to this launch have no way of ever asking for their
   // blocks again, so this is the moment they stop being anyone's.
   window.ember.keepBlocksFor(Object.keys(panes))
+  return true
+}
+
+/**
+ * Pack one session to move to another window.
+ *
+ * Terminals travel live — blocks and standing as they are, with the pty left
+ * running for main to re-point. Editors travel the way the session file writes
+ * them down, unsaved text included, and are re-read on the other side. Null when
+ * the tab does not exist or holds nothing that can move.
+ */
+export function packTab(tabId: string): TabTransfer | null {
+  const state = useStore.getState()
+  const tab = state.tabs.find((t) => t.id === tabId)
+  if (!tab) return null
+
+  const keep = (paneId: string): boolean => state.panes[paneId]?.kind !== 'diff'
+  const root = pruneLayout(tab.shells, keep)
+  if (!root) return null
+  const editors = tab.editors ? pruneLayout(tab.editors, keep) : null
+  const ids = [...collect(root), ...(editors ? collect(editors) : [])]
+
+  const terminals: TerminalPaneTransfer[] = []
+  const editorPanes: Extract<SessionPane, { kind: 'editor' }>[] = []
+  for (const id of ids) {
+    const pane = state.panes[id]
+    if (!pane) continue
+    if (pane.kind === 'terminal') {
+      terminals.push({
+        id: pane.id,
+        profileId: pane.profileId,
+        cwd: pane.cwd,
+        title: pane.title,
+        exited: pane.exited,
+        exitCode: pane.exitCode,
+        integration: pane.integration,
+        blocks: pane.blocks
+      })
+    } else if (pane.kind === 'editor') {
+      editorPanes.push({
+        kind: 'editor',
+        id: pane.id,
+        activeIndex: pane.activeIndex,
+        documents: pane.documents.map((doc) => ({
+          filePath: doc.filePath,
+          title: doc.title,
+          language: doc.language,
+          eol: doc.eol,
+          ...unsavedFor(doc)
+        }))
+      })
+    }
+  }
+
+  return {
+    tab: {
+      id: tab.id,
+      name: tab.name,
+      thread: tab.thread,
+      root,
+      editors,
+      activePaneId: ids.includes(tab.activePaneId) ? tab.activePaneId : ids[0]
+    },
+    terminals,
+    editors: editorPanes
+  }
+}
+
+/**
+ * Move one session into a window of its own.
+ *
+ * Refused while a command runs in it: the block being written belongs to a
+ * controller in this window, and a stream split across two would finish in
+ * neither. The source lets go only after main confirms the new window holds
+ * the packed tab and the ptys point at it — and a window whose last session
+ * walks out follows it, rather than standing empty.
+ */
+export async function moveTabToWindow(tabId: string): Promise<void> {
+  const s = useStore.getState()
+  const tab = s.tabs.find((t) => t.id === tabId)
+  if (!tab) return
+
+  const { paneIdsOf } = await import('./store')
+  const running = paneIdsOf(tab).some((id) => {
+    const pane = s.panes[id]
+    return (
+      pane?.kind === 'terminal' &&
+      pane.blocks.some((b) => b.kind === 'command' && b.status === 'running')
+    )
+  })
+  if (running) {
+    s.setNotice('A command is still running here — let it finish before moving the session.', 'info')
+    return
+  }
+
+  const transfer = packTab(tabId)
+  if (!transfer) {
+    s.setNotice('There is nothing here that can move.', 'info')
+    return
+  }
+
+  const res = await window.ember.moveTabToNewWindow(transfer)
+  if (!res.ok) {
+    s.setNotice(res.error ?? 'The move failed.', 'error')
+    return
+  }
+
+  useStore.getState().releaseTab(tabId)
+  if (useStore.getState().tabs.length === 0) window.ember.windowAction('close')
+}
+
+/**
+ * Take in a session another window packed and let go of.
+ *
+ * The terminal panes are used as they arrived — their blocks are this app run's
+ * live history, not records from before — and their pane ids are marked adopted
+ * so the controllers that mount for them attach to the shells main re-pointed
+ * here instead of spawning new ones over them.
+ */
+export async function adoptTransfer(transfer: TabTransfer | null): Promise<boolean> {
+  if (!transfer?.tab) return false
+  const { languageForPath } = await import('../editor/monaco')
+
+  const panes: Record<string, Pane> = {}
+  for (const t of transfer.terminals) {
+    const blocks = t.blocks as Block[]
+    for (const block of blocks) {
+      if (block.kind === 'conversation') noteConversationWritten(block)
+    }
+    panes[t.id] = {
+      id: t.id,
+      kind: 'terminal',
+      profileId: t.profileId,
+      cwd: t.cwd,
+      title: t.title,
+      blocks,
+      mode: 'blocks',
+      integration: t.integration,
+      awaitingSecret: false,
+      exited: t.exited,
+      exitCode: t.exitCode
+    }
+  }
+  for (const saved of transfer.editors) {
+    const pane = await buildEditorPane(saved, languageForPath)
+    if (pane) panes[saved.id] = pane
+  }
+
+  const alive = (id: string): boolean => panes[id] !== undefined
+  const root = pruneLayout(transfer.tab.root as LayoutNode, alive)
+  if (!root) return false
+  const editors = transfer.tab.editors
+    ? pruneLayout(transfer.tab.editors as LayoutNode, alive)
+    : null
+  const ids = [...collect(root), ...(editors ? collect(editors) : [])]
+
+  // Before the state lands: the controllers mount off that render.
+  markAdopted(transfer.terminals.map((t) => t.id))
+
+  const tab: Tab = {
+    id: transfer.tab.id,
+    name: transfer.tab.name,
+    thread: transfer.tab.thread ?? [],
+    shells: root as LayoutNode,
+    editors: (editors as LayoutNode) ?? null,
+    activePaneId: ids.includes(transfer.tab.activePaneId) ? transfer.tab.activePaneId : ids[0]
+  }
+  useStore.setState((s) => ({
+    panes: { ...s.panes, ...panes },
+    tabs: [...s.tabs, tab],
+    activeTabId: tab.id
+  }))
+
+  // This window answers for these blocks now; main prunes on the union.
+  window.ember.keepBlocksFor(Object.keys(useStore.getState().panes))
   return true
 }
 

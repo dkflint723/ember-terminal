@@ -128,7 +128,13 @@ const sessionFile = path.join(userData, 'session.json')
 check('a session file was written', fs.existsSync(sessionFile))
 if (fs.existsSync(sessionFile)) {
   const saved = JSON.parse(fs.readFileSync(sessionFile, 'utf8'))
-  check('it is versioned', saved.version === 1, String(saved.version))
+  // Version 2: a list of windows, each carrying its own version-1 snapshot.
+  check('it is versioned', saved.version === 2, String(saved.version))
+  check(
+    'and holds one window',
+    Array.isArray(saved.windows) && saved.windows.length === 1,
+    String(saved.windows?.length)
+  )
   check('and holds the unsaved text', JSON.stringify(saved).includes('unsavedEdit'))
   // Command output is deliberately not kept; a stale block would look live.
   check('but not terminal scrollback', !JSON.stringify(saved).includes('"blocks"'))
@@ -300,7 +306,10 @@ check(
 // it verbatim leaves the sidebar rooted at nothing and the shells unable to start.
 {
   const vanished = path.join(os.tmpdir(), 'ember-session-gone-forever')
-  const stale = JSON.parse(fs.readFileSync(sessionFile, 'utf8'))
+  // The file holds a list of windows now; the scenario poisons the first one's
+  // snapshot, which is the shape a single-window session comes back in.
+  const onDisk = JSON.parse(fs.readFileSync(sessionFile, 'utf8'))
+  const stale = onDisk.version === 2 ? onDisk.windows[0].snapshot : onDisk
   stale.treeRoot = vanished
   for (const pane of stale.panes) if (pane.kind === 'terminal') pane.cwd = vanished
   // Editor documents for missing files are already dropped; keep only the shells.
@@ -317,7 +326,7 @@ check(
     .map((t) => ({ ...t, root: prune(t.root) }))
     .filter((t) => t.root)
     .map((t) => ({ ...t, activePaneId: [...keep][0] }))
-  fs.writeFileSync(sessionFile, JSON.stringify(stale), 'utf8')
+  fs.writeFileSync(sessionFile, JSON.stringify(onDisk), 'utf8')
 
   const app = await launch([])
   const page = await app.firstWindow()
