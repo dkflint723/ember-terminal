@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { parkModel, unparkModel } from '../editor/models'
 import { DEFAULT_SETTINGS, type GitStatus, type Settings, type ShellProfile } from '@shared/types'
 import type { ResolvedTheme, ThemeSummary } from '@shared/theme'
 import { DEFAULT_THEME } from '../terminal/theme'
@@ -440,6 +441,8 @@ interface Store {
     before?: boolean
   ): string | null
   closePane(tabId: string, paneId: string): void
+  /** Whether any editor pane, in any tab, currently holds this file. */
+  documentIsOpen(filePath: string | null): boolean
   /** The tab whose layout contains this pane, which is not always the active one. */
   tabIdForPane(paneId: string): string | null
   /** Titles of the unsaved documents held by these panes, for a close prompt. */
@@ -960,6 +963,14 @@ export const useStore = create<Store>((set, get) => ({
     return out
   },
 
+  /** Whether any editor pane, in any tab, currently holds this file. */
+  documentIsOpen: (filePath) => {
+    if (!filePath) return false
+    return Object.values(get().panes).some(
+      (p) => p.kind === 'editor' && p.documents.some((d) => samePath(d.filePath ?? '', filePath))
+    )
+  },
+
   closePane: (tabId, paneId) => {
     const { tabs, panes } = get()
     const tab = tabs.find((t) => t.id === tabId)
@@ -973,6 +984,13 @@ export const useStore = create<Store>((set, get) => ({
      * this is where every one of those paths converges.
      */
     if (!confirmDiscarding(get().dirtyDocumentsIn([paneId]))) return
+    const closingDocs =
+      panes[paneId]?.kind === 'editor'
+        ? (panes[paneId] as EditorPaneState).documents.map((d) => d.filePath)
+        : []
+    queueMicrotask(() => {
+      for (const path of closingDocs) parkModel(path, get().documentIsOpen(path))
+    })
     // Closing a pane through the wrong tab used to remove it from the pane map and
     // kill its process while the tab that really owns it kept a leaf pointing at it,
     // leaving that tab with a hole where a pane should be.
@@ -1046,6 +1064,7 @@ export const useStore = create<Store>((set, get) => ({
     }),
 
   openFileInSplit: (tabId, file) => {
+    unparkModel(file.path)
     const { tabs, panes } = get()
     const tab = tabs.find((t) => t.id === tabId)
     if (!tab) return null
@@ -1451,6 +1470,11 @@ export const useStore = create<Store>((set, get) => ({
         ? pane.activeIndex - 1
         : Math.min(pane.activeIndex, documents.length - 1)
     set((s) => ({ panes: { ...s.panes, [paneId]: { ...pane, documents, activeIndex } } }))
+
+    // The closed document's model goes to the parking lot — unless a split
+    // still holds the same file, in which case it is simply still in use.
+    const closedPath = pane.documents[index]?.filePath ?? null
+    parkModel(closedPath, get().documentIsOpen(closedPath))
   },
 
   openDiffInSplit: (tabId, diff) => {

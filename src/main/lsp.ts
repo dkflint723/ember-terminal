@@ -334,6 +334,23 @@ export class LspService {
       this.markReady(language)
       this.ready.delete(language)
       this.initializeIds.delete(language)
+
+      /*
+       * A server that dies mid-session is brought back rather than mourned.
+       *
+       * The renderer's client cannot be rebuilt — its providers register with
+       * Monaco once and hold no handle to unregister — so the crash is hidden
+       * from it here instead: respawn, replay the handshake this side kept, and
+       * ask the renderer to re-open its documents, which it holds the truth of.
+       * Three deaths inside two minutes is a server that will keep dying, and
+       * then the renderer is told the truth and left to its fallbacks.
+       */
+      if (!this.stopping && this.shouldRestart(language)) {
+        const attempt = this.crashTimes.get(language)?.length ?? 1
+        setTimeout(() => void this.restart(language), attempt * 1_000)
+        return
+      }
+      this.restarting.delete(language)
       this.send({ type: 'exit', language, code })
     })
     /*
@@ -386,6 +403,14 @@ export class LspService {
         const reply = parsed as { id?: unknown; method?: unknown }
         if (reply.method === undefined && reply.id === this.initializeIds.get(language)) {
           this.markReady(language)
+        }
+        if (
+          reply.method === undefined &&
+          typeof reply.id === 'string' &&
+          this.restartInitIds.delete(reply.id)
+        ) {
+          this.finishRestart(language)
+          continue
         }
         if (
           !this.settleDirect(parsed) &&
@@ -452,6 +477,20 @@ export class LspService {
           ...(settings ? { initializationOptions: params.initializationOptions ?? settings } : {})
         }
       }
+    }
+
+    if (this.isInitialize(message)) {
+      // The enriched form, not the renderer's: replay must carry the same
+      // workspace and initializationOptions the first start did.
+      this.initRequests.set(language, outgoing as Record<string, unknown>)
+    }
+
+    // A message sent while the server is being brought back would reach a
+    // process that has not finished its handshake; it waits its turn instead.
+    const parked = this.restarting.get(language)
+    if (parked) {
+      parked.push(normalizeUris(outgoing))
+      return
     }
 
     this.write(language, normalizeUris(outgoing))
@@ -526,6 +565,17 @@ export class LspService {
    * hundred milliseconds; it was always a race, and losing it was always possible.
    */
   private initializeIds = new Map<string, unknown>()
+  /** The enriched initialize each language was started with, kept for replay. */
+  private initRequests = new Map<string, Record<string, unknown>>()
+  /** Synthetic initialize ids whose replies are ours to swallow, not forward. */
+  private restartInitIds = new Set<string>()
+  /** Languages mid-restart: renderer traffic queues here until the replay lands. */
+  private restarting = new Map<string, unknown[]>()
+  /** When each language last crashed, for the give-up arithmetic. */
+  private crashTimes = new Map<string, number[]>()
+  /** Set on dispose, so teardown kills are never mistaken for crashes. */
+  private stopping = false
+  private restartSerial = 0
   private ready = new Map<string, { promise: Promise<void>; settle: () => void }>()
 
   private readyGate(language: string): { promise: Promise<void>; settle: () => void } {
@@ -670,6 +720,49 @@ export class LspService {
   }
 
   /** Frame one message onto a server's stdin. */
+  /** Record a crash; true while this language has lives left. */
+  private shouldRestart(language: string): boolean {
+    if (!this.initRequests.has(language)) return false
+    const now = Date.now()
+    const recent = (this.crashTimes.get(language) ?? []).filter((t) => now - t < 120_000)
+    recent.push(now)
+    this.crashTimes.set(language, recent)
+    return recent.length <= 3
+  }
+
+  private async restart(language: string): Promise<void> {
+    if (this.stopping || this.servers.has(language)) return
+    const init = this.initRequests.get(language)
+    if (!init) return
+
+    this.restarting.set(language, [])
+    const started = this.start(language, this.roots.get(language))
+    if (!started.ok) {
+      this.restarting.delete(language)
+      this.send({ type: 'exit', language, code: null, error: started.error })
+      return
+    }
+
+    // The handshake, replayed under an id of ours: the renderer answered the
+    // original years of messages ago, so the reply is swallowed on arrival —
+    // which is also the moment the parked traffic can be let through.
+    const restartId = `ember-restart-${++this.restartSerial}`
+    this.restartInitIds.add(restartId)
+    this.write(language, { ...init, id: restartId })
+  }
+
+  /** The replayed handshake answered: finish the wiring and open the gate. */
+  private finishRestart(language: string): void {
+    this.write(language, { jsonrpc: '2.0', method: 'initialized', params: {} })
+    const parked = this.restarting.get(language) ?? []
+    this.restarting.delete(language)
+    for (const message of parked) this.write(language, message)
+    this.markReady(language)
+    // The renderer re-opens its documents — it holds their current text.
+    this.send({ type: 'restarted', language })
+    trace('<--', language, 'restarted and replayed')
+  }
+
   private write(language: string, message: unknown): void {
     const child = this.servers.get(language)
     if (!child) return
@@ -771,6 +864,7 @@ export class LspService {
   }
 
   dispose(): void {
+    this.stopping = true
     for (const child of this.servers.values()) {
       try {
         child.kill()

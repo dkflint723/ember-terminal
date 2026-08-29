@@ -45,3 +45,8 @@ export function noteSynced(filePath: string | null, text: string): void {
 export function lastSynced(filePath: string | null): string | undefined {
   return filePath ? synced.get(key(filePath)) : undefined
 }
+
+/** A disposed model's record has nothing left to describe. */
+export function forgetSynced(filePath: string | null): void {
+  if (filePath) synced.delete(key(filePath))
+}

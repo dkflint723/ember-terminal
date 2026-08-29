@@ -530,7 +530,7 @@ export type GitSimpleResult = { ok: true } | { ok: false; error: string }
 export type GitCommitResult = { ok: true; summary: string } | { ok: false; error: string }
 
 export interface LspEvent {
-  type: 'message' | 'exit'
+  type: 'message' | 'exit' | 'restarted'
   language: string
   message?: unknown
   code?: number | null

@@ -77,3 +77,10 @@ export function modelUri(filePath: string): monaco.Uri {
 }
 
 export { monaco }
+
+/*
+ * The editor engine, reachable from the console. Devtools sessions and the
+ * verification suites both need to ask Monaco what models it is holding, and
+ * neither can import a module. Read-only by convention.
+ */
+;(window as unknown as { monaco: typeof monaco }).monaco = monaco

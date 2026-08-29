@@ -71,6 +71,33 @@ class IpcTransport {
 
     this.unsubscribe = window.ember.onLspMessage((event) => {
       if (event.language !== this.language) return
+      if (event.type === 'restarted') {
+        /*
+         * Main brought the server back and replayed the handshake; the client
+         * never noticed. What the fresh process is missing is the documents,
+         * and the models here are their living truth — every one this server
+         * answers for is re-opened with its current text. The synchronizer's
+         * own version counters continue from where they were, which servers
+         * take as the monotonic sequence the protocol asks for.
+         */
+        for (const model of monaco.editor.getModels()) {
+          if (serverFor(model.getLanguageId()) !== this.language) continue
+          window.ember.lspSend(this.language, {
+            jsonrpc: '2.0',
+            method: 'textDocument/didOpen',
+            params: {
+              textDocument: {
+                uri: model.uri.toString(),
+                languageId: model.getLanguageId(),
+                version: model.getVersionId(),
+                text: model.getValue()
+              }
+            }
+          })
+        }
+        useStore.getState().setNotice(`The ${this.language} language server was restarted.`, 'info')
+        return
+      }
       if (event.type === 'exit') {
         // Carrying the reason: a transport that closed because the server could not
         // be started should say so rather than look like a clean shutdown.
@@ -82,7 +109,14 @@ class IpcTransport {
           useStore
             .getState()
             .setNotice(`The ${event.language} language server could not start: ${event.error}`, 'error')
+        } else {
+          useStore
+            .getState()
+            .setNotice(`The ${event.language} language server stopped and could not be revived.`, 'error')
         }
+        // TypeScript stood its bundled worker down when the server arrived;
+        // with the server gone for good, the worker is the intelligence left.
+        if (this.language === 'typescript') standUpBundledTypeScript()
         return
       }
       this.listener?.(event.message)
@@ -191,6 +225,25 @@ const SERVER_FOR: Record<string, string> = {
  * Deliberately called only after the client is constructed: if no server starts, the
  * worker stays on and TypeScript keeps the intelligence it had before.
  */
+/** The reverse, for when the server is gone for good: the worker returns. */
+function standUpBundledTypeScript(): void {
+  const ts = (monaco as unknown as { typescript?: Record<string, TsDefaults | undefined> })
+    .typescript
+  const restored = {
+    completionItems: true,
+    hovers: true,
+    documentSymbols: true,
+    definitions: true,
+    references: true,
+    documentHighlights: true,
+    rename: true,
+    diagnostics: true,
+    signatureHelp: true
+  }
+  ts?.typescriptDefaults?.setModeConfiguration(restored)
+  ts?.javascriptDefaults?.setModeConfiguration(restored)
+}
+
 function standDownBundledTypeScript(): void {
   const ts = (monaco as unknown as { typescript?: Record<string, TsDefaults | undefined> })
     .typescript
