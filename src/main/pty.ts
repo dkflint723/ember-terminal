@@ -7,7 +7,28 @@ import type { ShellProfile, SpawnRequest } from '../shared/types.js'
 interface Session {
   pty: IPty
   profile: ShellProfile
+  /** Characters sent to the renderer and not yet acknowledged as parsed. */
+  pending: number
+  /** Whether the pty's read side is currently held shut. */
+  paused: boolean
+  /** How many times the valve has closed — read by the flood verification. */
+  pausedCount: number
 }
+
+/*
+ * Flow control between a shell that can write megabytes a second and a renderer
+ * that has to parse every byte of it. Without a valve, a flooding command just
+ * queues its output in the renderer until typing and painting crawl. The pty is
+ * paused once a window of output is in flight unparsed, and resumed when the
+ * renderer has chewed back below half of it — the shell blocks on its own
+ * stdout for the difference, which is exactly what a slow physical terminal
+ * has always made programs do.
+ *
+ * The window is overridable from the environment so the verification suite can
+ * make a modest flood engage the valve deterministically; real runs never set it.
+ */
+const FLOW_HIGH = Math.max(16_384, Number(process.env.EMBER_FLOW_HIGH) || 1_048_576)
+const FLOW_LOW = Math.floor(FLOW_HIGH / 2)
 
 type DataSink = (paneId: string, data: string) => void
 type ExitSink = (paneId: string, exitCode: number) => void
@@ -59,16 +80,44 @@ export class PtyManager {
       useConpty: true
     })
 
-    const session: Session = { pty, profile }
+    const session: Session = { pty, profile, pending: 0, paused: false, pausedCount: 0 }
     this.sessions.set(req.paneId, session)
 
-    pty.onData((d) => this.onData(req.paneId, d))
+    pty.onData((d) => {
+      session.pending += d.length
+      if (!session.paused && session.pending > FLOW_HIGH) {
+        session.paused = true
+        session.pausedCount += 1
+        pty.pause()
+      }
+      this.onData(req.paneId, d)
+    })
     pty.onExit(({ exitCode }) => {
       this.sessions.delete(req.paneId)
       this.onExit(req.paneId, exitCode)
     })
 
     this.injectIntegration(pty, profile)
+  }
+
+  /** The renderer has parsed this many more characters; maybe reopen the valve. */
+  ack(paneId: string, parsed: number): void {
+    const session = this.sessions.get(paneId)
+    if (!session || !Number.isFinite(parsed) || parsed <= 0) return
+    session.pending = Math.max(0, session.pending - parsed)
+    if (session.paused && session.pending < FLOW_LOW) {
+      session.paused = false
+      session.pty.resume()
+    }
+  }
+
+  /** The valve's book-keeping, per pane — the flood suite's only window in. */
+  flowStats(): Record<string, { pending: number; paused: boolean; pausedCount: number }> {
+    const out: Record<string, { pending: number; paused: boolean; pausedCount: number }> = {}
+    for (const [paneId, s] of this.sessions) {
+      out[paneId] = { pending: s.pending, paused: s.paused, pausedCount: s.pausedCount }
+    }
+    return out
   }
 
   /**

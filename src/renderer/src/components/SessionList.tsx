@@ -48,6 +48,15 @@ export function SessionList(): React.JSX.Element {
   }, [menuOpen])
 
   const renameTab = useStore((s) => s.renameTab)
+  const moveTab = useStore((s) => s.moveTab)
+  /*
+   * Drag state, by tab id rather than index: the list on screen is filtered,
+   * so a position in it says nothing about a position in the store. Where the
+   * drag began lives in a ref because nothing renders off it; which card is
+   * hovered lives in state because the insertion mark does.
+   */
+  const dragFrom = useRef<string | null>(null)
+  const [dragOver, setDragOver] = useState<string | null>(null)
   /** Which card is being renamed, and the text as it is typed. */
   const [renaming, setRenaming] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
@@ -161,8 +170,36 @@ export function SessionList(): React.JSX.Element {
           return (
             <div
               key={t.id}
-              className={`sessions__card ${t.id === activeTabId ? 'sessions__card--on' : ''}`}
+              className={`sessions__card ${t.id === activeTabId ? 'sessions__card--on' : ''} ${dragOver === t.id && dragFrom.current !== t.id ? 'sessions__card--over' : ''}`}
               role="tab"
+              draggable
+              onDragStart={(e) => {
+                dragFrom.current = t.id
+                e.dataTransfer.effectAllowed = 'move'
+              }}
+              onDragOver={(e) => {
+                // Without this the browser refuses the drop outright.
+                e.preventDefault()
+                if (dragOver !== t.id) setDragOver(t.id)
+              }}
+              onDragLeave={() => setDragOver((over) => (over === t.id ? null : over))}
+              onDrop={(e) => {
+                e.preventDefault()
+                const held = dragFrom.current
+                dragFrom.current = null
+                setDragOver(null)
+                if (!held || held === t.id) return
+                // Indices resolved against the store's own order at drop time —
+                // the filtered view's positions would move the wrong card.
+                const all = useStore.getState().tabs
+                const from = all.findIndex((x) => x.id === held)
+                const to = all.findIndex((x) => x.id === t.id)
+                if (from !== -1 && to !== -1) moveTab(from, to)
+              }}
+              onDragEnd={() => {
+                dragFrom.current = null
+                setDragOver(null)
+              }}
               aria-selected={t.id === activeTabId}
               tabIndex={t.id === activeTabId ? 0 : -1}
               onMouseDown={() => setActiveTab(t.id)}

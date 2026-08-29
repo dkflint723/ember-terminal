@@ -428,6 +428,8 @@ interface Store {
   setActiveTab(tabId: string): void
   /** Name a session by hand; an empty string hands naming back to the shell. */
   renameTab(tabId: string, name: string): void
+  /** Reorder the session list: the card at `from` lands at `to`. */
+  moveTab(from: number, to: number): void
   setActivePane(tabId: string, paneId: string): void
 
   /** `before` puts the new pane on the leading side: left of, or above, the source. */
@@ -843,6 +845,14 @@ export const useStore = create<Store>((set, get) => ({
         t.id === tabId ? { ...t, name: name.trim() || undefined } : t
       )
     })),
+  moveTab: (from, to) =>
+    set((s) => {
+      if (from === to || from < 0 || from >= s.tabs.length) return {}
+      const tabs = [...s.tabs]
+      const [moved] = tabs.splice(from, 1)
+      tabs.splice(Math.max(0, Math.min(to, tabs.length)), 0, moved)
+      return { tabs }
+    }),
 
   setActivePane: (tabId, paneId) =>
     set((s) => ({

@@ -150,6 +150,33 @@ const derived = await page
   .textContent()
 check('an empty rename hands naming back', (derived ?? '').length > 0 && derived !== 'build watch', String(derived))
 
+// --- the cards reorder by drag -------------------------------------------------
+// Synthetic drag events rather than mouse choreography: the handlers are what is
+// under test, and a DataTransfer-carrying sequence is exactly what a real drag
+// delivers to them without the flake of pixel paths.
+const orderBefore = await page.evaluate(() =>
+  [...document.querySelectorAll('.sessions__name')].map((n) => n.textContent)
+)
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll('.sessions__card')]
+  const dt = new DataTransfer()
+  cards[1].dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }))
+  cards[0].dispatchEvent(new DragEvent('dragover', { bubbles: true, dataTransfer: dt }))
+  cards[0].dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: dt }))
+  cards[1].dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }))
+})
+await sleep(500)
+const orderAfter = await page.evaluate(() =>
+  [...document.querySelectorAll('.sessions__name')].map((n) => n.textContent)
+)
+check(
+  'dragging the second card onto the first swaps them',
+  orderAfter.length === 2 &&
+    orderAfter[0] === orderBefore[1] &&
+    orderAfter[1] === orderBefore[0],
+  JSON.stringify({ before: orderBefore, after: orderAfter })
+)
+
 await page.locator('.sessions__search').fill('definitely-nothing-is-called-this')
 await sleep(400)
 check('a filter that matches nothing empties the list', (await cards()) === 0, `${await cards()}`)

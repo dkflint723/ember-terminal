@@ -728,6 +728,9 @@ export interface EmberApi {
   openThemeFolder(): void
   spawn(req: SpawnRequest): Promise<{ ok: boolean; error?: string }>
   write(paneId: string, data: string): void
+  /** Tell main how much pty output the terminal has parsed, for flow control. */
+  ptyAck(paneId: string, parsed: number): void
+  ptyFlowStats(): Promise<Record<string, { pending: number; paused: boolean; pausedCount: number }>>
   resize(paneId: string, cols: number, rows: number): void
   kill(paneId: string): void
   /**

@@ -705,7 +705,10 @@ export class TerminalController {
     // and fires finishBlock.
     this.feedCapture(data)
     this.detectSecretPrompt(data)
-    this.term.write(data)
+    // The callback is xterm saying "parsed" — the acknowledgement that lets
+    // main reopen the pty once the renderer has genuinely kept up, rather than
+    // merely received. Without it a flooding command queues here unboundedly.
+    this.term.write(data, () => window.ember.ptyAck(this.paneId, data.length))
   }
 
   /**

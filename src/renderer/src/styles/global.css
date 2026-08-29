@@ -412,6 +412,11 @@ button {
   overflow-y: auto;
 }
 
+/* Where the dragged card would land: a lit seam above the card under it. */
+.sessions__card--over {
+  box-shadow: 0 -2px 0 0 var(--accent);
+}
+
 .sessions__card {
   display: flex;
   align-items: center;

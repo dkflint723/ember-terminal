@@ -538,6 +538,8 @@ function registerIpc(): void {
   completion = new CompletionService(detected)
   ipcMain.handle('completion:request', (_e, req: CompletionRequest) => completion.complete(req))
 
+  ipcMain.on('pty:ack', (_e, paneId: string, parsed: number) => ptys.ack(paneId, parsed))
+  ipcMain.handle('pty:flowStats', () => ptys.flowStats())
   ipcMain.on('history:record', (_e, entry: HistoryRecord) => history.record(entry))
   ipcMain.on('blocks:save', (_e, paneId: string, block: PersistedBlock) =>
     history.saveBlock(paneId, block)
