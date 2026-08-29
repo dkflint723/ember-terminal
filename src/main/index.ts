@@ -67,6 +67,17 @@ import {
  * nowhere, so every report is also appended to ember.log in userData — the file
  * to ask for when something went wrong on a machine that is not this one.
  */
+function logLine(label: string, line: string): void {
+  try {
+    appendFileSync(
+      join(app.getPath('userData'), 'ember.log'),
+      `[${new Date().toISOString()}] ${label}: ${line}\n`
+    )
+  } catch {
+    // A log that cannot be written must not become its own crash.
+  }
+}
+
 function reportFault(label: string, detail: unknown): void {
   console.error(`Ember: ${label}`, detail)
   try {
@@ -135,6 +146,18 @@ let updaterWatched = false
 function watchUpdater(updater: typeof import('electron-updater').autoUpdater): void {
   if (updaterWatched) return
   updaterWatched = true
+  /*
+   * electron-updater's own account of itself, which it otherwise writes to a
+   * console a packaged Windows build throws away. Every decision it makes about
+   * installing on quit — the one step that happens when no window is left to
+   * tell — lands in ember.log instead, where it can be read afterwards.
+   */
+  updater.logger = {
+    info: (m: unknown) => logLine('updater', String(m)),
+    warn: (m: unknown) => logLine('updater warn', String(m)),
+    error: (m: unknown) => logLine('updater error', String(m)),
+    debug: () => {}
+  }
   updater.on('error', (err) => {
     reportFault('update failed', err)
     sendToAll('updates:status', `The update failed: ${describeUpdateError(err)}`)
@@ -143,8 +166,37 @@ function watchUpdater(updater: typeof import('electron-updater').autoUpdater): v
     sendToAll('updates:status', `Downloading the update — ${Math.round(progress.percent)}%.`)
   })
   updater.on('update-downloaded', (info) => {
+    /*
+     * Written down before the quit that installs it. The install runs with no
+     * window left to report to, so this note is the only thing that can tell
+     * the next launch whether it worked: same version running means it did,
+     * and an older one means the installer aborted without a word.
+     */
+    settings.set({ pendingUpdateVersion: info.version })
     sendToAll('updates:status', `Version ${info.version} is downloaded. It installs when Ember quits.`)
   })
+}
+
+/**
+ * Whether the update we were promised last time actually arrived.
+ *
+ * Called once a window exists. An install that silently did nothing — an NSIS
+ * abort, a blocked spawn, a machine that never quit cleanly — is otherwise
+ * indistinguishable from never having downloaded anything, and the app would
+ * go on running the old version for ever with a full installer sitting on disk.
+ */
+function reportPendingUpdate(): void {
+  const promised = settings.get().pendingUpdateVersion
+  if (!promised) return
+  if (promised === app.getVersion()) {
+    settings.set({ pendingUpdateVersion: null })
+    return
+  }
+  logLine('updater', `promised ${promised}, still running ${app.getVersion()}`)
+  sendToAll(
+    'updates:status',
+    `Version ${promised} was downloaded but did not install. Quitting Ember again should apply it; "Install now" below does it immediately.`
+  )
 }
 
 /*
@@ -181,7 +233,11 @@ async function checkForUpdateNow(): Promise<string> {
     const result = await autoUpdater.checkForUpdates()
     const found = result?.updateInfo?.version
     if (!found) return 'The update service had nothing to say.'
-    if (found === app.getVersion()) return `Up to date — ${found} is the newest version.`
+    // The updater's own verdict, not a string comparison: it knows about
+    // channels and staged rollouts that version equality cannot see.
+    if (result?.isUpdateAvailable === false || found === app.getVersion()) {
+      return `Up to date — ${found} is the newest version.`
+    }
     if (!settings.get().autoUpdate) {
       return `Version ${found} is available. Turn on update checks to download it.`
     }
@@ -445,7 +501,12 @@ function createWindow(seed: WindowSeed = {}): number {
     win.show()
     // After the window, never before: a launch should not wait on a network call —
     // and once per app, not once per window.
-    if (primary) setTimeout(() => void maybeCheckForUpdate(), 8000)
+    if (primary) {
+      // Whether the last run's promised update actually landed, asked while
+      // there is finally a window to answer to.
+      setTimeout(() => reportPendingUpdate(), 2500)
+      setTimeout(() => void maybeCheckForUpdate(), 8000)
+    }
   })
 
   /*
@@ -976,6 +1037,24 @@ function registerIpc(): void {
     return { ...res, settings: redacted }
   })
   ipcMain.handle('updates:check', () => checkForUpdateNow())
+  /*
+   * Install the staged update now rather than waiting for a quit that may be a
+   * long way off — or that already came and went without the installer taking.
+   */
+  ipcMain.on('updates:installNow', () => {
+    void (async () => {
+      try {
+        const updater = await loadUpdater()
+        watchUpdater(updater)
+        logLine('updater', 'install requested by hand')
+        quitting = true
+        updater.quitAndInstall(false, true)
+      } catch (err) {
+        reportFault('install now failed', err)
+        sendToAll('updates:status', `Could not install: ${describeUpdateError(err)}`)
+      }
+    })()
+  })
   ipcMain.handle('settings:noteFolder', (_e, folder: string) => settings.noteRecentFolder(folder))
   ipcMain.handle('settings:loadError', () => settings.takeLoadError())
   ipcMain.on('window:zoom', (e, factor: number) => {

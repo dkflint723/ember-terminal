@@ -1067,6 +1067,14 @@ export function SettingsPanel(): React.JSX.Element | null {
                   >
                     Check now
                   </button>
+                  {/* Only once something is actually staged: a quit that never
+                      comes, or an installer that quietly declined to run, should
+                      not leave the update sitting on disk with no way to apply it. */}
+                  {/downloaded|did not install/i.test(updateNote) && (
+                    <button className="btn btn--primary" onClick={() => window.ember.installUpdateNow()}>
+                      Install now
+                    </button>
+                  )}
                   {updateNote && <span className="field__note">{updateNote}</span>}
                 </div>
               </div>

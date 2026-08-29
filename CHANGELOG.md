@@ -3,6 +3,33 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
+## 0.3.3 — 2026-08-29
+
+The update that can be watched working — and that says so when it isn't.
+
+- **Failures reach the screen.** The updater's progress, finish and failures
+  went to the Settings dialog alone, which is shut almost always, and the
+  background check runs eight seconds after launch when it certainly is. Any
+  outcome that is not mere progress now also raises the notice banner, which is
+  on screen whatever you are looking at.
+- **The install is verified, not assumed.** The version an update announces as
+  downloaded is written down before the quit that installs it. On the next
+  launch it is compared with the version actually running: matching means it
+  worked, and an older one means the installer aborted without a word — which
+  Ember now says out loud instead of running the old build for ever with a
+  finished download sitting on disk.
+- **"Install now."** When an update is staged, Settings offers to apply it
+  immediately rather than waiting for a quit that may be days away, or that has
+  already come and gone without the installer taking.
+- **The updater keeps a diary.** electron-updater's own account of itself —
+  including every decision it makes at quit, when no window is left to tell —
+  now lands in `ember.log` instead of a console a packaged build discards.
+- **A check that asks the updater, not the version string.** "Up to date" now
+  comes from the updater's own verdict rather than comparing two strings.
+- New suite `verify-update.mjs`: stands a local feed in front of a genuinely
+  packaged Ember and proves the whole download path, including that the
+  installer is staged under the exact name the feed declared.
+
 ## 0.3.2 — 2026-08-29
 
 - **Updates install again.** Every release so far was un-installable: the feed

@@ -268,6 +268,23 @@ export function App(): React.JSX.Element {
     void import('./editor/lsp').then((m) => m.registerTaughtLanguages(taughtServers))
   }, [taughtServers])
 
+  /*
+   * An update that fails must not fail quietly. The Settings dialog shows every
+   * step in detail, but it is shut almost always — and the background check
+   * runs eight seconds after launch, when it certainly is. Anything that is not
+   * mere progress also raises the notice banner, which is on screen whatever
+   * the user is looking at.
+   */
+  useEffect(
+    () =>
+      window.ember.onUpdateStatus((status) => {
+        if (/^Downloading the update/.test(status)) return
+        const bad = /failed|could not|did not install/i.test(status)
+        useStore.getState().setNotice(status, bad ? 'error' : 'info')
+      }),
+    []
+  )
+
   // Debug events flow whether or not the panel is open — a breakpoint can be
   // hit while the sidebar is showing the explorer.
   useEffect(() => {

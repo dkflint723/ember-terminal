@@ -63,6 +63,7 @@ const api: EmberApi = {
   },
   moveTabToNewWindow: (transfer: TabTransfer) => ipcRenderer.invoke('window:moveTab', transfer),
   takeAdoption: () => ipcRenderer.invoke('window:adoption'),
+  installUpdateNow: () => ipcRenderer.send('updates:installNow'),
   onUpdateStatus: (cb: (status: string) => void) => {
     const listener = (_: unknown, status: string): void => cb(status)
     ipcRenderer.on('updates:status', listener)

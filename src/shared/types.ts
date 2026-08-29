@@ -789,6 +789,15 @@ export interface Settings {
    */
   autoUpdate: boolean
   /**
+   * The version an update announced as downloaded and ready to install on quit.
+   *
+   * Written down because the install happens after every window is gone, where
+   * nothing can be reported to anyone: on the next launch this is compared with
+   * the version actually running, which is the only way to tell an install that
+   * worked from one that silently did nothing.
+   */
+  pendingUpdateVersion: string | null
+  /**
    * The one-time welcome card has been seen and put away — by its button, or by
    * running a first command, which says the same thing better.
    */
@@ -817,6 +826,7 @@ export const DEFAULT_SETTINGS: Settings = {
   windowBounds: null,
   windowMaximized: false,
   autoUpdate: false,
+  pendingUpdateVersion: null,
   firstRunDone: false
 }
 
@@ -869,6 +879,8 @@ export interface EmberApi {
     command: string,
     args?: unknown
   ): Promise<{ ok: boolean; body?: unknown; error?: string }>
+  /** Quit and install a downloaded update now, rather than waiting for a quit. */
+  installUpdateNow(): void
   /** Tear the session down, adapter process and all. */
   dapStop(sessionId: string): Promise<void>
   /**
