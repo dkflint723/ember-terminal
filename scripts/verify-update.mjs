@@ -143,8 +143,8 @@ check(
   JSON.stringify(statuses)
 )
 check(
-  'and the finish is announced',
-  statuses.some((s) => /is downloaded/i.test(s) && /installs when Ember quits/i.test(s)),
+  'and the finish is announced as something to act on',
+  statuses.some((s) => /ready to install/i.test(s) && /Install now/i.test(s)),
   JSON.stringify(statuses)
 )
 check('nothing reported a failure', !statuses.some((s) => /failed/i.test(s)), JSON.stringify(statuses))

@@ -1,4 +1,14 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, screen, shell } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  ipcMain,
+  Menu,
+  Notification,
+  screen,
+  shell
+} from 'electron'
 import { join } from 'node:path'
 import { appendFileSync, existsSync } from 'node:fs'
 
@@ -147,6 +157,17 @@ function watchUpdater(updater: typeof import('electron-updater').autoUpdater): v
   if (updaterWatched) return
   updaterWatched = true
   /*
+   * No silent install behind a quit.
+   *
+   * electron-updater's quit handler hardcodes install(isSilent=true), so the
+   * only sign an update was being applied was a permission prompt followed by a
+   * minute of nothing — during which launching Ember again finds an
+   * half-replaced install and dies with a raw JavaScript error. The install is
+   * an explicit, visible act instead: the installer shows its own progress and
+   * Ember reopens itself when it is finished.
+   */
+  updater.autoInstallOnAppQuit = false
+  /*
    * electron-updater's own account of itself, which it otherwise writes to a
    * console a packaged Windows build throws away. Every decision it makes about
    * installing on quit — the one step that happens when no window is left to
@@ -173,7 +194,24 @@ function watchUpdater(updater: typeof import('electron-updater').autoUpdater): v
      * and an older one means the installer aborted without a word.
      */
     settings.set({ pendingUpdateVersion: info.version })
-    sendToAll('updates:status', `Version ${info.version} is downloaded. It installs when Ember quits.`)
+    sendToAll(
+      'updates:status',
+      `Version ${info.version} is ready to install. Choose “Install now” — the installer shows its progress and Ember reopens when it is done.`
+    )
+    /*
+     * And on the desktop, because the window this concerns may be behind
+     * everything else, or the person may be somewhere else entirely.
+     */
+    try {
+      if (Notification.isSupported()) {
+        new Notification({
+          title: `Ember ${info.version} is ready to install`,
+          body: 'Open Settings and choose Install now. Ember reopens when it is finished.'
+        }).show()
+      }
+    } catch {
+      // A notification that cannot be raised is not worth a crash.
+    }
   })
 }
 
@@ -195,7 +233,7 @@ function reportPendingUpdate(): void {
   logLine('updater', `promised ${promised}, still running ${app.getVersion()}`)
   sendToAll(
     'updates:status',
-    `Version ${promised} was downloaded but did not install. Quitting Ember again should apply it; "Install now" below does it immediately.`
+    `Version ${promised} is downloaded and waiting. Choose “Install now” below to apply it.`
   )
 }
 
@@ -1048,6 +1086,8 @@ function registerIpc(): void {
         watchUpdater(updater)
         logLine('updater', 'install requested by hand')
         quitting = true
+        // Visible, and it puts Ember back afterwards: isSilent false shows the
+        // installer's own progress, isForceRunAfter relaunches when it ends.
         updater.quitAndInstall(false, true)
       } catch (err) {
         reportFault('install now failed', err)

@@ -3,6 +3,16 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
+## 0.3.4 — 2026-08-29
+
+- **The update installs where you can see it.** electron-updater applies an
+  update by running the installer silently as the app quits, so the only signs
+  were a permission prompt and then a minute of nothing — and launching Ember
+  during that minute found a half-replaced install and died with a raw
+  JavaScript error. Nothing installs silently now. A downloaded update waits,
+  says so in the app and on the desktop, and “Install now” runs the installer
+  with its own progress on screen. Ember reopens itself when it finishes.
+
 ## 0.3.3 — 2026-08-29
 
 The update that can be watched working — and that says so when it isn't.

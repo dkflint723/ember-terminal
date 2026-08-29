@@ -1053,8 +1053,10 @@ export function SettingsPanel(): React.JSX.Element | null {
                 <div className="field__note">
                   Off unless asked for: an update check is Ember reaching out to a server on
                   its own and then replacing itself, which is a thing to be chosen rather
-                  than inherited. A new version downloads in the background and is put in
-                  place the next time Ember quits, never underneath a running shell.
+                  than inherited. A new version downloads in the background and then waits:
+                  nothing is replaced underneath a running shell, and nothing is installed
+                  without being asked for. &ldquo;Install now&rdquo; runs the installer where
+                  you can see it, and Ember reopens itself when it finishes.
                 </div>
                 <div className="composer__proposal-actions">
                   <button
