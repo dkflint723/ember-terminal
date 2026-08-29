@@ -2623,6 +2623,11 @@ kbd {
   margin-bottom: 8px;
 }
 
+/* The hand-typed model id, revealed under the list when the list falls short. */
+.settings__model-custom {
+  margin-top: 6px;
+}
+
 /* A number and its unit, said next to each other rather than in the footnote. */
 .field__unit {
   display: flex;

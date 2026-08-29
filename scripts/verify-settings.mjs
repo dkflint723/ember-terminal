@@ -89,6 +89,59 @@ check(
   String(stored.anthropicApiKey)
 )
 
+/*
+ * --- the pickers pick -----------------------------------------------------------
+ *
+ * Font family and model are choices from lists, not strings to remember the
+ * spelling of. The font list is whatever monospace faces this machine has, so
+ * the test picks the one face every Windows box carries; the model list is the
+ * curated set, with a hand-typed escape for ids newer than the build.
+ */
+await page.keyboard.press('Control+Comma')
+await page.waitForSelector('.modal', { timeout: 10_000 })
+await sleep(800)
+const fontOptions = await page.evaluate(() =>
+  [...document.querySelectorAll('.settings__font option')].map((o) => o.value)
+)
+check('the font field is a list of real faces', fontOptions.includes('Consolas'), JSON.stringify(fontOptions.slice(0, 8)))
+await page.locator('.settings__font').selectOption('Consolas')
+const modelOptions = await page.evaluate(() =>
+  [...document.querySelectorAll('.settings__model option')].map((o) => o.value)
+)
+check(
+  'the model field lists the curated models',
+  modelOptions.includes('claude-haiku-4-5') && modelOptions.includes('custom'),
+  JSON.stringify(modelOptions)
+)
+await page.locator('.settings__model').selectOption('claude-haiku-4-5')
+await page.evaluate(() => {
+  const save = [...document.querySelectorAll('.modal__actions .btn')].find((b) =>
+    b.textContent?.includes('Save')
+  )
+  save?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+})
+await sleep(1200)
+const picked = await page.evaluate(() => window.ember.getSettings())
+check('the picked font is saved as a stack', picked.fontFamily.startsWith('Consolas'), picked.fontFamily)
+check('the picked model is saved', picked.aiModel === 'claude-haiku-4-5', picked.aiModel)
+
+// The escape hatch: an id the list has never heard of can still be typed.
+await page.keyboard.press('Control+Comma')
+await page.waitForSelector('.modal', { timeout: 10_000 })
+await sleep(800)
+await page.locator('.settings__model').selectOption('custom')
+await sleep(300)
+await page.locator('.settings__model-custom').fill('claude-x-9')
+await page.evaluate(() => {
+  const save = [...document.querySelectorAll('.modal__actions .btn')].find((b) =>
+    b.textContent?.includes('Save')
+  )
+  save?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+})
+await sleep(1200)
+const custom = await page.evaluate(() => window.ember.getSettings())
+check('a hand-typed model id still works', custom.aiModel === 'claude-x-9', custom.aiModel)
+
 // Saving something unrelated must not wipe it: the field comes back empty because
 // the value is hidden, and an empty field means "leave it alone".
 await page.keyboard.press('Control+Comma')

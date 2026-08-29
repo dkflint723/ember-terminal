@@ -7,6 +7,8 @@ import type {
   Settings
 } from '@shared/types'
 import { chordOf, COMMANDS, resolveBindings } from '../keys'
+import { AI_MODELS } from '@shared/models'
+import { leadFamily, monospaceFamilies, stackFor } from '../state/fonts'
 
 /**
  * How Claude access reads to the user, in one line.
@@ -153,6 +155,10 @@ export function SettingsPanel(): React.JSX.Element | null {
   const [section, setSection] = useState<string>('appearance')
   /** Narrows the shortcut list by label or chord; empty shows everything. */
   const [keyQuery, setKeyQuery] = useState('')
+  /** The machine's monospace families, fetched when the dialog opens. */
+  const [fontChoices, setFontChoices] = useState<string[]>([])
+  /** Whether the model field is in hand-typed mode, for ids the list lacks. */
+  const [modelCustom, setModelCustom] = useState(false)
   const open = useStore((s) => s.settingsOpen)
   const toggle = useStore((s) => s.toggleSettings)
   const profiles = useStore((s) => s.profiles)
@@ -184,6 +190,8 @@ export function SettingsPanel(): React.JSX.Element | null {
   useEffect(() => {
     if (!open) return
     void refreshAccess()
+    setModelCustom(false)
+    void monospaceFamilies().then(setFontChoices)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -482,11 +490,33 @@ export function SettingsPanel(): React.JSX.Element | null {
 
               <div className="field">
                 <label>Font family</label>
-                <input
-                  value={draft.fontFamily}
-                  onChange={(e) => field('fontFamily', e.target.value)}
-                  spellCheck={false}
-                />
+                {(() => {
+                  const current = leadFamily(draft.fontFamily)
+                  const options = fontChoices.includes(current)
+                    ? fontChoices
+                    : [current, ...fontChoices]
+                  return (
+                    <select
+                      className="settings__font"
+                      value={current}
+                      onChange={(e) => field('fontFamily', stackFor(e.target.value))}
+                    >
+                      {options.map((family) => (
+                        <option
+                          key={family}
+                          value={family}
+                          style={{ fontFamily: `"${family}", monospace` }}
+                        >
+                          {family}
+                        </option>
+                      ))}
+                    </select>
+                  )
+                })()}
+                <div className="field__note">
+                  The monospace faces this machine has, each shown as itself. The pick
+                  gets Consolas and monospace behind it as fallbacks.
+                </div>
               </div>
 
               <div className="field">
@@ -800,17 +830,48 @@ export function SettingsPanel(): React.JSX.Element | null {
 
               <div className="field">
                 <label>Claude model</label>
-                <input
-                  value={draft.aiModel}
-                  onChange={(e) => field('aiModel', e.target.value)}
-                  spellCheck={false}
-                />
-                {/* The switcher beside the prompt is the way in for the models on the
-                    list; this field stays because it takes any id, including one newer
-                    than this build knows about. */}
+                {(() => {
+                  const known = AI_MODELS.some((m) => m.id === draft.aiModel)
+                  const showCustom = modelCustom || !known
+                  return (
+                    <>
+                      <select
+                        className="settings__model"
+                        value={showCustom ? 'custom' : draft.aiModel}
+                        onChange={(e) => {
+                          if (e.target.value === 'custom') {
+                            setModelCustom(true)
+                          } else {
+                            setModelCustom(false)
+                            field('aiModel', e.target.value)
+                          }
+                        }}
+                      >
+                        {AI_MODELS.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.label} — {m.note}
+                          </option>
+                        ))}
+                        <option value="custom">Another model id…</option>
+                      </select>
+                      {showCustom && (
+                        <input
+                          className="settings__model-custom"
+                          placeholder="claude-…"
+                          value={draft.aiModel}
+                          spellCheck={false}
+                          onChange={(e) => field('aiModel', e.target.value)}
+                        />
+                      )}
+                    </>
+                  )
+                })()}
+                {/* The escape hatch stays because the field takes any id, including
+                    one newer than this build knows about. */}
                 <div className="field__note">
-                  Takes any model id. The ✦ chip beside the prompt switches between the
-                  usual ones — and sets how hard Claude thinks — without coming here.
+                  The ✦ chip beside the prompt switches between these — and sets how
+                  hard Claude thinks — without coming here. &ldquo;Another model
+                  id&rdquo; takes anything, including models newer than this build.
                 </div>
               </div>
 
