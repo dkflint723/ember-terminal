@@ -284,34 +284,40 @@ export function AgentPanel(): React.JSX.Element | null {
       </div>
 
       <div className="agent__foot">
-        <textarea
-          className="agent__input"
-          placeholder={streaming ? 'Answering — your next question can wait here…' : 'Ask about this session…'}
-          value={draft}
-          rows={2}
-          spellCheck={false}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              send()
-            }
-          }}
-        />
-        {streaming ? (
-          <button className="btn agent__send" onClick={stop} aria-label="Stop answering">
-            Stop
-          </button>
-        ) : (
-          <button
-            className="btn agent__send"
-            onClick={send}
-            disabled={draft.trim().length === 0}
-            aria-label="Send to Claude"
-          >
-            Send
-          </button>
-        )}
+        {/* One box that is the input: the button lives inside its border, so the
+            panel does not spend a column of empty space keeping it company. */}
+        <div className="agent__inputbox">
+          <textarea
+            className="agent__input"
+            placeholder={streaming ? 'Answering — your next question can wait here…' : 'Ask about this session…'}
+            value={draft}
+            rows={2}
+            spellCheck={false}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                send()
+              }
+            }}
+          />
+          <div className="agent__foot-actions">
+            {streaming ? (
+              <button className="btn agent__send" onClick={stop} aria-label="Stop answering">
+                Stop
+              </button>
+            ) : (
+              <button
+                className="btn agent__send"
+                onClick={send}
+                disabled={draft.trim().length === 0}
+                aria-label="Send to Claude"
+              >
+                Send
+              </button>
+            )}
+          </div>
+        </div>
       </div>
     </aside>
   )

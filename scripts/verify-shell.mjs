@@ -47,6 +47,12 @@ const run = async (command, settle = 2600) => {
   await sleep(settle)
 }
 
+// --- the one-time welcome ------------------------------------------------------
+// A fresh profile is a first run, so the card must be standing before anything
+// has been typed — and running the suite's first command below must put it away
+// for good, which the settings flag records.
+check('a first run opens with the welcome card', (await page.locator('.pane__hello').count()) === 1)
+
 const state = () =>
   page.evaluate(() => ({
     integration: document.querySelector('.pane')?.getAttribute('data-integration') ?? null,
@@ -71,6 +77,12 @@ const alive = await state()
 check('the shell is up', alive.integration === 'ready', alive.integration)
 check('with a block in it', alive.blocks >= 1, `${alive.blocks}`)
 check('and nothing offering to restart it', alive.restart === 0, `${alive.restart}`)
+
+// Running something says "I know this is a terminal": the card must be gone,
+// and gone permanently — the flag is what stops it returning next launch.
+check('the first command puts the welcome away', (await page.locator('.pane__hello').count()) === 0)
+const firstRun = await page.evaluate(() => window.ember.getSettings().then((s) => s.firstRunDone))
+check('and records that for future launches', firstRun === true, String(firstRun))
 
 // --- and the shell goes -------------------------------------------------------
 await run('exit', 4000)

@@ -656,6 +656,11 @@ export interface Settings {
    * somebody because they installed a terminal.
    */
   autoUpdate: boolean
+  /**
+   * The one-time welcome card has been seen and put away — by its button, or by
+   * running a first command, which says the same thing better.
+   */
+  firstRunDone: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -676,7 +681,8 @@ export const DEFAULT_SETTINGS: Settings = {
   uiZoom: 1,
   windowBounds: null,
   windowMaximized: false,
-  autoUpdate: false
+  autoUpdate: false,
+  firstRunDone: false
 }
 
 /** The API the preload script exposes on `window.ember`. */

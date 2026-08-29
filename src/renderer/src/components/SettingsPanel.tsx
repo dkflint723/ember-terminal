@@ -479,33 +479,39 @@ export function SettingsPanel(): React.JSX.Element | null {
 
               <div className="field">
                 <label>Font size</label>
-                <input
-                  type="number"
-                  min={8}
-                  max={32}
-                  value={draft.fontSize}
-                  onChange={(e) => field('fontSize', Number(e.target.value) || 13)}
-                />
+                <div className="field__unit">
+                  <input
+                    type="number"
+                    min={8}
+                    max={32}
+                    value={draft.fontSize}
+                    onChange={(e) => field('fontSize', Number(e.target.value) || 13)}
+                  />
+                  <span className="field__unit-label">px</span>
+                </div>
               </div>
 
               <div className="field">
                 <label>Interface size</label>
-                <input
-                  type="number"
-                  min={60}
-                  max={250}
-                  step={10}
-                  value={Math.round((draft.uiZoom || 1) * 100)}
-                  onChange={(e) => {
-                    const percent = Math.min(Math.max(Number(e.target.value) || 100, 60), 250)
-                    field('uiZoom', percent / 100)
-                    // Applied as it changes, so the number can be judged by looking.
-                    window.ember.setZoom(percent / 100)
-                  }}
-                />
+                <div className="field__unit">
+                  <input
+                    type="number"
+                    min={60}
+                    max={250}
+                    step={10}
+                    value={Math.round((draft.uiZoom || 1) * 100)}
+                    onChange={(e) => {
+                      const percent = Math.min(Math.max(Number(e.target.value) || 100, 60), 250)
+                      field('uiZoom', percent / 100)
+                      // Applied as it changes, so the number can be judged by looking.
+                      window.ember.setZoom(percent / 100)
+                    }}
+                  />
+                  <span className="field__unit-label">%</span>
+                </div>
                 <div className="field__note">
-                  Per cent. Scales the whole interface, terminal included — the editor font
-                  setting only covers text inside editors. Ctrl+= and Ctrl+- do the same, and
+                  Scales the whole interface, terminal included — the editor font setting
+                  only covers text inside editors. Ctrl+= and Ctrl+- do the same, and
                   Ctrl+0 returns to 100.
                 </div>
               </div>
@@ -610,18 +616,21 @@ export function SettingsPanel(): React.JSX.Element | null {
 
               <div className="field">
                 <label>Notify after</label>
-                <input
-                  type="number"
-                  min={0}
-                  max={3600}
-                  value={draft.notifyAfterSeconds}
-                  onChange={(e) =>
-                    field('notifyAfterSeconds', Math.max(0, Number(e.target.value) || 0))
-                  }
-                />
+                <div className="field__unit">
+                  <input
+                    type="number"
+                    min={0}
+                    max={3600}
+                    value={draft.notifyAfterSeconds}
+                    onChange={(e) =>
+                      field('notifyAfterSeconds', Math.max(0, Number(e.target.value) || 0))
+                    }
+                  />
+                  <span className="field__unit-label">s</span>
+                </div>
                 <div className="field__note">
-                  Seconds. A command running at least this long raises a desktop notification
-                  when it finishes, but only while Ember is in the background — you do not need
+                  A command running at least this long raises a desktop notification when it
+                  finishes, but only while Ember is in the background — you do not need
                   telling about something you are watching. Zero turns it off.
                 </div>
               </div>
@@ -632,19 +641,22 @@ export function SettingsPanel(): React.JSX.Element | null {
 
               <div className="field">
                 <label>Auto save after</label>
-                <input
-                  type="number"
-                  min={0}
-                  max={600}
-                  value={draft.autoSaveAfterSeconds}
-                  onChange={(e) =>
-                    field('autoSaveAfterSeconds', Math.max(0, Number(e.target.value) || 0))
-                  }
-                />
+                <div className="field__unit">
+                  <input
+                    type="number"
+                    min={0}
+                    max={600}
+                    value={draft.autoSaveAfterSeconds}
+                    onChange={(e) =>
+                      field('autoSaveAfterSeconds', Math.max(0, Number(e.target.value) || 0))
+                    }
+                  />
+                  <span className="field__unit-label">s</span>
+                </div>
                 <div className="field__note">
-                  Seconds. An edited file is written this long after you stop typing. Files that
-                  have never been saved are left alone, since saving one has to ask where it
-                  goes. Zero turns it off.
+                  An edited file is written this long after you stop typing. Files that have
+                  never been saved are left alone, since saving one has to ask where it goes.
+                  Zero turns it off.
                 </div>
               </div>
 

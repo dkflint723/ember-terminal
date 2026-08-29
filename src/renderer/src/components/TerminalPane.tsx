@@ -40,6 +40,28 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
   const palette = useStore((s) => s.theme.terminal)
   const mode = useStore((s) => s.mode)
   const profileName = useStore((s) => s.profiles.find((p) => p.id === pane.profileId)?.name)
+  const firstRunDone = useStore((s) => s.settings.firstRunDone)
+  const applySettings = useStore((s) => s.applySettings)
+
+  /** The welcome is put away for good — by its button, or by a first command. */
+  const finishFirstRun = async (): Promise<void> => {
+    const res = await window.ember.setSettings({ firstRunDone: true })
+    applySettings(res.settings)
+  }
+
+  /*
+   * Running something says "I know this is a terminal" better than any button
+   * could. The card is only rendered while the pane is empty, so without this
+   * the welcome would return in every later empty session.
+   */
+  const sawFirstBlock = useRef(false)
+  useEffect(() => {
+    if (firstRunDone || sawFirstBlock.current) return
+    if (pane.blocks.length === 0) return
+    sawFirstBlock.current = true
+    void finishFirstRun()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pane.blocks.length, firstRunDone])
 
   // The controller is created once per pane; later font and theme changes go
   // through setFont/setPalette rather than recreating the terminal.
@@ -233,6 +255,30 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
           {/* Once the shell is up and nothing has been run, the pane was simply
               blank — which says nothing about what this app does differently, or
               that there is an editor and a workspace a keystroke away. */}
+          {/* Once, ever: what this app is, said before the first command. Put
+              away by its button — or by running something, which says it better. */}
+          {pane.blocks.length === 0 && pane.integration === 'ready' && !firstRunDone && (
+            <div className="pane__hello">
+              <div className="pane__hello-title">Welcome to Ember</div>
+              <ul className="pane__hello-list">
+                <li>
+                  A terminal where every command becomes a block — collapse it, copy it,
+                  re-run it, search it.
+                </li>
+                <li>
+                  The same window is an IDE: <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>I</kbd>{' '}
+                  flips between them, files and all.
+                </li>
+                <li>
+                  Claude lives here too — <kbd>Ctrl</kbd> <kbd>K</kbd> asks for a command,{' '}
+                  <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>B</kbd> opens the conversation.
+                </li>
+              </ul>
+              <button className="btn pane__hello-done" onClick={() => void finishFirstRun()}>
+                Got it
+              </button>
+            </div>
+          )}
           {pane.blocks.length === 0 && pane.integration === 'ready' && (
             <div className="pane__note">
               <div>
