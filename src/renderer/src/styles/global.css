@@ -343,6 +343,41 @@ button {
   outline: none;
 }
 
+/* One command and the chord it answers to; the chord is a button that listens. */
+.keyrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.keyrow__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.keyrow__chord {
+  flex: 0 0 auto;
+  min-width: 130px;
+  padding: 3px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.keyrow__chord--live {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* One custom shell: name, command, arguments, dialect, and the way out. */
 .shellrow {
   display: flex;

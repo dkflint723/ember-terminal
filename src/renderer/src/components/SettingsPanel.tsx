@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AiCredential, ClaudeAccess, CustomProfile, Settings } from '@shared/types'
+import { chordOf, COMMANDS, resolveBindings } from '../keys'
 
 /**
  * How Claude access reads to the user, in one line.
@@ -124,6 +125,8 @@ function joinArgs(args: string[]): string {
 export function SettingsPanel(): React.JSX.Element | null {
   /** What the last hand-run update check said, shown beside the button. */
   const [updateNote, setUpdateNote] = useState('')
+  /** Which command is listening for its new chord, if any. */
+  const [capturing, setCapturing] = useState<string | null>(null)
   const open = useStore((s) => s.settingsOpen)
   const toggle = useStore((s) => s.toggleSettings)
   const profiles = useStore((s) => s.profiles)
@@ -497,6 +500,76 @@ export function SettingsPanel(): React.JSX.Element | null {
             Anything spawnable: a WSL distro (<code>wsl.exe -d Ubuntu</code>), a Developer
             PowerShell, nushell, ssh somewhere. Pick the dialect the shell actually speaks
             and it gets blocks and prompt detection; plain runs it as a bare terminal.
+          </div>
+        </div>
+
+        <div className="field">
+          <label>Keyboard</label>
+          {(() => {
+            const resolved = resolveBindings(draft.keybindings ?? {})
+            return (
+              <>
+                {COMMANDS.map((command) => {
+                  const chord = resolved.byId.get(command.id) ?? command.chord
+                  const overridden = (draft.keybindings ?? {})[command.id] !== undefined
+                  return (
+                    <div key={command.id} className="keyrow">
+                      <span className="keyrow__label">{command.label}</span>
+                      <button
+                        type="button"
+                        className={`keyrow__chord ${capturing === command.id ? 'keyrow__chord--live' : ''}`}
+                        aria-label={`Change the binding for ${command.label}`}
+                        onClick={() => setCapturing(command.id)}
+                        onBlur={() => setCapturing((c) => (c === command.id ? null : c))}
+                        onKeyDown={(e) => {
+                          if (capturing !== command.id) return
+                          // The press is the answer, not a keystroke for the app.
+                          e.preventDefault()
+                          e.stopPropagation()
+                          if (e.key === 'Escape') {
+                            setCapturing(null)
+                            return
+                          }
+                          if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return
+                          const next = { ...(draft.keybindings ?? {}) }
+                          const pressed = chordOf(e.nativeEvent)
+                          if (pressed === command.chord) delete next[command.id]
+                          else next[command.id] = pressed
+                          field('keybindings', next)
+                          setCapturing(null)
+                        }}
+                      >
+                        {capturing === command.id ? 'press keys…' : chord}
+                      </button>
+                      {overridden && (
+                        <button
+                          className="icon-btn"
+                          title="Back to the default"
+                          aria-label={`Reset ${command.label} to ${command.chord}`}
+                          onClick={() => {
+                            const next = { ...(draft.keybindings ?? {}) }
+                            delete next[command.id]
+                            field('keybindings', next)
+                          }}
+                        >
+                          ↺
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+                {resolved.conflicts.map((c) => (
+                  <div key={c.chord} className="composer__error">
+                    {c.chord} is claimed twice — {c.labels.join(' and ')}. The first one wins.
+                  </div>
+                ))}
+              </>
+            )
+          })()}
+          <div className="field__note">
+            Click a chord and press the new keys; Esc changes nothing. These are the
+            window&rsquo;s own shortcuts — what the editor and the shell claim for
+            themselves stays theirs.
           </div>
         </div>
 

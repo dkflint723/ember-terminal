@@ -571,6 +571,12 @@ export interface Settings {
   aiMode: AiMode
   /** Shells the user added by hand, served alongside the detected ones. */
   customProfiles: CustomProfile[]
+  /**
+   * Chord overrides by command id — only the differences from the defaults.
+   * The registry of commands and their default chords lives in renderer code;
+   * settings only remember what the user changed.
+   */
+  keybindings: Record<string, string>
   /** Put the last window's tabs, splits and open files back on launch. */
   restoreSession: boolean
   /**
@@ -630,6 +636,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoSaveAfterSeconds: 0,
   recentFolders: [],
   customProfiles: [],
+  keybindings: {},
   uiZoom: 1,
   windowBounds: null,
   windowMaximized: false,

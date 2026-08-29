@@ -1,5 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useStore } from './state/store'
+import { chordOf, resolveBindings } from './keys'
 import { TitleBar } from './components/TitleBar'
 import { SplitView } from './components/SplitView'
 import { SettingsPanel } from './components/SettingsPanel'
@@ -35,6 +36,12 @@ export function App(): React.JSX.Element {
   const dirPicker = useStore((s) => s.dirPicker)
   const setDirPicker = useStore((s) => s.setDirPicker)
   const fontSize = useStore((s) => s.settings.fontSize)
+  const keyOverrides = useStore((s) => s.settings.keybindings)
+  const bindings = useMemo(() => resolveBindings(keyOverrides ?? {}), [keyOverrides])
+  const bindingsRef = useRef(bindings)
+  bindingsRef.current = bindings
+  /* The handler mounts once; the ref hands it each render's openFile. */
+  const openFileRef = useRef<() => Promise<void>>(async () => {})
 
   /*
    * The terminal font size, published where the stylesheet can reach it.
@@ -404,219 +411,23 @@ export function App(): React.JSX.Element {
           : Object.values(s.panes).find((p) => p.kind === 'terminal')?.id
       }
 
-      if (e.ctrlKey && e.shiftKey) {
-        const key = e.key.toLowerCase()
-        if (key === 't') {
-          e.preventDefault()
-          newTab(s.profiles[0]?.id ?? '')
-          return
-        }
-        if (key === 'w' && tab) {
-          e.preventDefault()
-          s.closePane(tab.id, tab.activePaneId)
-          return
-        }
-        /*
-         * Clear this pane's blocks, on the binding Warp uses on Windows.
-         *
-         * Blocks outlive the app now, so there has to be a way to say "not any
-         * more" that does not mean deleting a database by hand. It falls back to a
-         * shell the same way the ask chords do — pressed with an editor focused,
-         * "clear" from a pane that has nothing to clear should still mean
-         * something — so it asks the same helper rather than repeating it.
-         */
-        if (key === 'k' && tab) {
-          e.preventDefault()
-          const target = askTarget()
-          if (target) s.clearBlocks(target)
-          return
-        }
-        // Windows Terminal uses Alt+Shift+= / Alt+Shift+- ; these are the
-        // equivalents that do not collide with shell shortcuts.
-        if (key === 'd' && tab) {
-          e.preventDefault()
-          s.splitPane(tab.id, tab.activePaneId, 'row')
-          return
-        }
-        if (key === 'e' && tab) {
-          e.preventDefault()
-          s.splitPane(tab.id, tab.activePaneId, 'column')
-          return
-        }
-        /*
-         * The switch the whole thing is built around: a terminal, or an IDE.
-         *
-         * Ctrl+Shift+I because it is the one free chord that names what it does,
-         * and because this window has no application menu — nothing else is
-         * claiming it.
-         */
-        if (key === 'i') {
-          e.preventDefault()
-          s.setMode()
-          return
-        }
-        /*
-         * Ctrl+Shift+B opened Claude's sidebar, and there is no sidebar any more —
-         * the agent is a block in the list. The chord is kept rather than dropped
-         * because it is what people already press to reach Claude, and repointed
-         * at what reaching Claude means now: the composer, pinned to agent, on the
-         * active shell.
-         *
-         * 'agent' rather than a toggle because the chord says what it wants. A
-         * buffer that already reads as a question is the normal case here, and
-         * flipping that reading would pin shell and send the sentence to the
-         * shell — the opposite of what was pressed.
-         */
-        if (key === 'b') {
-          e.preventDefault()
-          const target = askTarget()
-          if (target) s.requestAsk(target, 'agent')
-          return
-        }
-      }
-
       /*
-       * Ctrl+B toggles whatever the side slot holds: the session list in a
-       * terminal, the file sidebar in an IDE. One chord for one slot, whichever
-       * face the window is wearing.
+       * One lookup where a ladder of literals stood. The pressed chord is
+       * spelled the way the registry spells them, resolved through whatever the
+       * user rebound in Settings, and the command decides the rest — including
+       * declining, which is how Ctrl+F still reaches Monaco's own find when an
+       * editor has focus.
        */
-      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b') {
-        e.preventDefault()
-        if (s.mode === 'terminal') s.toggleSessions()
-        else s.toggleSidebar()
-        return
-      }
-
-      // Ctrl+J is the panel, as it is in VS Code. Outside the Shift block because
-      // it takes no Shift.
-      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'j') {
-        e.preventDefault()
-        if (s.mode !== 'ide') {
-          s.setMode('ide')
-          s.togglePanel(true)
-        } else s.togglePanel()
-        return
-      }
-
-      /*
-       * Ctrl+K pins the composer's intent, flipping whichever reading is in
-       * effect — the way to disagree with what the input autodetected, in either
-       * direction. It is claimed globally so it means the same thing wherever
-       * focus is: in an editor pane Monaco takes it as a chord prefix and
-       * swallows the next keystroke, which reads as the app freezing, and the
-       * shortcut is advertised in the composer footer, so it has to work from
-       * anywhere rather than only from the composer itself.
-       */
-      /*
-       * Find in this terminal's output.
-       *
-       * Ctrl+F is what everyone presses, and it did nothing here: the blocks are
-       * the whole history of a shell and there was no way through them but
-       * scrolling. Only for a terminal — an editor has Monaco's own find on the
-       * same chord, and that one is better than anything this would do.
-       */
-      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'f') {
-        const active = tab ? s.panes[tab.activePaneId] : undefined
-        if (active?.kind === 'terminal') {
-          e.preventDefault()
-          s.setFind(s.findPaneId === active.id ? null : active.id)
-          return
-        }
-      }
-
-      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
-        e.preventDefault()
-        const target = askTarget()
-        if (target) s.requestAsk(target, 'toggle')
-        return
-      }
-
-      /*
-       * Zoom, on the keys every application uses for it.
-       *
-       * The interface was fixed between 8 and 13 pixels with no way to change it,
-       * which is unreadable on a dense display. Applied as a zoom factor so the
-       * terminal scales with everything else — its cell metrics are not touched by
-       * the editor's font settings.
-       */
-      if (e.ctrlKey && (e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0')) {
-        e.preventDefault()
-        const current = s.settings.uiZoom || 1
-        const next =
-          e.key === '0' ? 1 : Math.min(Math.max(current + (e.key === '-' ? -0.1 : 0.1), 0.6), 2.5)
-        window.ember.setZoom(next)
-        void window.ember.setSettings({ uiZoom: next }).then((r) => s.applySettings(r.settings))
-        return
-      }
-
-      // Save All. Ctrl+S belongs to the focused editor, and VS Code's Ctrl+K S is
-      // not available here because Ctrl+K asks Claude.
-      if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 's') {
-        e.preventDefault()
-        void s.saveAllDocuments()
-        return
-      }
-
-      // Ctrl+R is history search. Electron's default accelerator would reload the
-      // window, so this must claim the key.
-      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'r') {
-        e.preventDefault()
-        s.toggleHistory()
-        return
-      }
-
-      // Ctrl+Shift+G selects a sidebar view, matching the editor convention:
-      // pressing it twice collapses the sidebar again. Plain Ctrl+B is the slot
-      // toggle above — it never reaches here.
-      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'g') {
-        e.preventDefault()
-        s.showSidebarView('scm')
-        return
-      }
-      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'h') {
-        e.preventDefault()
-        s.showSidebarView('github')
-        return
-      }
-      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'm') {
-        e.preventDefault()
-        s.showSidebarView('problems')
-        return
-      }
-      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'f') {
-        e.preventDefault()
-        s.showSidebarView('search')
-        return
-      }
-
-      // Ctrl+P goes to a file, Ctrl+Shift+P runs a command. Claimed globally, and
-      // ahead of the editor, so they work wherever focus happens to be.
-      if (e.ctrlKey && e.key.toLowerCase() === 'p') {
-        e.preventDefault()
-        s.openPalette(e.shiftKey ? 'commands' : 'files')
-        return
-      }
-
-      // Ctrl+O opens a file in an editor pane beside the current one.
-      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'o') {
-        e.preventDefault()
-        void openFile()
-        return
-      }
-
-      if (e.ctrlKey && e.key === ',') {
-        e.preventDefault()
-        s.toggleSettings()
-        return
-      }
-
-      // Ctrl+Tab cycles tabs.
-      if (e.ctrlKey && e.key === 'Tab' && s.tabs.length > 1) {
-        e.preventDefault()
-        const i = s.tabs.findIndex((t) => t.id === tabId)
-        const next = s.tabs[(i + (e.shiftKey ? -1 : 1) + s.tabs.length) % s.tabs.length]
-        s.setActiveTab(next.id)
-      }
+      const command = bindingsRef.current.byChord.get(chordOf(e))
+      if (!command) return
+      const handled = command.run({
+        s,
+        e,
+        tab,
+        askTarget,
+        openFile: () => openFileRef.current()
+      })
+      if (handled !== false) e.preventDefault()
     }
 
     window.addEventListener('keydown', onKey)
@@ -627,6 +438,8 @@ export function App(): React.JSX.Element {
   // In IDE mode a closed panel hides the shells; in terminal mode they are the app,
   // and the panel toggle has nothing to say about them.
   const hideShells = mode === 'ide' && !panelOpen
+
+  openFileRef.current = openFile
 
   return (
     <div className="app">
