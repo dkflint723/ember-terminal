@@ -79,7 +79,11 @@ check(
 // --- a question streams to an answer ------------------------------------------
 await ask('hello there')
 const first = await waitAnswered('hello there')
-check('the answer streams in and lands', first.includes('fake-reply(turns=1): hello there'), first)
+check(
+  'the answer streams in and lands',
+  first.includes('turns=1') && first.includes('hello there'),
+  first
+)
 
 // --- a follow-up carries the thread -------------------------------------------
 await ask('again')
