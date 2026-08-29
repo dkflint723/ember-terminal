@@ -31,8 +31,10 @@ again and it's a terminal.
 - **Shell integration** — PowerShell reports command boundaries, exit codes and
   working directories through OSC 133. cmd, Git Bash and WSL run as plain
   terminals.
-- **The agent** — Claude answers in-line, through your API key or the Claude
-  Code CLI. Model, effort and mode sit on a chip beside the prompt.
+- **The agent** — Claude lives in a panel of its own (`Ctrl+Shift+B`): threads
+  that stream and remember per session, a Stop that means it, and proposals
+  that open as accept/reject diffs or runnable commands. Through your API key
+  or the Claude Code CLI; quick asks still answer in the flow.
 - **IDE mode** — TypeScript, Python, YAML and PowerShell language servers,
   go-to definition, snippets, auto-save, split panes, search and replace.
 - **Git** — status, staging, diffs, commits, branch and line counts in the
@@ -64,7 +66,8 @@ Grab `Ember Setup <version>.exe` from
 | `Ctrl+Tab` | Next session |
 | `Ctrl+B` | Side slot — sessions (terminal) or files (IDE) |
 | `Ctrl+J` | Panel |
-| `Ctrl+K` | Ask the agent about the last command |
+| `Ctrl+Shift+B` | Claude panel |
+| `Ctrl+K` | Pin the composer to shell or agent |
 | `Ctrl+Enter` | Send the composer's text to the agent |
 | `Ctrl+P` / `Ctrl+Shift+P` | Files and sessions / commands |
 | `Ctrl+F` | Find in the terminal or editor |

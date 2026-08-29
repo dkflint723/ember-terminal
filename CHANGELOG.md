@@ -3,6 +3,59 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
+## 0.2.0 — 2026-08-28
+
+The daily-driver release: the agent grows up, and the terminal grows the things
+you notice only when they are missing.
+
+### Claude gets a room
+
+- **The Claude panel** — a conversation surface on the right, toggled at will
+  (`Ctrl+Shift+B` or the ✦ in the title bar), resizable, one thread per
+  session, restored with it. One-shot asks still land in the flow; the panel is
+  where follow-ups remember.
+- **Streaming and stopping** — answers arrive as they are written, with a Stop
+  button that means it.
+- **Proposals you can act on** — a file the model proposes opens as an
+  accept/reject diff and lands on disk only when you say so; a command it
+  proposes carries Run and Copy buttons.
+- **Context that follows you** — the thread rides along with each request,
+  with the shell's directory, the file under the caret in IDE mode, and any
+  blocks you attach.
+
+### The terminal earns the rest of the day
+
+- **Clickable output** — file paths (`src/x.ts:42:7`) open the IDE at the line;
+  URLs open the browser. Resolved against the block's own directory,
+  existence-checked so false positives stay quiet.
+- **Custom shells** — teach Ember any shell in Settings (a WSL distro, a Dev
+  PowerShell, nushell) with a dialect for full block integration.
+- **Git from the panel** — push, pull, and a branch picker that creates from
+  whatever you type, beside the ahead/behind counts that were always there.
+- **Sessions** — rename on double-click, reorder by drag, both restored.
+- **Find sees folded blocks**, unfolding what matches and folding it back.
+- **Keyboard remapping** — every window chord editable in Settings; press the
+  new keys into the capture button; conflicts named; defaults one click back.
+
+### Sturdier under the hood
+
+- **Flow control** — a flooding command now waits for the renderer the way it
+  would for a physical terminal, instead of drowning the window.
+- **Language servers come back** — a crashed server is respawned with its
+  handshake replayed and its documents re-opened; if it keeps dying,
+  TypeScript's bundled worker stands back up.
+- **Memory has ceilings** — closed editors park at most twenty models; command
+  history caps at twenty thousand rows; a command's living output is bounded.
+- **History recalls whole logs** — the searchable copy of an output grew from
+  8 KB to 100 KB.
+- **Crashes reach a person** — faults land in `ember.log` and, packaged, say so
+  once in a dialog.
+- **Dark themes float again** — dark elevation is surface contrast and a lit
+  rim, derived per theme.
+- **The taskbar shows the ember** — the app introduces itself to Windows before
+  its first window, under an identity dev builds cannot poison, wearing the new
+  campfire mark chosen from ten candidates.
+
 ## 0.1.0 — 2026-08-28
 
 The first cut. Everything below is new, because everything is.
