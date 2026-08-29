@@ -520,6 +520,12 @@ function registerIpc(): void {
     git.discard(root, paths, untracked)
   )
   ipcMain.handle('git:commit', (_e, root: string, message: string) => git.commit(root, message))
+  ipcMain.handle('git:push', (_e, root: string, hasUpstream: boolean) => git.push(root, hasUpstream))
+  ipcMain.handle('git:pull', (_e, root: string) => git.pull(root))
+  ipcMain.handle('git:branches', (_e, root: string) => git.branches(root))
+  ipcMain.handle('git:checkout', (_e, root: string, name: string, create: boolean) =>
+    create ? git.createBranch(root, name) : git.checkout(root, name)
+  )
   ipcMain.handle('file:write', (_e, filePath: string, content: string) =>
     files.write(filePath, content)
   )

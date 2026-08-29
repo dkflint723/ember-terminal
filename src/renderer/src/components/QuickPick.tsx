@@ -18,6 +18,12 @@ interface Props {
   onClose: () => void
   /** Shown instead of the list when there is nothing to offer. */
   empty?: string
+  /**
+   * An item made from the query itself, appended after the matches — how a
+   * picker offers "create what you just typed" without a second dialog. Return
+   * null for queries that should offer nothing.
+   */
+  craft?: (query: string) => QuickPickItem | null
 }
 
 /**
@@ -27,7 +33,7 @@ interface Props {
  * arrow, enter — and the differences are entirely in what fills the list. Keeping
  * them together is what stops them drifting into two subtly different behaviours.
  */
-export function QuickPick({ placeholder, items, onPick, onClose, empty }: Props): React.JSX.Element {
+export function QuickPick({ placeholder, items, onPick, onClose, empty, craft }: Props): React.JSX.Element {
   const [text, setText] = useState('')
   const [index, setIndex] = useState(0)
   const box = useRef<HTMLInputElement>(null)
@@ -44,8 +50,10 @@ export function QuickPick({ placeholder, items, onPick, onClose, empty }: Props)
     // Stable: equal scores keep the order they were given in, which for files is
     // ripgrep's walk order and for commands is the order they were registered.
     scored.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-    return scored.slice(0, 200).map((s) => s.item)
-  }, [items, text])
+    const list = scored.slice(0, 200).map((s) => s.item)
+    const crafted = craft && text.trim().length > 0 ? craft(text) : null
+    return crafted ? [...list, crafted] : list
+  }, [items, text, craft])
 
   useEffect(() => {
     setIndex(0)

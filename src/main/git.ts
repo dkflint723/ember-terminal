@@ -312,6 +312,45 @@ export class GitService {
     }
   }
 
+  /**
+   * Push what the branch is ahead by. A branch with no upstream yet is
+   * published as itself on origin — the same first push git itself proposes —
+   * which is what makes the button meaningful on a brand-new branch.
+   */
+  async push(root: string, hasUpstream: boolean): Promise<GitSimpleResult> {
+    return this.simple(root, hasUpstream ? ['push'] : ['push', '-u', 'origin', 'HEAD'])
+  }
+
+  /**
+   * A plain pull, merges and all: conflicts land in the working tree, and the
+   * working tree is something this panel already knows how to show. Refusing
+   * anything but fast-forwards would just outsource the mess to a terminal.
+   */
+  async pull(root: string): Promise<GitSimpleResult> {
+    return this.simple(root, ['pull'])
+  }
+
+  /** The local branches, as git names them. */
+  async branches(root: string): Promise<string[]> {
+    try {
+      const { stdout } = await this.git(root, ['branch', '--format=%(refname:short)'])
+      return (stdout as string)
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+    } catch {
+      return []
+    }
+  }
+
+  async checkout(root: string, name: string): Promise<GitSimpleResult> {
+    return this.simple(root, ['checkout', name])
+  }
+
+  async createBranch(root: string, name: string): Promise<GitSimpleResult> {
+    return this.simple(root, ['checkout', '-b', name])
+  }
+
   private async simple(root: string, args: string[]): Promise<GitSimpleResult> {
     try {
       await this.git(root, args)

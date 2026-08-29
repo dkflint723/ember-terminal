@@ -685,6 +685,11 @@ export interface EmberApi {
   ideNotify(method: string, params: unknown): void
   githubOverview(cwd: string): Promise<GitHubResult>
   githubCheckout(cwd: string, number: number): Promise<GitSimpleResult>
+  /** Push the current branch; publishes it to origin when it has no upstream yet. */
+  gitPush(root: string, hasUpstream: boolean): Promise<GitSimpleResult>
+  gitPull(root: string): Promise<GitSimpleResult>
+  gitBranches(root: string): Promise<string[]>
+  gitCheckout(root: string, name: string, create: boolean): Promise<GitSimpleResult>
   openExternal(url: string): void
   search(query: SearchQuery): Promise<SearchResult>
   listFiles(root: string): Promise<FileListResult>

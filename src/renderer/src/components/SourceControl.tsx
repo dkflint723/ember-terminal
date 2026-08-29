@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { GitFileChange } from '@shared/types'
 import { useStore } from '../state/store'
 import { refreshGitStatus, statusClass } from '../state/git'
+import { QuickPick, type QuickPickItem } from './QuickPick'
 
 /**
  * The source-control panel: what has changed, what is staged, and a commit box.
@@ -34,6 +35,10 @@ export function SourceControl(): React.JSX.Element {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
+  /** Which way the remote conversation is going, while it is going. */
+  const [syncing, setSyncing] = useState<'push' | 'pull' | null>(null)
+  /** The branch picker's items, when it is open. */
+  const [branchPick, setBranchPick] = useState<QuickPickItem[] | null>(null)
 
   const root = status?.root ?? null
 
@@ -213,13 +218,75 @@ export function SourceControl(): React.JSX.Element {
     )
   }
 
+  const sync = async (kind: 'push' | 'pull'): Promise<void> => {
+    if (!root || syncing) return
+    setSyncing(kind)
+    setError(null)
+    setNote(null)
+    const res =
+      kind === 'push'
+        ? await window.ember.gitPush(root, status.upstream !== null)
+        : await window.ember.gitPull(root)
+    if (!res.ok) setError(res.error)
+    else setNote(kind === 'push' ? 'Pushed.' : 'Pulled.')
+    await refreshGitStatus()
+    setSyncing(null)
+  }
+
+  const openBranchPick = async (): Promise<void> => {
+    if (!root) return
+    const locals = await window.ember.gitBranches(root)
+    setBranchPick(
+      locals.map((name) => ({
+        id: `co:${name}`,
+        label: name,
+        detail: name === status.branch ? 'current' : '',
+        hint: name === status.branch ? '✓' : undefined
+      }))
+    )
+  }
+
+  const pickBranch = async (item: QuickPickItem): Promise<void> => {
+    setBranchPick(null)
+    if (!root) return
+    const create = item.id.startsWith('new:')
+    const name = item.id.slice(create ? 4 : 3)
+    if (!create && name === status.branch) return
+    setError(null)
+    setNote(null)
+    const res = await window.ember.gitCheckout(root, name, create)
+    if (!res.ok) setError(res.error)
+    else setNote(create ? `On new branch ${name}.` : `On ${name}.`)
+    await refreshGitStatus()
+  }
+
   const ahead = status.ahead > 0 ? `↑${status.ahead}` : ''
   const behind = status.behind > 0 ? `↓${status.behind}` : ''
 
   return (
     <div className="scm">
+      {branchPick && (
+        <QuickPick
+          placeholder="Switch branch, or type a new name…"
+          items={branchPick}
+          craft={(query) => {
+            const name = query.trim()
+            if (!name || branchPick.some((b) => b.id === `co:${name}`)) return null
+            return { id: `new:${name}`, label: `Create branch "${name}"`, detail: 'from the current one' }
+          }}
+          onPick={(item) => void pickBranch(item)}
+          onClose={() => setBranchPick(null)}
+          empty="No branches — type a name to create one"
+        />
+      )}
       <div className="scm__head">
-        <span className="scm__branch" title={status.upstream ?? 'No upstream'}>
+        <button
+          type="button"
+          className="scm__branch"
+          title={`${status.upstream ?? 'No upstream'} — click to switch branches`}
+          aria-label="Switch branch"
+          onClick={() => void openBranchPick()}
+        >
           {/* Drawn rather than typed: the obvious branch characters are missing from
               the monospace fonts this app ships with and render as a blank box. */}
           <svg viewBox="0 0 16 16" className="scm__branch-icon" aria-hidden="true">
@@ -234,13 +301,31 @@ export function SourceControl(): React.JSX.Element {
           <span className="scm__branch-name">
             {status.detached ? 'detached' : status.branch}
           </span>
-        </span>
+        </button>
         {(ahead || behind) && (
           <span className="scm__track" title={`${status.ahead} ahead, ${status.behind} behind`}>
             {ahead}
             {behind}
           </span>
         )}
+        <button
+          className="icon-btn"
+          title={status.upstream ? 'Push' : 'Publish this branch to origin'}
+          aria-label="Push"
+          disabled={busy || syncing !== null}
+          onClick={() => void sync('push')}
+        >
+          {syncing === 'push' ? '…' : '↑'}
+        </button>
+        <button
+          className="icon-btn"
+          title={status.upstream ? 'Pull' : 'No upstream to pull from'}
+          aria-label="Pull"
+          disabled={busy || syncing !== null || status.upstream === null}
+          onClick={() => void sync('pull')}
+        >
+          {syncing === 'pull' ? '…' : '↓'}
+        </button>
         <button className="icon-btn" title="Refresh" disabled={busy} onClick={() => void refreshGitStatus()}>
           ↻
         </button>

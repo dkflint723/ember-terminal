@@ -3123,6 +3123,17 @@ kbd {
    several hundred lines away, and between them the name became an anonymous flex
    item, which is a box `text-overflow` cannot put an ellipsis on. It clipped a long
    branch mid-character instead, with nothing saying it had been clipped. */
+/* A button now, wearing exactly what the span wore. */
+button.scm__branch {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
 .scm__branch {
   display: flex;
   align-items: center;

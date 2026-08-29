@@ -91,6 +91,11 @@ const api: EmberApi = {
   replaceInFiles: (request: ReplaceRequest) => ipcRenderer.invoke('search:replace', request),
 
   gitStatus: (cwd: string) => ipcRenderer.invoke('git:status', cwd),
+  gitPush: (root: string, hasUpstream: boolean) => ipcRenderer.invoke('git:push', root, hasUpstream),
+  gitPull: (root: string) => ipcRenderer.invoke('git:pull', root),
+  gitBranches: (root: string) => ipcRenderer.invoke('git:branches', root),
+  gitCheckout: (root: string, name: string, create: boolean) =>
+    ipcRenderer.invoke('git:checkout', root, name, create),
   gitDiff: (root: string, path: string, staged: boolean) =>
     ipcRenderer.invoke('git:diff', root, path, staged),
   gitStage: (root: string, paths: string[]) => ipcRenderer.invoke('git:stage', root, paths),

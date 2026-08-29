@@ -304,6 +304,90 @@ const canFinish = await page.evaluate(() => {
   return { disabled: btn?.disabled ?? null, title: btn?.getAttribute('title') ?? null }
 })
 check('a resolved merge can be committed', canFinish.disabled === false, JSON.stringify(canFinish))
+await page.click('.scm__commit-btn')
+await sleep(2500)
+
+/*
+ * --- the remote, reachable from the panel ------------------------------------
+ *
+ * The head has always shown ahead/behind and an upstream tooltip; now the
+ * arrows beside them act. A bare repository stands in for origin: the first
+ * push has no upstream and must publish the branch, the pull must bring back a
+ * commit made elsewhere, and every claim is checked against git itself.
+ */
+const remoteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-git-remote-'))
+const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-git-elsewhere-'))
+const gitAt = (dir, ...args) =>
+  execFileSync('git', args, { cwd: dir, encoding: 'utf8', windowsHide: true }).trim()
+gitAt(remoteDir, 'init', '-q', '--bare')
+git('remote', 'add', 'origin', remoteDir)
+
+await page.locator('.scm [aria-label="Push"]').click()
+await sleep(3000)
+const scmSays = await page.evaluate(() => ({
+  error: document.querySelector('.scm__error')?.textContent ?? null,
+  note: document.querySelector('.scm__note')?.textContent ?? null
+}))
+// By ref, not by HEAD: a fresh bare's HEAD names an unborn default branch,
+// and `git log` with no ref dies on it even after a successful push of main.
+let pushedLog = ''
+try {
+  pushedLog = gitAt(remoteDir, 'log', '--oneline', '-1', 'main')
+} catch {
+  pushedLog = '(remote has no main)'
+}
+check(
+  'push publishes the branch to origin',
+  pushedLog.includes('finish the merge'),
+  `${pushedLog} | panel: ${JSON.stringify(scmSays)}`
+)
+const upstreamNow = await page.evaluate(
+  () => document.querySelector('button.scm__branch')?.getAttribute('title') ?? ''
+)
+check('and the branch now has an upstream', upstreamNow.includes('origin/'), upstreamNow)
+
+// Someone else moves the remote on; the panel pulls it back.
+gitAt(elsewhere, 'clone', '-q', '-b', 'main', remoteDir, 'work')
+const there = path.join(elsewhere, 'work')
+gitAt(there, 'config', 'user.email', 'verify@example.invalid')
+gitAt(there, 'config', 'user.name', 'Verify Elsewhere')
+fs.writeFileSync(path.join(there, 'from-elsewhere.txt'), 'hello from the other clone' + String.fromCharCode(10), 'utf8')
+gitAt(there, 'add', '-A')
+gitAt(there, 'commit', '-qm', 'a commit made elsewhere')
+gitAt(there, 'push', '-q')
+
+await page.locator('.scm [title="Refresh"]').click()
+await sleep(2000)
+await page.locator('.scm [aria-label="Pull"]').click()
+await sleep(3000)
+check(
+  'pull brings the elsewhere commit home',
+  fs.existsSync(path.join(repo, 'from-elsewhere.txt'))
+)
+
+// --- branches, switched and created from the head ------------------------------
+await page.locator('button.scm__branch').click()
+await page.waitForSelector('.qp__box', { timeout: 8_000 })
+await page.locator('.qp__box').fill('feature-verify')
+await sleep(500)
+await page.keyboard.press('Enter')
+await sleep(2000)
+check(
+  'typing a new name creates and switches',
+  git('branch', '--show-current') === 'feature-verify',
+  git('branch', '--show-current')
+)
+
+await page.locator('button.scm__branch').click()
+await page.waitForSelector('.qp__box', { timeout: 8_000 })
+await page.locator('.qp__box').fill('main')
+await sleep(500)
+await page.keyboard.press('Enter')
+await sleep(2000)
+check('picking an existing branch switches back', git('branch', '--show-current') === 'main', git('branch', '--show-current'))
+
+fs.rmSync(remoteDir, { recursive: true, force: true })
+fs.rmSync(elsewhere, { recursive: true, force: true })
 
 await app.close()
 fs.rmSync(repo, { recursive: true, force: true })
