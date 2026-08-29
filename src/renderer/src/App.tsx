@@ -38,6 +38,7 @@ export function App(): React.JSX.Element {
   const dirPicker = useStore((s) => s.dirPicker)
   const setDirPicker = useStore((s) => s.setDirPicker)
   const fontSize = useStore((s) => s.settings.fontSize)
+  const fontFamily = useStore((s) => s.settings.fontFamily)
   const keyOverrides = useStore((s) => s.settings.keybindings)
   const bindings = useMemo(() => resolveBindings(keyOverrides ?? {}), [keyOverrides])
   const bindingsRef = useRef(bindings)
@@ -46,15 +47,28 @@ export function App(): React.JSX.Element {
   const openFileRef = useRef<() => Promise<void>>(async () => {})
 
   /*
-   * The terminal font size, published where the stylesheet can reach it.
+   * The terminal font, published where the stylesheet can reach it.
    *
-   * xterm takes the setting through its own option, but the blocks are HTML — their
-   * text sizes are written in CSS relative to this variable, and without someone
-   * setting it the calc() rules quietly collapse to the inherited size.
+   * xterm takes the setting through its own option and Monaco through
+   * updateOptions, but almost everything a person actually reads in terminal
+   * mode is HTML — the command blocks, the composer, the status chips, the
+   * agent's code — and every one of those is styled `font-family: var(--mono)`.
+   * That variable was a constant in the stylesheet, so picking a font changed
+   * the two canvases nobody was looking at and left the sixty-odd HTML surfaces
+   * on Cascadia Code for ever. The size had this treatment from the start; the
+   * family was simply never given it.
    */
   useEffect(() => {
     document.documentElement.style.setProperty('--font-size', `${fontSize}px`)
   }, [fontSize])
+  useEffect(() => {
+    // An empty setting means "whatever the stylesheet says", not "no font".
+    if (fontFamily.trim().length === 0) {
+      document.documentElement.style.removeProperty('--mono')
+      return
+    }
+    document.documentElement.style.setProperty('--mono', fontFamily)
+  }, [fontFamily])
   /*
    * The terminal the browser belongs to: the active pane when that is one, else the
    * tab's first. The same rule the status bar uses to decide whose directory it is

@@ -123,6 +123,26 @@ await page.evaluate(() => {
 await sleep(1200)
 const picked = await page.evaluate(() => window.ember.getSettings())
 check('the picked font is saved as a stack', picked.fontFamily.startsWith('Consolas'), picked.fontFamily)
+/*
+ * And reaches the surfaces a person actually reads. Almost everything in
+ * terminal mode is HTML styled `font-family: var(--mono)` — the blocks, the
+ * composer, the chips — and that variable was once a constant in the
+ * stylesheet, so a picked font changed the two canvases nobody looks at and
+ * nothing else.
+ */
+const applied = await page.evaluate(() => {
+  const composer = document.querySelector('.composer__input')
+  return {
+    monoVar: getComputedStyle(document.documentElement).getPropertyValue('--mono').trim(),
+    composer: composer ? getComputedStyle(composer).fontFamily : null
+  }
+})
+check('the pick reaches the CSS the HTML surfaces read', applied.monoVar.startsWith('Consolas'), JSON.stringify(applied))
+check(
+  'so the composer really wears it',
+  (applied.composer ?? '').includes('Consolas') && !/cascadia/i.test(applied.composer ?? ''),
+  JSON.stringify(applied)
+)
 check('the picked model is saved', picked.aiModel === 'claude-haiku-4-5', picked.aiModel)
 
 // The escape hatch: an id the list has never heard of can still be typed.

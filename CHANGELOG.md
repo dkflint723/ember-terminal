@@ -3,6 +3,16 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
+## 0.3.2 — 2026-08-29
+
+- **The font picker actually changes the font.** Picking a family reached the
+  xterm canvas and the editor, but every HTML surface in the app — the command
+  blocks, the composer, the status chips, the agent's code, the debug view:
+  sixty-odd rules — is styled `font-family: var(--mono)`, and that variable was
+  a constant in the stylesheet. In terminal mode, where what you read is HTML
+  rather than canvas, a picked font therefore did nothing visible. The setting
+  is now published to the stylesheet the way the font *size* always has been.
+
 ## 0.3.1 — 2026-08-29
 
 - **Pickers, not spellings** — Font family is now a dropdown of the monospace
