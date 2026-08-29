@@ -71,6 +71,15 @@ const ask = async (text) => {
 await page.keyboard.press('Control+Shift+B')
 await sleep(500)
 check('Ctrl+Shift+B raises the panel', (await page.locator('.agent').count()) === 1)
+// The panel must never buy its width from the columns beside it: a long
+// unbreakable output line once let the content track overflow the grid and
+// crush the rail and the session list to slivers.
+const squeezed = await page.evaluate(() => ({
+  rail: Math.round(document.querySelector('.activity')?.getBoundingClientRect().width ?? 0),
+  sessions: Math.round(document.querySelector('.sessions')?.getBoundingClientRect().width ?? 0)
+}))
+check('the rail keeps its ground beside the panel', squeezed.rail >= 40, JSON.stringify(squeezed))
+check('and the session list its width', squeezed.sessions >= 200, JSON.stringify(squeezed))
 check(
   'and the title-bar door reports it',
   (await page.locator('.titlebar__agent').getAttribute('aria-pressed')) === 'true'

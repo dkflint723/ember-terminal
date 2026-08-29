@@ -22,6 +22,10 @@ newest entry sits on top.
   language's own formatter answers instead.
 - Fixed in passing: settings saved programmatically now reach the saving
   window's own store, not just the other windows'.
+- Found on a test drive: one long unbreakable output line could overflow the
+  window's grid when the Claude panel opened, crushing the rail and the
+  session list to slivers. The content column now yields instead, and the
+  panel can never buy its width from the columns beside it.
 
 ### Step debugging, grown up
 

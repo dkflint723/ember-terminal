@@ -741,7 +741,14 @@ button {
    */
   background: linear-gradient(180deg, var(--grad-top) 0%, var(--bg) 46%, var(--grad-bottom) 100%);
   display: grid;
-  grid-template-columns: auto auto 1fr auto;
+  /*
+   * minmax(0, 1fr), not bare 1fr: a flexible track's default minimum is
+   * min-content, so one long unbreakable line in a block could force the
+   * content column wide, overflow the grid, and crush the rail and the
+   * session list to slivers — which is exactly what happened the first time
+   * the agent panel was opened on a narrow window over a wide command.
+   */
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   grid-template-rows: 1fr auto;
   grid-template-areas:
     'rail side shells agent'
@@ -4783,6 +4790,9 @@ button.scm__branch {
 .agent {
   grid-area: agent;
   position: relative;
+  /* However wide it was dragged, the rail, the sessions and a readable strip
+     of terminal keep their ground on a narrow window. */
+  max-width: calc(100vw - 480px);
   display: flex;
   flex-direction: column;
   min-height: 0;
