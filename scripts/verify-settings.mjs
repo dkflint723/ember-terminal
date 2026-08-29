@@ -59,6 +59,40 @@ check(
 )
 await page.screenshot({ path: path.join(SHOT_DIR, '97-settings.png') })
 
+/*
+ * --- the layout holds a shape a person can read --------------------------------
+ *
+ * Settings is mostly prose, and prose that runs the full width of the body was
+ * about a hundred and fifteen characters a line. The checkbox rows were worse
+ * and quieter: `.field > label` outranked `.field__check`, so those labels were
+ * display:block and the flex gap never applied — every tick sat flush against
+ * its own words, for as long as the dialog has existed.
+ */
+const layout = await page.evaluate(() => {
+  const row = document.querySelector('label.field__check')
+  const box = row?.querySelector('input')?.getBoundingClientRect()
+  const text = row?.querySelector('span')?.getBoundingClientRect()
+  const notes = [...document.querySelectorAll('.field__note')].map((n) =>
+    Math.round(n.getBoundingClientRect().width)
+  )
+  return {
+    checkboxDisplay: row ? getComputedStyle(row).display : null,
+    checkboxToText: box && text ? Math.round(text.left - box.right) : null,
+    widestNote: notes.length ? Math.max(...notes) : 0
+  }
+})
+check('checkbox rows lay out as rows', layout.checkboxDisplay === 'flex', JSON.stringify(layout))
+check(
+  'so a tick is not flush against its own words',
+  (layout.checkboxToText ?? 0) >= 6,
+  JSON.stringify(layout)
+)
+check(
+  'and no explanation runs past a readable measure',
+  layout.widestNote > 0 && layout.widestNote <= 460,
+  JSON.stringify(layout)
+)
+
 // --- the API key field actually persists ------------------------------------
 const KEY = 'sk-ant-verify-not-a-real-key'
 await page.locator('details.field').first().locator('summary').click()

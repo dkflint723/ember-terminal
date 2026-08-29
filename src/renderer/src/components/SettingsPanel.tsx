@@ -7,7 +7,7 @@ import type {
   Settings
 } from '@shared/types'
 import { chordOf, COMMANDS, resolveBindings } from '../keys'
-import { AI_MODELS } from '@shared/models'
+import { AI_MODELS, modelChoice } from '@shared/models'
 import { leadFamily, monospaceFamilies, stackFor } from '../state/fonts'
 
 /**
@@ -882,9 +882,14 @@ export function SettingsPanel(): React.JSX.Element | null {
                           }
                         }}
                       >
+                        {/* Names only. The notes used to ride along inside each
+                            option and there is no width at which that reads: a
+                            select clips its own text, so every model was
+                            introduced by a sentence cut off mid-word. They say
+                            more below, where prose can wrap. */}
                         {AI_MODELS.map((m) => (
                           <option key={m.id} value={m.id}>
-                            {m.label} — {m.note}
+                            {m.label}
                           </option>
                         ))}
                         <option value="custom">Another model id…</option>
@@ -903,6 +908,11 @@ export function SettingsPanel(): React.JSX.Element | null {
                 })()}
                 {/* The escape hatch stays because the field takes any id, including
                     one newer than this build knows about. */}
+                {modelChoice(draft.aiModel) && (
+                  <div className="field__note field__note--lead">
+                    {modelChoice(draft.aiModel)?.note}
+                  </div>
+                )}
                 <div className="field__note">
                   The ✦ chip beside the prompt switches between these — and sets how
                   hard Claude thinks — without coming here. &ldquo;Another model
@@ -1108,8 +1118,11 @@ export function SettingsPanel(): React.JSX.Element | null {
                       Install now
                     </button>
                   )}
-                  {updateNote && <span className="field__note">{updateNote}</span>}
                 </div>
+                {/* Its own line. Wedged in beside the buttons as a flex item it
+                    was squeezed into a tall ragged column whenever it had more
+                    than a few words to say — which is most of the time. */}
+                {updateNote && <div className="field__note">{updateNote}</div>}
               </div>
 
               <ExplorerMenuField />

@@ -2395,6 +2395,19 @@ kbd {
   margin-top: 8px;
 }
 
+/* In settings this row holds buttons that must not be crushed into each other
+   when a section is narrow: they wrap onto a second line instead. */
+.settings__body .composer__proposal-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* Buttons in settings are hit targets, not chips. */
+.settings__body .btn {
+  padding: 5px 12px;
+}
+
 .btn {
   padding: 3px 10px;
   border-radius: 2px;
@@ -2505,15 +2518,25 @@ kbd {
   margin-bottom: 14px;
 }
 
+/*
+ * Settings is mostly prose, and prose needs a measure.
+ *
+ * The notes ran the full width of the body — 555px of 11px text, about a
+ * hundred and fifteen characters a line, near double what an eye tracks
+ * comfortably — so every explanation arrived as a wall and the return sweep
+ * lost its place. They are capped at a readable measure now, with the room
+ * between label, control and note opened up so a field reads as one thing and
+ * the next field reads as another.
+ */
 .field {
-  margin-bottom: 14px;
+  margin-bottom: 22px;
 }
 
 .field > label {
   display: block;
-  margin-bottom: 5px;
+  margin-bottom: 7px;
   color: var(--fg-dim);
-  font-size: 11px;
+  font-size: 11.5px;
 }
 
 .field input,
@@ -2536,9 +2559,27 @@ kbd {
 }
 
 .field__note {
-  margin-top: 5px;
+  /* Roughly seventy characters, whatever the font size does. */
+  max-width: 68ch;
+  margin-top: 7px;
   color: var(--fg-faint);
-  font-size: 11px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  /* A path or a model id with no spaces in it wraps rather than escaping. */
+  overflow-wrap: break-word;
+}
+
+/*
+ * The first note under a control describes what is currently selected, so it is
+ * about the choice rather than about the field, and reads a shade louder than
+ * the standing explanation stacked beneath it.
+ */
+.field__note--lead {
+  color: var(--fg-dim);
+}
+
+.field__note + .field__note {
+  margin-top: 6px;
 }
 
 /*
@@ -2624,17 +2665,17 @@ kbd {
   flex: 1 1 auto;
   min-width: 0;
   overflow-y: auto;
-  padding: 14px 20px 14px;
+  padding: 18px 24px 22px;
 }
 
 .settings__section + .settings__section {
-  margin-top: 12px;
+  margin-top: 18px;
   border-top: 1px solid var(--border);
-  padding-top: 14px;
+  padding-top: 20px;
 }
 
 .settings__section-title {
-  margin: 0 0 12px;
+  margin: 0 0 16px;
   color: var(--fg-faint);
   font-size: 11px;
   font-weight: 600;
@@ -2644,6 +2685,18 @@ kbd {
 
 .settings__keyfilter {
   margin-bottom: 8px;
+}
+
+/*
+ * The controls hold to the same column the prose does. Stretched to the full
+ * body width, a shell picker and a font picker read as two unrelated bars
+ * rather than as one form.
+ */
+.settings__body .field > input,
+.settings__body .field > select,
+.settings__body .access,
+.settings__model-custom {
+  max-width: 420px;
 }
 
 /* The hand-typed model id, revealed under the list when the list falls short. */
@@ -2658,9 +2711,14 @@ kbd {
   gap: 8px;
 }
 
+/*
+ * Sized to the number, not to the dialog. A four-hundred-pixel box holding
+ * "10" pushes its own unit label off to the far side of the panel, where the
+ * two stop reading as one value.
+ */
 .field__unit input {
-  flex: 1 1 auto;
-  width: auto;
+  flex: 0 0 auto;
+  width: 130px;
 }
 
 .field__unit-label {
@@ -2683,12 +2741,12 @@ kbd {
 }
 
 /* Checkbox rows breathe: a tick that follows a paragraph needs a beat between. */
-.field__check {
-  margin: 2px 0;
+label.field__check {
+  margin: 3px 0;
 }
 
 .field__note + .field__check {
-  margin-top: 10px;
+  margin-top: 16px;
 }
 
 .theme-swatches {
@@ -4008,13 +4066,31 @@ button.scm__branch {
 }
 
 /* A checkbox reads as one control with its text, so the whole row is the label. */
-.field__check {
+/*
+ * `label.field__check`, not `.field__check`.
+ *
+ * These rows are labels sitting directly inside a field, and `.field > label`
+ * — which is more specific than a lone class — was forcing display:block over
+ * them. So the flex layout never applied and neither did its gap: every
+ * checkbox in Settings has sat flush against its own text since the day it was
+ * written. Matching on the element as well as the class outranks it.
+ */
+label.field__check {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 10px;
   color: var(--fg-dim);
-  font-size: 12px;
+  font-size: 12.5px;
   cursor: pointer;
+}
+
+/*
+ * A note explaining a checkbox lines up with the words it explains, not with
+ * the box — so the two read as one statement rather than as two.
+ */
+.field__check + .field__note {
+  margin-left: 24px;
+  max-width: calc(68ch - 24px);
 }
 
 .field__check input {
