@@ -3,6 +3,16 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
+## 0.3.7 — 2026-08-29
+
+- **An update you already have stops asking to be installed.** The note that a
+  version was downloaded and waiting was cleared only when the running version
+  *equalled* the promised one. Land on a version past it — two updates in a
+  row, or a newer installer taken by hand — and equality never comes, so Ember
+  went on offering to install something it was already ahead of, permanently.
+  It now clears when the running version has reached **or passed** the promise,
+  so an install that skipped ahead settles itself on the next launch.
+
 ## 0.3.6 — 2026-08-29
 
 - **The Install now button is actually there.** It appeared only when the

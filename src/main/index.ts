@@ -135,6 +135,20 @@ async function maybeCheckForUpdate(): Promise<void> {
   }
 }
 
+/**
+ * Dotted numeric versions, compared as numbers: -1, 0, 1. Ember's versions are
+ * plain x.y.z, so this needs no dependency and no prerelease grammar.
+ */
+function compareVersions(a: string, b: string): number {
+  const left = a.split('.').map((part) => Number.parseInt(part, 10) || 0)
+  const right = b.split('.').map((part) => Number.parseInt(part, 10) || 0)
+  for (let i = 0; i < Math.max(left.length, right.length); i++) {
+    const diff = (left[i] ?? 0) - (right[i] ?? 0)
+    if (diff !== 0) return diff < 0 ? -1 : 1
+  }
+  return 0
+}
+
 /** The first line of whatever went wrong, as a sentence rather than a stack. */
 function describeUpdateError(err: unknown): string {
   const text = err instanceof Error ? err.message : String(err)
@@ -250,7 +264,15 @@ function watchUpdater(updater: typeof import('electron-updater').autoUpdater): v
 function reportPendingUpdate(): void {
   const promised = settings.get().pendingUpdateVersion
   if (!promised) return
-  if (promised === app.getVersion()) {
+  /*
+   * Reached OR PASSED, not merely equalled.
+   *
+   * Equality alone left the note stuck: land on a version past the promised
+   * one — install two updates in a row, or take a newer installer by hand —
+   * and the running version never equals the promise, so Ember went on
+   * offering to install something it was already ahead of, for ever.
+   */
+  if (compareVersions(app.getVersion(), promised) >= 0) {
     settings.set({ pendingUpdateVersion: null })
     return
   }

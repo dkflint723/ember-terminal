@@ -186,6 +186,46 @@ check(
   JSON.stringify(staged)
 )
 
+/*
+ * --- a promise already kept stops being offered ---------------------------------
+ *
+ * The note that an update is waiting is cleared by comparing the promised
+ * version with the running one, and comparing them for equality alone left it
+ * stuck: land on a version PAST the promise — two updates in a row, or a newer
+ * installer taken by hand — and the running version never equals it, so Ember
+ * went on offering to install something it was already ahead of, for ever.
+ */
+const pendingAfterLaunch = async (stored, label) => {
+  const scratch = newProfile(`pending-${label}`)
+  fs.writeFileSync(
+    path.join(scratch.dir, 'settings.json'),
+    JSON.stringify({ autoUpdate: false, pendingUpdateVersion: stored }),
+    'utf8'
+  )
+  const scratchApp = await electron.launch({
+    executablePath: EXE,
+    args: [scratch.arg],
+    cwd: UNPACKED,
+    env,
+    timeout: 60_000
+  })
+  const scratchPage = await scratchApp.firstWindow()
+  await scratchPage.waitForSelector('.pane', { timeout: 40_000 })
+  // The check runs a couple of seconds after the window appears.
+  await sleep(5000)
+  const held = await scratchPage.evaluate(
+    () => window.ember.getSettings().then((s) => s.pendingUpdateVersion)
+  )
+  await scratchApp.close()
+  scratch.cleanup()
+  return held
+}
+
+const stale = await pendingAfterLaunch('0.0.1', 'stale')
+check('a version already passed stops being offered', stale === null, String(stale))
+const future = await pendingAfterLaunch('99.9.9', 'future')
+check('one genuinely still waiting is kept', future === '99.9.9', String(future))
+
 fs.rmSync(cache, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)
 console.log('update download:', failures.length === 0 ? 'PASS' : 'FAIL')
