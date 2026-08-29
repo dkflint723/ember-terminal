@@ -46,6 +46,28 @@
   padding: 0;
 }
 
+/*
+ * Keyboard focus is visible everywhere, declared once. :focus-visible fires for
+ * the keyboard and stays out of the way of the pointer, so buttons that never
+ * drew a ring — the rail, the tabs, the block actions — can now be walked to.
+ * Controls that paint their own focus (bordered inputs, the composer) sit later
+ * in the file or carry more specificity, and keep their own answer.
+ */
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent);
+  outline-offset: 1px;
+}
+
+/* The two surfaces with a caret of their own: ringing the whole terminal or
+   editor would frame the app's main body on every keyboard entry into it. And
+   tabindex="-1" marks a container that takes focus for plumbing — a dialog, a
+   pane — not a control a person tabbed to. */
+.xterm textarea:focus-visible,
+.monaco-editor textarea:focus-visible,
+[tabindex='-1']:focus-visible {
+  outline: none;
+}
+
 html,
 body,
 #root {
@@ -556,6 +578,35 @@ button {
 .sessions__close:hover {
   background: var(--bg-hover);
   color: var(--fg);
+}
+
+/* What a card's shells are doing while you look elsewhere: a breathing dot for
+   a running command, a red one for a failure in a tab that is not on screen. */
+.sessions__dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-left: 4px;
+}
+
+.sessions__dot--running {
+  background: var(--info);
+  animation: sessions-breathe 1.6s ease-in-out infinite;
+}
+
+.sessions__dot--failed {
+  background: var(--fail);
+}
+
+@keyframes sessions-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
 .sessions__none {
@@ -1258,6 +1309,18 @@ button {
 
 /* The pane talking about itself — a shell still starting, or one where nothing has
    run yet. Carries none of a block's furniture, because no command happened. */
+/*
+ * An empty pane's words sit with the composer, not at the ceiling. The
+ * scrollback is bottom-weighted — the prompt is at the bottom, typing starts at
+ * the bottom — so hints that opened at the top-left left the eye crossing a
+ * blank pane between reading what to do and doing it.
+ */
+.pane__scroll--empty {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
 .pane__note {
   padding: 6px 12px;
   color: var(--fg-faint);
@@ -2407,6 +2470,113 @@ kbd {
   margin-top: 18px;
   padding: 12px 0 20px;
   background: var(--bg-elevated);
+}
+
+/*
+ * Settings outgrew the plain modal: one scroll was fine at ten fields and
+ * hostile at thirty, with the everyday knobs buried under the keybinding list.
+ * A rail of sections on the left, one scrolling column on the right — jumps,
+ * not tabs, so everything stays present and findable by scrolling alone.
+ */
+.modal--settings {
+  width: min(760px, 94vw);
+  height: min(80vh, 700px);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal--settings h2 {
+  margin: 0;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings__layout {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.settings__nav {
+  flex: 0 0 148px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 10px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.settings__nav-item {
+  text-align: left;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--fg-dim);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settings__nav-item:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.settings__nav-item--on {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--fg);
+}
+
+.settings__body {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 14px 20px 14px;
+}
+
+.settings__section + .settings__section {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.settings__section-title {
+  margin: 0 0 12px;
+  color: var(--fg-faint);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.settings__keyfilter {
+  margin-bottom: 8px;
+}
+
+.settings__error {
+  margin: 8px 20px 0;
+}
+
+/* The footer stops floating once the body scrolls on its own. */
+.modal--settings .modal__actions {
+  position: static;
+  margin: 0;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+}
+
+/* Checkbox rows breathe: a tick that follows a paragraph needs a beat between. */
+.field__check {
+  margin: 2px 0;
+}
+
+.field__note + .field__check {
+  margin-top: 10px;
 }
 
 .theme-swatches {
@@ -4553,6 +4723,23 @@ button.scm__branch {
   z-index: 2;
 }
 
+/* The seam answers the pointer: an invisible grab area reads as no grab area,
+   so a thin line lights under the hand that could drag it. */
+.agent__resize::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+}
+
+.agent__resize:hover::after,
+.agent__resize:active::after {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
 .agent__head {
   display: flex;
   align-items: center;
@@ -4646,6 +4833,19 @@ button.scm__branch {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+/*
+ * The asker's line sits in a shallow well. In a long thread both voices were
+ * bare text separated by nothing but a gap, and finding where an exchange
+ * started meant reading role labels; the well makes each question a visible
+ * rung, so the answers hang from something.
+ */
+.agent__turn--user {
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
 
 .agent__who {

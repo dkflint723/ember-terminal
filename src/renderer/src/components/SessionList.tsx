@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { isInside, pathKey, samePath } from '@shared/paths'
-import { activeDocument, useStore, type Tab } from '../state/store'
+import { activeDocument, paneIdsOf, useStore, type CommandBlock, type Tab } from '../state/store'
 
 /**
  * The sessions, as cards in the side slot.
@@ -92,6 +92,28 @@ export function SessionList(): React.JSX.Element {
     return { branch: false, text: profiles.find((p) => p.id === pane.profileId)?.name ?? '' }
   }
 
+  /*
+   * What a card's shells are doing while you look elsewhere: a breathing dot
+   * when a command is running anywhere in the tab, a red one when the last
+   * command finished badly in a tab that is not on screen. The active tab shows
+   * its failures as blocks, so the red mark stays off it — and restored blocks
+   * from an earlier app session are records, not news.
+   */
+  const activityFor = (tab: Tab): 'running' | 'failed' | null => {
+    let last: CommandBlock | null = null
+    for (const id of paneIdsOf(tab)) {
+      const pane = panes[id]
+      if (pane?.kind !== 'terminal') continue
+      for (const b of pane.blocks) {
+        if (b.kind !== 'command') continue
+        if (b.status === 'running') return 'running'
+        if (!last || b.startedAt > last.startedAt) last = b
+      }
+    }
+    if (tab.id === activeTabId) return null
+    return last?.status === 'failed' && !last.restored ? 'failed' : null
+  }
+
   const shown = tabs.filter((t) => {
     if (!filter.trim()) return true
     const sub = subtitleFor(t).text
@@ -167,6 +189,7 @@ export function SessionList(): React.JSX.Element {
       <div className="sessions__list" role="tablist" aria-label="Terminal tabs">
         {shown.map((t) => {
           const sub = subtitleFor(t)
+          const activity = activityFor(t)
           return (
             <div
               key={t.id}
@@ -270,6 +293,12 @@ export function SessionList(): React.JSX.Element {
                   </span>
                 )}
               </span>
+              {activity && (
+                <span
+                  className={`sessions__dot sessions__dot--${activity}`}
+                  title={activity === 'running' ? 'A command is running' : 'The last command failed'}
+                />
+              )}
               <button
                 className="sessions__close"
                 title="Close tab"

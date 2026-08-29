@@ -118,11 +118,11 @@ if (fs.existsSync(onDisk)) {
 /*
  * --- the key reaches the AI path ---------------------------------------------
  *
- * A bad key must come back as a rejection rather than a hang. The waiting is shown
- * in the block now rather than by disabling the composer, so settling means the
- * block has stopped saying "Thinking…" — and it can settle either way, since a key
- * the API refuses produces an error where a working one would produce a proposal.
- * Waiting for a proposal alone would hang out the full minute on exactly the case
+ * A bad key must come back as a rejection rather than a hang. Questions stream
+ * into the agent panel now, so settling means the newest assistant turn has
+ * stopped showing its cursor — and it can settle either way, since a key the API
+ * refuses produces an error turn where a working one would produce an answer.
+ * Waiting for an answer alone would hang out the full minute on exactly the case
  * this is here to check.
  */
 await page.click('.composer__input')
@@ -137,22 +137,23 @@ let settled = null
 for (let i = 0; i < 60; i++) {
   await sleep(1000)
   settled = await page.evaluate(() => {
-    const all = document.querySelectorAll('.block--agent')
-    const block = all[all.length - 1]
+    const turns = document.querySelectorAll('.agent__turn--assistant')
+    const turn = turns[turns.length - 1]
     return {
-      // The question goes to the list on send, so the composer is left empty and
+      // The question goes to the panel on send, so the composer is left empty and
       // pointed back at the shell — which is what "usable again" means now that
       // nothing disables it for the length of a request.
       composer: document.querySelector('.composer__input')?.value ?? null,
-      thinking: !!block?.querySelector('.block__thinking'),
-      text: (block?.textContent ?? '').trim()
+      panelOpen: !!document.querySelector('.agent'),
+      streaming: !!turn?.querySelector('.agent__cursor'),
+      text: (turn?.textContent ?? '').trim()
     }
   })
-  if (settled.text.length > 0 && !settled.thinking) break
+  if (settled.panelOpen && settled.text.length > 0 && !settled.streaming) break
 }
 check(
-  'the request settles rather than hanging',
-  settled !== null && settled.text.length > 0 && !settled.thinking,
+  'the request settles in the panel rather than hanging',
+  settled !== null && settled.panelOpen && settled.text.length > 0 && !settled.streaming,
   JSON.stringify(settled)
 )
 check('and the composer is empty and waiting', settled?.composer === '', String(settled?.composer))

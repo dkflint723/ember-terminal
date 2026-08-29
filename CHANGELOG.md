@@ -3,6 +3,36 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
+## Unreleased
+
+### The settings find their shape
+
+- **Settings, grouped** — the one long scroll becomes six sections
+  (Appearance, Terminal, Editor, Claude, Keyboard, System) with a rail that
+  jumps and follows the scroll. Everything is still on one page; nothing hides
+  behind a tab.
+- **Shortcut filter** — the keybinding list takes a filter box, by name or by
+  chord.
+- **Updates on their own line** — the update check moves out from under
+  "On launch" into its own labelled field.
+
+### Smaller courtesies
+
+- **Keyboard focus you can see** — a visible focus ring on every control the
+  keyboard can reach, drawn only for the keyboard; pointer clicks stay clean.
+- **Hints where the eye is** — an empty pane's "run a command" hints sit just
+  above the composer, where typing starts, instead of at the ceiling.
+- **Session cards say what they're doing** — a breathing dot while a command
+  runs anywhere in the tab; a red one when the last command in a background
+  tab failed.
+- **Copy that answers** — the block-head copy buttons say "✓ copied" for a
+  moment, and are labelled `copy cmd` / `copy out` instead of `cmd` / `out`.
+- **Each question is a rung** — your turns in the Claude panel sit in a
+  shallow well, so long threads read as exchanges rather than one column of
+  text.
+- **The panel seam lights up** — the agent panel's resize edge shows itself
+  under the pointer.
+
 ## 0.2.0 — 2026-08-28
 
 The daily-driver release: the agent grows up, and the terminal grows the things

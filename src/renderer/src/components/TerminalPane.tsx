@@ -214,7 +214,9 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
       {!raw && (
         <div className="pane__body">
         <div
-          className={`pane__scroll ${stream ? 'pane__scroll--stream' : ''}`}
+          className={`pane__scroll ${stream ? 'pane__scroll--stream' : ''} ${
+            pane.blocks.length === 0 ? 'pane__scroll--empty' : ''
+          }`}
           ref={scroller}
           onScroll={noteScroll}
         >

@@ -51,6 +51,22 @@ import { useStore } from '../state/store'
 import { activateTheme, refreshThemeList } from '../state/theming'
 import { ensureSnippets, forgetSnippets } from '../editor/snippets'
 
+/*
+ * The dialog grew past one screen long before it grew past one topic, and a
+ * single scroll made the most-touched settings the hardest to reach — fonts
+ * lived below twenty-six keybinding rows. Grouped by what a person came to
+ * change, with a rail that jumps; everything stays on one scroll so nothing is
+ * hidden behind a tab that has to be guessed.
+ */
+const SECTIONS = [
+  { id: 'appearance', label: 'Appearance' },
+  { id: 'terminal', label: 'Terminal' },
+  { id: 'editor', label: 'Editor' },
+  { id: 'claude', label: 'Claude' },
+  { id: 'keyboard', label: 'Keyboard' },
+  { id: 'system', label: 'System' }
+] as const
+
 /**
  * The Explorer context-menu entry.
  *
@@ -127,6 +143,10 @@ export function SettingsPanel(): React.JSX.Element | null {
   const [updateNote, setUpdateNote] = useState('')
   /** Which command is listening for its new chord, if any. */
   const [capturing, setCapturing] = useState<string | null>(null)
+  /** Which section the rail lights up — follows the scroll, and jumps on click. */
+  const [section, setSection] = useState<string>('appearance')
+  /** Narrows the shortcut list by label or chord; empty shows everything. */
+  const [keyQuery, setKeyQuery] = useState('')
   const open = useStore((s) => s.settingsOpen)
   const toggle = useStore((s) => s.toggleSettings)
   const profiles = useStore((s) => s.profiles)
@@ -212,6 +232,8 @@ export function SettingsPanel(): React.JSX.Element | null {
    * looked at it.
    */
   const modalRef = useRef<HTMLDivElement>(null)
+  /** The scrolling column of sections, for the rail's jumps and its highlight. */
+  const bodyRef = useRef<HTMLDivElement>(null)
   const ready = open && draft !== null
   useEffect(() => {
     if (!ready) return
@@ -343,10 +365,46 @@ export function SettingsPanel(): React.JSX.Element | null {
       draft.customProfiles.map((c, at) => (at === i ? { ...c, ...part } : c))
     )
 
+  const jumpTo = (id: string): void => {
+    bodyRef.current
+      ?.querySelector<HTMLElement>(`[data-section="${id}"]`)
+      ?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    setSection(id)
+  }
+
+  /**
+   * The rail follows the scroll: the lit entry is the last section whose top has
+   * passed under the header, with the bottom clamped so the final section can be
+   * reached even when it is too short to climb that high.
+   */
+  const onBodyScroll = (): void => {
+    const body = bodyRef.current
+    if (!body) return
+    const parts = Array.from(body.querySelectorAll<HTMLElement>('[data-section]'))
+    let current = parts[0]?.dataset.section ?? 'appearance'
+    for (const el of parts) {
+      if (el.offsetTop <= body.scrollTop + 60) current = el.dataset.section ?? current
+    }
+    if (body.scrollTop + body.clientHeight >= body.scrollHeight - 8) {
+      current = parts[parts.length - 1]?.dataset.section ?? current
+    }
+    setSection((was) => (was === current ? was : current))
+  }
+
+  const resolved = resolveBindings(draft.keybindings ?? {})
+  const keyQ = keyQuery.trim().toLowerCase()
+  const shownCommands = COMMANDS.filter((command) => {
+    if (!keyQ) return true
+    const chord = resolved.byId.get(command.id) ?? command.chord
+    return (
+      command.label.toLowerCase().includes(keyQ) || chord.toLowerCase().includes(keyQ)
+    )
+  })
+
   return (
     <div className="modal-scrim" onMouseDown={close}>
       <div
-        className="modal"
+        className="modal modal--settings"
         ref={modalRef}
         role="dialog"
         aria-modal="true"
@@ -357,159 +415,356 @@ export function SettingsPanel(): React.JSX.Element | null {
       >
         <h2>Settings</h2>
 
-        <div className="field">
-          <label>Theme</label>
-          <select value={draft.themeId} onChange={(e) => chooseTheme(e.target.value)}>
-            {themes.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name} · {t.type}
-                {t.builtin ? '' : ' · imported'}
-              </option>
-            ))}
-          </select>
-          <div className="theme-swatches">
-            {SWATCH_TOKENS.map((token) => (
-              <span
-                key={token}
-                className="theme-swatch"
-                title={token}
-                style={{ background: `var(--${token})` }}
-              />
-            ))}
-          </div>
-          <div className="field__note">
-            Any VS Code color theme works. Themes change as you pick them; Cancel puts
-            the previous one back.
-          </div>
-          <div className="composer__proposal-actions">
-            <button className="btn" onClick={() => void importTheme()}>
-              Import .json…
-            </button>
-            <button className="btn" onClick={() => window.ember.openThemeFolder()}>
-              Open themes folder
-            </button>
-          </div>
-          {themeError && <div className="composer__error">{themeError}</div>}
-        </div>
-
-        <div className="field">
-          <label>Snippets</label>
-          <div className="field__note">
-            Snippets in the VS Code format, from a folder or a <code>.vsix</code>. A file
-            named for its language applies to that language; a <code>.code-snippets</code>{' '}
-            file says so per entry. They appear in the completion list with everything the
-            language server offers.
-          </div>
-          <div className="composer__proposal-actions">
-            <button className="btn" onClick={() => void importSnippets()}>
-              Import snippets…
-            </button>
-            <button className="btn" onClick={() => window.ember.openSnippetsFolder()}>
-              Open snippets folder
-            </button>
-          </div>
-          {snippetError && <div className="composer__error">{snippetError}</div>}
-        </div>
-
-        <div className="field">
-          <label>Default shell</label>
-          <select
-            value={draft.defaultProfileId ?? profiles[0]?.id ?? ''}
-            onChange={(e) => field('defaultProfileId', e.target.value)}
-          >
-            {profiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="field">
-          <label>Custom shells</label>
-          {draft.customProfiles.map((shell, i) => (
-            <div key={shell.id} className="shellrow">
-              <input
-                className="shellrow__name"
-                placeholder="Name"
-                value={shell.name}
-                spellCheck={false}
-                onChange={(e) => patchCustom(i, { name: e.target.value })}
-              />
-              <input
-                className="shellrow__path"
-                placeholder="wsl.exe"
-                value={shell.path}
-                spellCheck={false}
-                onChange={(e) => patchCustom(i, { path: e.target.value })}
-              />
-              <input
-                className="shellrow__args"
-                placeholder="-d Ubuntu"
-                value={joinArgs(shell.args)}
-                spellCheck={false}
-                onChange={(e) => patchCustom(i, { args: parseArgs(e.target.value) })}
-              />
-              <select
-                className="shellrow__dialect"
-                value={shell.integration}
-                title="Which shell-integration dialect to inject, for blocks and prompts"
-                onChange={(e) =>
-                  patchCustom(i, { integration: e.target.value as CustomProfile['integration'] })
-                }
-              >
-                <option value="none">plain</option>
-                <option value="powershell">powershell</option>
-                <option value="bash">bash</option>
-              </select>
+        <div className="settings__layout">
+          <nav className="settings__nav" aria-label="Settings sections">
+            {SECTIONS.map((s) => (
               <button
-                className="icon-btn"
-                aria-label={`Remove ${shell.name || 'shell'}`}
-                title="Remove"
-                onClick={() =>
-                  field(
-                    'customProfiles',
-                    draft.customProfiles.filter((_, at) => at !== i)
-                  )
-                }
+                key={s.id}
+                type="button"
+                className={`settings__nav-item ${section === s.id ? 'settings__nav-item--on' : ''}`}
+                onClick={() => jumpTo(s.id)}
               >
-                ✕
+                {s.label}
               </button>
-            </div>
-          ))}
-          <div className="composer__proposal-actions">
-            <button
-              className="btn"
-              onClick={() =>
-                field('customProfiles', [
-                  ...draft.customProfiles,
-                  {
-                    id: `custom-${crypto.randomUUID()}`,
-                    name: '',
-                    path: '',
-                    args: [],
-                    integration: 'none' as const
-                  }
-                ])
-              }
-            >
-              Add shell…
-            </button>
-          </div>
-          <div className="field__note">
-            Anything spawnable: a WSL distro (<code>wsl.exe -d Ubuntu</code>), a Developer
-            PowerShell, nushell, ssh somewhere. Pick the dialect the shell actually speaks
-            and it gets blocks and prompt detection; plain runs it as a bare terminal.
-          </div>
-        </div>
+            ))}
+          </nav>
 
-        <div className="field">
-          <label>Keyboard</label>
-          {(() => {
-            const resolved = resolveBindings(draft.keybindings ?? {})
-            return (
-              <>
-                {COMMANDS.map((command) => {
+          <div className="settings__body" ref={bodyRef} onScroll={onBodyScroll}>
+            <section className="settings__section" data-section="appearance">
+              <h3 className="settings__section-title">Appearance</h3>
+
+              <div className="field">
+                <label>Theme</label>
+                <select value={draft.themeId} onChange={(e) => chooseTheme(e.target.value)}>
+                  {themes.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} · {t.type}
+                      {t.builtin ? '' : ' · imported'}
+                    </option>
+                  ))}
+                </select>
+                <div className="theme-swatches">
+                  {SWATCH_TOKENS.map((token) => (
+                    <span
+                      key={token}
+                      className="theme-swatch"
+                      title={token}
+                      style={{ background: `var(--${token})` }}
+                    />
+                  ))}
+                </div>
+                <div className="field__note">
+                  Any VS Code color theme works. Themes change as you pick them; Cancel puts
+                  the previous one back.
+                </div>
+                <div className="composer__proposal-actions">
+                  <button className="btn" onClick={() => void importTheme()}>
+                    Import .json…
+                  </button>
+                  <button className="btn" onClick={() => window.ember.openThemeFolder()}>
+                    Open themes folder
+                  </button>
+                </div>
+                {themeError && <div className="composer__error">{themeError}</div>}
+              </div>
+
+              <div className="field">
+                <label>Font family</label>
+                <input
+                  value={draft.fontFamily}
+                  onChange={(e) => field('fontFamily', e.target.value)}
+                  spellCheck={false}
+                />
+              </div>
+
+              <div className="field">
+                <label>Font size</label>
+                <input
+                  type="number"
+                  min={8}
+                  max={32}
+                  value={draft.fontSize}
+                  onChange={(e) => field('fontSize', Number(e.target.value) || 13)}
+                />
+              </div>
+
+              <div className="field">
+                <label>Interface size</label>
+                <input
+                  type="number"
+                  min={60}
+                  max={250}
+                  step={10}
+                  value={Math.round((draft.uiZoom || 1) * 100)}
+                  onChange={(e) => {
+                    const percent = Math.min(Math.max(Number(e.target.value) || 100, 60), 250)
+                    field('uiZoom', percent / 100)
+                    // Applied as it changes, so the number can be judged by looking.
+                    window.ember.setZoom(percent / 100)
+                  }}
+                />
+                <div className="field__note">
+                  Per cent. Scales the whole interface, terminal included — the editor font
+                  setting only covers text inside editors. Ctrl+= and Ctrl+- do the same, and
+                  Ctrl+0 returns to 100.
+                </div>
+              </div>
+            </section>
+
+            <section className="settings__section" data-section="terminal">
+              <h3 className="settings__section-title">Terminal</h3>
+
+              <div className="field">
+                <label>Default shell</label>
+                <select
+                  value={draft.defaultProfileId ?? profiles[0]?.id ?? ''}
+                  onChange={(e) => field('defaultProfileId', e.target.value)}
+                >
+                  {profiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="field">
+                <label>Custom shells</label>
+                {draft.customProfiles.map((shell, i) => (
+                  <div key={shell.id} className="shellrow">
+                    <input
+                      className="shellrow__name"
+                      placeholder="Name"
+                      value={shell.name}
+                      spellCheck={false}
+                      onChange={(e) => patchCustom(i, { name: e.target.value })}
+                    />
+                    <input
+                      className="shellrow__path"
+                      placeholder="wsl.exe"
+                      value={shell.path}
+                      spellCheck={false}
+                      onChange={(e) => patchCustom(i, { path: e.target.value })}
+                    />
+                    <input
+                      className="shellrow__args"
+                      placeholder="-d Ubuntu"
+                      value={joinArgs(shell.args)}
+                      spellCheck={false}
+                      onChange={(e) => patchCustom(i, { args: parseArgs(e.target.value) })}
+                    />
+                    <select
+                      className="shellrow__dialect"
+                      value={shell.integration}
+                      title="Which shell-integration dialect to inject, for blocks and prompts"
+                      onChange={(e) =>
+                        patchCustom(i, {
+                          integration: e.target.value as CustomProfile['integration']
+                        })
+                      }
+                    >
+                      <option value="none">plain</option>
+                      <option value="powershell">powershell</option>
+                      <option value="bash">bash</option>
+                    </select>
+                    <button
+                      className="icon-btn"
+                      aria-label={`Remove ${shell.name || 'shell'}`}
+                      title="Remove"
+                      onClick={() =>
+                        field(
+                          'customProfiles',
+                          draft.customProfiles.filter((_, at) => at !== i)
+                        )
+                      }
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                <div className="composer__proposal-actions">
+                  <button
+                    className="btn"
+                    onClick={() =>
+                      field('customProfiles', [
+                        ...draft.customProfiles,
+                        {
+                          id: `custom-${crypto.randomUUID()}`,
+                          name: '',
+                          path: '',
+                          args: [],
+                          integration: 'none' as const
+                        }
+                      ])
+                    }
+                  >
+                    Add shell…
+                  </button>
+                </div>
+                <div className="field__note">
+                  Anything spawnable: a WSL distro (<code>wsl.exe -d Ubuntu</code>), a Developer
+                  PowerShell, nushell, ssh somewhere. Pick the dialect the shell actually speaks
+                  and it gets blocks and prompt detection; plain runs it as a bare terminal.
+                </div>
+              </div>
+
+              <div className="field">
+                <label>Notify after</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={3600}
+                  value={draft.notifyAfterSeconds}
+                  onChange={(e) =>
+                    field('notifyAfterSeconds', Math.max(0, Number(e.target.value) || 0))
+                  }
+                />
+                <div className="field__note">
+                  Seconds. A command running at least this long raises a desktop notification
+                  when it finishes, but only while Ember is in the background — you do not need
+                  telling about something you are watching. Zero turns it off.
+                </div>
+              </div>
+            </section>
+
+            <section className="settings__section" data-section="editor">
+              <h3 className="settings__section-title">Editor</h3>
+
+              <div className="field">
+                <label>Auto save after</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={600}
+                  value={draft.autoSaveAfterSeconds}
+                  onChange={(e) =>
+                    field('autoSaveAfterSeconds', Math.max(0, Number(e.target.value) || 0))
+                  }
+                />
+                <div className="field__note">
+                  Seconds. An edited file is written this long after you stop typing. Files that
+                  have never been saved are left alone, since saving one has to ask where it
+                  goes. Zero turns it off.
+                </div>
+              </div>
+
+              <div className="field">
+                <label>Snippets</label>
+                <div className="field__note">
+                  Snippets in the VS Code format, from a folder or a <code>.vsix</code>. A file
+                  named for its language applies to that language; a <code>.code-snippets</code>{' '}
+                  file says so per entry. They appear in the completion list with everything the
+                  language server offers.
+                </div>
+                <div className="composer__proposal-actions">
+                  <button className="btn" onClick={() => void importSnippets()}>
+                    Import snippets…
+                  </button>
+                  <button className="btn" onClick={() => window.ember.openSnippetsFolder()}>
+                    Open snippets folder
+                  </button>
+                </div>
+                {snippetError && <div className="composer__error">{snippetError}</div>}
+              </div>
+            </section>
+
+            <section className="settings__section" data-section="claude">
+              <h3 className="settings__section-title">Claude</h3>
+
+              <div className="field">
+                <label>Claude model</label>
+                <input
+                  value={draft.aiModel}
+                  onChange={(e) => field('aiModel', e.target.value)}
+                  spellCheck={false}
+                />
+                {/* The switcher beside the prompt is the way in for the models on the
+                    list; this field stays because it takes any id, including one newer
+                    than this build knows about. */}
+                <div className="field__note">
+                  Takes any model id. The ✦ chip beside the prompt switches between the
+                  usual ones — and sets how hard Claude thinks — without coming here.
+                </div>
+              </div>
+
+              {/* Claude access, shown as what is actually in effect rather than as a field
+                  to fill in. Signing in through the browser is the common case; the key is
+                  for people who would rather bring their own. */}
+              <div className="field">
+                <label>Claude access</label>
+                <div className={`access access--${credentialTone(credential, claude)}`}>
+                  <span className="access__state">{credentialLabel(credential, claude)}</span>
+                  {credential?.source === 'claude-code' && credential.detail && (
+                    <span className="access__detail">{credential.detail}</span>
+                  )}
+                </div>
+                <div className="field__note">{credentialNote(credential, claude)}</div>
+                <div className="composer__proposal-actions">
+                  {claude?.installed && !claude.signedIn && (
+                    <button className="btn btn--primary" onClick={() => signIn()}>
+                      Sign in with your browser
+                    </button>
+                  )}
+                  <button className="btn" onClick={() => void refreshAccess()} disabled={probing}>
+                    {probing ? 'Checking…' : 'Re-check'}
+                  </button>
+                </div>
+              </div>
+
+              <details className="field">
+                <summary>Use an API key instead</summary>
+                {/* Empty even when a key is stored: the value stays in main and never
+                    comes back here, so an empty box means "leave it as it is" rather than
+                    "clear it". Removing one is a separate, deliberate action. */}
+                <input
+                  type="password"
+                  placeholder={hasApiKey ? 'A key is saved — type to replace it' : 'sk-ant-…'}
+                  value={draft.anthropicApiKey ?? ''}
+                  onChange={(e) => field('anthropicApiKey', e.target.value || null)}
+                  spellCheck={false}
+                />
+                {hasApiKey && (
+                  <div className="composer__proposal-actions">
+                    <button
+                      className="btn"
+                      onClick={() => {
+                        void (async () => {
+                          const res = await window.ember.setSettings({ anthropicApiKey: null })
+                          applySettings(res.settings)
+                          setHasApiKey(false)
+                        })()
+                      }}
+                    >
+                      Remove saved key
+                    </button>
+                  </div>
+                )}
+                <div className="field__note">
+                  {encrypted === false
+                    ? 'Windows is not offering a credential store, so this would be saved as plain text in your settings file. Consider the ANTHROPIC_API_KEY environment variable instead.'
+                    : 'Encrypted at rest with the Windows credential store.'}{' '}
+                  A key takes precedence over signing in, and buys slightly better results for
+                  command generation — it can hold the model to a schema, which going through
+                  Claude Code cannot. Leave blank to use the ANTHROPIC_API_KEY environment
+                  variable, or your Claude Code sign-in.
+                </div>
+              </details>
+            </section>
+
+            <section className="settings__section" data-section="keyboard">
+              <h3 className="settings__section-title">Keyboard</h3>
+
+              <div className="field">
+                <label>Shortcuts</label>
+                <input
+                  className="settings__keyfilter"
+                  placeholder="Filter shortcuts…"
+                  aria-label="Filter keyboard shortcuts"
+                  value={keyQuery}
+                  spellCheck={false}
+                  onChange={(e) => setKeyQuery(e.target.value)}
+                />
+                {shownCommands.map((command) => {
                   const chord = resolved.byId.get(command.id) ?? command.chord
                   const overridden = (draft.keybindings ?? {})[command.id] !== undefined
                   return (
@@ -558,222 +813,78 @@ export function SettingsPanel(): React.JSX.Element | null {
                     </div>
                   )
                 })}
+                {shownCommands.length === 0 && (
+                  <div className="field__note">Nothing matches.</div>
+                )}
                 {resolved.conflicts.map((c) => (
                   <div key={c.chord} className="composer__error">
                     {c.chord} is claimed twice — {c.labels.join(' and ')}. The first one wins.
                   </div>
                 ))}
-              </>
-            )
-          })()}
-          <div className="field__note">
-            Click a chord and press the new keys; Esc changes nothing. These are the
-            window&rsquo;s own shortcuts — what the editor and the shell claim for
-            themselves stays theirs.
+                <div className="field__note">
+                  Click a chord and press the new keys; Esc changes nothing. These are the
+                  window&rsquo;s own shortcuts — what the editor and the shell claim for
+                  themselves stays theirs.
+                </div>
+              </div>
+            </section>
+
+            <section className="settings__section" data-section="system">
+              <h3 className="settings__section-title">System</h3>
+
+              <div className="field">
+                <label>On launch</label>
+                <label className="field__check">
+                  <input
+                    type="checkbox"
+                    checked={draft.restoreSession}
+                    onChange={(e) => field('restoreSession', e.target.checked)}
+                  />
+                  <span>Reopen the last window&rsquo;s tabs, splits and files</span>
+                </label>
+                <div className="field__note">
+                  Layout and open files, including anything unsaved. Command output is not
+                  restored — a finished command from last week would only look live.
+                </div>
+              </div>
+
+              <div className="field">
+                <label>Updates</label>
+                <label className="field__check">
+                  <input
+                    type="checkbox"
+                    checked={draft.autoUpdate}
+                    onChange={(e) => field('autoUpdate', e.target.checked)}
+                  />
+                  <span>Check for a new version</span>
+                </label>
+                <div className="field__note">
+                  Off unless asked for: an update check is Ember reaching out to a server on
+                  its own and then replacing itself, which is a thing to be chosen rather
+                  than inherited. A new version downloads in the background and is put in
+                  place the next time Ember quits, never underneath a running shell.
+                </div>
+                <div className="composer__proposal-actions">
+                  <button
+                    className="btn"
+                    disabled={updateNote === 'Checking…'}
+                    onClick={() => {
+                      setUpdateNote('Checking…')
+                      void window.ember.checkForUpdates().then(setUpdateNote)
+                    }}
+                  >
+                    Check now
+                  </button>
+                  {updateNote && <span className="field__note">{updateNote}</span>}
+                </div>
+              </div>
+
+              <ExplorerMenuField />
+            </section>
           </div>
         </div>
 
-        <div className="field">
-          <label>Font family</label>
-          <input
-            value={draft.fontFamily}
-            onChange={(e) => field('fontFamily', e.target.value)}
-            spellCheck={false}
-          />
-        </div>
-
-        <div className="field">
-          <label>Font size</label>
-          <input
-            type="number"
-            min={8}
-            max={32}
-            value={draft.fontSize}
-            onChange={(e) => field('fontSize', Number(e.target.value) || 13)}
-          />
-        </div>
-
-        <div className="field">
-          <label>Claude model</label>
-          <input
-            value={draft.aiModel}
-            onChange={(e) => field('aiModel', e.target.value)}
-            spellCheck={false}
-          />
-          {/* The switcher beside the prompt is the way in for the models on the
-              list; this field stays because it takes any id, including one newer
-              than this build knows about. */}
-          <div className="field__note">
-            Takes any model id. The ✦ chip beside the prompt switches between the
-            usual ones — and sets how hard Claude thinks — without coming here.
-          </div>
-        </div>
-
-        {/* Claude access, shown as what is actually in effect rather than as a field
-            to fill in. Signing in through the browser is the common case; the key is
-            for people who would rather bring their own. */}
-        <div className="field">
-          <label>Claude access</label>
-          <div className={`access access--${credentialTone(credential, claude)}`}>
-            <span className="access__state">{credentialLabel(credential, claude)}</span>
-            {credential?.source === 'claude-code' && credential.detail && (
-              <span className="access__detail">{credential.detail}</span>
-            )}
-          </div>
-          <div className="field__note">{credentialNote(credential, claude)}</div>
-          <div className="composer__proposal-actions">
-            {claude?.installed && !claude.signedIn && (
-              <button className="btn btn--primary" onClick={() => signIn()}>
-                Sign in with your browser
-              </button>
-            )}
-            <button className="btn" onClick={() => void refreshAccess()} disabled={probing}>
-              {probing ? 'Checking…' : 'Re-check'}
-            </button>
-          </div>
-        </div>
-
-        <details className="field">
-          <summary>Use an API key instead</summary>
-          {/* Empty even when a key is stored: the value stays in main and never
-              comes back here, so an empty box means "leave it as it is" rather than
-              "clear it". Removing one is a separate, deliberate action. */}
-          <input
-            type="password"
-            placeholder={hasApiKey ? 'A key is saved — type to replace it' : 'sk-ant-…'}
-            value={draft.anthropicApiKey ?? ''}
-            onChange={(e) => field('anthropicApiKey', e.target.value || null)}
-            spellCheck={false}
-          />
-          {hasApiKey && (
-            <div className="composer__proposal-actions">
-              <button
-                className="btn"
-                onClick={() => {
-                  void (async () => {
-                    const res = await window.ember.setSettings({ anthropicApiKey: null })
-                    applySettings(res.settings)
-                    setHasApiKey(false)
-                  })()
-                }}
-              >
-                Remove saved key
-              </button>
-            </div>
-          )}
-          <div className="field__note">
-            {encrypted === false
-              ? 'Windows is not offering a credential store, so this would be saved as plain text in your settings file. Consider the ANTHROPIC_API_KEY environment variable instead.'
-              : 'Encrypted at rest with the Windows credential store.'}{' '}
-            A key takes precedence over signing in, and buys slightly better results for
-            command generation — it can hold the model to a schema, which going through
-            Claude Code cannot. Leave blank to use the ANTHROPIC_API_KEY environment
-            variable, or your Claude Code sign-in.
-          </div>
-        </details>
-
-        <div className="field">
-          <label>On launch</label>
-          <label className="field__check">
-            <input
-              type="checkbox"
-              checked={draft.restoreSession}
-              onChange={(e) => field('restoreSession', e.target.checked)}
-            />
-            <span>Reopen the last window&rsquo;s tabs, splits and files</span>
-          </label>
-          <div className="field__note">
-            Layout and open files, including anything unsaved. Command output is not
-            restored — a finished command from last week would only look live.
-          </div>
-          <label className="field__check">
-            <input
-              type="checkbox"
-              checked={draft.autoUpdate}
-              onChange={(e) => field('autoUpdate', e.target.checked)}
-            />
-            <span>Check for a new version</span>
-          </label>
-          <div className="field__note">
-            Off unless asked for: an update check is Ember reaching out to a server on
-            its own and then replacing itself, which is a thing to be chosen rather
-            than inherited. A new version downloads in the background and is put in
-            place the next time Ember quits, never underneath a running shell.
-          </div>
-          <div className="composer__proposal-actions">
-            <button
-              className="btn"
-              disabled={updateNote === 'Checking…'}
-              onClick={() => {
-                setUpdateNote('Checking…')
-                void window.ember.checkForUpdates().then(setUpdateNote)
-              }}
-            >
-              Check now
-            </button>
-            {updateNote && <span className="field__note">{updateNote}</span>}
-          </div>
-        </div>
-
-        <div className="field">
-          <label>Notify after</label>
-          <input
-            type="number"
-            min={0}
-            max={3600}
-            value={draft.notifyAfterSeconds}
-            onChange={(e) => field('notifyAfterSeconds', Math.max(0, Number(e.target.value) || 0))}
-          />
-          <div className="field__note">
-            Seconds. A command running at least this long raises a desktop notification
-            when it finishes, but only while Ember is in the background — you do not need
-            telling about something you are watching. Zero turns it off.
-          </div>
-        </div>
-
-        <div className="field">
-          <label>Interface size</label>
-          <input
-            type="number"
-            min={60}
-            max={250}
-            step={10}
-            value={Math.round((draft.uiZoom || 1) * 100)}
-            onChange={(e) => {
-              const percent = Math.min(Math.max(Number(e.target.value) || 100, 60), 250)
-              field('uiZoom', percent / 100)
-              // Applied as it changes, so the number can be judged by looking.
-              window.ember.setZoom(percent / 100)
-            }}
-          />
-          <div className="field__note">
-            Per cent. Scales the whole interface, terminal included — the editor font
-            setting only covers text inside editors. Ctrl+= and Ctrl+- do the same, and
-            Ctrl+0 returns to 100.
-          </div>
-        </div>
-
-        <div className="field">
-          <label>Auto save after</label>
-          <input
-            type="number"
-            min={0}
-            max={600}
-            value={draft.autoSaveAfterSeconds}
-            onChange={(e) =>
-              field('autoSaveAfterSeconds', Math.max(0, Number(e.target.value) || 0))
-            }
-          />
-          <div className="field__note">
-            Seconds. An edited file is written this long after you stop typing. Files that
-            have never been saved are left alone, since saving one has to ask where it
-            goes. Zero turns it off.
-          </div>
-        </div>
-
-        <ExplorerMenuField />
-
-        {saveError && <div className="composer__error">{saveError}</div>}
+        {saveError && <div className="composer__error settings__error">{saveError}</div>}
 
         <div className="modal__actions">
           <button className="btn" onClick={close}>

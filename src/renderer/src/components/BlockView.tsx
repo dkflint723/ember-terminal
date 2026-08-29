@@ -1,4 +1,4 @@
-import { memo, useRef } from 'react'
+import { memo, useRef, useState } from 'react'
 import { useStore, type CommandBlock } from '../state/store'
 import { linkHitAt, setLinkHighlight, type LinkHit } from '../terminal/links'
 
@@ -99,9 +99,18 @@ export const BlockView = memo(function BlockView({ block, onToggle, onRerun, stu
     void openFileHit(hit, block.cwd)
   }
 
-  const copy = (e: React.MouseEvent, text: string): void => {
+  /*
+   * The click answers. A copy that changes nothing on screen reads as a copy
+   * that did nothing — the button says so for a moment, then goes back to work.
+   */
+  const [copied, setCopied] = useState<'cmd' | 'out' | null>(null)
+  const copiedTimer = useRef(0)
+  const copy = (e: React.MouseEvent, text: string, which: 'cmd' | 'out'): void => {
     e.stopPropagation()
     void navigator.clipboard.writeText(text)
+    setCopied(which)
+    window.clearTimeout(copiedTimer.current)
+    copiedTimer.current = window.setTimeout(() => setCopied(null), 1200)
   }
 
   const statusLabel =
@@ -148,16 +157,16 @@ export const BlockView = memo(function BlockView({ block, onToggle, onRerun, stu
           <button
             className="block__action"
             title="Copy command"
-            onClick={(e) => copy(e, block.command)}
+            onClick={(e) => copy(e, block.command, 'cmd')}
           >
-            cmd
+            {copied === 'cmd' ? '✓ copied' : 'copy cmd'}
           </button>
           <button
             className="block__action"
             title="Copy output"
-            onClick={(e) => copy(e, textFrom(block.output))}
+            onClick={(e) => copy(e, textFrom(block.output), 'out')}
           >
-            out
+            {copied === 'out' ? '✓ copied' : 'copy out'}
           </button>
           <button
             className="block__action"
