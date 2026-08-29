@@ -20,8 +20,14 @@ you notice only when they are missing.
   accept/reject diff and lands on disk only when you say so; a command it
   proposes carries Run and Copy buttons.
 - **Context that follows you** — the thread rides along with each request,
-  with the shell's directory, the file under the caret in IDE mode, and any
-  blocks you attach.
+  with the shell's directory, the buffer under the caret in IDE mode (unsaved
+  edits included), and any blocks you attach.
+- **Prose worth reading** — answers render as markdown: headings, lists, bold,
+  inline code, and links that open in your browser.
+- **The CLI streams too** — signed into Claude Code without a key, answers
+  still arrive as they are written, and Stop still means it.
+- **Thread search** — a sieve in the panel header; non-matching turns step
+  back, with a count of what matched.
 
 ### The terminal earns the rest of the day
 
