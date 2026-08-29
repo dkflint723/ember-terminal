@@ -829,7 +829,10 @@ export const useStore = create<Store>((set, get) => ({
     }),
 
   newTab: (profileId, cwd) => {
-    const pane = makeTerminalPane(profileId, cwd ?? window.ember.homeDir)
+    // A custom shell may say where it starts. Only a caller with no standing of
+    // its own defers to it — a split, a restore, or an "open here" still wins.
+    const startIn = get().profiles.find((p) => p.id === profileId)?.cwd
+    const pane = makeTerminalPane(profileId, cwd ?? (startIn || window.ember.homeDir))
     const tab: Tab = {
       thread: [],
       id: uid(),

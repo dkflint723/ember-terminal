@@ -586,6 +586,13 @@ export function SettingsPanel(): React.JSX.Element | null {
                     >
                       ✕
                     </button>
+                    <input
+                      className="shellrow__cwd"
+                      placeholder="Start in — optional, e.g. D:\code (new sessions only)"
+                      value={shell.cwd ?? ''}
+                      spellCheck={false}
+                      onChange={(e) => patchCustom(i, { cwd: e.target.value })}
+                    />
                   </div>
                 ))}
                 <div className="composer__proposal-actions">

@@ -1,5 +1,5 @@
 import { spawn as ptySpawn, type IPty } from '@lydell/node-pty'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import type { ShellProfile, SpawnRequest } from '../shared/types.js'
@@ -72,10 +72,19 @@ export class PtyManager {
     env.TERM_PROGRAM_VERSION = app.getVersion()
     Object.assign(env, this.extraEnv())
 
+    /*
+     * A Windows path that is not there falls back to home: a typo'd "Start in"
+     * or a since-deleted directory should open a shell, not a dead pane. Paths
+     * that are not Windows-shaped (a WSL /home) pass through untouched — they
+     * are the guest shell's business, not this filesystem's.
+     */
+    let cwd = req.cwd && req.cwd.length > 0 ? req.cwd : app.getPath('home')
+    if (/^(?:[A-Za-z]:[\\/]|\\\\)/.test(cwd) && !existsSync(cwd)) cwd = app.getPath('home')
+
     const pty = ptySpawn(profile.path, profile.args, {
       cols: Math.max(req.cols, 2),
       rows: Math.max(req.rows, 1),
-      cwd: req.cwd && req.cwd.length > 0 ? req.cwd : app.getPath('home'),
+      cwd,
       env,
       useConpty: true
     })

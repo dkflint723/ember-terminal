@@ -185,6 +185,37 @@ class PowerShellCompleter {
 }
 
 /**
+ * How the pane's shell shapes what completion should say: bash wants `/` and
+ * its own builtins, cmd wants `\` and its verbs, and a shell we know nothing
+ * about gets paths alone — guessing a stranger's builtins helps nobody.
+ */
+type Flavor = 'bash' | 'cmd' | 'plain'
+
+/** The words PATH cannot offer: each dialect's own first-token vocabulary. */
+const BUILTINS: Record<'bash' | 'cmd', string[]> = {
+  bash: [
+    'alias', 'cat', 'cd', 'chmod', 'cp', 'echo', 'export', 'grep', 'head',
+    'history', 'kill', 'less', 'ls', 'mkdir', 'mv', 'ps', 'pwd', 'rm', 'rmdir',
+    'source', 'tail', 'touch', 'which'
+  ],
+  cmd: [
+    'cd', 'cls', 'copy', 'del', 'dir', 'echo', 'exit', 'md', 'mkdir', 'move',
+    'path', 'rd', 'ren', 'rmdir', 'set', 'type', 'where'
+  ]
+}
+
+/**
+ * `/c/Users` is `C:\Users` in a bash accent; `/home/x` is another filesystem
+ * altogether. Null for the latter — path answers read off the wrong disk are
+ * worse than silence.
+ */
+function driveify(p: string): string | null {
+  const m = /^\/([A-Za-z])(\/.*)?$/.exec(p)
+  if (!m) return null
+  return `${m[1].toUpperCase()}:${(m[2] ?? '/').replace(/\//g, '\\')}`
+}
+
+/**
  * Shell-agnostic completion for panes with no native backend (bash, cmd, wsl).
  * Covers the two cases that dominate real use — paths and executable names —
  * without pretending to know a shell's parameter grammar.
@@ -220,7 +251,7 @@ class GenericCompleter {
     return this.commandCache
   }
 
-  async complete(req: CompletionRequest): Promise<CompletionResult> {
+  async complete(req: CompletionRequest, flavor: Flavor): Promise<CompletionResult> {
     const upToCursor = req.input.slice(0, req.cursor)
     // Split on whitespace that is not inside quotes, crudely: last unquoted space.
     const match = /(^|\s)("[^"]*|'[^']*|[^\s]*)$/.exec(upToCursor)
@@ -229,28 +260,63 @@ class GenericCompleter {
     const quote = token.startsWith('"') || token.startsWith("'") ? token[0] : ''
     const bare = quote ? token.slice(1) : token
 
+    /** What this shell calls a directory boundary, in the text handed back. */
+    const sep = flavor === 'bash' ? '/' : '\\'
+
+    /*
+     * Bash shells report bash-shaped directories. A drive in disguise
+     * translates; anything else is another filesystem, and path answers read
+     * off this one would be junk — commands still complete, paths stay quiet.
+     */
+    let cwd = req.cwd
+    let cwdReachable = true
+    if (cwd.startsWith('/')) {
+      const translated = driveify(cwd)
+      if (translated) cwd = translated
+      else cwdReachable = false
+    }
+
     // The first token on the line is a command; anything later is likely a path.
     const isFirstToken = upToCursor.slice(0, replaceIndex).trim().length === 0
     const items: CompletionItem[] = []
 
     if (isFirstToken && !bare.includes('/') && !bare.includes('\\')) {
       const lower = bare.toLowerCase()
+      const seen = new Set<string>()
+      const offer = (name: string): void => {
+        const key = name.toLowerCase()
+        if (seen.has(key)) return
+        seen.add(key)
+        items.push({ text: name, label: name, type: 'Command' })
+      }
+      // Builtins first: `cd` should outrank whatever cdb.exe is.
+      if (flavor !== 'plain') {
+        for (const b of BUILTINS[flavor]) if (b.startsWith(lower)) offer(b)
+      }
       for (const name of await this.executables()) {
-        if (name.toLowerCase().startsWith(lower)) {
-          items.push({ text: name, label: name, type: 'Command' })
-        }
+        if (name.toLowerCase().startsWith(lower)) offer(name)
         if (items.length >= 200) break
       }
     }
 
-    // Path completion, relative to the pane's directory.
+    // Path completion, relative to the pane's directory. The lookup happens in
+    // Windows terms; the text handed back keeps the accent the user typed in.
     try {
       const hasSep = /[\\/]/.test(bare)
-      const dirPart = hasSep ? bare.slice(0, Math.max(bare.lastIndexOf('\\'), bare.lastIndexOf('/')) + 1) : ''
+      const dirPart = hasSep
+        ? bare.slice(0, Math.max(bare.lastIndexOf('\\'), bare.lastIndexOf('/')) + 1)
+        : ''
       const namePart = hasSep ? bare.slice(dirPart.length) : bare
-      const searchDir = isAbsolute(dirPart || bare)
-        ? dirPart || dirname(bare)
-        : resolve(req.cwd, dirPart)
+
+      let searchDir: string | null
+      if (dirPart.startsWith('/') && flavor === 'bash') {
+        searchDir = driveify(dirPart)
+      } else if (isAbsolute(dirPart || bare)) {
+        searchDir = dirPart || dirname(bare)
+      } else {
+        searchDir = cwdReachable ? resolve(cwd, dirPart) : null
+      }
+      if (searchDir === null) throw new Error('unreachable filesystem')
 
       const entries = await readdir(searchDir, { withFileTypes: true })
       const lower = namePart.toLowerCase()
@@ -264,10 +330,10 @@ class GenericCompleter {
             isDir = false
           }
         }
-        const text = `${dirPart}${entry.name}${isDir ? '\\' : ''}`
+        const text = `${dirPart}${entry.name}${isDir ? sep : ''}`
         items.push({
           text,
-          label: `${entry.name}${isDir ? '\\' : ''}`,
+          label: `${entry.name}${isDir ? sep : ''}`,
           type: isDir ? 'ProviderContainer' : 'ProviderItem'
         })
         if (items.length >= 400) break
@@ -290,10 +356,15 @@ export class CompletionService {
   private powershell = new Map<string, PowerShellCompleter>()
   private generic = new GenericCompleter()
 
-  constructor(private profiles: ShellProfile[]) {}
+  /**
+   * A provider rather than a list: custom shells live in settings and can be
+   * added mid-session, and a static snapshot would never find them — their
+   * panes would quietly complete as strangers.
+   */
+  constructor(private profiles: () => ShellProfile[]) {}
 
   async complete(req: CompletionRequest): Promise<CompletionResult> {
-    const profile = this.profiles.find((p) => p.id === req.profileId)
+    const profile = this.profiles().find((p) => p.id === req.profileId)
 
     if (profile && profile.integration === 'powershell') {
       let completer = this.powershell.get(profile.id)
@@ -307,7 +378,13 @@ export class CompletionService {
       if (result.items.length > 0) return result
     }
 
-    return this.generic.complete(req)
+    const flavor: Flavor =
+      profile?.integration === 'bash'
+        ? 'bash'
+        : profile?.path.toLowerCase().endsWith('cmd.exe')
+          ? 'cmd'
+          : 'plain'
+    return this.generic.complete(req, flavor)
   }
 
   dispose(): void {

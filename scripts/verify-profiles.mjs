@@ -10,10 +10,14 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 const profile = newProfile('profiles')
+/** Where the taught shell says it starts — a real directory, made for this run. */
+const startDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-startin-'))
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
@@ -46,6 +50,7 @@ await page.locator('.shellrow__name').last().fill('NoProfile PS')
 await page.locator('.shellrow__path').last().fill('powershell.exe')
 await page.locator('.shellrow__args').last().fill('-NoProfile')
 await page.locator('.shellrow__dialect').last().selectOption('powershell')
+await page.locator('.shellrow__cwd').last().fill(startDir)
 await page.locator('.modal .btn', { hasText: 'Save' }).click()
 await sleep(1200)
 
@@ -78,12 +83,31 @@ check(
   JSON.stringify(readiness)
 )
 
+// --- and it starts where it was told ------------------------------------------
+// The shell reports its cwd through integration, and the pane carries it. The
+// prompt needs a beat to land after readiness, so poll rather than sleep-and-hope.
+let paneCwd = ''
+for (let i = 0; i < 20; i++) {
+  await sleep(500)
+  paneCwd = await page.evaluate(
+    () => document.querySelector('.statusbar')?.textContent ?? ''
+  )
+  if (paneCwd.toLowerCase().includes(path.basename(startDir).toLowerCase())) break
+}
+check(
+  'the session opens in its Start in directory',
+  paneCwd.toLowerCase().includes(path.basename(startDir).toLowerCase()),
+  paneCwd.slice(0, 120)
+)
+
 // --- it survives in settings, not just in memory ------------------------------
 const stored = await page.evaluate(async () => (await window.ember.getSettings()).customProfiles)
 check('the shell is written down', stored.length === 1 && stored[0].args.includes('-NoProfile'), JSON.stringify(stored))
+check('its start directory with it', stored[0]?.cwd === startDir, JSON.stringify(stored[0]?.cwd))
 
 await app.close()
 profile.cleanup()
+fs.rmSync(startDir, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)
 console.log('custom shells:', failures.length === 0 ? 'PASS' : 'FAIL')
 console.log('page errors:', errors.length === 0 ? '(none)' : errors.slice(0, 4))

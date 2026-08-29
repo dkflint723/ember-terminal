@@ -400,12 +400,18 @@ button {
   color: var(--accent);
 }
 
-/* One custom shell: name, command, arguments, dialect, and the way out. */
+/* One custom shell: name, command, arguments, dialect, and the way out — with
+   a second line for where it starts, which most shells leave blank. */
 .shellrow {
-  display: flex;
+  display: grid;
+  grid-template-columns: 130px 1fr 1fr auto auto;
   align-items: center;
   gap: 6px;
-  margin-bottom: 6px;
+  margin-bottom: 10px;
+}
+
+.shellrow__cwd {
+  grid-column: 1 / -1;
 }
 
 .shellrow input,
@@ -413,21 +419,7 @@ button {
   min-width: 0;
 }
 
-.shellrow__name {
-  flex: 0 1 130px;
-}
-
-.shellrow__path {
-  flex: 1 1 auto;
-}
-
-.shellrow__args {
-  flex: 1 1 auto;
-}
-
-.shellrow__dialect {
-  flex: 0 0 auto;
-}
+/* The columns are the grid's; the cells only need to be allowed to shrink. */
 
 .sessions__search::placeholder {
   color: var(--fg-faint);

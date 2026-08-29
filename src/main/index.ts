@@ -554,9 +554,9 @@ function registerIpc(): void {
     mainWindow ? files.saveDialog(mainWindow, defaultPath) : null
   )
 
-  // Completion only cares which dialects exist, and the detected set answers
-  // that; a custom shell added mid-session completes like its dialect.
-  completion = new CompletionService(detected)
+  // Live, so a custom shell added mid-session completes like its dialect —
+  // a snapshot taken here would never find it.
+  completion = new CompletionService(profiles)
   ipcMain.handle('completion:request', (_e, req: CompletionRequest) => completion.complete(req))
 
   ipcMain.on('pty:ack', (_e, paneId: string, parsed: number) => ptys.ack(paneId, parsed))

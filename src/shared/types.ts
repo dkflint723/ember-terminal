@@ -12,6 +12,11 @@ export interface ShellProfile {
   /** Which shell-integration dialect to inject, if any. */
   integration: 'powershell' | 'bash' | 'none'
   icon: string
+  /**
+   * Where a fresh session with this shell starts, when the profile says.
+   * Absent for detected shells; carried over from a custom profile's "Start in".
+   */
+  cwd?: string
 }
 
 /**
@@ -29,6 +34,11 @@ export interface CustomProfile {
   path: string
   args: string[]
   integration: ShellProfile['integration']
+  /**
+   * Where a fresh session with this shell starts. Empty means the default —
+   * home. An explicit cwd (a split, a restored pane, "open here") still wins.
+   */
+  cwd?: string
 }
 
 export interface SpawnRequest {

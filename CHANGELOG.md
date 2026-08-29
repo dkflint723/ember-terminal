@@ -5,6 +5,21 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Shells, met on their own terms
+
+- **Custom shells start where you say** — a "Start in" line on each custom
+  shell; new sessions open there. A split, a restored pane, or "open here"
+  still wins, and a directory that has gone missing falls back to home instead
+  of a dead pane.
+- **Completion speaks the pane's dialect** — bash-dialect shells complete
+  directories with `/` and get bash builtins; cmd gets `\` and its verbs; a
+  bash-accented `/d/…` directory is read as the drive it is, and a Linux-only
+  cwd keeps path answers quiet instead of reading the wrong disk. Custom
+  shells added mid-session now complete as their dialect immediately.
+- **First run, said once** — a welcome card in the first empty pane: blocks,
+  the IDE flip, where Claude lives. Dismissed by its button or by running
+  anything, and never seen again.
+
 ### The settings find their shape
 
 - **Settings, grouped** — the one long scroll becomes six sections
