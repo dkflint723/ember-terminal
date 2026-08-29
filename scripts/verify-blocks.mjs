@@ -213,37 +213,55 @@ const timeline = (page) =>
   check('with nothing to mark', mark === 0, `${mark} marks`)
 
   /*
-   * --- an exchange, and a command straight after it --------------------------
+   * --- a command now, and an exchange from before ----------------------------
    *
-   * Asked first and answered at once, then a command typed before the workspace
-   * autosave has come round to writing the conversation down. That ordering is the
-   * point: the command reaches the database first despite happening second, so a
-   * pane read back in the order its rows were written returns these two the wrong
-   * way round. The pane is empty here, so what comes back is only this.
+   * Questions stream into the Claude panel these days, so inline conversation
+   * blocks are something installs already carry rather than something the
+   * composer makes. The command runs here; the exchange is planted next launch
+   * through the same write path the app persists conversations by, stamped a
+   * minute EARLIER — so the database holds them in the wrong order on purpose,
+   * and a restore that reads rows by write order returns them backwards.
    */
-  await page.click('.composer__input')
-  await page.keyboard.press('Control+K')
-  await sleep(400)
-  await page.keyboard.type('find all log files', { delay: 5 })
-  await page.keyboard.press('Enter')
-  await sleep(500)
   await run(page, 'echo after-the-question')
 
-  const asked = await timeline(page)
-  check(
-    'the question and the command are both in the pane',
-    asked.length === 2 && asked[0]?.kind === 'agent' && asked[1]?.kind === 'command',
-    JSON.stringify(asked)
-  )
-
-  // Left with its verdict recorded rather than open, so the restore has something
-  // to get wrong: a proposal that came back open would come back with a Run button.
-  const dismiss = page.locator('.block--agent .proposal__secondary')
-  check('the answer proposed something', (await dismiss.count()) === 1)
-  if (await dismiss.count()) await dismiss.click()
-  await sleep(600)
-
   await sleep(2500)
+  await app.close()
+  await sleep(1200)
+}
+
+// --- plant the exchange, dated before the command ------------------------------
+{
+  const raw = JSON.parse(fs.readFileSync(path.join(userData, 'session.json'), 'utf8'))
+  const snap = raw.version === 2 ? raw.windows[0].snapshot : raw
+  const paneId = snap.panes.find((entry) => entry.kind === 'terminal')?.id
+  const app = await launch()
+  const page = await app.firstWindow()
+  await placeTopRight(app)
+  await page.waitForSelector('.pane', { timeout: 30_000 })
+  await sleep(3000)
+  await page.evaluate(
+    ({ paneId }) =>
+      window.ember.saveBlock(paneId, {
+        kind: 'conversation',
+        id: 'planted-conversation',
+        prompt: 'find all log files',
+        answer: 'Every log file sits under logs/.',
+        error: null,
+        proposal: {
+          command: 'Get-ChildItem -Recurse *.log',
+          note: '',
+          destructive: false,
+          // A verdict recorded rather than open, so the restore has something
+          // to get wrong: open would come back holding a Run button.
+          state: 'dismissed'
+        },
+        attached: [],
+        startedAt: Date.now() - 60_000,
+        collapsed: false
+      }),
+    { paneId }
+  )
+  await sleep(1000)
   await app.close()
   await sleep(1200)
 }

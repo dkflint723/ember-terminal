@@ -404,7 +404,7 @@ button {
    a second line for where it starts, which most shells leave blank. */
 .shellrow {
   display: grid;
-  grid-template-columns: 130px 1fr 1fr auto auto;
+  grid-template-columns: 130px minmax(0, 1fr) minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 6px;
   margin-bottom: 10px;
@@ -418,7 +418,7 @@ button {
    a second line for extensions, which most languages never need. */
 .langrow {
   display: grid;
-  grid-template-columns: 110px 1fr 1fr auto;
+  grid-template-columns: 110px minmax(0, 1fr) minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
   margin-bottom: 10px;
@@ -3905,7 +3905,9 @@ button.scm__branch {
 
 .gh__item {
   display: grid;
-  grid-template-columns: auto 1fr;
+  /* minmax, for the same reason as the workspace grid: an unbreakable PR
+     title must shrink into its column, not stretch the column to fit it. */
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 2px 6px;
   flex: 1 1 auto;
   min-width: 0;

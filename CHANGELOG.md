@@ -3,7 +3,11 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
-## Unreleased
+## 0.3.0 — 2026-08-28
+
+The release where the machine takes teaching: any language server, any debug
+adapter, any shell — one settings row each — plus a real debugger, a second
+window, and sessions that move house with their shells alive.
 
 ### The editor takes teaching
 

@@ -90,56 +90,38 @@ await page.keyboard.press('Escape')
 await sleep(600)
 
 // --- a real request through the CLI -------------------------------------------
+// Questions stream into the Claude panel now; what this proves is the thing the
+// suite exists for — that the sign-in credential actually answers — so settling
+// means the newest assistant turn stopped streaming with words and no error.
+// Command *shape* is the schema'd API path's promise, tested where a schema can
+// hold it; a real chat model here is only asked to answer at all.
 await page.click('.composer__input')
 await page.keyboard.press('Control+K')
 await sleep(600)
 await page.keyboard.type('list files in the current directory', { delay: 5 })
 await page.keyboard.press('Enter')
 
-// The answer lands in the block list rather than in the composer — one question is
-// asked, so the one conversation in the list is the one to read. Waited on the
-// proposal itself, not merely on the block settling, because a proposal is what
-// this is here to prove came back.
-const conversation = page.locator('.block--agent').last()
-/** Read an element out of the conversation, or null when it is not there. */
-const inBlock = async (sel) =>
-  (await conversation.locator(sel).count()) > 0
-    ? await conversation.locator(sel).first().textContent()
-    : null
-
-let settled = false
-let failed = null
+let settled = null
 for (let i = 0; i < 90; i++) {
   await sleep(1000)
-  if ((await conversation.locator('.proposal').count()) > 0) {
-    settled = true
-    break
-  }
-  // A failure is a settled answer too, and waiting out the remaining minute for a
-  // proposal that is never coming only delays reporting the reason.
-  failed = await inBlock('.block__answer-error')
-  if (failed !== null) break
+  settled = await page.evaluate(() => {
+    const turns = document.querySelectorAll('.agent__turn--assistant')
+    const turn = turns[turns.length - 1]
+    if (!turn) return null
+    return {
+      streaming: !!turn.querySelector('.agent__cursor'),
+      error: turn.querySelector('.agent__error')?.textContent ?? null,
+      text: (turn.querySelector('.agent__text')?.textContent ?? '').trim()
+    }
+  })
+  if (settled && !settled.streaming && (settled.text.length > 0 || settled.error)) break
 }
 check(
-  'a proposal comes back without any API key',
-  settled,
-  failed ?? 'timed out waiting for a reply'
+  'the sign-in answers without any API key',
+  settled !== null && !settled.streaming && settled.text.length > 0,
+  JSON.stringify(settled)
 )
-
-if (settled) {
-  const error = await inBlock('.block__answer-error')
-  check('and it is not an error', error === null, String(error))
-
-  const command = await inBlock('.proposal__body')
-  // The JSON comes back fenced from this path, so a command appearing at all is the
-  // proof that the unwrapping works — a raw fenced blob would fail to parse.
-  check('the command parsed out of the reply', (command ?? '').trim().length > 0, String(command))
-  check(
-    'and looks like a command rather than JSON or prose',
-    command !== null && !command.includes('```') && !command.trim().startsWith('{'),
-    String(command)
-  )
-}
+check('and it is not an error', settled?.error == null, String(settled?.error))
 
 await app.close()
 profile.cleanup()
