@@ -5,6 +5,24 @@ newest entry sits on top.
 
 ## Unreleased
 
+### The editor takes teaching
+
+- **Teachable language servers** — anything that speaks LSP over stdio is one
+  settings row away: rust-analyzer, gopls, clangd. The language id must be one
+  the editor knows (most are built in); extra file extensions can be mapped
+  alongside. Taught servers start the first time their language opens, ride
+  the same transport and crash recovery as the bundled four, and a taught
+  server for a bundled language wins.
+- **Format on save** — off by default, on in Settings → Editor. Explicit saves
+  only; auto-save never reflows a buffer mid-thought. `Alt+Shift+F` formats by
+  hand either way.
+- **The workspace's prettier, when it has one** — formatting walks up from the
+  file to the nearest `node_modules/prettier` and runs that copy, config and
+  all, on Ember's own runtime (no node on PATH needed). No prettier means the
+  language's own formatter answers instead.
+- Fixed in passing: settings saved programmatically now reach the saving
+  window's own store, not just the other windows'.
+
 ### Step debugging, grown up
 
 - **Crashes stop the debugger** — adapters' exception filters appear as

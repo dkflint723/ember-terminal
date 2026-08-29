@@ -44,6 +44,7 @@ import { Notifier, focusWindow } from './notify.js'
 import { AiService } from './ai.js'
 import { ClaudeCliService } from './claude-cli.js'
 import { DapService, detectAdapters } from './dap.js'
+import { formatWithPrettier } from './prettier.js'
 import {
   DEFAULT_SETTINGS,
   type ShellProfile,
@@ -656,6 +657,9 @@ function registerIpc(): void {
     ...settings.get().debugAdapters
   ]
   ipcMain.handle('dap:adapters', () => adapters())
+  ipcMain.handle('format:prettier', (_e, filePath: string, content: string) =>
+    formatWithPrettier(filePath, content)
+  )
   ipcMain.handle('dap:start', (e, req: DebugStartRequest) => {
     const adapter = adapters().find((a) => a.id === req?.adapterId)
     if (!adapter) return { ok: false, error: `No debug adapter for '${req?.adapterId}'.` }
@@ -907,19 +911,17 @@ function registerIpc(): void {
   ipcMain.handle('settings:set', (e, patch: Partial<Settings>) => {
     const res = settings.set(patch)
     /*
-     * The other windows hear about it, so a font changed in one applies in all.
-     * The key never travels: the broadcast carries the same redacted shape the
-     * settings read hands out.
+     * Every window hears about it — the sender included, so a save made from
+     * anywhere (the dialog, a script, a suite) lands in every store the same
+     * way. Applying settings twice is writing the same values twice. The key
+     * never travels: the broadcast carries the redacted shape the read gives.
      */
-    const senderId = windowIdOf(e.sender)
     const redacted = {
       ...res.settings,
       anthropicApiKey: null,
       hasApiKey: !!res.settings.anthropicApiKey?.trim()
     }
-    for (const id of windows.keys()) {
-      if (id !== senderId) sendToWindow(id, 'settings:changed', redacted)
-    }
+    sendToAll('settings:changed', redacted)
     /*
      * Redacted on the way back, the same as settings:get. The write path used
      * to return the merged settings raw, which handed the stored key to the
@@ -1020,7 +1022,10 @@ process.on('unhandledRejection', (reason) => {
     files = new FileService()
     // Every window: each renderer keeps only the documents it holds, and
     // ignores diagnostics about files that are open somewhere else.
-    lsp = new LspService((payload) => sendToAll('lsp:message', payload))
+    lsp = new LspService(
+      (payload) => sendToAll('lsp:message', payload),
+      () => settings.get().languageServers
+    )
     git = new GitService()
     github = new GitHubService()
     session = new SessionStore()

@@ -1,5 +1,6 @@
 import { app } from 'electron'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import type { CustomLanguageServer } from '../shared/types.js'
 import { appendFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { homedir } from 'node:os'
@@ -215,7 +216,15 @@ export class LspService {
   /** Workspace root per language, injected into the handshake. See post(). */
   private roots = new Map<string, string>()
 
-  constructor(private send: Send) {}
+  constructor(
+    private send: Send,
+    /**
+     * Language servers taught in settings, read live so one added in the
+     * dialog answers for its language without a relaunch. A taught server for
+     * a bundled language wins: the user's word beats the box's.
+     */
+    private custom: () => CustomLanguageServer[] = () => []
+  ) {}
 
   /**
    * Where each language's server lives, relative to the app root, and how it is told
@@ -284,6 +293,17 @@ export class LspService {
   }
 
   private serverCommand(language: string): { exe: string; args: string[]; cwd: string } | null {
+    const taught = this.custom().find((c) => c.languageId === language)
+    if (taught) {
+      // Anchored to the workspace, not the app: a taught server resolves its
+      // project — Cargo.toml, go.mod — by walking up from where it stands.
+      return {
+        exe: taught.command,
+        args: taught.args,
+        cwd: this.roots.get(language) ?? app.getPath('home')
+      }
+    }
+
     const server = LspService.SERVERS[language]
     if (!server) return null
 

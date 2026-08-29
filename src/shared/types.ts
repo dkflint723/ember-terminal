@@ -433,6 +433,25 @@ export interface TabTransfer {
 }
 
 /**
+ * A language server the user taught Ember about, kept in settings.
+ *
+ * The bundled four cover the common ground; rust-analyzer, gopls, clangd or
+ * anything else that speaks LSP over stdio is one settings row away. The
+ * languageId must be one Monaco knows (most are built in); extensions map
+ * files to it when Monaco does not already.
+ */
+export interface CustomLanguageServer {
+  id: string
+  /** Monaco language id this server answers for: 'rust', 'go', 'cpp', … */
+  languageId: string
+  name: string
+  command: string
+  args: string[]
+  /** Extra file extensions for languageId, dots included; often unnecessary. */
+  extensions?: string[]
+}
+
+/**
  * One debug adapter: a program that speaks the Debug Adapter Protocol.
  *
  * Detected ones come from probing the machine — VS Code ships js-debug, and an
@@ -712,6 +731,14 @@ export interface Settings {
   customProfiles: CustomProfile[]
   /** Debug adapters the user taught Ember about, served with the detected ones. */
   debugAdapters: DebugAdapter[]
+  /** Language servers the user taught Ember about, joined with the bundled ones. */
+  languageServers: CustomLanguageServer[]
+  /**
+   * Format a document as part of an explicit save. Off by default — a save
+   * that rewrites the file is a real change in what Ctrl+S means, and should
+   * be chosen. Auto-saves never format; they fire mid-thought.
+   */
+  formatOnSave: boolean
   /**
    * Chord overrides by command id — only the differences from the defaults.
    * The registry of commands and their default chords lives in renderer code;
@@ -783,6 +810,8 @@ export const DEFAULT_SETTINGS: Settings = {
   recentFolders: [],
   customProfiles: [],
   debugAdapters: [],
+  languageServers: [],
+  formatOnSave: false,
   keybindings: {},
   uiZoom: 1,
   windowBounds: null,
@@ -813,6 +842,15 @@ export interface EmberApi {
   onSettingsChanged(fn: (settings: Settings & { hasApiKey: boolean }) => void): () => void
   /** Debug adapters this machine can offer: detected ones plus those taught in settings. */
   listDebugAdapters(): Promise<DebugAdapter[]>
+  /**
+   * Format through the workspace's own prettier, resolved by walking up from
+   * the file. `{ok:false, error:'absent'}` when the workspace has none — the
+   * caller falls back to the editor's formatter rather than telling anyone.
+   */
+  formatWithPrettier(
+    filePath: string,
+    content: string
+  ): Promise<{ ok: boolean; content?: string; error?: string }>
   /** Start a debug session; resolves once the adapter is up and launch is sent. */
   dapStart(req: DebugStartRequest): Promise<{ ok: boolean; sessionId?: string; error?: string }>
   /**

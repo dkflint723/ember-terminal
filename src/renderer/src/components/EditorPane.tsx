@@ -11,6 +11,7 @@ import { pendingUnsaved, setBufferReader } from '../state/session'
 import { isInside, samePath } from '@shared/paths'
 import { computeGutters, gutterDecorations, hunkAtLine, revertHunk, type GutterHunk } from '../editor/gutters'
 import { wireDebugging } from '../editor/debugging'
+import { formatDocument } from '../editor/formatting'
 
 interface Props {
   pane: EditorPaneState
@@ -538,6 +539,15 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     if (!editor || !current) return
     const index = current.activeIndex
     const from = current.documents[index]?.filePath ?? null
+    /*
+     * Formatting belongs to an explicit save and happens before the text is
+     * read: what lands on disk is what the buffer shows afterwards. Auto-save
+     * deliberately skips this — it fires mid-thought, and a buffer that
+     * reflows under a moving caret is a special kind of hostile.
+     */
+    if (from && useStore.getState().settings.formatOnSave) {
+      await formatDocument(editor, from)
+    }
     // The buffer, held directly rather than through the editor: a tab switch during
     // the write moves the editor to another model, and what is being saved is this
     // document's text wherever it ends up on screen.

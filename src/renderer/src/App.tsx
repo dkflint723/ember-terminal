@@ -246,6 +246,14 @@ export function App(): React.JSX.Element {
 
   useEffect(() => window.ember.onOpenFiles((paths) => void openPaths(paths)), [])
 
+  // Taught language servers make Monaco recognise their files. Loaded lazily:
+  // a terminal-only session with none taught never pays for the editor bundle.
+  const taughtServers = useStore((s) => s.settings.languageServers)
+  useEffect(() => {
+    if (!taughtServers || taughtServers.length === 0) return
+    void import('./editor/lsp').then((m) => m.registerTaughtLanguages(taughtServers))
+  }, [taughtServers])
+
   // Debug events flow whether or not the panel is open — a breakpoint can be
   // hit while the sidebar is showing the explorer.
   useEffect(() => {

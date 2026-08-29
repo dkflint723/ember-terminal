@@ -141,6 +141,20 @@ export const COMMANDS: Command[] = [
     }
   },
   {
+    id: 'editor.format',
+    label: 'Format document',
+    chord: 'Alt+Shift+F',
+    run: ({ s }) => {
+      if (s.mode !== 'ide') return false
+      const tab = s.tabs.find((t) => t.id === s.activeTabId)
+      const pane = tab ? s.panes[tab.activePaneId] : undefined
+      const doc = pane?.kind === 'editor' ? pane.documents[pane.activeIndex] : undefined
+      void import('./editor/formatting').then((m) =>
+        m.formatActiveEditor(doc?.filePath ?? null)
+      )
+    }
+  },
+  {
     id: 'debug.toggleBreakpoint',
     label: 'Debug: toggle breakpoint',
     chord: 'F9',

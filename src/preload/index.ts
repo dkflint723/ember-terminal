@@ -48,6 +48,8 @@ const api: EmberApi = {
   sessionClear: () => ipcRenderer.send('session:clear'),
   newWindow: () => ipcRenderer.send('window:new'),
   listDebugAdapters: () => ipcRenderer.invoke('dap:adapters'),
+  formatWithPrettier: (filePath: string, content: string) =>
+    ipcRenderer.invoke('format:prettier', filePath, content),
   dapStart: (req: DebugStartRequest) => ipcRenderer.invoke('dap:start', req),
   dapRequest: (sessionId: string, command: string, args?: unknown) =>
     ipcRenderer.invoke('dap:request', sessionId, command, args),

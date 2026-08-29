@@ -336,12 +336,50 @@ function fileUriToPath(uri: string): string {
   return /^\/[a-zA-Z]:/.test(withoutScheme) ? withoutScheme.slice(1) : withoutScheme
 }
 
+/**
+ * A server taught in settings answers for its languageId directly — the id is
+ * both the Monaco language and the main-process server key. Consulted after
+ * the bundled table so the built-in four keep their shared-server mappings.
+ */
+function taughtServerFor(language: string): string | null {
+  const taught = useStore
+    .getState()
+    .settings.languageServers?.some((c) => c.languageId === language)
+  return taught ? language : null
+}
+
 export function serverFor(language: string): string | null {
-  return SERVER_FOR[language] ?? null
+  return SERVER_FOR[language] ?? taughtServerFor(language)
+}
+
+/**
+ * Make Monaco recognise the taught languages' files. An id Monaco already
+ * knows keeps its tokenizer; extra extensions are contributed alongside. An id
+ * it has never heard of is registered plain — no colours, but a working
+ * server. Registration is additive and idempotent-enough: an extension already
+ * resolving to the id is left alone.
+ */
+export function registerTaughtLanguages(
+  servers: { languageId: string; extensions?: string[] }[]
+): void {
+  const known = monaco.languages.getLanguages()
+  for (const server of servers) {
+    const existing = known.filter((l) => l.id === server.languageId)
+    if (existing.length === 0) {
+      monaco.languages.register({ id: server.languageId, extensions: server.extensions })
+      continue
+    }
+    const missing = (server.extensions ?? []).filter(
+      (ext) => !existing.some((l) => l.extensions?.includes(ext))
+    )
+    if (missing.length > 0) {
+      monaco.languages.register({ id: server.languageId, extensions: missing })
+    }
+  }
 }
 
 export function ensureLanguageServer(language: string, root?: string): Promise<boolean> {
-  const target = SERVER_FOR[language]
+  const target = SERVER_FOR[language] ?? taughtServerFor(language) ?? undefined
   if (!target) return Promise.resolve(false)
 
   const existing = started.get(target)

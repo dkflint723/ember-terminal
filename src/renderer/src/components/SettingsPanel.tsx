@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AiCredential, ClaudeAccess, CustomProfile, Settings } from '@shared/types'
+import type {
+  AiCredential,
+  ClaudeAccess,
+  CustomLanguageServer,
+  CustomProfile,
+  Settings
+} from '@shared/types'
 import { chordOf, COMMANDS, resolveBindings } from '../keys'
 
 /**
@@ -365,6 +371,12 @@ export function SettingsPanel(): React.JSX.Element | null {
       draft.customProfiles.map((c, at) => (at === i ? { ...c, ...part } : c))
     )
 
+  const patchLang = (i: number, part: Partial<CustomLanguageServer>): void =>
+    field(
+      'languageServers',
+      draft.languageServers.map((c, at) => (at === i ? { ...c, ...part } : c))
+    )
+
   const jumpTo = (id: string): void => {
     bodyRef.current
       ?.querySelector<HTMLElement>(`[data-section="${id}"]`)
@@ -645,6 +657,102 @@ export function SettingsPanel(): React.JSX.Element | null {
 
             <section className="settings__section" data-section="editor">
               <h3 className="settings__section-title">Editor</h3>
+
+              <div className="field">
+                <label>Formatting</label>
+                <label className="field__check">
+                  <input
+                    type="checkbox"
+                    checked={draft.formatOnSave}
+                    onChange={(e) => field('formatOnSave', e.target.checked)}
+                  />
+                  <span>Format on save</span>
+                </label>
+                <div className="field__note">
+                  Explicit saves only — auto-save never reflows a buffer mid-thought.
+                  A workspace with its own prettier gets prettier, its config and all;
+                  otherwise the language&rsquo;s formatter. Alt+Shift+F formats by hand
+                  either way.
+                </div>
+              </div>
+
+              <div className="field">
+                <label>Language servers</label>
+                {draft.languageServers.map((server, i) => (
+                  <div key={server.id} className="langrow">
+                    <input
+                      className="langrow__language"
+                      placeholder="rust"
+                      title="The Monaco language id this server answers for"
+                      value={server.languageId}
+                      spellCheck={false}
+                      onChange={(e) => patchLang(i, { languageId: e.target.value })}
+                    />
+                    <input
+                      className="langrow__command"
+                      placeholder="rust-analyzer"
+                      value={server.command}
+                      spellCheck={false}
+                      onChange={(e) => patchLang(i, { command: e.target.value })}
+                    />
+                    <input
+                      className="langrow__args"
+                      placeholder="arguments"
+                      value={joinArgs(server.args)}
+                      spellCheck={false}
+                      onChange={(e) => patchLang(i, { args: parseArgs(e.target.value) })}
+                    />
+                    <button
+                      className="icon-btn"
+                      aria-label={`Remove ${server.languageId || 'server'}`}
+                      title="Remove"
+                      onClick={() =>
+                        field(
+                          'languageServers',
+                          draft.languageServers.filter((_, at) => at !== i)
+                        )
+                      }
+                    >
+                      ✕
+                    </button>
+                    <input
+                      className="langrow__extensions"
+                      placeholder="Extensions — optional, e.g. .rs (most languages need none)"
+                      value={(server.extensions ?? []).join(' ')}
+                      spellCheck={false}
+                      onChange={(e) =>
+                        patchLang(i, {
+                          extensions: e.target.value.split(/\s+/).filter(Boolean)
+                        })
+                      }
+                    />
+                  </div>
+                ))}
+                <div className="composer__proposal-actions">
+                  <button
+                    className="btn"
+                    onClick={() =>
+                      field('languageServers', [
+                        ...draft.languageServers,
+                        {
+                          id: `lang-${crypto.randomUUID()}`,
+                          languageId: '',
+                          name: '',
+                          command: '',
+                          args: []
+                        }
+                      ])
+                    }
+                  >
+                    Add server…
+                  </button>
+                </div>
+                <div className="field__note">
+                  Anything that speaks LSP over stdio: rust-analyzer, gopls, clangd. The
+                  language id must be one the editor knows — most are built in — and the
+                  server starts the first time a file of that language opens.
+                </div>
+              </div>
 
               <div className="field">
                 <label>Auto save after</label>

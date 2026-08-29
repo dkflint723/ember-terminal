@@ -35,8 +35,10 @@ again and it's a terminal.
   that stream and remember per session, a Stop that means it, and proposals
   that open as accept/reject diffs or runnable commands. Through your API key
   or the Claude Code CLI; quick asks still answer in the flow.
-- **IDE mode** — TypeScript, Python, YAML and PowerShell language servers,
-  go-to definition, snippets, auto-save, split panes, search and replace.
+- **IDE mode** — TypeScript, Python, YAML and PowerShell language servers in
+  the box, and any LSP server teachable in settings (rust-analyzer, gopls…);
+  go-to definition, snippets, auto-save, format-on-save with the workspace's
+  own prettier when it has one, split panes, search and replace.
 - **Debugging** — breakpoints in the margin (`F9`, with conditions and
   logpoints), `F5` runs the active file or a `.vscode/launch.json` config,
   attach included; step, pause, restart; exception filters; variables, threads
@@ -88,6 +90,7 @@ Grab `Ember Setup <version>.exe` from
 | `Ctrl+O` | Open a folder |
 | `Ctrl+Shift+F` `G` `H` `M` | Search, source control, GitHub, problems |
 | `Ctrl+Alt+S` | Save all |
+| `Alt+Shift+F` | Format document |
 | `Ctrl+=` `-` `0` | Zoom |
 | `Ctrl+,` | Settings |
 

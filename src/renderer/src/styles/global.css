@@ -414,6 +414,24 @@ button {
   grid-column: 1 / -1;
 }
 
+/* One taught language server: language, command, arguments, the way out — and
+   a second line for extensions, which most languages never need. */
+.langrow {
+  display: grid;
+  grid-template-columns: 110px 1fr 1fr auto;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.langrow input {
+  min-width: 0;
+}
+
+.langrow__extensions {
+  grid-column: 1 / -1;
+}
+
 .shellrow input,
 .shellrow select {
   min-width: 0;
