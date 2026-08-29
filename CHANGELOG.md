@@ -3,6 +3,15 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
+## Unreleased
+
+- **A vanished installer stops being offered.** The waiting-update note put an
+  Install now button on screen without checking the staged installer was still
+  there, so a cleared cache — or a note that outlived what it pointed at — gave
+  a button whose only outcome was "No update filepath provided". That failure
+  now tears up the note and says, in words, that the download is gone and
+  checking again will fetch it.
+
 ## 0.3.7 — 2026-08-29
 
 - **An update you already have stops asking to be installed.** The note that a

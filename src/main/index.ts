@@ -158,6 +158,11 @@ function describeUpdateError(err: unknown): string {
   if (/status 404/i.test(first)) {
     return 'the release is missing the installer its update feed names (404).'
   }
+  // Offered an install whose file is no longer on disk — a cleared cache, a
+  // disk cleanup, or a note that outlived what it was pointing at.
+  if (/no update filepath/i.test(first)) {
+    return 'the downloaded installer is no longer on disk. Check for updates again to fetch it.'
+  }
   return first
 }
 
@@ -198,6 +203,15 @@ function watchUpdater(updater: typeof import('electron-updater').autoUpdater): v
   }
   updater.on('error', (err) => {
     reportFault('update failed', err)
+    /*
+     * A staged installer that has gone is a note pointing at nothing: the
+     * button it puts on screen can only fail. The note is torn up so the offer
+     * stops being made, and the next check downloads the update afresh.
+     */
+    const message = err instanceof Error ? err.message : String(err)
+    if (/no update filepath/i.test(message)) {
+      settings.set({ pendingUpdateVersion: null })
+    }
     sendToAll('updates:status', {
       text: `The update failed: ${describeUpdateError(err)}`,
       stage: 'error'
