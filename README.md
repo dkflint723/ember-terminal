@@ -73,7 +73,7 @@ Grab `Ember Setup <version>.exe` from
 | `Ctrl+Shift+I` | Terminal ↔ IDE |
 | `Ctrl+Shift+T` | New session |
 | `Ctrl+Shift+N` | New window |
-| `Ctrl+Shift+Alt+N` | New window as administrator |
+| `Ctrl+Alt+Shift+N` | New window as administrator |
 | `Ctrl+Shift+U` | Move session to new window |
 | `F5` | Debug: run the active file, or continue |
 | `F9` | Debug: toggle breakpoint |

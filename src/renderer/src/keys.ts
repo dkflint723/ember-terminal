@@ -75,7 +75,14 @@ export const COMMANDS: Command[] = [
   {
     id: 'window.newAdmin',
     label: 'New window as administrator',
-    chord: 'Ctrl+Shift+Alt+N',
+    /*
+     * Ctrl+Alt+Shift, not Ctrl+Shift+Alt. chordOf() names the modifiers in a fixed
+     * order — Ctrl, then Alt, then Shift — and a binding is matched by comparing
+     * the two strings, so a chord written in any other order can never fire. This
+     * was the only binding in the app with all three, which is why it was the only
+     * one that silently did nothing.
+     */
+    chord: 'Ctrl+Alt+Shift+N',
     run: () => window.ember.newAdminWindow()
   },
   {

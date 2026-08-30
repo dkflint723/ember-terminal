@@ -662,6 +662,25 @@ function createWindow(seed: WindowSeed = {}): number {
     const wantsMax = primary ? settings.get().windowMaximized : seed.maximized === true
     if (wantsMax) win.maximize()
     win.show()
+    /*
+     * The administrator window asks for the front, and says so if it is refused.
+     *
+     * It is a different process from the one that asked for it, reached through an
+     * elevation prompt, and Windows gives the foreground to whoever owns the last
+     * input event — which is the ordinary window, not this one. Measured through
+     * the real chain: the window does land on top, but the keyboard focus stays
+     * wherever it was, and focus() does not take it back. That is a window you can
+     * see but did not visibly *arrive*, which on a large display is easy to miss
+     * entirely when you have just clicked something.
+     *
+     * So: ask, and then flash the taskbar button, which is what an application is
+     * supposed to do on Windows when it wants attention it is not allowed to seize.
+     */
+    if (isAdminWindow) {
+      win.moveTop()
+      win.focus()
+      if (!win.isFocused()) win.flashFrame(true)
+    }
     // After the window, never before: a launch should not wait on a network call —
     // and once per app, not once per window.
     // Whether a promised update landed, asked of every window as it opens: one
@@ -934,7 +953,18 @@ function registerIpc(): void {
       return
     }
     const exe = process.execPath
-    const args = app.isPackaged ? [ADMIN_FLAG] : [app.getAppPath(), ADMIN_FLAG]
+    /*
+     * Carried over so the elevated Ember is the same Ember. Without it a run
+     * started against a chosen profile — which is every run under test — spawned
+     * its administrator twin against the default one instead, quietly writing into
+     * a directory nobody had pointed it at.
+     */
+    const profileArg = process.argv.find((a) => a.startsWith('--user-data-dir='))
+    const args = [
+      ...(app.isPackaged ? [] : [app.getAppPath()]),
+      ...(profileArg ? [profileArg] : []),
+      ADMIN_FLAG
+    ]
     const list = args.map((a) => `'${a.replace(/'/g, "''")}'`).join(',')
     const command = `Start-Process -FilePath '${exe.replace(/'/g, "''")}' -ArgumentList ${list} -Verb RunAs`
     const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], {
