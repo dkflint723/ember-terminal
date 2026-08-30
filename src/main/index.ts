@@ -10,7 +10,7 @@ import {
   shell
 } from 'electron'
 import { join } from 'node:path'
-import { appendFileSync, copyFileSync, existsSync, mkdirSync } from 'node:fs'
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 
 /*
@@ -42,7 +42,38 @@ import { spawn } from 'node:child_process'
  * one settings file and one history database would fight over all three.
  */
 const ADMIN_FLAG = '--admin-window'
-const isAdminWindow = process.argv.includes(ADMIN_FLAG)
+
+/** Written by an administrator window once it is on screen. See window:newAdmin. */
+const ADMIN_STARTED = '.started'
+
+/**
+ * Whether this process is already running elevated.
+ *
+ * Windows offers no honest way to ask, so this asks a question whose answer
+ * depends on it: the registry hive directory lists for an administrator and for
+ * nobody else.
+ *
+ * The flag is how Ember starts its own administrator window, but it is not the
+ * only way one happens. Right-clicking the taskbar icon and choosing "Run as
+ * administrator" starts an elevated Ember with no flag at all, and without this
+ * that process saw itself as an ordinary second instance: it asked for the
+ * single-instance lock, the ordinary window already held it, and it quit before
+ * drawing anything. Which is exactly what "I even tried right clicking the icon
+ * ... didn't work" looks like from the outside.
+ */
+function runningElevated(): boolean {
+  if (process.platform !== 'win32') return false
+  try {
+    // Listing the registry hives is denied to everyone but an administrator, and
+    // costs a directory read. Nothing is opened, written or left behind.
+    readdirSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'config'))
+    return true
+  } catch {
+    return false
+  }
+}
+
+const isAdminWindow = process.argv.includes(ADMIN_FLAG) || runningElevated()
 
 if (process.platform === 'win32') {
   /*
@@ -680,6 +711,13 @@ function createWindow(seed: WindowSeed = {}): number {
       win.moveTop()
       win.focus()
       if (!win.isFocused()) win.flashFrame(true)
+      // And leave word that it got this far, so the window that asked can tell
+      // the difference between elevation refused and elevation ignored.
+      try {
+        writeFileSync(join(app.getPath('userData'), ADMIN_STARTED), String(Date.now()))
+      } catch {
+        // The mark is a courtesy to the other process, not this one's business.
+      }
     }
     // After the window, never before: a launch should not wait on a network call —
     // and once per app, not once per window.
@@ -952,6 +990,20 @@ function registerIpc(): void {
       sendToAll('ui:notice', { text: 'This window is already running as administrator.', tone: 'info' })
       return
     }
+    /*
+     * When the administrator window last said it was on screen. Read before the
+     * request and again after, because the only honest evidence that elevation
+     * worked is a window that turned up.
+     */
+    const startedAt = (): number => {
+      try {
+        return Number(readFileSync(join(app.getPath('userData'), 'admin-window', ADMIN_STARTED), 'utf8')) || 0
+      } catch {
+        return 0
+      }
+    }
+    const before = startedAt()
+
     const exe = process.execPath
     /*
      * Carried over so the elevated Ember is the same Ember. Without it a run
@@ -979,7 +1031,33 @@ function registerIpc(): void {
           text: 'The administrator window was not started — the permission prompt was declined.',
           tone: 'info'
         })
+        return
       }
+      /*
+       * Success from Start-Process means Windows accepted the request, not that it
+       * honoured it. On a machine whose elevation has stopped working — a wedged
+       * consent prompt is the usual cause, and a restart is the usual cure — the
+       * request returns zero and absolutely nothing happens: no prompt, no process,
+       * no error. Ember then said nothing either, which made a broken machine look
+       * exactly like a broken button, and cost a long evening to tell apart.
+       *
+       * So watch for the window to say it arrived, and speak up when it does not.
+       */
+      const deadline = Date.now() + 25_000
+      const poll = setInterval(() => {
+        if (startedAt() > before) {
+          clearInterval(poll)
+          return
+        }
+        if (Date.now() < deadline) return
+        clearInterval(poll)
+        sendToAll('ui:notice', {
+          text:
+            'Windows accepted the request to run as administrator but never started it. ' +
+            'That is usually elevation itself being stuck — restarting Windows normally fixes it.',
+          tone: 'error'
+        })
+      }, 1000)
     })
     child.on('error', (err) => reportFault('admin window could not be launched', err))
     child.unref()
