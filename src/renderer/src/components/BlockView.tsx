@@ -1,6 +1,7 @@
 import { memo, useRef, useState } from 'react'
 import { useStore, type CommandBlock } from '../state/store'
 import { linkHitAt, setLinkHighlight, type LinkHit } from '../terminal/links'
+import { textFromHtml } from '../terminal/serialize'
 
 interface Props {
   block: CommandBlock
@@ -164,7 +165,7 @@ export const BlockView = memo(function BlockView({ block, onToggle, onRerun, stu
           <button
             className="block__action"
             title="Copy output"
-            onClick={(e) => copy(e, textFrom(block.output), 'out')}
+            onClick={(e) => copy(e, textFromHtml(block.output), 'out')}
           >
             {copied === 'out' ? '✓ copied' : 'copy out'}
           </button>
@@ -239,8 +240,3 @@ async function openFileHit(hit: LinkHit, cwd: string): Promise<void> {
 }
 
 /** Strip serialize-addon markup so "copy output" yields plain text. */
-function textFrom(html: string): string {
-  const el = document.createElement('div')
-  el.innerHTML = html
-  return el.innerText
-}

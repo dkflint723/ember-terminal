@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../state/store'
+import { textFromHtml } from '../terminal/serialize'
 
 interface Props {
   /** The pane being searched — the bar reads its blocks to see into folded ones. */
@@ -51,7 +52,9 @@ export function FindBar({ paneId, scroller, revision, onClose }: Props): React.J
    * opened so closing it folds them back the way they were.
    *
    * The plain text of each block is extracted once and cached against the size
-   * of its output — the same innerHTML → innerText trick the copy button uses.
+   * of its output, through the serializer's own inverse — `innerText` on a
+   * detached node silently drops every line break, which ran adjacent lines
+   * together and let a query match across a boundary that was never there.
    */
   const textCache = useRef(new Map<string, { size: number; text: string }>())
   const opened = useRef(new Set<string>())
@@ -67,9 +70,8 @@ export function FindBar({ paneId, scroller, revision, onClose }: Props): React.J
       if (cached && cached.size === raw.length) {
         text = cached.text
       } else {
-        const el = document.createElement('div')
-        el.innerHTML = raw
-        text = `${block.kind === 'command' ? block.command : ''}\n${el.innerText}`.toLowerCase()
+        text =
+          `${block.kind === 'command' ? block.command : ''}\n${textFromHtml(raw)}`.toLowerCase()
         textCache.current.set(key, { size: raw.length, text })
       }
       if (text.includes(needle)) {

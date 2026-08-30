@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { CompletionItem, CompletionResult } from '@shared/types'
 import { commonPrefix } from '@shared/completion'
 import type { TerminalController } from '../terminal/controller'
+import { textFromHtml } from '../terminal/serialize'
 import { classifyIntent, type Intent } from '../composer/intent'
 import {
   useStore,
@@ -920,9 +921,7 @@ const OUTPUT_LIMIT = 4000
  * dropped rather than a third rule invented alongside them.
  */
 function blockOutput(html: string): { text: string; elided: boolean } {
-  const el = document.createElement('div')
-  el.innerHTML = html
-  const text = el.innerText
+  const text = textFromHtml(html)
   return {
     text: text.slice(0, OUTPUT_LIMIT),
     elided: text.length > OUTPUT_LIMIT || html.includes('block__elided')

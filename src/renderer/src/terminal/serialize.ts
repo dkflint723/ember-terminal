@@ -232,3 +232,29 @@ export function renderBufferAsHtml(term: Terminal, theme: TerminalPalette): stri
     })
     .join('')
 }
+
+/**
+ * The inverse of the above: rendered output back to the plain text it came from.
+ *
+ * Not `innerText`, which is the obvious answer and the wrong one. `innerText` is
+ * only specified to insert a line break per block-level element when the element
+ * is *being rendered*; on a detached node — which is what every caller here builds,
+ * because none of them want to touch the document — it is defined to fall back to
+ * `textContent`. So it returns the right characters in the right order with every
+ * newline missing, and nothing anywhere reports a problem.
+ *
+ * This cost more than a copy button. The same call wrote every command's output
+ * into the searchable history as one run-on line, and handed the model the same
+ * thing whenever a block was attached to a prompt.
+ *
+ * The rows are the lines, so the rows are what gets joined.
+ */
+export function textFromHtml(html: string): string {
+  const el = document.createElement('div')
+  el.innerHTML = html
+  const rows = el.querySelectorAll('.row')
+  // Output that is not row markup at all — nothing produces it today, but a
+  // caller reaching here with a bare fragment should get its text, not nothing.
+  if (rows.length === 0) return el.textContent ?? ''
+  return Array.from(rows, (row) => row.textContent ?? '').join('\n')
+}

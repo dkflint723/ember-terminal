@@ -5,7 +5,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebglAddon } from '@xterm/addon-webgl'
 import type { TerminalPalette } from '@shared/theme'
 import { looksLikeSecretPrompt, stripAnsi } from '@shared/secrets'
-import { renderBufferAsHtml } from './serialize'
+import { renderBufferAsHtml, textFromHtml } from './serialize'
 import { useStore, type CommandBlock, type TerminalPaneState } from '../state/store'
 import { DEFAULT_THEME, toXtermTheme } from './theme'
 
@@ -57,9 +57,33 @@ function escapeHtml(s: string): string {
  * and cursor movement render as the final frame the user actually saw rather than
  * as dozens of half-drawn lines.
  */
+/**
+ * Below this, a measurement is not a box worth being true to — it is a pane
+ * mid-layout, or one collapsing to nothing between commands. Above it, whatever
+ * was measured is what the user can see, and the terminal has to be exactly that
+ * tall.
+ */
+const VISIBLE_ROW_FLOOR = 4
+
+/**
+ * The console before anything has been laid out, and the floor under a shell.
+ *
+ * Only ever used for the moments before the live view has had a real size — a
+ * measured zero would hand PSReadLine a console it refuses to render a prompt in,
+ * which stops command submission with nothing on screen to say so.
+ */
+const UNMEASURED_ROWS = 24
+
 export class TerminalController {
   readonly term: Terminal
   private fit = new FitAddon()
+
+  /**
+   * The last height the live view actually had, kept for the stretches when it has
+   * none. Never larger than a box the user has really seen, so holding it can
+   * never put output below a fold.
+   */
+  private lastVisibleRows = UNMEASURED_ROWS
 
   /** Offscreen terminal used only to render captured output into HTML. */
   private renderTerm: Terminal
@@ -525,8 +549,6 @@ export class TerminalController {
     // Persist for cross-session search. Output goes over as plain text: history
     // exists to be searched, not to reproduce a block's rendering.
     if (block && block.command.trim().length > 0) {
-      const el = document.createElement('div')
-      el.innerHTML = output
       window.ember.recordHistory({
         command: block.command,
         cwd: block.cwd,
@@ -534,7 +556,7 @@ export class TerminalController {
         exitCode,
         durationMs,
         startedAt: block.startedAt,
-        output: el.innerText
+        output: textFromHtml(output)
       })
 
       /*
@@ -759,14 +781,40 @@ export class TerminalController {
     try {
       const dims = this.fit.proposeDimensions()
       const cols = Math.max(Number.isFinite(dims?.cols) ? (dims?.cols as number) : 0, 40)
+      const measured = Number.isFinite(dims?.rows) ? (dims?.rows as number) : 0
       /*
-       * The floor is also the ceiling in practice, because the live view is
-       * collapsed while the shell is idle — so the pty ran on a 24-row console
-       * buffer almost all of the time. A single line longer than 24 wrapped rows
-       * scrolled off conpty's own screen before it could be captured, and the block
-       * showed only its tail. Deep enough that ordinary long lines survive.
+       * The terminal is exactly as tall as the box it is drawn in.
+       *
+       * This used to floor the row count at 120 — deep on purpose, to keep conpty
+       * from scrolling long output away before a block could capture it. But the
+       * same number sizes the grid xterm lays out, and xterm gives its screen an
+       * explicit rows × cellHeight height that nothing clips or scrolls to fit.
+       * The only clip is `.live { overflow: hidden }`. So a running command, whose
+       * strip is 42% of the pane, got 284px of box holding 2160px of terminal:
+       * about eighteen rows visible and a hundred rendered below the fold, where
+       * no amount of scrolling can reach them — xterm can only scroll back into
+       * scrollback, never down past its own screen.
+       *
+       * That is what "the instance runs off below the screen" was. The second half
+       * of the report — a prompt that "does nothing unless I hold enter" — is the
+       * same bug: xterm advances the cursor on a newline and only scrolls when it
+       * reaches the *last* row, so with a hundred empty rows underneath, every
+       * press was delivered and answered somewhere nobody could see. Holding it
+       * walked the cursor down far enough to finally scroll, which is why a
+       * hundred prompts came back on the next Ctrl+C.
+       *
+       * The depth turned out to be protecting nothing: capture is the raw byte
+       * stream, taken in write() before xterm parses any of it, and conpty streams
+       * what scrolls rather than only rendering frames. Measured directly — the
+       * shell reports a 15-row console now, and a 6000-character line still keeps
+       * both its head and its tail.
+       *
+       * Held across the collapse rather than recomputed, so the pty is not resized
+       * twice for every command: a resize is a conpty repaint, and a repaint inside
+       * an open capture costs the block everything before it.
        */
-      const rows = Math.max(Number.isFinite(dims?.rows) ? (dims?.rows as number) : 0, 120)
+      if (measured >= VISIBLE_ROW_FLOOR) this.lastVisibleRows = measured
+      const rows = this.lastVisibleRows
       if (cols !== this.term.cols || rows !== this.term.rows) this.term.resize(cols, rows)
       window.ember.resize(this.paneId, cols, rows)
     } catch {
