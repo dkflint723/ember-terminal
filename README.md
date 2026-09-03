@@ -54,6 +54,8 @@ again and it's a terminal.
   local model is asked to fill in the middle rather than to chat, which is both
   quicker and more accurate. Most of the work is deciding when *not* to ask, and
   a Test button says what answered, how fast, and what is wrong when nothing does.
+  `node scripts/bakeoff.mjs` scores local models on this codebase, since published
+  infilling benchmarks rank them differently from how they behave in an editor.
 - **Scripts** — the commands a project already declares, listed from its
   `package.json` and one press from running (`Ctrl+Shift+R`). The lockfile
   decides whether that is npm, pnpm, yarn or bun, and each one runs as an

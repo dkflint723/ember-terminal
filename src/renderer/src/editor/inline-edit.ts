@@ -106,12 +106,8 @@ export function attachInlineEdit(
 
       close()
       /*
-       * One edit, so one undo. `pushEditOperations` puts it on the editor's own
-       * stack, which is what makes Esc-to-put-it-back a promise this file does not
-       * have to keep itself.
-       */
-      /*
-       * Closed on both sides, and pushed through the model rather than the editor.
+       * One edit, so one undo — closed on both sides, and pushed through the model
+       * rather than the editor.
        * `executeEdits` alone let Monaco fold the rewrite into whatever the user had
        * just been typing, so one undo took the machine's change and the tail of
        * their own sentence with it — measured, by typing a comment and then asking

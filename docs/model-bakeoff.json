@@ -1,0 +1,41 @@
+{
+  "samples": 40,
+  "table": [
+    {
+      "model": "qwen2.5-coder:1.5b",
+      "exact": 30,
+      "firstToken": 73,
+      "similarity": 41,
+      "medianMs": 73,
+      "p90Ms": 141,
+      "failed": 0
+    },
+    {
+      "model": "qwen2.5-coder:7b",
+      "exact": 40,
+      "firstToken": 85,
+      "similarity": 55,
+      "medianMs": 155,
+      "p90Ms": 301,
+      "failed": 0
+    },
+    {
+      "model": "starcoder2:3b",
+      "exact": 8,
+      "firstToken": 23,
+      "similarity": 13,
+      "medianMs": 220,
+      "p90Ms": 230,
+      "failed": 0
+    },
+    {
+      "model": "Mellum-4b-base",
+      "exact": 25,
+      "firstToken": 70,
+      "similarity": 42,
+      "medianMs": 295,
+      "p90Ms": 393,
+      "failed": 0
+    }
+  ]
+}

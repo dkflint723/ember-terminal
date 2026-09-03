@@ -42,6 +42,44 @@ const PROBE: GhostRequest = {
   language: 'javascript'
 }
 
+/**
+ * The fill-in-the-middle sentinels, in the dialect the model was trained on.
+ *
+ * This is chosen by name rather than discovered, and that is deliberate: the
+ * wrong dialect does not fail. A model handed another family's sentinels reads
+ * them as ordinary text and answers confidently with nonsense — asked to finish a
+ * function, one returned a README and an MIT licence — so there is nothing for a
+ * fallback to catch. Trying them in turn cannot work; the choice has to be made
+ * up front.
+ *
+ * Measured against both families locally: Qwen answers correctly with its own and
+ * produces prose with StarCoder's; Mellum and StarCoder2 do the reverse.
+ */
+type Dialect = 'qwen' | 'starcoder'
+
+const STARCODER_FAMILIES = /starcoder|mellum|codegemma|santacoder|stable-?code/i
+
+function dialectFor(model: string): Dialect {
+  return STARCODER_FAMILIES.test(model) ? 'starcoder' : 'qwen'
+}
+
+function sentinelPrompt(model: string, request: GhostRequest): string {
+  if (dialectFor(model) === 'starcoder') {
+    return `<fim_prefix>${request.prefix}<fim_suffix>${request.suffix}<fim_middle>`
+  }
+  return `<|fim_prefix|>${request.prefix}<|fim_suffix|>${request.suffix}<|fim_middle|>`
+}
+
+/** Every family's end markers, since one prompt only ever uses one family's. */
+const STOPS = [
+  '<|fim_pad|>',
+  '<|endoftext|>',
+  '<|file_separator|>',
+  '<file_sep>',
+  '<fim_prefix>',
+  '<|fim_prefix|>'
+]
+
 /** Just enough of AiService to ask it one short question. */
 type OneShot = (
   system: string,
@@ -53,8 +91,21 @@ type OneShot = (
 /** The three ways a local server will take a fill-in-the-middle request. */
 type LocalShape = 'ollama' | 'infill' | 'completions'
 
-/** Which one each address turned out to speak, so it is worked out once. */
+/**
+ * Which shape each model turned out to want, so it is worked out once.
+ *
+ * Keyed by address *and* model, because one server serves many models and they do
+ * not agree. Ollama answers `/api/generate` for a model it has a template for and
+ * refuses outright for one it does not — so remembering the answer against the
+ * address alone meant the second model inherited the first one's shape and failed
+ * on it. Measured: Qwen settled the address on `ollama`, and Mellum at the same
+ * address was then never asked any other way.
+ */
 const shapes = new Map<string, LocalShape>()
+
+function shapeKey(base: string, model: string): string {
+  return `${base}|${model}`
+}
 
 export class GhostService {
   constructor(
@@ -126,7 +177,7 @@ export class GhostService {
           ms
         }
       }
-      return { ok: true, ms, sample: cleaned.slice(0, 80), shape: shapes.get(s.ghostBaseUrl.replace(/\/+$/, '')) ?? null }
+      return { ok: true, ms, sample: cleaned.slice(0, 80), shape: shapes.get(shapeKey(s.ghostBaseUrl.replace(/\/+$/, ''), s.ghostModel)) ?? null }
     } catch (err) {
       return {
         ok: false,
@@ -146,8 +197,7 @@ export class GhostService {
    * template, so fill-in-the-middle sentinels arrive as literal text and the model
    * politely echoes the prefix back inside a code fence — measured against
    * qwen2.5-coder:1.5b, which answered `a + b;` correctly through Ollama's own
-   * endpoint and returned "```typescript
-function add(..." through the
+   * endpoint and returned a fenced copy of the prefix through the
    * OpenAI-compatible one.
    *
    * So the three shapes that exist are tried in turn, and the one that answers is
@@ -159,14 +209,23 @@ function add(..." through the
   private async viaLocal(request: GhostRequest, s: Settings, signal: AbortSignal): Promise<string> {
     const base = s.ghostBaseUrl.replace(/\/+$/, '')
     const root = base.replace(/\/v1$/, '')
-    const known = shapes.get(base)
+    const key = shapeKey(base, s.ghostModel)
+    const known = shapes.get(key)
+
+    /*
+     * The remembered shape first, then the others — rather than the remembered one
+     * alone. A memo can go stale (the model changed, the server was upgraded), and
+     * a stale one should cost a wasted request, not the feature.
+     */
+    const all: LocalShape[] = ['ollama', 'infill', 'completions']
+    const order = known ? [known, ...all.filter((shape) => shape !== known)] : all
 
     let last: unknown = null
-    for (const shape of known ? [known] : (['ollama', 'infill', 'completions'] as LocalShape[])) {
+    for (const shape of order) {
       try {
         const text = await this.askLocal(shape, root, base, request, s, signal)
         if (text !== null) {
-          shapes.set(base, shape)
+          shapes.set(key, shape)
           return text
         }
       } catch (err) {
@@ -176,7 +235,7 @@ function add(..." through the
         // nothing made a dead port and a wrong model name give the same sentence:
         // "answered, but with nothing".
         if (signal.aborted) throw err
-        if (known) shapes.delete(base)
+        shapes.delete(key)
         last = err
       }
     }
@@ -230,10 +289,10 @@ function add(..." through the
       headers,
       {
         model: s.ghostModel || undefined,
-        prompt: `<|fim_prefix|>${request.prefix}<|fim_suffix|>${request.suffix}<|fim_middle|>`,
+        prompt: sentinelPrompt(s.ghostModel, request),
         max_tokens: MAX_TOKENS,
         temperature: 0.1,
-        stop: ['<|fim_pad|>', '<|endoftext|>', '<|file_separator|>']
+        stop: STOPS
       },
       signal
     )) as { choices?: { text?: string }[] }
@@ -345,6 +404,13 @@ function clean(text: string, suffix: string): string {
   const head = suffix.trimStart().split('\n')[0]?.trim()
   if (head) {
     const lines = out.split('\n')
+    /*
+     * Opening with it means the model reproduced what was already there and then
+     * carried on inventing — there is no completion in front of the repeat to
+     * keep, so the honest answer is none. Measured on starcoder2, which answered a
+     * closing brace and then wrote the whole function again.
+     */
+    if (lines[0]?.trim() === head) return ''
     const stop = lines.findIndex((line, i) => i > 0 && line.trim() === head)
     if (stop > 0) out = lines.slice(0, stop).join('\n')
   }

@@ -56,12 +56,31 @@ const server = http.createServer((req, res) => {
   let body = ''
   req.on('data', (c) => (body += c))
   req.on('end', () => {
-    seen.push({ url: req.url, auth: req.headers.authorization ?? null, body: JSON.parse(body || '{}') })
+    const sent = JSON.parse(body || '{}')
+    seen.push({ url: req.url, auth: req.headers.authorization ?? null, body: sent })
+
+    // A model this server has no fill-in-the-middle template for is refused
+    // outright, which is what Ollama does and what the fall-through is for.
+    if (req.url === '/api/generate' && String(sent.model).includes('no-template')) {
+      res.writeHead(400, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ error: `${sent.model} does not support insert` }))
+      return
+    }
+
+    /*
+     * No /infill here, because Ollama has none — that endpoint is llama.cpp's, and
+     * a stub that answers everything cannot show which one is preferred or what
+     * happens when the preferred one is refused.
+     */
+    if (req.url === '/infill') {
+      res.writeHead(404, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ error: 'not found' }))
+      return
+    }
+
     res.writeHead(200, { 'content-type': 'application/json' })
     if (req.url === '/api/generate') {
       res.end(JSON.stringify({ response: OVERRUN }))
-    } else if (req.url === '/infill') {
-      res.end(JSON.stringify({ content: 'STUB_INFILL' }))
     } else {
       res.end(JSON.stringify({ choices: [{ text: 'STUB_COMPLETIONS' }] }))
     }
@@ -332,6 +351,73 @@ await page.evaluate((p) => window.ember.setSettings({ ghostBaseUrl: `http://127.
 await sleep(600)
 const good = await page.evaluate(() => window.ember.ghostTest())
 check('and a working one answers with what it said', good.ok, JSON.stringify(good))
+
+/*
+ * --- the sentinels are the model's own dialect --------------------------------
+ *
+ * A model handed another family's fill-in-the-middle tokens does not fail. It
+ * reads them as ordinary text and answers confidently with nonsense — asked to
+ * finish a function, one returned a README and an MIT licence. So there is
+ * nothing for a fallback to catch, and the dialect has to be chosen up front from
+ * the model's name rather than discovered by trying.
+ */
+seen.length = 0
+await page.evaluate(
+  (p) =>
+    window.ember.setSettings({
+      ghostProvider: 'local',
+      ghostBaseUrl: `http://127.0.0.1:${p}/v1`,
+      ghostModel: 'no-template'
+    }),
+  port
+)
+await sleep(600)
+const refused = await page.evaluate(() => window.ember.ghostTest())
+check('a server that refuses the native endpoint still gets an answer', refused.ok, JSON.stringify(refused))
+
+const fellBack = seen.filter((r) => r.url === '/v1/completions').pop()
+check(
+  'by falling through to raw sentinels',
+  fellBack !== undefined,
+  JSON.stringify(seen.map((r) => r.url))
+)
+check(
+  "in the model's own dialect",
+  String(fellBack?.body?.prompt ?? '').includes('<|fim_prefix|>'),
+  JSON.stringify(String(fellBack?.body?.prompt ?? '').slice(0, 40))
+)
+
+seen.length = 0
+await page.evaluate(() => window.ember.setSettings({ ghostModel: 'starcoder2-no-template' }))
+await sleep(600)
+await page.evaluate(() => window.ember.ghostTest())
+const asStarcoder = seen.filter((r) => r.url === '/v1/completions').pop()
+check(
+  'and a StarCoder-family name gets StarCoder tokens instead',
+  String(asStarcoder?.body?.prompt ?? '').includes('<fim_prefix>') &&
+    !String(asStarcoder?.body?.prompt ?? '').includes('<|fim_prefix|>'),
+  JSON.stringify(String(asStarcoder?.body?.prompt ?? '').slice(0, 40))
+)
+
+/*
+ * And what worked is remembered against the model, not the address. One server
+ * serves many models and they do not agree: remembering it against the address
+ * alone meant the second model inherited the first one's shape and simply failed.
+ */
+seen.length = 0
+await page.evaluate(() => window.ember.setSettings({ ghostModel: 'stub' }))
+await sleep(600)
+const afterSwitch = await page.evaluate(() => window.ember.ghostTest())
+check(
+  'a second model at the same address is asked its own way',
+  afterSwitch.ok,
+  JSON.stringify(afterSwitch)
+)
+check(
+  'through the endpoint that suits it',
+  seen.some((r) => r.url === '/api/generate'),
+  JSON.stringify(seen.map((r) => r.url))
+)
 
 // --- the key stays in main ------------------------------------------------------
 await page.evaluate(() =>
