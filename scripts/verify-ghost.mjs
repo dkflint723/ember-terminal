@@ -51,7 +51,18 @@ function add(..." through
  */
 const OVERRUN = "STUB_SUGGESTION\n}\n\nfunction extra() {}"
 
+/*
+ * A completion that opens a block and closes it again. Its last line is a lone
+ * `}` — the same line as the one already on the far side of the caret, and the
+ * commonest suffix line in any curly-braced language. Cutting there because the
+ * text matches leaves the buffer holding an opening brace with no partner.
+ */
+const BALANCED = ['{', "    name: 'x'", '  }'].join('\n')
+
 const seen = []
+/** Requests whose client went away before the answer was written. */
+const calledOff = []
+const sentBack = []
 const server = http.createServer((req, res) => {
   let body = ''
   req.on('data', (c) => (body += c))
@@ -88,9 +99,31 @@ const server = http.createServer((req, res) => {
       return
     }
 
+    /*
+     * A model that takes its time, so a request can still be in flight when the
+     * next keystroke supersedes it — and which notices when the client gives up
+     * waiting. Cancellation is invisible from the asking side: the only place it
+     * can be observed is here, at the server that was asked.
+     */
+    if (String(sent.model).includes('slow')) {
+      const timer = setTimeout(() => {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ response: OVERRUN }))
+      }, 3000)
+      res.on('close', () => {
+        if (!res.writableFinished) {
+          clearTimeout(timer)
+          calledOff.push(req.url)
+        }
+      })
+      return
+    }
+
     res.writeHead(200, { 'content-type': 'application/json' })
     if (req.url === '/api/generate') {
-      res.end(JSON.stringify({ response: OVERRUN }))
+      const answer = String(sent.model).includes('balanced') ? BALANCED : OVERRUN
+      sentBack.push({ model: sent.model, answer, gotSuffix: sent.suffix })
+      res.end(JSON.stringify({ response: answer }))
     } else {
       res.end(JSON.stringify({ choices: [{ text: 'STUB_COMPLETIONS' }] }))
     }
@@ -451,6 +484,93 @@ check('though the window is told one exists', readBack.hasGhostKey === true, Str
 
 const onDisk = fs.readFileSync(path.join(profile.dir, 'settings.json'), 'utf8')
 check('and it is not sitting in the settings file in the clear', !onDisk.includes('sk-secret-value-here'))
+
+/*
+ * A superseded request is called off.
+ *
+ * The design says so in three places — main holds an abort controller per request,
+ * the bridge carries a `ghostCancel`, and the comments on both say the caller
+ * cancels on every keystroke. Nothing called it. So every abandoned request ran to
+ * completion: billed in full on a paid provider, and on a local one queued ahead
+ * of the only answer still wanted, which is why typing at speed produced no
+ * suggestion rather than a late one.
+ */
+calledOff.length = 0
+seen.length = 0
+await page.evaluate(
+  (p) =>
+    window.ember.setSettings({
+      ghostBaseUrl: `http://127.0.0.1:${p}/v1`,
+      ghostModel: 'slow',
+      ghostDebounceMs: 100
+    }),
+  port
+)
+await sleep(800)
+await page.click('.monaco-editor .view-lines')
+await page.keyboard.press('Control+End')
+await page.keyboard.press('Enter')
+await page.keyboard.type('const total = ', { delay: 60 })
+// Past the debounce, so the slow request is now in flight and unanswered.
+await sleep(900)
+await page.keyboard.type('1', { delay: 60 })
+await sleep(1800)
+check(
+  'a superseded request is called off rather than left to finish',
+  calledOff.length >= 1,
+  JSON.stringify({ calledOff: calledOff.length, asked: seen.length })
+)
+
+/*
+ * A suggestion that balances itself keeps its closing line.
+ *
+ * The rule that stops a model running past the caret cuts the answer at the first
+ * line matching the text already on the far side. It was matched at any length on
+ * purpose, so that the commonest suffix line of all — a lone `}` — would match at
+ * all. But a completion that opens a block closes it with that same line, and
+ * cutting there hands the buffer an opening brace with no partner.
+ *
+ * Checked on the buffer rather than on the drawn text, because an unbalanced file
+ * is the actual harm.
+ */
+await page.evaluate(
+  (p) =>
+    window.ember.setSettings({
+      // Named explicitly: an earlier case leaves the provider elsewhere, and a
+      // chat provider answers this probe with an empty string rather than a
+      // truncated one, which would look like the very bug being checked for.
+      ghostProvider: 'local',
+      ghostBaseUrl: `http://127.0.0.1:${p}/v1`,
+      ghostModel: 'balanced',
+      ghostDebounceMs: 100
+    }),
+  port
+)
+await sleep(700)
+/*
+ * Asked directly rather than through the editor, because the claim is about what
+ * comes back and not about how Monaco draws it.
+ */
+const balanced = await page.evaluate(() =>
+  window.ember.ghostComplete(9901, {
+    prefix: 'export function make() {\n  return ',
+    suffix: '\n}\n',
+    language: 'typescript'
+  })
+)
+check(
+  'a suggestion that closes what it opened keeps its closing line',
+  balanced?.ok === true && balanced.text.trim().endsWith('}'),
+  JSON.stringify({ balanced, asked: sentBack[sentBack.length - 1] })
+)
+const netBraces =
+  (String(balanced?.text ?? '').match(/{/g) ?? []).length -
+  (String(balanced?.text ?? '').match(/}/g) ?? []).length
+check(
+  'so inserting it cannot leave the file unbalanced',
+  netBraces === 0,
+  JSON.stringify({ net: netBraces, text: balanced?.text })
+)
 
 await app.close()
 profile.cleanup()

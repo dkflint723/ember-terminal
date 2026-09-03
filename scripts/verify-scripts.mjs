@@ -124,7 +124,8 @@ await page.evaluate(() =>
     savedCommands: [
       { id: 's1', name: 'Say hello', command: 'echo hello-there' },
       { id: 's2', name: 'Greet', command: 'echo hello {{who}}' },
-      { id: 's3', name: 'Twice', command: 'echo {{word}} and {{word}}' }
+      { id: 's3', name: 'Twice', command: 'echo {{word}} and {{word}}' },
+      { id: 's4', name: 'Pair', command: 'echo {{first}} then {{second}}' }
     ]
   })
 )
@@ -185,6 +186,44 @@ saidSoFar = await page.evaluate(() => [...document.querySelectorAll('.block__cmd
 check(
   'a hole named twice is asked once and filled in both places',
   saidSoFar.includes('echo echo-me and echo-me'),
+  JSON.stringify(saidSoFar.slice(-2))
+)
+
+/*
+ * Two different holes, answered one after the other.
+ *
+ * The question is asked by the same box each time — one component, re-rendered
+ * with the next hole's name rather than replaced — so what was typed for the
+ * first hole was still sitting in it when the second was asked, offered as
+ * "Use as second", and one press of Enter away from being the answer to a
+ * question it was never typed for.
+ */
+await page.locator('.scripts__item', { hasText: 'Pair' }).first().click()
+await page.waitForSelector('.qp', { timeout: 8_000 })
+await page.keyboard.type('one', { delay: 40 })
+await sleep(400)
+await page.keyboard.press('Enter')
+await sleep(700)
+
+check(
+  'the second hole is asked about by its own name',
+  (await page.evaluate(() => document.querySelector('.qp input')?.placeholder)) === 'second?',
+  await page.evaluate(() => document.querySelector('.qp input')?.placeholder)
+)
+check(
+  'and asks it on an empty box, not the previous answer',
+  (await page.evaluate(() => document.querySelector('.qp input')?.value)) === '',
+  JSON.stringify(await page.evaluate(() => document.querySelector('.qp input')?.value))
+)
+
+await page.keyboard.type('two', { delay: 40 })
+await sleep(400)
+await page.keyboard.press('Enter')
+await sleep(3000)
+saidSoFar = await page.evaluate(() => [...document.querySelectorAll('.block__cmd')].map((e) => e.textContent))
+check(
+  'so each hole gets the answer meant for it',
+  saidSoFar.includes('echo one then two'),
   JSON.stringify(saidSoFar.slice(-2))
 )
 

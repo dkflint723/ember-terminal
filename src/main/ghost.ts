@@ -412,6 +412,27 @@ async function post(
  * kinds sometimes carry on into text that is already on the other side of the
  * caret — which would appear as the next few lines written twice.
  */
+/**
+ * How many brackets a stretch of text leaves open.
+ *
+ * Crude by design — string bodies and line comments are dropped first, which is
+ * enough for the line or two a suggestion spans and far cheaper than parsing it.
+ * It exists to answer one question: is a closing line the completion's own, or is
+ * it the one that was already on the far side of the caret?
+ */
+function openDepth(text: string): number {
+  const bare = text
+    .replace(/\\./g, '')
+    .replace(/'[^']*'|"[^"]*"|`[^`]*`/g, '')
+    .replace(/\/\/.*$/gm, '')
+  let depth = 0
+  for (const ch of bare) {
+    if (ch === '{' || ch === '[' || ch === '(') depth++
+    else if (ch === '}' || ch === ']' || ch === ')') depth--
+  }
+  return depth
+}
+
 function clean(text: string, suffix: string): string {
   let out = text.replace(/^\s*```[a-zA-Z0-9+-]*\n?/, '').replace(/```\s*$/, '')
 
@@ -438,7 +459,19 @@ function clean(text: string, suffix: string): string {
      * closing brace and then wrote the whole function again.
      */
     if (lines[0]?.trim() === head) return ''
-    const stop = lines.findIndex((line, i) => i > 0 && line.trim() === head)
+    /*
+     * Only where the completion has nothing of its own still open.
+     *
+     * A lone `}` is both the commonest suffix line in any curly-braced language
+     * and the way a completion closes a block it just opened. Cutting on the text
+     * alone therefore took the closing line off any suggestion that balanced
+     * itself — asked to finish `return ` before a closing brace, a model answered
+     * an ordinary object literal and had its last line removed, leaving an opening
+     * brace with no partner to be inserted into the file.
+     */
+    const stop = lines.findIndex(
+      (line, i) => i > 0 && line.trim() === head && openDepth(lines.slice(0, i).join('\n')) <= 0
+    )
     if (stop > 0) out = lines.slice(0, stop).join('\n')
   }
   return out.replace(/\s+$/, '')

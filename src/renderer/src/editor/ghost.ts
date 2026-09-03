@@ -108,12 +108,41 @@ export function registerGhost(): void {
  * fetches, and only then asks Monaco to look again — at which point the provider
  * above finds the answer waiting and returns it without blocking anything.
  */
+/*
+ * Request ids, counted once for the whole window rather than per editor.
+ *
+ * Main keys its abort controllers by id alone, and this counter used to start at
+ * zero inside every attachGhost — so a second pane's first request aborted the
+ * first pane's live one, which is worse than not cancelling at all.
+ */
+let nextRequestId = 0
+
 export function attachGhost(editor: monaco.editor.IStandaloneCodeEditor): { dispose(): void } {
   let timer = 0
-  let seq = 0
+
+  /*
+   * The request this editor is waiting on, so it can be called off.
+   *
+   * The whole design says the caller cancels on every keystroke — main carries an
+   * abort controller per request and says so, and there is a `ghostCancel` on the
+   * bridge for it. Nothing ever called it. Every superseded request therefore ran
+   * to completion: paid for in full on the paid providers, and on a local one
+   * queued ahead of the only answer still wanted, so typing at speed produced no
+   * suggestions at all rather than late ones.
+   */
+  let inFlight: number | null = null
+
+  const callOff = (): void => {
+    if (inFlight === null) return
+    window.ember.ghostCancel(inFlight)
+    inFlight = null
+  }
 
   const consider2 = (): void => {
     window.clearTimeout(timer)
+    // The caret moved or the text changed, so whatever is being asked is about a
+    // place that no longer exists.
+    callOff()
     const settings = useStore.getState().settings
     if (!settings.ghostEnabled) return
 
@@ -129,7 +158,8 @@ export function attachGhost(editor: monaco.editor.IStandaloneCodeEditor): { disp
     const decision = consider(model, position)
     if (!decision.ask || cache.has(decision.prefix)) return
 
-    const id = ++seq
+    const id = ++nextRequestId
+    inFlight = id
     const result = await window.ember
       .ghostComplete(id, {
         prefix: decision.prefix,
@@ -137,6 +167,7 @@ export function attachGhost(editor: monaco.editor.IStandaloneCodeEditor): { disp
         language: model.getLanguageId()
       })
       .catch(() => null)
+    if (inFlight === id) inFlight = null
     if (!result || !result.ok) return
 
     remember(decision.prefix, result.text.trim() ? result.text : '')
@@ -173,6 +204,9 @@ export function attachGhost(editor: monaco.editor.IStandaloneCodeEditor): { disp
   return {
     dispose(): void {
       window.clearTimeout(timer)
+      // A closed pane is not waiting for an answer, and on a paid provider the
+      // request outlives the editor that wanted it.
+      callOff()
       for (const l of listeners) l.dispose()
     }
   }

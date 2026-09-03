@@ -221,6 +221,16 @@ export function ScriptRunner(): React.JSX.Element {
 
       {asking && (
         <QuickPick
+          /*
+           * A new question, not the same one relabelled.
+           *
+           * Without this React keeps the box across holes — same component, same
+           * position — so the answer typed for the first hole was still in it when
+           * the second was asked, offered as the value to use, and one press of
+           * Enter from becoming the answer to a question nobody typed it for. Hole
+           * names are unique, so the name is the identity of the question.
+           */
+          key={asking.holes[0]}
           placeholder={`${asking.holes[0]}?`}
           items={[]}
           empty={`Type a value for ${asking.holes[0]}`}
