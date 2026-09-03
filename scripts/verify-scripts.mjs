@@ -111,6 +111,83 @@ check(
   JSON.stringify(ran.commands.slice(-3))
 )
 
+/*
+ * --- commands the person saved, as against the ones the project declares -------
+ *
+ * The neighbour of the list above: that is whatever package.json holds, and this
+ * is whatever the user keeps. They share a view because they answer the same
+ * question — what do I run here — and they are told apart by a heading rather
+ * than by living somewhere else.
+ */
+await page.evaluate(() =>
+  window.ember.setSettings({
+    savedCommands: [
+      { id: 's1', name: 'Say hello', command: 'echo hello-there' },
+      { id: 's2', name: 'Greet', command: 'echo hello {{who}}' },
+      { id: 's3', name: 'Twice', command: 'echo {{word}} and {{word}}' }
+    ]
+  })
+)
+await sleep(1200)
+
+const heads = await page.evaluate(() =>
+  [...document.querySelectorAll('.scripts__head')].map((e) => e.textContent)
+)
+check('the two kinds are told apart', heads.join('|') === 'Saved|This project', JSON.stringify(heads))
+
+// One with nothing to fill in runs straight away.
+await page.locator('.scripts__item', { hasText: 'Say hello' }).first().click()
+await sleep(3000)
+let saidSoFar = await page.evaluate(() =>
+  [...document.querySelectorAll('.block__cmd')].map((e) => e.textContent)
+)
+check('a saved command with no holes just runs', saidSoFar.includes('echo hello-there'), JSON.stringify(saidSoFar.slice(-2)))
+
+/*
+ * One with a hole asks first, and nothing reaches the shell until it is answered.
+ * Abandoning it half-way must run nothing at all: a command with `{{who}}` still
+ * in it is not one anybody meant to send.
+ */
+await page.locator('.scripts__item', { hasText: 'Greet' }).first().click()
+await page.waitForSelector('.qp', { timeout: 8_000 })
+check(
+  'a hole is asked about by name',
+  (await page.evaluate(() => document.querySelector('.qp input')?.placeholder)) === 'who?',
+  await page.evaluate(() => document.querySelector('.qp input')?.placeholder)
+)
+
+await page.keyboard.press('Escape')
+await sleep(1500)
+saidSoFar = await page.evaluate(() => [...document.querySelectorAll('.block__cmd')].map((e) => e.textContent))
+check(
+  'and abandoning the question runs nothing',
+  !saidSoFar.some((c) => c.includes('{{') || c === 'echo hello'),
+  JSON.stringify(saidSoFar.slice(-2))
+)
+
+await page.locator('.scripts__item', { hasText: 'Greet' }).first().click()
+await page.waitForSelector('.qp', { timeout: 8_000 })
+await page.keyboard.type('world', { delay: 40 })
+await sleep(500)
+await page.keyboard.press('Enter')
+await sleep(3000)
+saidSoFar = await page.evaluate(() => [...document.querySelectorAll('.block__cmd')].map((e) => e.textContent))
+check('an answered hole is filled in', saidSoFar.includes('echo hello world'), JSON.stringify(saidSoFar.slice(-2)))
+
+// A name used twice is asked once, and filled everywhere.
+await page.locator('.scripts__item', { hasText: 'Twice' }).first().click()
+await page.waitForSelector('.qp', { timeout: 8_000 })
+await page.keyboard.type('echo-me', { delay: 40 })
+await sleep(500)
+await page.keyboard.press('Enter')
+await sleep(3000)
+saidSoFar = await page.evaluate(() => [...document.querySelectorAll('.block__cmd')].map((e) => e.textContent))
+check(
+  'a hole named twice is asked once and filled in both places',
+  saidSoFar.includes('echo echo-me and echo-me'),
+  JSON.stringify(saidSoFar.slice(-2))
+)
+
 await app.close()
 profile.cleanup()
 fs.rmSync(work, { recursive: true, force: true })

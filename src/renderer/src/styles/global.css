@@ -5940,3 +5940,29 @@ label.field__check {
 .field__note--bad {
   color: var(--fail);
 }
+
+/* The two halves of the Scripts view: what a person saved, what a project declares. */
+.scripts__head {
+  padding: 8px 14px 3px;
+  color: var(--fg-faint);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.scripts__head:first-child {
+  padding-top: 4px;
+}
+
+/* A saved command in settings: what to call it, and what it runs. */
+.savedrow {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.savedrow input {
+  min-width: 0;
+}

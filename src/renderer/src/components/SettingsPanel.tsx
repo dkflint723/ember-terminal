@@ -643,6 +643,74 @@ export function SettingsPanel(): React.JSX.Element | null {
               </div>
 
               <div className="field">
+                <label>Saved commands</label>
+                {draft.savedCommands.map((saved, i) => (
+                  <div key={saved.id} className="savedrow">
+                    <input
+                      className="savedrow__name"
+                      placeholder="Name"
+                      value={saved.name}
+                      spellCheck={false}
+                      onChange={(e) =>
+                        field(
+                          'savedCommands',
+                          draft.savedCommands.map((c, at) =>
+                            at === i ? { ...c, name: e.target.value } : c
+                          )
+                        )
+                      }
+                    />
+                    <input
+                      className="savedrow__command"
+                      placeholder="docker compose up {{service}}"
+                      value={saved.command}
+                      spellCheck={false}
+                      onChange={(e) =>
+                        field(
+                          'savedCommands',
+                          draft.savedCommands.map((c, at) =>
+                            at === i ? { ...c, command: e.target.value } : c
+                          )
+                        )
+                      }
+                    />
+                    <button
+                      className="icon-btn"
+                      aria-label={`Remove ${saved.name || 'command'}`}
+                      title="Remove"
+                      onClick={() =>
+                        field(
+                          'savedCommands',
+                          draft.savedCommands.filter((_, at) => at !== i)
+                        )
+                      }
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                <div className="composer__proposal-actions">
+                  <button
+                    className="btn"
+                    onClick={() =>
+                      field('savedCommands', [
+                        ...draft.savedCommands,
+                        { id: `saved-${crypto.randomUUID()}`, name: '', command: '' }
+                      ])
+                    }
+                  >
+                    Add command…
+                  </button>
+                </div>
+                <div className="field__note">
+                  Listed in the Scripts view beside whatever the open project declares,
+                  and one press from running. Anything in double braces —{' '}
+                  <code>deploy {'{{env}}'}</code> — is asked for first, so one saved
+                  command covers every environment rather than one each.
+                </div>
+              </div>
+
+              <div className="field">
                 <label>Custom shells</label>
                 {draft.customProfiles.map((shell, i) => (
                   <div key={shell.id} className="shellrow">

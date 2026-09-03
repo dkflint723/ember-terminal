@@ -57,7 +57,9 @@ again and it's a terminal.
 - **Scripts** — the commands a project already declares, listed from its
   `package.json` and one press from running (`Ctrl+Shift+R`). The lockfile
   decides whether that is npm, pnpm, yarn or bun, and each one runs as an
-  ordinary block with its exit code and timing.
+  ordinary block with its exit code and timing. Your own saved commands sit
+  beside them, and anything in double braces — `deploy {{env}}` — is asked for
+  before it runs.
 - **Git** — status, staging, diffs, commits, branch and line counts in the
   status chips; blame for the line the caret is on, a log you can open a commit
   from, and a stash that takes untracked files with it; a GitHub panel checks out

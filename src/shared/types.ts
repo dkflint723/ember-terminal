@@ -440,6 +440,20 @@ export interface TabTransfer {
  * languageId must be one Monaco knows (most are built in); extensions map
  * files to it when Monaco does not already.
  */
+/**
+ * A command worth keeping, with holes in it.
+ *
+ * The neighbour of the Scripts view: that lists what a project declares, and this
+ * is what a person declares for themselves. Anything in double braces —
+ * `deploy {{env}}` — is asked for before it runs, which is the difference between
+ * a saved command and a note to copy from.
+ */
+export interface SavedCommand {
+  id: string
+  name: string
+  command: string
+}
+
 export interface CustomLanguageServer {
   id: string
   /** Monaco language id this server answers for: 'rust', 'go', 'cpp', … */
@@ -804,6 +818,8 @@ export interface Settings {
   aiMode: AiMode
   /** Shells the user added by hand, served alongside the detected ones. */
   customProfiles: CustomProfile[]
+  /** Commands the user keeps, listed beside a project's own scripts. */
+  savedCommands: SavedCommand[]
   /** Debug adapters the user taught Ember about, served with the detected ones. */
   debugAdapters: DebugAdapter[]
   /** Language servers the user taught Ember about, joined with the bundled ones. */
@@ -926,6 +942,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoSaveAfterSeconds: 0,
   recentFolders: [],
   customProfiles: [],
+  savedCommands: [],
   debugAdapters: [],
   languageServers: [],
   formatOnSave: false,
