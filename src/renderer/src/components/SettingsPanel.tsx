@@ -1037,16 +1037,18 @@ export function SettingsPanel(): React.JSX.Element | null {
                     <div className="field__note">
                       As the endpoint names it; left empty, the endpoint&rsquo;s own default
                       answers. Pick one trained to fill in the middle rather than to chat.
-                      Measured on this codebase by taking real lines out and putting them
-                      back: <code>qwen2.5-coder:14b</code> restored half of them exactly,{' '}
-                      <code>:7b</code> two fifths, <code>:1.5b</code> three tenths.
+                      Measured on this codebase by taking 150 real lines out and putting them
+                      back: <code>qwen3-coder:30b</code> restored 49% of them exactly,{' '}
+                      <code>qwen2.5-coder:14b</code> 45%, <code>:7b</code> 41%,{' '}
+                      <code>:1.5b</code> 31%.
                     </div>
                     <div className="field__note">
-                      Bigger is slower, but the wait below is yours to spend: the 14B at a
-                      hundred milliseconds appears about as quickly as the 7B at two hundred,
-                      and is right more often. Spend the budget on the model rather than on
-                      waiting — unless the machine is doing something else, in which case the
-                      smaller one stays quick when the larger one does not.
+                      Bigger usually means slower, and the 30B is the exception worth knowing
+                      about: only about three billion of its parameters run per token, so it
+                      answered in 166 ms against the 14B&rsquo;s 275 — more accurate and
+                      faster at once. It wants roughly 21 GB of video memory, which is the
+                      catch. Below that the 7B is the sensible one, and on a machine doing
+                      something else the 1.5B stays quick when the others do not.
                     </div>
                   </div>
 

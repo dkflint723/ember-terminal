@@ -59,9 +59,19 @@ const server = http.createServer((req, res) => {
     const sent = JSON.parse(body || '{}')
     seen.push({ url: req.url, auth: req.headers.authorization ?? null, body: sent })
 
-    // A model this server has no fill-in-the-middle template for is refused
-    // outright, which is what Ollama does and what the fall-through is for.
-    if (req.url === '/api/generate' && String(sent.model).includes('no-template')) {
+    /*
+     * A model this server has no fill-in-the-middle template for is refused, which
+     * is what Ollama does and what the fall-through is for. Refused only for the
+     * `suffix` field, because that is precisely what it cannot do: the same model
+     * takes sentinels perfectly well in raw mode, where no template is applied.
+     * Measured against qwen3-coder:30b, which answers "does not support insert" to
+     * one and `return a + b;` to the other.
+     */
+    if (
+      req.url === '/api/generate' &&
+      String(sent.model).includes('no-template') &&
+      sent.suffix !== undefined
+    ) {
       res.writeHead(400, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ error: `${sent.model} does not support insert` }))
       return
@@ -375,10 +385,21 @@ await sleep(600)
 const refused = await page.evaluate(() => window.ember.ghostTest())
 check('a server that refuses the native endpoint still gets an answer', refused.ok, JSON.stringify(refused))
 
-const fellBack = seen.filter((r) => r.url === '/v1/completions').pop()
+const fellBack = seen.filter((r) => r.url === '/api/generate' && r.body?.raw === true).pop()
 check(
-  'by falling through to raw sentinels',
+  'by falling through to sentinels with the template switched off',
   fellBack !== undefined,
+  JSON.stringify(seen.map((r) => `${r.url}${r.body?.raw ? ' raw' : ''}`))
+)
+/*
+ * And not to `/v1/completions`, which is the endpoint that applies the chat
+ * template even to a base model. That fall-through is why a released version
+ * offered "```typescript" as its suggestion, and it is one place below raw mode
+ * in the ladder for exactly that reason.
+ */
+check(
+  'rather than to the endpoint that would wrap the answer in a code fence',
+  !seen.some((r) => r.url === '/v1/completions'),
   JSON.stringify(seen.map((r) => r.url))
 )
 check(
@@ -391,7 +412,7 @@ seen.length = 0
 await page.evaluate(() => window.ember.setSettings({ ghostModel: 'starcoder2-no-template' }))
 await sleep(600)
 await page.evaluate(() => window.ember.ghostTest())
-const asStarcoder = seen.filter((r) => r.url === '/v1/completions').pop()
+const asStarcoder = seen.filter((r) => r.url === '/api/generate' && r.body?.raw === true).pop()
 check(
   'and a StarCoder-family name gets StarCoder tokens instead',
   String(asStarcoder?.body?.prompt ?? '').includes('<fim_prefix>') &&

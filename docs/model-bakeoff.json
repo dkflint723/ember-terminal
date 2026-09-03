@@ -1,31 +1,40 @@
 {
-  "samples": 40,
+  "samples": 150,
   "table": [
     {
       "model": "qwen2.5-coder:1.5b",
-      "exact": 30,
-      "firstToken": 75,
-      "similarity": 42,
-      "medianMs": 74,
-      "p90Ms": 143,
+      "exact": 31,
+      "firstToken": 73,
+      "similarity": 48,
+      "medianMs": 77,
+      "p90Ms": 145,
       "failed": 0
     },
     {
       "model": "qwen2.5-coder:7b",
-      "exact": 40,
-      "firstToken": 88,
-      "similarity": 56,
-      "medianMs": 149,
-      "p90Ms": 309,
+      "exact": 41,
+      "firstToken": 80,
+      "similarity": 58,
+      "medianMs": 227,
+      "p90Ms": 322,
       "failed": 0
     },
     {
       "model": "qwen2.5-coder:14b",
-      "exact": 50,
-      "firstToken": 90,
-      "similarity": 60,
-      "medianMs": 257,
-      "p90Ms": 562,
+      "exact": 45,
+      "firstToken": 81,
+      "similarity": 61,
+      "medianMs": 275,
+      "p90Ms": 579,
+      "failed": 0
+    },
+    {
+      "model": "qwen3-coder:30b",
+      "exact": 49,
+      "firstToken": 82,
+      "similarity": 65,
+      "medianMs": 166,
+      "p90Ms": 305,
       "failed": 0
     }
   ]

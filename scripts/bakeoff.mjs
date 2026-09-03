@@ -29,11 +29,12 @@ import * as path from 'node:path'
 const MODELS = [
   { name: 'qwen2.5-coder:1.5b', shape: 'suffix' },
   { name: 'qwen2.5-coder:7b', shape: 'suffix' },
-  { name: 'qwen2.5-coder:14b', shape: 'suffix' }
+  { name: 'qwen2.5-coder:14b', shape: 'suffix' },
+  { name: 'qwen3-coder:30b', shape: 'raw' }
 ]
 
 const SRC = 'D:/git_projects/terminal/src'
-const SAMPLES = 40
+const SAMPLES = 150
 const PREFIX_CHARS = 3000
 const SUFFIX_CHARS = 1000
 
@@ -96,6 +97,35 @@ async function ask(model, sample) {
         suffix: sample.suffix,
         stream: false,
         options: { temperature: 0, num_predict: 64 }
+      })
+    })
+    const json = await res.json()
+    return { ms: Date.now() - started, text: String(json.response ?? '') }
+  }
+
+  /*
+   * Qwen3-Coder refuses the suffix field outright — Ollama answers "does not
+   * support insert", because the instruct model ships no infill template. It was
+   * still trained on the sentinels, so they work when sent raw, with the chat
+   * template switched off. Which is the whole question this row exists to answer:
+   * whether a model that has to be driven the hard way earns it.
+   */
+  if (model.shape === 'raw') {
+    const prompt =
+      '<|fim_prefix|>' + sample.prefix + '<|fim_suffix|>' + sample.suffix + '<|fim_middle|>'
+    const res = await fetch('http://127.0.0.1:11434/api/generate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: model.name,
+        prompt,
+        raw: true,
+        stream: false,
+        options: {
+          temperature: 0,
+          num_predict: 64,
+          stop: ['<|fim_pad|>', '<|endoftext|>', '<|fim_prefix|>', '<|file_sep|>', '<|im_end|>']
+        }
       })
     })
     const json = await res.json()

@@ -88,8 +88,8 @@ type OneShot = (
   model?: string
 ) => Promise<{ ok: true; text: string } | { ok: false; error: string }>
 
-/** The three ways a local server will take a fill-in-the-middle request. */
-type LocalShape = 'ollama' | 'infill' | 'completions'
+/** The four ways a local server will take a fill-in-the-middle request. */
+type LocalShape = 'ollama' | 'infill' | 'ollama-raw' | 'completions'
 
 /**
  * Which shape each model turned out to want, so it is worked out once.
@@ -200,9 +200,10 @@ export class GhostService {
    * endpoint and returned a fenced copy of the prefix through the
    * OpenAI-compatible one.
    *
-   * So the three shapes that exist are tried in turn, and the one that answers is
+   * So the shapes that exist are tried in turn, and the one that answers is
    * remembered for that address. Ollama's `/api/generate` takes prefix and suffix
    * as separate fields; llama.cpp's `/infill` does the same under different names;
+   * the same Ollama endpoint in raw mode takes sentinels with no template applied;
    * and a plain `/v1/completions` with sentinels is the fallback for servers that
    * pass a prompt through untouched.
    */
@@ -217,7 +218,7 @@ export class GhostService {
      * alone. A memo can go stale (the model changed, the server was upgraded), and
      * a stale one should cost a wasted request, not the feature.
      */
-    const all: LocalShape[] = ['ollama', 'infill', 'completions']
+    const all: LocalShape[] = ['ollama', 'infill', 'ollama-raw', 'completions']
     const order = known ? [known, ...all.filter((shape) => shape !== known)] : all
 
     let last: unknown = null
@@ -282,6 +283,32 @@ export class GhostService {
         signal
       )) as { content?: string }
       return typeof res.content === 'string' ? res.content : null
+    }
+
+    /*
+     * Sentinels through Ollama's own endpoint, with the chat template switched off.
+     *
+     * For a model trained to fill in the middle that ships no infill template —
+     * Qwen3-Coder is the one to hand, which refuses the suffix field outright with
+     * "does not support insert" and then answers sentinels perfectly well. Ordered
+     * ahead of `/v1/completions` because that endpoint applies the template even
+     * on a base model: asked to complete `add(a, b)`, the measured answer there is
+     * a fenced code block, so the line offered as a suggestion was ```typescript.
+     */
+    if (shape === 'ollama-raw') {
+      const res = (await post(
+        `${root}/api/generate`,
+        headers,
+        {
+          model: s.ghostModel || undefined,
+          prompt: sentinelPrompt(s.ghostModel, request),
+          raw: true,
+          stream: false,
+          options: { temperature: 0.1, num_predict: MAX_TOKENS, stop: STOPS }
+        },
+        signal
+      )) as { response?: string }
+      return typeof res.response === 'string' ? res.response : null
     }
 
     const res = (await post(
