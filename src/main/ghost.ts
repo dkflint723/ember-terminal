@@ -1,4 +1,10 @@
-import type { GhostProvider, GhostRequest, GhostResult, Settings } from '../shared/types.js'
+import type {
+  GhostProvider,
+  GhostRequest,
+  GhostResult,
+  GhostTest,
+  Settings
+} from '../shared/types.js'
 
 /**
  * The suggestion that appears ahead of the caret, from whoever the user chose.
@@ -23,6 +29,18 @@ const TIMEOUT_MS = 10_000
 
 /** A suggestion is a line or a few, never an essay. Also a cost ceiling. */
 const MAX_TOKENS = 96
+
+/**
+ * The fragment the Test button asks about.
+ *
+ * Small, unambiguous, and the same every time, so what comes back says something
+ * about the setup rather than about the question.
+ */
+const PROBE: GhostRequest = {
+  prefix: 'function add(a, b) {\n  return ',
+  suffix: '\n}\n',
+  language: 'javascript'
+}
 
 /** Just enough of AiService to ask it one short question. */
 type OneShot = (
@@ -68,6 +86,59 @@ export class GhostService {
   }
 
   /**
+   * One deliberate request, so a setup can be checked rather than guessed at.
+   *
+   * Suggestions fail silently by design — nothing appears, which is also what
+   * happens when the model simply has nothing to say — so there is no way to tell
+   * a wrong address from a quiet moment by watching. This is the way: press it,
+   * and it says what answered, how long it took, and which shape the server spoke.
+   */
+  async test(): Promise<GhostTest> {
+    const s = this.settings()
+    const started = Date.now()
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 15_000)
+
+    try {
+      const text =
+        s.ghostProvider === 'claude'
+          ? await this.viaClaude(
+              PROBE,
+              s
+            )
+          : s.ghostProvider === 'local'
+            ? await this.viaLocal(
+                PROBE,
+                s,
+                controller.signal
+              )
+            : await this.viaChat(
+                PROBE,
+                s,
+                controller.signal
+              )
+      const ms = Date.now() - started
+      const cleaned = clean(text, PROBE.suffix)
+      if (!cleaned.trim()) {
+        return {
+          ok: false,
+          error: 'The endpoint answered, but with nothing. Check the model name.',
+          ms
+        }
+      }
+      return { ok: true, ms, sample: cleaned.slice(0, 80), shape: shapes.get(s.ghostBaseUrl.replace(/\/+$/, '')) ?? null }
+    } catch (err) {
+      return {
+        ok: false,
+        error: describe(err, s.ghostProvider, s.ghostBaseUrl),
+        ms: Date.now() - started
+      }
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  /**
    * A local server, asked in whatever shape it actually understands.
    *
    * "OpenAI-compatible" is not enough here, and finding that out cost a released
@@ -90,6 +161,7 @@ function add(..." through the
     const root = base.replace(/\/v1$/, '')
     const known = shapes.get(base)
 
+    let last: unknown = null
     for (const shape of known ? [known] : (['ollama', 'infill', 'completions'] as LocalShape[])) {
       try {
         const text = await this.askLocal(shape, root, base, request, s, signal)
@@ -99,11 +171,16 @@ function add(..." through the
         }
       } catch (err) {
         // A shape this server does not implement is a 404, not a failure worth
-        // reporting — unless it was the one that worked before, or the last one.
+        // reporting — unless every shape fails, in which case the last thing that
+        // went wrong is the useful thing to say. Swallowing them all and returning
+        // nothing made a dead port and a wrong model name give the same sentence:
+        // "answered, but with nothing".
         if (signal.aborted) throw err
         if (known) shapes.delete(base)
+        last = err
       }
     }
+    if (last) throw last
     return ''
   }
 
@@ -255,10 +332,21 @@ function clean(text: string, suffix: string): string {
   // Never a leading newline: the suggestion starts where the caret is.
   out = out.replace(/^\n+/, '')
 
+  /*
+   * Where the answer has run into text already on the other side of the caret,
+   * cut it there. A fill-in-the-middle model is supposed to stop at the suffix
+   * and often does not: asked to finish `return ` before a closing brace, one
+   * obligingly wrote the brace and then three more functions.
+   *
+   * Matched at the start of a line, at any length. The first version wanted four
+   * characters to avoid matching noise, which meant the commonest suffix line in
+   * any language — a lone `}` — never matched at all.
+   */
   const head = suffix.trimStart().split('\n')[0]?.trim()
-  if (head && head.length > 3) {
-    const at = out.indexOf(head)
-    if (at > 0) out = out.slice(0, at)
+  if (head) {
+    const lines = out.split('\n')
+    const stop = lines.findIndex((line, i) => i > 0 && line.trim() === head)
+    if (stop > 0) out = lines.slice(0, stop).join('\n')
   }
   return out.replace(/\s+$/, '')
 }

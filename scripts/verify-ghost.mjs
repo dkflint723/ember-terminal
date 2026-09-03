@@ -43,6 +43,14 @@ const check = (label, ok, detail) => {
 function add(..." through
  * the other. A released version shipped preferring the wrong one.
  */
+/*
+ * What a fill-in-the-middle model actually returns when it does not stop at the
+ * suffix: the answer, then the line that was already there, then more besides.
+ * Asked to finish `return ` before a closing brace, one wrote the brace and three
+ * further functions.
+ */
+const OVERRUN = "STUB_SUGGESTION\n}\n\nfunction extra() {}"
+
 const seen = []
 const server = http.createServer((req, res) => {
   let body = ''
@@ -51,7 +59,7 @@ const server = http.createServer((req, res) => {
     seen.push({ url: req.url, auth: req.headers.authorization ?? null, body: JSON.parse(body || '{}') })
     res.writeHead(200, { 'content-type': 'application/json' })
     if (req.url === '/api/generate') {
-      res.end(JSON.stringify({ response: 'STUB_SUGGESTION' }))
+      res.end(JSON.stringify({ response: OVERRUN }))
     } else if (req.url === '/infill') {
       res.end(JSON.stringify({ content: 'STUB_INFILL' }))
     } else {
@@ -178,6 +186,11 @@ check(
   shown.includes('STUB_SUGGESTION') && !shown.includes('STUB_COMPLETIONS'),
   JSON.stringify(shown)
 )
+check(
+  'cut where it ran back into the code that follows the caret',
+  !shown.includes('function extra'),
+  JSON.stringify(shown)
+)
 check('and no key sent to a local server', first?.auth === null, String(first?.auth))
 
 /*
@@ -293,6 +306,32 @@ check(
   JSON.stringify(viaClaude)
 )
 check('and it asks nothing of the local server', seen.length === 0, `${seen.length} requests`)
+
+/*
+ * --- and there is a way to find out why nothing is appearing -------------------
+ *
+ * Suggestions fail quietly by design: nothing appears, which is also what happens
+ * when the model has nothing to say. So a wrong address and a quiet moment look
+ * identical from the outside, and the only way to tell them apart is to ask.
+ *
+ * The first version of this reported "the endpoint answered, but with nothing" for
+ * a dead port, a wrong model and an empty answer alike — every local shape was
+ * tried, each failure swallowed, and an empty string returned. Which is the least
+ * useful thing a diagnostic can do.
+ */
+await page.evaluate(() => window.ember.setSettings({ ghostProvider: 'local', ghostBaseUrl: 'http://127.0.0.1:9/v1' }))
+await sleep(600)
+const dead = await page.evaluate(() => window.ember.ghostTest())
+check(
+  'a dead address is named as one',
+  !dead.ok && /nothing is listening/i.test(String(dead.error)),
+  JSON.stringify(dead)
+)
+
+await page.evaluate((p) => window.ember.setSettings({ ghostBaseUrl: `http://127.0.0.1:${p}/v1` }), port)
+await sleep(600)
+const good = await page.evaluate(() => window.ember.ghostTest())
+check('and a working one answers with what it said', good.ok, JSON.stringify(good))
 
 // --- the key stays in main ------------------------------------------------------
 await page.evaluate(() =>

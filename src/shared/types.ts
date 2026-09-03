@@ -764,6 +764,11 @@ export interface GhostRequest {
   language: string
 }
 
+/** What one deliberate test of the suggestion setup found. */
+export type GhostTest =
+  | { ok: true; ms: number; sample: string; shape: string | null }
+  | { ok: false; error: string; ms: number }
+
 export type GhostResult = { ok: true; text: string } | { ok: false; error: string }
 
 export interface Settings {
@@ -1063,6 +1068,8 @@ export interface EmberApi {
    */
   ghostComplete(id: number, request: GhostRequest): Promise<GhostResult>
   ghostCancel(id: number): void
+  /** Ask the configured provider once, and say what happened. */
+  ghostTest(): Promise<GhostTest>
   /** Rewrite a selected fragment to match an instruction. */
   rewriteSelection(
     selection: string,

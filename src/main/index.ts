@@ -948,6 +948,7 @@ function registerIpc(): void {
       )
   )
 
+  ipcMain.handle('ghost:test', () => ghost.test())
   ipcMain.on('ghost:cancel', (_e, id: number) => {
     ghostRuns.get(id)?.abort()
     ghostRuns.delete(id)

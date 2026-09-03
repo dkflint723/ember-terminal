@@ -188,6 +188,9 @@ export function SettingsPanel(): React.JSX.Element | null {
   const [hasApiKey, setHasApiKey] = useState(false)
   /** Whether a suggestion-provider key is stored. Its value never comes over. */
   const [hasGhostKey, setHasGhostKey] = useState(false)
+  /** What the last press of Test found, if it has been pressed. */
+  const [ghostTest, setGhostTest] = useState<{ good: boolean; text: string } | null>(null)
+  const [ghostTesting, setGhostTesting] = useState(false)
 
   const refreshAccess = async (): Promise<void> => {
     setProbing(true)
@@ -993,6 +996,57 @@ export function SettingsPanel(): React.JSX.Element | null {
                       </div>
                     </div>
                   )}
+
+                  {/*
+                      Suggestions fail quietly by design — nothing appears, which is
+                      also what happens when the model has nothing to say — so there
+                      is no way to tell a wrong address from a quiet moment by
+                      watching. This is how you tell.
+                    */}
+                  <div className="field">
+                    <label>Check it works</label>
+                    <div className="composer__proposal-actions">
+                      <button
+                        className="btn"
+                        type="button"
+                        disabled={ghostTesting}
+                        onClick={() => {
+                          setGhostTesting(true)
+                          setGhostTest(null)
+                          void (async () => {
+                            // Saved first: the test asks main, which reads the
+                            // stored settings rather than what is on screen.
+                            await window.ember.setSettings({
+                              ghostEnabled: draft.ghostEnabled,
+                              ghostProvider: draft.ghostProvider,
+                              ghostBaseUrl: draft.ghostBaseUrl,
+                              ghostModel: draft.ghostModel,
+                              ghostApiKey: draft.ghostApiKey
+                            })
+                            const res = await window.ember.ghostTest()
+                            setGhostTest(
+                              res.ok
+                                ? {
+                                    good: true,
+                                    text: `Answered in ${res.ms} ms${res.shape ? ` through ${res.shape}` : ''} — ${res.sample}`
+                                  }
+                                : { good: false, text: res.error }
+                            )
+                            setGhostTesting(false)
+                          })()
+                        }}
+                      >
+                        {ghostTesting ? 'Asking…' : 'Test'}
+                      </button>
+                    </div>
+                    {ghostTest && (
+                      <div
+                        className={`field__note ${ghostTest.good ? '' : 'field__note--bad'}`}
+                      >
+                        {ghostTest.text}
+                      </div>
+                    )}
+                  </div>
 
                   <div className="field">
                     <label>Wait before asking</label>

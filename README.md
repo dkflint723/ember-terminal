@@ -52,7 +52,8 @@ again and it's a terminal.
   you choose: a model on your own machine (anything speaking the OpenAI API —
   Ollama, llama.cpp, LM Studio), any OpenAI-compatible endpoint, or Claude. A
   local model is asked to fill in the middle rather than to chat, which is both
-  quicker and more accurate. Most of the work is deciding when *not* to ask.
+  quicker and more accurate. Most of the work is deciding when *not* to ask, and
+  a Test button says what answered, how fast, and what is wrong when nothing does.
 - **Scripts** — the commands a project already declares, listed from its
   `package.json` and one press from running (`Ctrl+Shift+R`). The lockfile
   decides whether that is npm, pnpm, yarn or bun, and each one runs as an

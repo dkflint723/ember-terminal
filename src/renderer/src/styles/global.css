@@ -5935,3 +5935,8 @@ label.field__check {
 .inline-edit__hint--bad {
   color: var(--fail);
 }
+
+/* A note that reports a failure reads as one, rather than as more explanation. */
+.field__note--bad {
+  color: var(--fail);
+}
