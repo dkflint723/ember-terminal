@@ -336,6 +336,12 @@ export const COMMANDS: Command[] = [
     run: ({ s }) => s.showSidebarView('github')
   },
   {
+    id: 'view.run',
+    label: 'Scripts',
+    chord: 'Ctrl+Shift+R',
+    run: ({ s }) => s.showSidebarView('run')
+  },
+  {
     id: 'view.problems',
     label: 'Problems',
     chord: 'Ctrl+Shift+M',

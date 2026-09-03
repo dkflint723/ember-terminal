@@ -74,6 +74,18 @@ const ENTRIES: Entry[] = [
     )
   },
   {
+    view: 'run',
+    label: 'Scripts',
+    hint: 'Scripts (Ctrl+Shift+R)',
+    icon: (
+      // A play inside a list: the project's own commands, run from here.
+      <>
+        <path d="M2 3.5h6M2 8h4M2 12.5h4" />
+        <path d="M9.5 5.5v7l5.5-3.5z" />
+      </>
+    )
+  },
+  {
     view: 'problems',
     label: 'Problems',
     hint: 'Problems (Ctrl+Shift+M)',

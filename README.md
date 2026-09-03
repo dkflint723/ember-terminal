@@ -46,6 +46,10 @@ again and it's a terminal.
   evaluates in the paused frame — and the program runs as a real block in the
   terminal, stdin and all. Node via bundled js-debug (`npm run fetch:js-debug`
   in a dev checkout); any DAP adapter can be taught in settings.
+- **Scripts** — the commands a project already declares, listed from its
+  `package.json` and one press from running (`Ctrl+Shift+R`). The lockfile
+  decides whether that is npm, pnpm, yarn or bun, and each one runs as an
+  ordinary block with its exit code and timing.
 - **Git** — status, staging, diffs, commits, branch and line counts in the
   status chips; a GitHub panel checks out pull requests via `gh`.
 - **History** — every command searchable across sessions (`Ctrl+R`), with
@@ -89,7 +93,7 @@ Grab `Ember Setup <version>.exe` from
 | `Ctrl+F` | Find in the terminal or editor |
 | `Ctrl+R` | Search command history |
 | `Ctrl+O` | Open a folder |
-| `Ctrl+Shift+F` `G` `H` `M` | Search, source control, GitHub, problems |
+| `Ctrl+Shift+F` `G` `H` `M` `R` | Search, source control, GitHub, problems, scripts |
 | `Ctrl+Alt+S` | Save all |
 | `Alt+Shift+F` | Format document |
 | `Ctrl+=` `-` `0` | Zoom |
@@ -113,7 +117,7 @@ npm run dist
 
 ### Verifying it
 
-The test suite is 56 Playwright scripts under `scripts/verify-*.mjs`, each of
+The test suite is 57 Playwright scripts under `scripts/verify-*.mjs`, each of
 which launches the real app with a throwaway profile and drives it like a hand:
 
 ```bash

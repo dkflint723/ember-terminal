@@ -5,6 +5,7 @@ import { GitHubPanel } from './GitHubPanel'
 import { SearchPanel } from './SearchPanel'
 import { ProblemsPanel } from './ProblemsPanel'
 import { DebugPanel } from './DebugPanel'
+import { ScriptRunner } from './ScriptRunner'
 import { Outline } from './Outline'
 
 interface Props {
@@ -19,7 +20,8 @@ const TITLES: Record<string, string> = {
   scm: 'Source Control',
   github: 'GitHub',
   problems: 'Problems',
-  debug: 'Debug'
+  debug: 'Debug',
+  run: 'Scripts'
 }
 
 /**
@@ -49,6 +51,7 @@ export function Sidebar({ onOpen, onOpenAt }: Props): React.JSX.Element {
       {view === 'github' && <GitHubPanel />}
       {view === 'problems' && <ProblemsPanel onOpen={onOpenAt} />}
       {view === 'debug' && <DebugPanel onOpenAt={onOpenAt} />}
+      {view === 'run' && <ScriptRunner />}
       {view === 'explorer' && (
         <>
           <FileTree onOpen={onOpen} />

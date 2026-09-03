@@ -352,7 +352,7 @@ export interface SessionSnapshot {
   version: 1
   treeRoot: string | null
   sidebarOpen: boolean
-  sidebarView: 'explorer' | 'search' | 'scm' | 'github' | 'problems' | 'debug'
+  sidebarView: 'explorer' | 'search' | 'scm' | 'github' | 'problems' | 'debug' | 'run'
   /** Terminal mode's session list. Optional so sessions from older builds load. */
   sessionsOpen?: boolean
   agentOpen?: boolean

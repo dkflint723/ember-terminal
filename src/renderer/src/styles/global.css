@@ -5648,3 +5648,68 @@ label.field__check {
   background-color: var(--accent);
   color: var(--bg);
 }
+
+/* ---------- scripts ---------- */
+
+/*
+ * The project's own commands. Deliberately shaped like the file tree rather than
+ * like a toolbar: it is a list of things to open, and the thing it opens is a
+ * block in the terminal.
+ */
+.sidebar__empty {
+  padding: 14px 16px;
+  color: var(--fg-faint);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.scripts {
+  overflow-y: auto;
+  padding: 4px 0 8px;
+}
+
+.scripts__item {
+  display: grid;
+  /* The name takes what it needs and the command takes the rest, so a long
+     command truncates rather than pushing the name it belongs to out of view. */
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 14px;
+  border: none;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.scripts__item:hover,
+.scripts__item:focus-visible {
+  background: var(--bg-hover);
+}
+
+.scripts__play {
+  color: var(--fg-faint);
+  font-size: 10px;
+}
+
+.scripts__item:hover .scripts__play {
+  color: var(--ok);
+}
+
+.scripts__name {
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+/* What it runs, quiet enough that the column of names still reads as a column. */
+.scripts__cmd {
+  color: var(--fg-faint);
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
