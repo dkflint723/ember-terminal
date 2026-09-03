@@ -68,6 +68,9 @@ again and it's a terminal.
   pull requests via `gh`.
 - **History** — every command searchable across sessions (`Ctrl+R`), with
   inline secrets scrubbed before anything is written.
+- **SSH** — every `Host` in your `~/.ssh/config` appears as a shell to open, so a
+  server is a new session rather than a command to remember. A remote shell has no
+  Ember in it, so those panes are plain terminals and say so.
 - **Sessions** — the sidebar lists every open shell with its directory and
   branch; the whole window restores on launch, unsaved edits included.
 - **Density** — how much room a block takes is a setting, not a verdict:
@@ -134,7 +137,7 @@ npm run dist
 
 ### Verifying it
 
-The test suite is 60 Playwright scripts under `scripts/verify-*.mjs`, each of
+The test suite is 61 Playwright scripts under `scripts/verify-*.mjs`, each of
 which launches the real app with a throwaway profile and drives it like a hand:
 
 ```bash

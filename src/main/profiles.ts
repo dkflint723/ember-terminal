@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ShellProfile } from '../shared/types.js'
+import { sshProfiles } from './ssh.js'
 
 /**
  * Probe the machine for shells that are actually installed. We only surface
@@ -74,6 +75,13 @@ export function detectProfiles(): ShellProfile[] {
       })
     }
   }
+
+  /*
+   * And the hosts ssh already knows about, after the shells rather than among
+   * them: these are places to go, not programs to run, and a list that opens with
+   * six servers has buried the thing most sessions actually want.
+   */
+  found.push(...sshProfiles())
 
   return found
 }
