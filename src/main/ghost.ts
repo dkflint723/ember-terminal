@@ -24,6 +24,12 @@ const TIMEOUT_MS = 10_000
 /** A suggestion is a line or a few, never an essay. Also a cost ceiling. */
 const MAX_TOKENS = 96
 
+/** The three ways a local server will take a fill-in-the-middle request. */
+type LocalShape = 'ollama' | 'infill' | 'completions'
+
+/** Which one each address turned out to speak, so it is worked out once. */
+const shapes = new Map<string, LocalShape>()
+
 export class GhostService {
   constructor(private settings: () => Settings) {}
 
@@ -39,7 +45,9 @@ export class GhostService {
       const text =
         s.ghostProvider === 'claude'
           ? await this.viaClaude(request, s, signal)
-          : await this.viaOpenAiCompatible(request, s, signal)
+          : s.ghostProvider === 'local'
+            ? await this.viaLocal(request, s, signal)
+            : await this.viaChat(request, s, signal)
       return { ok: true, text: clean(text, request.suffix) }
     } catch (err) {
       if (signal.aborted) return { ok: false, error: 'cancelled' }
@@ -48,49 +56,109 @@ export class GhostService {
   }
 
   /**
-   * The completions endpoint rather than the chat one, because this is where a
-   * fill-in-the-middle model can be addressed as what it is.
+   * A local server, asked in whatever shape it actually understands.
    *
-   * The sentinels are Qwen's and DeepSeek's spelling, which llama.cpp and Ollama
-   * both pass through untouched. A server that does not understand them still sees
-   * the prefix, so the worst case is an ordinary continuation rather than an error.
+   * "OpenAI-compatible" is not enough here, and finding that out cost a released
+   * version. Ollama's `/v1/completions` runs the prompt through the model's chat
+   * template, so fill-in-the-middle sentinels arrive as literal text and the model
+   * politely echoes the prefix back inside a code fence — measured against
+   * qwen2.5-coder:1.5b, which answered `a + b;` correctly through Ollama's own
+   * endpoint and returned "```typescript
+function add(..." through the
+   * OpenAI-compatible one.
+   *
+   * So the three shapes that exist are tried in turn, and the one that answers is
+   * remembered for that address. Ollama's `/api/generate` takes prefix and suffix
+   * as separate fields; llama.cpp's `/infill` does the same under different names;
+   * and a plain `/v1/completions` with sentinels is the fallback for servers that
+   * pass a prompt through untouched.
    */
-  private async viaOpenAiCompatible(
+  private async viaLocal(request: GhostRequest, s: Settings, signal: AbortSignal): Promise<string> {
+    const base = s.ghostBaseUrl.replace(/\/+$/, '')
+    const root = base.replace(/\/v1$/, '')
+    const known = shapes.get(base)
+
+    for (const shape of known ? [known] : (['ollama', 'infill', 'completions'] as LocalShape[])) {
+      try {
+        const text = await this.askLocal(shape, root, base, request, s, signal)
+        if (text !== null) {
+          shapes.set(base, shape)
+          return text
+        }
+      } catch (err) {
+        // A shape this server does not implement is a 404, not a failure worth
+        // reporting — unless it was the one that worked before, or the last one.
+        if (signal.aborted) throw err
+        if (known) shapes.delete(base)
+      }
+    }
+    return ''
+  }
+
+  private async askLocal(
+    shape: LocalShape,
+    root: string,
+    base: string,
     request: GhostRequest,
     s: Settings,
     signal: AbortSignal
-  ): Promise<string> {
-    const base = s.ghostBaseUrl.replace(/\/+$/, '')
-    const local = s.ghostProvider === 'local'
+  ): Promise<string | null> {
+    const headers = { 'content-type': 'application/json' }
 
-    const headers: Record<string, string> = { 'content-type': 'application/json' }
-    if (!local && s.ghostApiKey) headers.authorization = `Bearer ${s.ghostApiKey}`
-
-    const body = local
-      ? {
+    if (shape === 'ollama') {
+      const res = (await post(
+        `${root}/api/generate`,
+        headers,
+        {
           model: s.ghostModel || undefined,
-          prompt: `<|fim_prefix|>${request.prefix}<|fim_suffix|>${request.suffix}<|fim_middle|>`,
-          max_tokens: MAX_TOKENS,
-          temperature: 0.1,
-          // A suggestion stops at the end of what it was completing; without this a
-          // model happily writes the rest of the file.
-          stop: ['<|fim_pad|>', '<|endoftext|>', '<|file_separator|>']
-        }
-      : {
-          model: s.ghostModel || 'gpt-4o-mini',
-          prompt: undefined,
-          max_tokens: MAX_TOKENS,
-          temperature: 0.1
-        }
-
-    if (local) {
-      const res = await post(`${base}/completions`, headers, body, signal)
-      const choice = (res as { choices?: { text?: string }[] }).choices?.[0]
-      return choice?.text ?? ''
+          prompt: request.prefix,
+          suffix: request.suffix,
+          stream: false,
+          options: { temperature: 0.1, num_predict: MAX_TOKENS }
+        },
+        signal
+      )) as { response?: string }
+      return typeof res.response === 'string' ? res.response : null
     }
 
-    // A chat model has no fill-in-the-middle objective, so it is told the job.
-    const chat = await post(
+    if (shape === 'infill') {
+      const res = (await post(
+        `${root}/infill`,
+        headers,
+        {
+          input_prefix: request.prefix,
+          input_suffix: request.suffix,
+          n_predict: MAX_TOKENS,
+          temperature: 0.1
+        },
+        signal
+      )) as { content?: string }
+      return typeof res.content === 'string' ? res.content : null
+    }
+
+    const res = (await post(
+      `${base}/completions`,
+      headers,
+      {
+        model: s.ghostModel || undefined,
+        prompt: `<|fim_prefix|>${request.prefix}<|fim_suffix|>${request.suffix}<|fim_middle|>`,
+        max_tokens: MAX_TOKENS,
+        temperature: 0.1,
+        stop: ['<|fim_pad|>', '<|endoftext|>', '<|file_separator|>']
+      },
+      signal
+    )) as { choices?: { text?: string }[] }
+    const text = res.choices?.[0]?.text
+    return typeof text === 'string' ? text : null
+  }
+
+  /** A chat model has no fill-in-the-middle objective, so it is told the job. */
+  private async viaChat(request: GhostRequest, s: Settings, signal: AbortSignal): Promise<string> {
+    const base = s.ghostBaseUrl.replace(/\/+$/, '')
+    const headers: Record<string, string> = { 'content-type': 'application/json' }
+    if (s.ghostApiKey) headers.authorization = `Bearer ${s.ghostApiKey}`
+
+    const chat = (await post(
       `${base}/chat/completions`,
       headers,
       {
@@ -103,9 +171,8 @@ export class GhostService {
         ]
       },
       signal
-    )
-    const message = (chat as { choices?: { message?: { content?: string } }[] }).choices?.[0]
-    return message?.message?.content ?? ''
+    )) as { choices?: { message?: { content?: string } }[] }
+    return chat.choices?.[0]?.message?.content ?? ''
   }
 
   /** Through the credential the app already has, so it needs no second key. */

@@ -31,6 +31,18 @@ const check = (label, ok, detail) => {
 }
 
 // --- a model that is only a promise -------------------------------------------
+/*
+ * The stub answers both shapes a local server can offer, because which one Ember
+ * reaches for is the thing this most needs to pin.
+ *
+ * "OpenAI-compatible" turned out not to be enough. Ollama runs the prompt of
+ * `/v1/completions` through the model's chat template, so fill-in-the-middle
+ * sentinels arrive as literal text and the model echoes the prefix back in a code
+ * fence — measured against qwen2.5-coder:1.5b, which answered `a + b;` correctly
+ * through `/api/generate` and returned "```typescript
+function add(..." through
+ * the other. A released version shipped preferring the wrong one.
+ */
 const seen = []
 const server = http.createServer((req, res) => {
   let body = ''
@@ -38,7 +50,13 @@ const server = http.createServer((req, res) => {
   req.on('end', () => {
     seen.push({ url: req.url, auth: req.headers.authorization ?? null, body: JSON.parse(body || '{}') })
     res.writeHead(200, { 'content-type': 'application/json' })
-    res.end(JSON.stringify({ choices: [{ text: 'STUB_SUGGESTION' }] }))
+    if (req.url === '/api/generate') {
+      res.end(JSON.stringify({ response: 'STUB_SUGGESTION' }))
+    } else if (req.url === '/infill') {
+      res.end(JSON.stringify({ content: 'STUB_INFILL' }))
+    } else {
+      res.end(JSON.stringify({ choices: [{ text: 'STUB_COMPLETIONS' }] }))
+    }
   })
 })
 await new Promise((r) => server.listen(0, '127.0.0.1', r))
@@ -145,12 +163,20 @@ check('and something was actually asked', seen.length > 0, `${seen.length} reque
  * sentinels are the difference between the two.
  */
 const first = seen[0]
-check('at the completions endpoint', first?.url === '/v1/completions', first?.url)
-const prompt = String(first?.body?.prompt ?? '')
 check(
-  'with the text before the caret, then the text after it',
-  prompt.includes('<|fim_prefix|>') && prompt.includes('<|fim_suffix|>') && prompt.endsWith('<|fim_middle|>'),
-  JSON.stringify(prompt.slice(-60))
+  'the native fill-in-the-middle endpoint is preferred',
+  first?.url === '/api/generate',
+  `${first?.url} — a server offering /api/generate must not be asked through /v1/completions`
+)
+check(
+  'with the text before the caret and the text after it as separate fields',
+  typeof first?.body?.prompt === 'string' && typeof first?.body?.suffix === 'string',
+  JSON.stringify({ prompt: typeof first?.body?.prompt, suffix: typeof first?.body?.suffix })
+)
+check(
+  'and the suggestion is the one that endpoint gave',
+  shown.includes('STUB_SUGGESTION') && !shown.includes('STUB_COMPLETIONS'),
+  JSON.stringify(shown)
 )
 check('and no key sent to a local server', first?.auth === null, String(first?.auth))
 
