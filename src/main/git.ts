@@ -1,10 +1,13 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type {
+  GitBlameLine,
   GitCommitResult,
   GitDiffResult,
   GitFileChange,
+  GitLogEntry,
   GitSimpleResult,
+  GitStashEntry,
   GitStatus,
   GitStatusResult
 } from '../shared/types.js'
@@ -373,6 +376,141 @@ export class GitService {
     return this.simple(root, ['checkout', '-b', name])
   }
 
+  /**
+   * Who last touched one line, and why.
+   *
+   * One line rather than the whole file, on purpose. Annotating every line means
+   * blaming the entire history on every keystroke, and the question people
+   * actually ask is about the line the caret is on — so that is what is asked of
+   * git, which makes it cheap enough to run as the caret moves.
+   *
+   * `--line-porcelain` is the only format carrying the author, the time and the
+   * summary together; the short formats drop the summary, which is the half that
+   * says *why*.
+   */
+  async blameLine(root: string, filePath: string, line: number): Promise<GitBlameLine | null> {
+    if (!Number.isInteger(line) || line < 1) return null
+    try {
+      const { stdout } = await this.git(root, [
+        'blame',
+        '-L',
+        `${line},${line}`,
+        '--line-porcelain',
+        '--',
+        filePath
+      ])
+      const raw = stdout as string
+      const hash = raw.slice(0, 40)
+      if (!/^[0-9a-f]{40}$/.test(hash)) return null
+
+      const field = (name: string): string => {
+        const match = raw.match(new RegExp(`^${name} (.*)$`, 'm'))
+        return match ? match[1].trim() : ''
+      }
+      const at = Number(field('author-time'))
+
+      /*
+       * Git spells a line that is not committed yet as the all-zero hash, and
+       * names its author "Not Committed Yet". Saying so plainly beats reporting a
+       * commit that does not exist.
+       */
+      return {
+        hash,
+        uncommitted: /^0+$/.test(hash),
+        author: field('author') || 'Unknown',
+        authoredAt: Number.isFinite(at) ? at * 1000 : 0,
+        summary: field('summary')
+      }
+    } catch {
+      // A file git has never seen, or one outside the repository. Not an error
+      // worth reporting: the annotation simply has nothing to say.
+      return null
+    }
+  }
+
+  /**
+   * Recent commits, for the repository or for one file.
+   *
+   * The fields are NUL-separated and the records end with a record separator,
+   * because a commit subject can hold anything a person can type — newlines
+   * included — and those two bytes are the ones it cannot.
+   */
+  async log(root: string, filePath: string | null, limit: number): Promise<GitLogEntry[]> {
+    const capped = Math.min(Math.max(Math.trunc(limit) || 0, 1), 500)
+    try {
+      const args = [
+        'log',
+        `--max-count=${capped}`,
+        `--format=%H${NUL}%h${NUL}%an${NUL}%at${NUL}%s${NUL}%P${RS}`
+      ]
+      if (filePath) args.push('--', filePath)
+      const { stdout } = await this.git(root, args)
+      return splitRecords(stdout as string).map((record) => {
+        const [hash, short, author, at, subject, parents] = record.split('\0')
+        const time = Number(at)
+        return {
+          hash: hash ?? '',
+          short: short ?? '',
+          author: author ?? '',
+          authoredAt: Number.isFinite(time) ? time * 1000 : 0,
+          subject: subject ?? '',
+          // Two parents is a merge, worth marking: its diff is not what a list of
+          // subjects otherwise implies.
+          merge: (parents ?? '').trim().split(/\s+/).filter(Boolean).length > 1
+        }
+      })
+    } catch {
+      return []
+    }
+  }
+
+  /** What is on the stash, newest first, as git itself names the entries. */
+  async stashList(root: string): Promise<GitStashEntry[]> {
+    try {
+      const { stdout } = await this.git(root, [
+        'stash',
+        'list',
+        `--format=%gd${NUL}%gs${NUL}%at${RS}`
+      ])
+      return splitRecords(stdout as string).map((record) => {
+        const [ref, subject, at] = record.split('\0')
+        const time = Number(at)
+        return {
+          ref: ref ?? '',
+          // Git prefixes every entry with "WIP on <branch>: " or "On <branch>: ".
+          // The branch is worth keeping; the ceremony is not.
+          subject: (subject ?? '').replace(/^(WIP on|On) /, ''),
+          at: Number.isFinite(time) ? time * 1000 : 0
+        }
+      })
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Put the working tree away. Untracked files go too, because a stash that
+   * quietly leaves new files behind is the one that loses work — the next
+   * checkout carries them into a branch they were never written for.
+   */
+  async stashPush(root: string, message: string): Promise<GitSimpleResult> {
+    const args = ['stash', 'push', '--include-untracked']
+    if (message.trim()) args.push('-m', message.trim())
+    return this.simple(root, args)
+  }
+
+  /** Take one back. Popping drops it; applying keeps it, for a second branch. */
+  async stashApply(root: string, ref: string, drop: boolean): Promise<GitSimpleResult> {
+    if (!STASH_REF.test(ref)) return { ok: false, error: 'Not a stash reference.' }
+    return this.simple(root, ['stash', drop ? 'pop' : 'apply', ref])
+  }
+
+  /** Throw one away. The one operation here that nothing undoes. */
+  async stashDrop(root: string, ref: string): Promise<GitSimpleResult> {
+    if (!STASH_REF.test(ref)) return { ok: false, error: 'Not a stash reference.' }
+    return this.simple(root, ['stash', 'drop', ref])
+  }
+
   private async simple(root: string, args: string[]): Promise<GitSimpleResult> {
     try {
       await this.git(root, args)
@@ -381,6 +519,25 @@ export class GitService {
       return { ok: false, error: GitService.message(err) }
     }
   }
+}
+
+/*
+ * The two separators, written as escapes rather than as the bytes themselves so
+ * that this file stays text a person can open. NUL divides the fields of one
+ * record; the record separator divides the records.
+ */
+const NUL = '%x00'
+const RS = '%x1e'
+
+/** A stash reference, and nothing that merely looks like one. */
+const STASH_REF = /^stash@\{\d+\}$/
+
+/** Records as git emitted them, with the empty tail and leading newlines gone. */
+function splitRecords(stdout: string): string[] {
+  return stdout
+    .split('\x1e')
+    .map((record) => record.replace(/^[\r\n]+/, ''))
+    .filter((record) => record.length > 0)
 }
 
 /** Git writes UTF-8; a NUL means the blob was never text to begin with. */

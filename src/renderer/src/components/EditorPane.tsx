@@ -3,6 +3,7 @@ import { activeDocument, useStore, type EditorPaneState } from '../state/store'
 import { modelUri, monaco } from '../editor/monaco'
 import { applyMonacoTheme, MONACO_THEME_ID } from '../editor/theme'
 import { ensureLanguageServer, findDefinition } from '../editor/lsp'
+import { attachBlame } from '../editor/blame'
 import { ensureSnippets } from '../editor/snippets'
 import { openAt } from '../editor/navigate'
 import { lastSynced, noteSynced } from '../editor/synced'
@@ -274,6 +275,19 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     editorRef.current = editor
 
     /*
+     * Who last touched the line the caret is on. The context is read at request
+     * time rather than captured, because both the repository and the open file
+     * change under this editor without it being recreated.
+     */
+    const blame = attachBlame(editor, () => {
+      const state = useStore.getState()
+      const doc = state.panes[pane.id]
+      const active =
+        doc?.kind === 'editor' ? doc.documents[doc.activeIndex]?.filePath ?? null : null
+      return { root: state.gitStatus?.root ?? null, filePath: active }
+    })
+
+    /*
      * Where the caret is, pushed into the store rather than read out of Monaco.
      *
      * The status bar shows the position and is a sibling of this pane rather than an
@@ -311,6 +325,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
       const model = editor.getModel()
       if (!model) {
         errorLines.clear()
+      blame.dispose()
         return
       }
       const lines = new Set<number>()

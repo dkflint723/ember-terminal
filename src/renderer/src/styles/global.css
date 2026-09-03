@@ -5713,3 +5713,130 @@ label.field__check {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/*
+ * The current-line blame, said at the end of the line it is about.
+ *
+ * Quiet on purpose: it sits inside the code and must never be mistaken for it, so
+ * it takes the faintest foreground the theme has and no weight of its own. It is
+ * an annotation, not a token.
+ */
+.editor__blame {
+  color: var(--fg-faint) !important;
+  font-style: italic;
+  opacity: 0.85;
+  /* The gap is here rather than in the text, because Monaco counts the content of
+     an `after` decoration against a fifty-character cap and spaces are not free. */
+  margin-left: 2.5ch;
+}
+
+/* ---------- stashes and history ---------- */
+
+/*
+ * Two sections that fold, in a panel whose other sections do not. The changes
+ * above them are why the panel is open; these are what you go looking for, so
+ * they carry a disclosure rather than always standing open.
+ */
+.scm__section-toggle {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.scm__section-toggle:hover {
+  color: var(--fg-dim);
+}
+
+.scm__chevron {
+  font-size: 9px;
+  width: 9px;
+}
+
+/* Armed for a second press, and coloured like what it is about to do. */
+.icon-btn--armed {
+  color: var(--fail);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+
+.stash__row {
+  align-items: center;
+}
+
+.stash__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.stash__subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stash__when,
+.log__when {
+  flex: 0 0 auto;
+  color: var(--fg-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.log__row {
+  display: grid;
+  /* Hash and age are fixed; the subject takes what is left and truncates, so a
+     long message never pushes the age out of the panel. */
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 12px;
+  border: none;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.log__row:hover,
+.log__row:focus-visible {
+  background: var(--bg-hover);
+}
+
+.log__hash {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.log__subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+
+.log__merge {
+  margin-right: 6px;
+  padding: 0 4px;
+  border-radius: 2px;
+  background: var(--bg-hover);
+  color: var(--fg-faint);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}

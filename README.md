@@ -51,7 +51,9 @@ again and it's a terminal.
   decides whether that is npm, pnpm, yarn or bun, and each one runs as an
   ordinary block with its exit code and timing.
 - **Git** — status, staging, diffs, commits, branch and line counts in the
-  status chips; a GitHub panel checks out pull requests via `gh`.
+  status chips; blame for the line the caret is on, a log you can open a commit
+  from, and a stash that takes untracked files with it; a GitHub panel checks out
+  pull requests via `gh`.
 - **History** — every command searchable across sessions (`Ctrl+R`), with
   inline secrets scrubbed before anything is written.
 - **Sessions** — the sidebar lists every open shell with its directory and
@@ -117,7 +119,7 @@ npm run dist
 
 ### Verifying it
 
-The test suite is 57 Playwright scripts under `scripts/verify-*.mjs`, each of
+The test suite is 58 Playwright scripts under `scripts/verify-*.mjs`, each of
 which launches the real app with a throwaway profile and drives it like a hand:
 
 ```bash

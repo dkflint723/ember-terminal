@@ -669,6 +669,34 @@ export type GitDiffResult = GitDiffOk | { ok: false; error: string }
 export type GitSimpleResult = { ok: true } | { ok: false; error: string }
 export type GitCommitResult = { ok: true; summary: string } | { ok: false; error: string }
 
+/** Who last touched one line, and why. */
+export interface GitBlameLine {
+  hash: string
+  /** True where the line is not committed yet — git's all-zero hash. */
+  uncommitted: boolean
+  author: string
+  authoredAt: number
+  summary: string
+}
+
+/** One commit, as a list of them needs it. */
+export interface GitLogEntry {
+  hash: string
+  short: string
+  author: string
+  authoredAt: number
+  subject: string
+  /** More than one parent: its diff is not what a list of subjects implies. */
+  merge: boolean
+}
+
+/** One entry on the stash. `ref` is git's own name for it, `stash@{0}` and so on. */
+export interface GitStashEntry {
+  ref: string
+  subject: string
+  at: number
+}
+
 /** One turn of a session's conversation with the agent. */
 export interface AgentTurn {
   id: string
@@ -958,6 +986,15 @@ export interface EmberApi {
   /** The committed text of a file, or null when there is nothing to diff against. */
   gitHeadText(filePath: string): Promise<string | null>
   gitCheckout(root: string, name: string, create: boolean): Promise<GitSimpleResult>
+  /** Who last touched one line, or null where git has nothing to say about it. */
+  gitBlameLine(root: string, filePath: string, line: number): Promise<GitBlameLine | null>
+  /** Recent commits, for the repository or for one file. */
+  gitLog(root: string, filePath: string | null, limit: number): Promise<GitLogEntry[]>
+  gitStashList(root: string): Promise<GitStashEntry[]>
+  gitStashPush(root: string, message: string): Promise<GitSimpleResult>
+  /** Take one back — `drop` pops it, otherwise it is applied and kept. */
+  gitStashApply(root: string, ref: string, drop: boolean): Promise<GitSimpleResult>
+  gitStashDrop(root: string, ref: string): Promise<GitSimpleResult>
   openExternal(url: string): void
   search(query: SearchQuery): Promise<SearchResult>
   listFiles(root: string): Promise<FileListResult>

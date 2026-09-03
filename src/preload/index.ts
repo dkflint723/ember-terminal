@@ -142,6 +142,16 @@ const api: EmberApi = {
   gitBranches: (root: string) => ipcRenderer.invoke('git:branches', root),
   gitHeadText: (filePath: string): Promise<string | null> =>
     ipcRenderer.invoke('git:headText', filePath),
+  gitBlameLine: (root: string, filePath: string, line: number) =>
+    ipcRenderer.invoke('git:blameLine', root, filePath, line),
+  gitLog: (root: string, filePath: string | null, limit: number) =>
+    ipcRenderer.invoke('git:log', root, filePath, limit),
+  gitStashList: (root: string) => ipcRenderer.invoke('git:stashList', root),
+  gitStashPush: (root: string, message: string) =>
+    ipcRenderer.invoke('git:stashPush', root, message),
+  gitStashApply: (root: string, ref: string, drop: boolean) =>
+    ipcRenderer.invoke('git:stashApply', root, ref, drop),
+  gitStashDrop: (root: string, ref: string) => ipcRenderer.invoke('git:stashDrop', root, ref),
   gitCheckout: (root: string, name: string, create: boolean) =>
     ipcRenderer.invoke('git:checkout', root, name, create),
   gitDiff: (root: string, path: string, staged: boolean) =>

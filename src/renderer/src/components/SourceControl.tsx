@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { GitStashes } from './GitStashes'
+import { GitHistory } from './GitHistory'
 import type { GitFileChange } from '@shared/types'
 import { useStore } from '../state/store'
 import { refreshGitStatus, statusClass } from '../state/git'
@@ -432,6 +434,11 @@ export function SourceControl(): React.JSX.Element {
         {status.staged.length === 0 &&
           status.changes.length === 0 &&
           status.conflicts.length === 0 && <div className="scm__clean">No changes</div>}
+
+        {/* The two halves of git this panel could not reach: what is put aside,
+            and what happened before now. */}
+        <GitStashes root={root} busy={busy} act={act} />
+        <GitHistory root={root} />
       </div>
     </div>
   )

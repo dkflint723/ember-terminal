@@ -1210,6 +1210,20 @@ function registerIpc(): void {
   ipcMain.handle('git:pull', (_e, root: string) => git.pull(root))
   ipcMain.handle('git:branches', (_e, root: string) => git.branches(root))
   ipcMain.handle('git:headText', (_e, filePath: string) => git.headText(filePath))
+  ipcMain.handle('git:blameLine', (_e, root: string, filePath: string, line: number) =>
+    git.blameLine(root, filePath, line)
+  )
+  ipcMain.handle('git:log', (_e, root: string, filePath: string | null, limit: number) =>
+    git.log(root, filePath, limit)
+  )
+  ipcMain.handle('git:stashList', (_e, root: string) => git.stashList(root))
+  ipcMain.handle('git:stashPush', (_e, root: string, message: string) =>
+    git.stashPush(root, message)
+  )
+  ipcMain.handle('git:stashApply', (_e, root: string, ref: string, drop: boolean) =>
+    git.stashApply(root, ref, drop)
+  )
+  ipcMain.handle('git:stashDrop', (_e, root: string, ref: string) => git.stashDrop(root, ref))
   ipcMain.handle('git:checkout', (_e, root: string, name: string, create: boolean) =>
     create ? git.createBranch(root, name) : git.checkout(root, name)
   )
