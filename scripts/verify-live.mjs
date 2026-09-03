@@ -150,6 +150,59 @@ await sleep(800)
 const height = Number.parseInt((await run('[Console]::WindowHeight')).trim(), 10)
 check('the shell gets a console with rows in it', height >= 4, String(height))
 
+// --- and a pane with no box keeps the width it had ----------------------------
+// Height is held across the stretches when the live view has no size. Width was
+// not: a pane that cannot be measured proposes no dimensions at all, which fell
+// through the same clamp that gives a genuinely narrow split its floor, and came
+// out as forty columns. So collapsing the terminal region under a running command
+// resized conpty to forty and made it rewrap everything still to come.
+//
+// Read from inside the shell while it happens, because the damage is done to
+// conpty rather than to this app's bookkeeping, and it is over by the time the
+// pane can be measured again.
+await page.click('.composer__input')
+await page.keyboard.type(
+  '1..12 | ForEach-Object { [Console]::WindowWidth; Start-Sleep -Milliseconds 300 }',
+  { delay: 3 }
+)
+await page.keyboard.press('Enter')
+await sleep(1200)
+
+// Hidden the way a collapsed panel hides it: still running, but with no box.
+await page.evaluate(() => {
+  const live = document.querySelector('.live')
+  if (live) live.style.display = 'none'
+  window.dispatchEvent(new Event('resize'))
+})
+await sleep(1800)
+await page.evaluate(() => {
+  const live = document.querySelector('.live')
+  if (live) live.style.display = ''
+  window.dispatchEvent(new Event('resize'))
+})
+
+while ((await page.locator('.block--running').count()) > 0) await sleep(400)
+await sleep(600)
+// Row by row: a block body's textContent runs the rows together with no
+// separator, so splitting it on newlines yields one very long number.
+const widths = (
+  await page.evaluate(() => {
+    const all = document.querySelectorAll('.block')
+    const body = all[all.length - 1]?.querySelector('.block__body')
+    if (!body) return []
+    const rows = body.querySelectorAll('.row')
+    return [...(rows.length ? rows : [body])].map((row) => row.textContent ?? '')
+  })
+)
+  .map((line) => Number.parseInt(line.trim(), 10))
+  .filter((n) => Number.isFinite(n) && n > 0)
+
+check(
+  'and hiding the pane does not rewrap the command running in it',
+  widths.length >= 4 && widths.every((w) => w === widths[0]),
+  JSON.stringify(widths)
+)
+
 // --- and shrinking it did not cost the capture --------------------------------
 // The pair verify-output.mjs pins, repeated here on purpose: fitting the grid to
 // the box is exactly the change that would have lost them.

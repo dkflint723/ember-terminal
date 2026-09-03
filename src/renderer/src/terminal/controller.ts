@@ -74,6 +74,19 @@ const VISIBLE_ROW_FLOOR = 4
  */
 const UNMEASURED_ROWS = 24
 
+/**
+ * The narrowest console worth handing a shell, and the width to assume before
+ * anything has been measured.
+ *
+ * A genuinely narrow pane is still a measurement and is clamped to the floor. A
+ * pane that cannot be measured at all is not, and the two were the same number
+ * here: a hidden pane proposes no dimensions, which fell to zero and then to the
+ * floor, so collapsing the terminal region resized the live pty to forty columns
+ * underneath a running command.
+ */
+const MIN_COLS = 40
+const UNMEASURED_COLS = 80
+
 export class TerminalController {
   readonly term: Terminal
   private fit = new FitAddon()
@@ -84,6 +97,9 @@ export class TerminalController {
    * never put output below a fold.
    */
   private lastVisibleRows = UNMEASURED_ROWS
+
+  /** The same for width, and for the same reason: a pane with no size has one. */
+  private lastVisibleCols = UNMEASURED_COLS
 
   /** Offscreen terminal used only to render captured output into HTML. */
   private renderTerm: Terminal
@@ -443,8 +459,7 @@ export class TerminalController {
   }
 
   /** Feed captured bytes through the offscreen terminal and serialize the result. */
-  private async renderCapture(): Promise<string> {
-    const bytes = this.capture
+  private async renderCapture(bytes: string, trimmed: boolean): Promise<string> {
     if (bytes.trim().length === 0) return ''
 
     this.renderTerm.reset()
@@ -463,7 +478,7 @@ export class TerminalController {
        * output, but it is the difference between truncated and wrong.
        */
       const overflowed =
-        this.captureTrimmed ||
+        trimmed ||
         this.renderTerm.buffer.active.length >=
           this.renderTerm.rows + TerminalController.RENDER_SCROLLBACK
       return overflowed
@@ -514,8 +529,23 @@ export class TerminalController {
     if (!blockId) return
 
     const interactive = this.sawAltScreen
-    let output = interactive ? '' : await this.renderCapture()
+
+    /*
+     * Taken and cleared before the await rather than after it.
+     *
+     * renderCapture yields to the offscreen terminal, and a shell that returns its
+     * prompt promptly begins the next command's capture while this one is still
+     * rendering — `133;C` arrives, clears the buffer, and output starts arriving
+     * into it. Clearing afterwards emptied exactly that, so a quick command run
+     * straight after a heavy one lost whatever it had printed in the meantime. The
+     * trim flag travels with the bytes for the same reason: read after the await,
+     * the finished block claims a truncation that belongs to its successor.
+     */
+    const bytes = this.capture
+    const trimmed = this.captureTrimmed
     this.capture = ''
+    this.captureTrimmed = false
+    let output = interactive ? '' : await this.renderCapture(bytes, trimmed)
 
     /*
      * Bounded in memory the way it already is on disk. The history and session
@@ -780,7 +810,7 @@ export class TerminalController {
   refit(): void {
     try {
       const dims = this.fit.proposeDimensions()
-      const cols = Math.max(Number.isFinite(dims?.cols) ? (dims?.cols as number) : 0, 40)
+      const measuredCols = Number.isFinite(dims?.cols) ? (dims?.cols as number) : 0
       const measured = Number.isFinite(dims?.rows) ? (dims?.rows as number) : 0
       /*
        * The terminal is exactly as tall as the box it is drawn in.
@@ -815,6 +845,30 @@ export class TerminalController {
        */
       if (measured >= VISIBLE_ROW_FLOOR) this.lastVisibleRows = measured
       const rows = this.lastVisibleRows
+
+      /*
+       * Width is held across the same stretches, which it was not.
+       *
+       * Any real measurement counts, however narrow — a thin split is a width
+       * someone chose, and the floor is there so a shell still has room to draw a
+       * prompt in it. But a pane that cannot be measured proposes nothing, and
+       * that fell through the same clamp to forty. Collapsing the terminal region
+       * while a command ran therefore resized conpty to forty columns and made it
+       * rewrap everything still to come.
+       */
+      /*
+       * Whether there is a box at all, asked of the box rather than of the fit
+       * addon. A hidden pane still proposes a width: the addon reads computed
+       * styles, and a percentage width computes to a number even with nothing to
+       * apply it to, so a collapsed pane proposed about a dozen columns — a real
+       * enough looking figure to pass any "did we measure something" test, and
+       * then to be clamped up to the forty-column floor. clientWidth is the used
+       * value and is plainly zero, which is the question actually being asked.
+       */
+      const box = this.term.element
+      const hasBox = !!box && box.clientWidth > 0 && box.clientHeight > 0
+      if (hasBox && measuredCols > 0) this.lastVisibleCols = Math.max(measuredCols, MIN_COLS)
+      const cols = this.lastVisibleCols
       if (cols !== this.term.cols || rows !== this.term.rows) this.term.resize(cols, rows)
       window.ember.resize(this.paneId, cols, rows)
     } catch {
