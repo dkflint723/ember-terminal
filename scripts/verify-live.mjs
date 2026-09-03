@@ -93,12 +93,16 @@ const run = async (command, timeoutMs = 90_000) => {
 
 // --- the strip a running command is watched in --------------------------------
 //
-// Forty lines, unhurried, so the cursor has genuinely walked past the bottom of the
-// strip by the time it is measured. That is the user's situation exactly: with a
+// Lines emitted unhurriedly, so the cursor has genuinely walked past the bottom
+// of the strip by the time it is measured. That is the user's situation exactly: with a
 // grid taller than the box the cursor keeps descending into rows nobody can see,
 // and the picture on screen stops changing while the program is working fine.
 await page.click('.composer__input')
-await page.keyboard.type('1..40 | ForEach-Object { "row $_"; Start-Sleep -Milliseconds 90 }', {
+// Long enough that the measurement lands nowhere near the end of it. At forty
+// rows of ninety milliseconds the command outlived the probe by four hundred
+// milliseconds, which a loaded machine ate: the strip had already collapsed and
+// the suite reported a zero-height box as a layout fault.
+await page.keyboard.type('1..70 | ForEach-Object { "row $_"; Start-Sleep -Milliseconds 120 }', {
   delay: 3
 })
 await page.keyboard.press('Enter')

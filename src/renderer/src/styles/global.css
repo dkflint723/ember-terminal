@@ -1052,7 +1052,7 @@ button {
      list that touches the window edges reads as the flat list this replaced. */
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 0;
   /*
    * No top padding, deliberately.
    *
@@ -1065,7 +1065,7 @@ button {
    * air it used to give is handed to the first card instead, so the list looks
    * the same at rest.
    */
-  padding: 0 16px 0;
+  padding: 0;
   user-select: text;
 }
 
@@ -1138,14 +1138,30 @@ button {
  */
 .block {
   /*
-   * The rule is reserved on every block and coloured only when it means something.
-   * Given to failures alone it shifted their text two pixels right of everything
-   * else, which reads as a rendering fault rather than as emphasis.
+   * Flat, and close to its neighbours.
+   *
+   * These were cards: a fill, a border, a ten-pixel radius, a drop shadow and ten
+   * pixels of air on every side. Measured on the commonest thing a terminal holds
+   * — a one-line command with one line of output — that cost seventy-six pixels to
+   * show nineteen pixels of text. Twenty-six per cent of the screen was the thing
+   * you came to read; the rest was upholstery. On a laptop it meant six commands
+   * of scrollback where a terminal shows fifteen.
+   *
+   * Warp gets this right by making a block a region rather than an object: nothing
+   * is drawn around it at rest, and the boundary is shown only when the pointer is
+   * on it or the block has something to say. This does the same. A hairline
+   * separates one from the next, hovering fills it, and the rule down the left —
+   * always reserved, so colouring it never shifts the text — is coloured when a
+   * command failed.
    */
-  background: var(--card);
-  border: 1px solid var(--card-border);
-  border-radius: 10px;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+  background: none;
+  border: none;
+  border-left: 2px solid transparent;
+  /* The boundary, and the only thing drawn around a block at rest. On the block
+     rather than between them, so the last one is closed off from the composer. */
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  box-shadow: none;
   padding: 0;
   /* Not hidden: the head has to be able to stick to the top of the scroll
      container, and an ancestor that clips also stops sticky from working. */
@@ -1160,7 +1176,7 @@ button {
   content-visibility: auto;
   /* An estimate of the new shape, not the old one: a block that guesses 90px and
      measures 46 leaves the scrollbar jumping as blocks come into range. */
-  contain-intrinsic-size: auto 46px;
+  contain-intrinsic-size: auto 44px;
 }
 
 /* Status is the card's own border, at partial strength so the text on it stays
@@ -1187,7 +1203,7 @@ button {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 9px 14px;
+  padding: 3px 12px;
   cursor: pointer;
 }
 
@@ -1210,9 +1226,15 @@ button {
    The hover colour, not the retired --bg-block: blocks have no fill of their own
    any more, so the only thing left that darkened a head was a token meaning
    "block", used for something that is not about being a block at all. */
-.block__head:hover,
-.block__head:focus-within {
+/* The block is the hover target, not its head: the boundary being shown is the
+   block's, and a fill that stops at the command line draws the wrong shape. */
+.block:hover,
+.block:focus-within {
   background: var(--bg-hover);
+}
+
+.block--failed {
+  border-left-color: var(--fail);
 }
 
 .block__chevron {
@@ -1333,7 +1355,7 @@ button {
 .block__body {
   /* The 38px left edge lines the output up under the command text: 14 of head
      padding, the chevron, the glyph, and the gaps between them. */
-  padding: 0 14px 12px 38px;
+  padding: 0 12px 6px 36px;
   font-family: var(--mono);
   font-size: calc(var(--font-size, 13px) - 1px);
   line-height: 1.55;
