@@ -4,37 +4,28 @@
     {
       "model": "qwen2.5-coder:1.5b",
       "exact": 30,
-      "firstToken": 73,
-      "similarity": 41,
-      "medianMs": 73,
-      "p90Ms": 141,
+      "firstToken": 75,
+      "similarity": 42,
+      "medianMs": 74,
+      "p90Ms": 143,
       "failed": 0
     },
     {
       "model": "qwen2.5-coder:7b",
       "exact": 40,
-      "firstToken": 85,
-      "similarity": 55,
-      "medianMs": 155,
-      "p90Ms": 301,
+      "firstToken": 88,
+      "similarity": 56,
+      "medianMs": 149,
+      "p90Ms": 309,
       "failed": 0
     },
     {
-      "model": "starcoder2:3b",
-      "exact": 8,
-      "firstToken": 23,
-      "similarity": 13,
-      "medianMs": 220,
-      "p90Ms": 230,
-      "failed": 0
-    },
-    {
-      "model": "Mellum-4b-base",
-      "exact": 25,
-      "firstToken": 70,
-      "similarity": 42,
-      "medianMs": 295,
-      "p90Ms": 393,
+      "model": "qwen2.5-coder:14b",
+      "exact": 50,
+      "firstToken": 90,
+      "similarity": 60,
+      "medianMs": 257,
+      "p90Ms": 562,
       "failed": 0
     }
   ]

@@ -29,8 +29,7 @@ import * as path from 'node:path'
 const MODELS = [
   { name: 'qwen2.5-coder:1.5b', shape: 'suffix' },
   { name: 'qwen2.5-coder:7b', shape: 'suffix' },
-  { name: 'starcoder2:3b', shape: 'starcoder' },
-  { name: 'hf.co/mradermacher/Mellum-4b-base-GGUF:latest', shape: 'starcoder' }
+  { name: 'qwen2.5-coder:14b', shape: 'suffix' }
 ]
 
 const SRC = 'D:/git_projects/terminal/src'

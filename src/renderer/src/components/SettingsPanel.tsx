@@ -1037,12 +1037,16 @@ export function SettingsPanel(): React.JSX.Element | null {
                     <div className="field__note">
                       As the endpoint names it; left empty, the endpoint&rsquo;s own default
                       answers. Pick one trained to fill in the middle rather than to chat.
-                      Measured on this codebase — real lines taken out and put back —{' '}
-                      <code>qwen2.5-coder:7b</code> restored 40% of them exactly and got the
-                      first token right 85% of the time, at a median of 155 ms;{' '}
-                      <code>qwen2.5-coder:1.5b</code> managed 30% and 73% at 73 ms, and{' '}
-                      <code>mellum-4b-base</code> 25% and 70%. The 7B is the one to want if
-                      the machine can hold it.
+                      Measured on this codebase by taking real lines out and putting them
+                      back: <code>qwen2.5-coder:14b</code> restored half of them exactly,{' '}
+                      <code>:7b</code> two fifths, <code>:1.5b</code> three tenths.
+                    </div>
+                    <div className="field__note">
+                      Bigger is slower, but the wait below is yours to spend: the 14B at a
+                      hundred milliseconds appears about as quickly as the 7B at two hundred,
+                      and is right more often. Spend the budget on the model rather than on
+                      waiting — unless the machine is doing something else, in which case the
+                      smaller one stays quick when the larger one does not.
                     </div>
                   </div>
 
