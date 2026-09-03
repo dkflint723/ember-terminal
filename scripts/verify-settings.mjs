@@ -147,6 +147,37 @@ check(
   modelOptions.includes('claude-haiku-4-5') && modelOptions.includes('custom'),
   JSON.stringify(modelOptions)
 )
+/*
+ * The density the app launched with, read before anything here has touched it.
+ *
+ * This is the half the picker cannot prove: the dialog sets the attribute itself
+ * as you choose, so a check made right after choosing passes even when nothing
+ * applies the saved value at startup — which is the only moment that matters for
+ * a setting you set once.
+ */
+check(
+  'the saved density is applied at launch',
+  (await page.evaluate(() => document.documentElement.dataset.density)) === 'normal',
+  String(await page.evaluate(() => document.documentElement.dataset.density))
+)
+
+/*
+ * --- how much room a block takes is a preference, not a verdict ----------------
+ *
+ * The blocks were flattened because they spent seventy-six pixels to show
+ * nineteen, and that default was chosen for everyone. Warp offers the same choice
+ * for the same reason — its own settings carry `[appearance] spacing` — so this
+ * one is checked the way the font is: that picking it changes the running app,
+ * and that the choice survives a save.
+ */
+await page.locator('.settings__density').selectOption('compact')
+await sleep(400)
+check(
+  'picking a density applies it to the running app',
+  (await page.evaluate(() => document.documentElement.dataset.density)) === 'compact',
+  await page.evaluate(() => document.documentElement.dataset.density)
+)
+
 await page.locator('.settings__model').selectOption('claude-haiku-4-5')
 await page.evaluate(() => {
   const save = [...document.querySelectorAll('.modal__actions .btn')].find((b) =>
@@ -157,6 +188,7 @@ await page.evaluate(() => {
 await sleep(1200)
 const picked = await page.evaluate(() => window.ember.getSettings())
 check('the picked font is saved as a stack', picked.fontFamily.startsWith('Consolas'), picked.fontFamily)
+check('and the density with it', picked.blockDensity === 'compact', String(picked.blockDensity))
 /*
  * And reaches the surfaces a person actually reads. Almost everything in
  * terminal mode is HTML styled `font-family: var(--mono)` — the blocks, the

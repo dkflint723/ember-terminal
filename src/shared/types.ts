@@ -738,6 +738,9 @@ export interface LspEvent {
   error?: string
 }
 
+/** How much room a command block takes. See Settings.blockDensity. */
+export type BlockDensity = 'compact' | 'normal' | 'comfortable'
+
 export interface Settings {
   fontFamily: string
   fontSize: number
@@ -813,6 +816,16 @@ export interface Settings {
    */
   uiZoom: number
   /**
+   * How much room a command block takes.
+   *
+   * A block is flat and hairline-separated at every setting; this changes the air
+   * inside it, not the vocabulary. `normal` is roughly forty-seven pixels for a
+   * one-line command against the seventy-six the old cards spent, and `compact`
+   * gives up the last of the padding for people who would rather see the
+   * scrollback than the spacing.
+   */
+  blockDensity: BlockDensity
+  /**
    * Where the window was and how big, so it comes back the same shape.
    *
    * Null until a window has been closed once. Stored with the settings rather than
@@ -865,6 +878,7 @@ export const DEFAULT_SETTINGS: Settings = {
   formatOnSave: false,
   keybindings: {},
   uiZoom: 1,
+  blockDensity: 'normal',
   windowBounds: null,
   windowMaximized: false,
   autoUpdate: false,

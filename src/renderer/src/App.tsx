@@ -39,6 +39,7 @@ export function App(): React.JSX.Element {
   const setDirPicker = useStore((s) => s.setDirPicker)
   const fontSize = useStore((s) => s.settings.fontSize)
   const fontFamily = useStore((s) => s.settings.fontFamily)
+  const blockDensity = useStore((s) => s.settings.blockDensity)
   const keyOverrides = useStore((s) => s.settings.keybindings)
   const bindings = useMemo(() => resolveBindings(keyOverrides ?? {}), [keyOverrides])
   const bindingsRef = useRef(bindings)
@@ -69,6 +70,14 @@ export function App(): React.JSX.Element {
     }
     document.documentElement.style.setProperty('--mono', fontFamily)
   }, [fontFamily])
+  /*
+   * Density rides on the root as an attribute rather than as a variable, because
+   * what it changes is a handful of paddings that want to be read together in the
+   * stylesheet rather than threaded through as numbers.
+   */
+  useEffect(() => {
+    document.documentElement.dataset.density = blockDensity ?? 'normal'
+  }, [blockDensity])
   /*
    * The terminal the browser belongs to: the active pane when that is one, else the
    * tab's first. The same rule the status bar uses to decide whose directory it is

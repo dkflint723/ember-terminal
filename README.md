@@ -58,6 +58,8 @@ again and it's a terminal.
   inline secrets scrubbed before anything is written.
 - **Sessions** — the sidebar lists every open shell with its directory and
   branch; the whole window restores on launch, unsaved edits included.
+- **Density** — how much room a block takes is a setting, not a verdict:
+  Compact, Normal or Comfortable, applied as you pick it.
 - **Themes** — any VS Code color theme. Drop a `.json` into the themes folder
   (Settings opens it) and it appears in the picker. Ten ship in the box,
   including colour-blind-safe pairs.

@@ -592,6 +592,30 @@ export function SettingsPanel(): React.JSX.Element | null {
                   Ctrl+0 returns to 100.
                 </div>
               </div>
+
+              {/* Applied as it changes, like the zoom above it: how much room a
+                  block should take is a thing to judge by looking, not by reading. */}
+              <div className="field">
+                <label>Block density</label>
+                <select
+                  className="settings__density"
+                  value={draft.blockDensity ?? 'normal'}
+                  onChange={(e) => {
+                    const next = e.target.value as Settings['blockDensity']
+                    field('blockDensity', next)
+                    document.documentElement.dataset.density = next
+                  }}
+                >
+                  <option value="compact">Compact</option>
+                  <option value="normal">Normal</option>
+                  <option value="comfortable">Comfortable</option>
+                </select>
+                <div className="field__note">
+                  How much air a command block gets in the terminal. Blocks stay flat and
+                  separated by a rule at every setting; this is the spacing inside them.
+                  Compact fits about half again as many commands on a screen as Comfortable.
+                </div>
+              </div>
             </section>
 
             <section className="settings__section" data-section="terminal">

@@ -5840,3 +5840,38 @@ label.field__check {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+
+/* ---------- block density ---------- */
+
+/*
+ * How much air a block gets, without changing what a block is.
+ *
+ * Flat and hairline-separated at every setting — the vocabulary is not the
+ * variable here, the spacing is. Warp offers the same choice for the same reason:
+ * how much scrollback is worth how much room is a preference, not a fact, and the
+ * default this app shipped was a verdict nobody asked for.
+ *
+ * `normal` is the stylesheet's own values, so it needs no rules of its own.
+ */
+:root[data-density='compact'] .block__head {
+  padding: 1px 12px;
+}
+
+:root[data-density='compact'] .block__body {
+  padding: 0 12px 3px 36px;
+  line-height: 1.42;
+}
+
+:root[data-density='comfortable'] .block__head {
+  padding: 7px 14px;
+}
+
+:root[data-density='comfortable'] .block__body {
+  padding: 0 14px 11px 38px;
+}
+
+/* The list breathes with the blocks: separated by air as well as by a rule, which
+   at this size reads as the card it replaced without the upholstery. */
+:root[data-density='comfortable'] .pane__scroll {
+  gap: 6px;
+}
