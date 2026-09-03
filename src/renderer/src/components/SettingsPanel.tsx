@@ -70,6 +70,7 @@ const SECTIONS = [
   { id: 'appearance', label: 'Appearance' },
   { id: 'terminal', label: 'Terminal' },
   { id: 'editor', label: 'Editor' },
+  { id: 'suggestions', label: 'Suggestions' },
   { id: 'claude', label: 'Claude' },
   { id: 'keyboard', label: 'Keyboard' },
   { id: 'system', label: 'System' }
@@ -185,6 +186,8 @@ export function SettingsPanel(): React.JSX.Element | null {
   const [saveError, setSaveError] = useState<string | null>(null)
   /** Whether main is holding a key. Its value never comes over. */
   const [hasApiKey, setHasApiKey] = useState(false)
+  /** Whether a suggestion-provider key is stored. Its value never comes over. */
+  const [hasGhostKey, setHasGhostKey] = useState(false)
 
   const refreshAccess = async (): Promise<void> => {
     setProbing(true)
@@ -251,6 +254,7 @@ export function SettingsPanel(): React.JSX.Element | null {
       setDraft(s)
       setSaved(s)
       setHasApiKey(s.hasApiKey)
+      setHasGhostKey(s.hasGhostKey)
     })
     void refreshThemeList()
   }, [open])
@@ -882,6 +886,137 @@ export function SettingsPanel(): React.JSX.Element | null {
                 </div>
                 {snippetError && <div className="composer__error">{snippetError}</div>}
               </div>
+            </section>
+
+            <section className="settings__section" data-section="suggestions">
+              <h3 className="settings__section-title">Suggestions</h3>
+
+              <div className="field">
+                <label>Inline suggestions</label>
+                <label className="field__check">
+                  <input
+                    type="checkbox"
+                    checked={draft.ghostEnabled}
+                    onChange={(e) => field('ghostEnabled', e.target.checked)}
+                  />
+                  <span>Suggest the next few lines ahead of the cursor</span>
+                </label>
+                <div className="field__note">
+                  Off unless you turn it on, because every way of answering costs
+                  something: a paid endpoint is billed per pause in your typing, a
+                  subscription is drawn down the same way, and a local model runs your
+                  GPU while you type. Tab accepts what is offered; Esc dismisses it.
+                </div>
+              </div>
+
+              {draft.ghostEnabled && (
+                <>
+                  <div className="field">
+                    <label>Answered by</label>
+                    <select
+                      className="settings__ghost-provider"
+                      value={draft.ghostProvider}
+                      onChange={(e) =>
+                        field('ghostProvider', e.target.value as Settings['ghostProvider'])
+                      }
+                    >
+                      <option value="local">A model on this machine</option>
+                      <option value="openai">An OpenAI-compatible endpoint</option>
+                      <option value="claude">Claude</option>
+                    </select>
+                    <div className="field__note">
+                      {draft.ghostProvider === 'local'
+                        ? 'Anything speaking the OpenAI API on this machine — Ollama, llama.cpp, LM Studio. A model trained to fill in the middle is asked in that form, which is both quicker and more accurate than asking in prose. Nothing leaves the machine and nothing is billed.'
+                        : draft.ghostProvider === 'openai'
+                          ? 'Any endpoint speaking the OpenAI API — OpenAI itself, or anyone else who implements it. Needs a key, kept encrypted here and never sent to this window.'
+                          : 'Through the Claude credential this app already has, so it needs no second key. It is a chat model rather than one trained to complete code, so it is slower here than a local model would be.'}
+                    </div>
+                  </div>
+
+                  {draft.ghostProvider !== 'claude' && (
+                    <div className="field">
+                      <label>Address</label>
+                      <input
+                        className="settings__ghost-url"
+                        value={draft.ghostBaseUrl}
+                        spellCheck={false}
+                        placeholder="http://localhost:11434/v1"
+                        onChange={(e) => field('ghostBaseUrl', e.target.value)}
+                      />
+                      <div className="field__note">
+                        Ollama serves this on port 11434; llama.cpp&rsquo;s own server uses
+                        8080.
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="field">
+                    <label>Model</label>
+                    <input
+                      className="settings__ghost-model"
+                      value={draft.ghostModel}
+                      spellCheck={false}
+                      placeholder={
+                        draft.ghostProvider === 'claude'
+                          ? 'claude-haiku-4-5-20251001'
+                          : 'qwen2.5-coder:1.5b'
+                      }
+                      onChange={(e) => field('ghostModel', e.target.value)}
+                    />
+                    <div className="field__note">
+                      As the endpoint names it; left empty, the endpoint&rsquo;s own default
+                      answers. Pick one trained to fill in the middle rather than to chat:{' '}
+                      <code>qwen2.5-coder:1.5b</code> is the easiest start — llama.cpp ships a
+                      one-flag default for it — and <code>mellum-4b-base</code> is worth
+                      trying against it, being built for this job specifically and
+                      Apache-licensed. Judge them on what you accept in your own code, not on
+                      published infilling scores: those rank the two in the opposite order
+                      from how they perform in an editor.
+                    </div>
+                  </div>
+
+                  {draft.ghostProvider === 'openai' && (
+                    <div className="field">
+                      <label>Key</label>
+                      <input
+                        className="settings__ghost-key"
+                        type="password"
+                        autoComplete="off"
+                        spellCheck={false}
+                        placeholder={hasGhostKey ? 'A key is saved — type to replace it' : 'sk-…'}
+                        value={draft.ghostApiKey ?? ''}
+                        onChange={(e) => field('ghostApiKey', e.target.value)}
+                      />
+                      <div className="field__note">
+                        Encrypted at rest, and never handed back to this window — the same
+                        treatment the Anthropic key gets.
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="field">
+                    <label>Wait before asking</label>
+                    <div className="field__unit">
+                      <input
+                        type="number"
+                        min={0}
+                        max={2000}
+                        step={50}
+                        value={draft.ghostDebounceMs}
+                        onChange={(e) =>
+                          field('ghostDebounceMs', Math.min(Math.max(Number(e.target.value) || 0, 0), 2000))
+                        }
+                      />
+                      <span className="field__unit-label">ms</span>
+                    </div>
+                    <div className="field__note">
+                      How long the cursor rests before anything is asked. A model on this
+                      machine can be asked almost at once; a paid endpoint should wait until
+                      you have actually stopped, because each pause is billed.
+                    </div>
+                  </div>
+                </>
+              )}
             </section>
 
             <section className="settings__section" data-section="claude">

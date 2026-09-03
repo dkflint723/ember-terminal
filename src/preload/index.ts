@@ -5,6 +5,7 @@ import type {
   CommandNotice,
   CompletionRequest,
   DapEventPayload,
+  GhostRequest,
   DebugStartRequest,
   HistoryQuery,
   IdeCall,
@@ -82,8 +83,9 @@ const api: EmberApi = {
     ipcRenderer.on('ui:openSettings', listener)
     return () => ipcRenderer.removeListener('ui:openSettings', listener)
   },
-  onSettingsChanged: (cb: (settings: Settings & { hasApiKey: boolean }) => void) => {
-    const listener = (_: unknown, s: Settings & { hasApiKey: boolean }): void => cb(s)
+  onSettingsChanged: (cb: (settings: Settings & { hasApiKey: boolean; hasGhostKey: boolean }) => void) => {
+    const listener = (_: unknown, s: Settings & { hasApiKey: boolean; hasGhostKey: boolean }): void =>
+      cb(s)
     ipcRenderer.on('settings:changed', listener)
     return () => ipcRenderer.removeListener('settings:changed', listener)
   },
@@ -142,6 +144,9 @@ const api: EmberApi = {
   gitBranches: (root: string) => ipcRenderer.invoke('git:branches', root),
   gitHeadText: (filePath: string): Promise<string | null> =>
     ipcRenderer.invoke('git:headText', filePath),
+  ghostComplete: (id: number, request: GhostRequest) =>
+    ipcRenderer.invoke('ghost:complete', id, request),
+  ghostCancel: (id: number) => ipcRenderer.send('ghost:cancel', id),
   gitBlameLine: (root: string, filePath: string, line: number) =>
     ipcRenderer.invoke('git:blameLine', root, filePath, line),
   gitLog: (root: string, filePath: string | null, limit: number) =>

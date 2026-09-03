@@ -46,6 +46,11 @@ again and it's a terminal.
   evaluates in the paused frame — and the program runs as a real block in the
   terminal, stdin and all. Node via bundled js-debug (`npm run fetch:js-debug`
   in a dev checkout); any DAP adapter can be taught in settings.
+- **Inline suggestions** — off until you ask for them, then answered by whoever
+  you choose: a model on your own machine (anything speaking the OpenAI API —
+  Ollama, llama.cpp, LM Studio), any OpenAI-compatible endpoint, or Claude. A
+  local model is asked to fill in the middle rather than to chat, which is both
+  quicker and more accurate. Most of the work is deciding when *not* to ask.
 - **Scripts** — the commands a project already declares, listed from its
   `package.json` and one press from running (`Ctrl+Shift+R`). The lockfile
   decides whether that is npm, pnpm, yarn or bun, and each one runs as an
@@ -121,7 +126,7 @@ npm run dist
 
 ### Verifying it
 
-The test suite is 58 Playwright scripts under `scripts/verify-*.mjs`, each of
+The test suite is 59 Playwright scripts under `scripts/verify-*.mjs`, each of
 which launches the real app with a throwaway profile and drives it like a hand:
 
 ```bash

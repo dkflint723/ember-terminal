@@ -741,6 +741,31 @@ export interface LspEvent {
 /** How much room a command block takes. See Settings.blockDensity. */
 export type BlockDensity = 'compact' | 'normal' | 'comfortable'
 
+/**
+ * Who writes the suggestion that appears ahead of the caret.
+ *
+ * `local` and `openai` are the same protocol — an OpenAI-compatible HTTP endpoint —
+ * which is why there is no separate entry for Ollama, llama.cpp, LM Studio,
+ * OpenRouter or anyone else who speaks it. They differ in two honest ways: a local
+ * server needs no key, and a model served locally is usually one trained to fill in
+ * the middle, so it is asked in that form rather than in prose.
+ *
+ * `claude` goes through the credential this app already has, so it costs a
+ * subscription rather than a second key.
+ */
+export type GhostProvider = 'local' | 'openai' | 'claude'
+
+/** What the editor sends when it wants a suggestion: the caret, with context. */
+export interface GhostRequest {
+  /** The text before the caret, already trimmed to a budget by the caller. */
+  prefix: string
+  /** The text after it. */
+  suffix: string
+  language: string
+}
+
+export type GhostResult = { ok: true; text: string } | { ok: false; error: string }
+
 export interface Settings {
   fontFamily: string
   fontSize: number
@@ -826,6 +851,29 @@ export interface Settings {
    */
   blockDensity: BlockDensity
   /**
+   * Whether a suggestion is offered ahead of the caret as you type.
+   *
+   * Off, for everybody, until it is asked for. Every way of answering costs
+   * something a person should choose to spend: a paid API is billed by the
+   * keystroke-pause, a subscription is drawn down the same way, and a local model
+   * is a gigabyte or two of download and a GPU running while you type. A default
+   * that quietly spends any of those is a default that should not be on.
+   */
+  ghostEnabled: boolean
+  ghostProvider: GhostProvider
+  /** An OpenAI-compatible base URL, for `local` and `openai`. */
+  ghostBaseUrl: string
+  /** The model as the endpoint names it. Empty means the endpoint's own default. */
+  ghostModel: string
+  /**
+   * Only for `openai`. Encrypted at rest exactly as the Anthropic key is, and
+   * likewise always null when read from the renderer — `local` needs none and
+   * `claude` uses the credential this app already holds.
+   */
+  ghostApiKey: string | null
+  /** How long the caret must rest before anything is asked. */
+  ghostDebounceMs: number
+  /**
    * Where the window was and how big, so it comes back the same shape.
    *
    * Null until a window has been closed once. Stored with the settings rather than
@@ -879,6 +927,14 @@ export const DEFAULT_SETTINGS: Settings = {
   keybindings: {},
   uiZoom: 1,
   blockDensity: 'normal',
+  ghostEnabled: false,
+  ghostProvider: 'local',
+  // Ollama's OpenAI-compatible port, which is the likeliest thing already listening
+  // on a machine that has anything at all. llama.cpp's server is :8080.
+  ghostBaseUrl: 'http://localhost:11434/v1',
+  ghostModel: '',
+  ghostApiKey: null,
+  ghostDebounceMs: 200,
   windowBounds: null,
   windowMaximized: false,
   autoUpdate: false,
@@ -919,7 +975,7 @@ export interface EmberApi {
   /** Main asking for the Settings dialog — the update notification was clicked. */
   onOpenSettings(fn: () => void): () => void
   /** Settings saved by another window; this one applies them without a round trip. */
-  onSettingsChanged(fn: (settings: Settings & { hasApiKey: boolean }) => void): () => void
+  onSettingsChanged(fn: (settings: Settings & { hasApiKey: boolean; hasGhostKey: boolean }) => void): () => void
   /** Debug adapters this machine can offer: detected ones plus those taught in settings. */
   listDebugAdapters(): Promise<DebugAdapter[]>
   /**
@@ -1001,6 +1057,12 @@ export interface EmberApi {
   gitHeadText(filePath: string): Promise<string | null>
   gitCheckout(root: string, name: string, create: boolean): Promise<GitSimpleResult>
   /** Who last touched one line, or null where git has nothing to say about it. */
+  /**
+   * A suggestion for the caret. `id` names the editor asking, so a second request
+   * from the same one cancels the first rather than racing it.
+   */
+  ghostComplete(id: number, request: GhostRequest): Promise<GhostResult>
+  ghostCancel(id: number): void
   gitBlameLine(root: string, filePath: string, line: number): Promise<GitBlameLine | null>
   /** Recent commits, for the repository or for one file. */
   gitLog(root: string, filePath: string | null, limit: number): Promise<GitLogEntry[]>
@@ -1070,7 +1132,7 @@ export interface EmberApi {
   aiChatCancel(requestId: string): void
   onAiChatEvent(cb: (e: AiChatEvent) => void): () => void
   /** `hasApiKey` says whether one is stored; the key itself never comes back. */
-  getSettings(): Promise<Settings & { hasApiKey: boolean }>
+  getSettings(): Promise<Settings & { hasApiKey: boolean; hasGhostKey: boolean }>
   /** `persisted` is false when the value is in memory only and will not survive. */
   setSettings(
     patch: Partial<Settings>

@@ -113,6 +113,8 @@ import { HistoryStore } from './history.js'
 import { FileService, fileArgs, pathArgs } from './files.js'
 import { LspService } from './lsp.js'
 import { GitService } from './git.js'
+import { GhostService } from './ghost.js'
+import type { GhostRequest } from '../shared/types.js'
 import { IdeServer } from './ide.js'
 import { GitHubService } from './github.js'
 import { ExplorerMenu } from './explorer.js'
@@ -513,6 +515,7 @@ function focusedEmberWindow(): BrowserWindow | null {
 }
 
 let settings: SettingsStore
+let ghost: GhostService
 let themes: ThemeStore
 let completion: CompletionService
 let history: HistoryStore
@@ -910,6 +913,27 @@ function registerIpc(): void {
     void ai.chat(req, (event) => sendToRenderer('ai:chat-event', event))
   })
   ipcMain.on('ai:chat-cancel', (_e, requestId: string) => ai.cancelChat(requestId))
+  /*
+   * The suggestion ahead of the caret. Every call carries its own abort, because
+   * the renderer cancels on the next keystroke and a request nobody is waiting for
+   * still costs whatever the chosen provider charges.
+   */
+  const ghostRuns = new Map<number, AbortController>()
+  ipcMain.handle('ghost:complete', async (_e, id: number, request: GhostRequest) => {
+    ghostRuns.get(id)?.abort()
+    const controller = new AbortController()
+    ghostRuns.set(id, controller)
+    try {
+      return await ghost.complete(request, controller.signal)
+    } finally {
+      if (ghostRuns.get(id) === controller) ghostRuns.delete(id)
+    }
+  })
+  ipcMain.on('ghost:cancel', (_e, id: number) => {
+    ghostRuns.get(id)?.abort()
+    ghostRuns.delete(id)
+  })
+
   ipcMain.handle('ai:credential', () => ai.credential())
   ipcMain.handle('ai:usage', () => ai.usage())
   ipcMain.handle('ai:check-usage', () => ai.checkUsage())
@@ -1338,7 +1362,14 @@ function registerIpc(): void {
    */
   ipcMain.handle('settings:get', () => {
     const current = settings.get()
-    return { ...current, anthropicApiKey: null, hasApiKey: !!current.anthropicApiKey?.trim() }
+    return {
+      ...current,
+      anthropicApiKey: null,
+      hasApiKey: !!current.anthropicApiKey?.trim(),
+      // The suggestion provider's key is a key too, and travels no further.
+      ghostApiKey: null,
+      hasGhostKey: !!current.ghostApiKey?.trim()
+    }
   })
   ipcMain.handle('settings:set', (e, patch: Partial<Settings>) => {
     const res = settings.set(patch)
@@ -1351,7 +1382,9 @@ function registerIpc(): void {
     const redacted = {
       ...res.settings,
       anthropicApiKey: null,
-      hasApiKey: !!res.settings.anthropicApiKey?.trim()
+      hasApiKey: !!res.settings.anthropicApiKey?.trim(),
+      ghostApiKey: null,
+      hasGhostKey: !!res.settings.ghostApiKey?.trim()
     }
     sendToAll('settings:changed', redacted)
     /*
@@ -1545,6 +1578,7 @@ process.on('unhandledRejection', (reason) => {
 
   void app.whenReady().then(() => {
     settings = new SettingsStore()
+    ghost = new GhostService(() => settings.get())
     themes = new ThemeStore()
     history = new HistoryStore()
     files = new FileService()

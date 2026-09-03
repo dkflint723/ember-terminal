@@ -44,6 +44,9 @@ export class SettingsStore {
 
     const merged: Settings = { ...DEFAULT_SETTINGS, ...stored }
     merged.anthropicApiKey = this.decryptKey(merged.anthropicApiKey)
+    // The second key gets the same treatment as the first. A provider key sitting
+    // in plaintext beside an encrypted one is the worse kind of half-measure.
+    merged.ghostApiKey = this.decryptKey(merged.ghostApiKey)
     this.cache = merged
     return merged
   }
@@ -70,7 +73,11 @@ export class SettingsStore {
     const next: Settings = { ...this.get(), ...patch }
     this.cache = next
 
-    const onDisk: Settings = { ...next, anthropicApiKey: this.encryptKey(next.anthropicApiKey) }
+    const onDisk: Settings = {
+      ...next,
+      anthropicApiKey: this.encryptKey(next.anthropicApiKey),
+      ghostApiKey: this.encryptKey(next.ghostApiKey)
+    }
     const temp = `${this.file}.tmp`
     try {
       mkdirSync(dirname(this.file), { recursive: true })
