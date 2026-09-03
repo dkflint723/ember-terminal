@@ -1063,6 +1063,12 @@ export interface EmberApi {
    */
   ghostComplete(id: number, request: GhostRequest): Promise<GhostResult>
   ghostCancel(id: number): void
+  /** Rewrite a selected fragment to match an instruction. */
+  rewriteSelection(
+    selection: string,
+    instruction: string,
+    language: string
+  ): Promise<{ ok: true; text: string } | { ok: false; error: string }>
   gitBlameLine(root: string, filePath: string, line: number): Promise<GitBlameLine | null>
   /** Recent commits, for the repository or for one file. */
   gitLog(root: string, filePath: string | null, limit: number): Promise<GitLogEntry[]>

@@ -46,6 +46,8 @@ again and it's a terminal.
   evaluates in the paused frame — and the program runs as a real block in the
   terminal, stdin and all. Node via bundled js-debug (`npm run fetch:js-debug`
   in a dev checkout); any DAP adapter can be taught in settings.
+- **Edit with Claude** — select code, press `Ctrl+I`, say what you want changed,
+  and it is rewritten in place as a single undoable edit.
 - **Inline suggestions** — off until you ask for them, then answered by whoever
   you choose: a model on your own machine (anything speaking the OpenAI API —
   Ollama, llama.cpp, LM Studio), any OpenAI-compatible endpoint, or Claude. A
@@ -105,6 +107,7 @@ Grab `Ember Setup <version>.exe` from
 | `Ctrl+Shift+F` `G` `H` `M` `R` | Search, source control, GitHub, problems, scripts |
 | `Ctrl+Alt+S` | Save all |
 | `Alt+Shift+F` | Format document |
+| `Ctrl+I` | Edit the selection with Claude |
 | `Ctrl+=` `-` `0` | Zoom |
 | `Ctrl+,` | Settings |
 
@@ -126,7 +129,7 @@ npm run dist
 
 ### Verifying it
 
-The test suite is 59 Playwright scripts under `scripts/verify-*.mjs`, each of
+The test suite is 60 Playwright scripts under `scripts/verify-*.mjs`, each of
 which launches the real app with a throwaway profile and drives it like a hand:
 
 ```bash

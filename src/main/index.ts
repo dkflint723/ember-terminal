@@ -929,6 +929,25 @@ function registerIpc(): void {
       if (ghostRuns.get(id) === controller) ghostRuns.delete(id)
     }
   })
+  /*
+   * Rewriting a selection. Short and one-shot on purpose: the panel's chat is for
+   * a conversation, and this is a change to some code the user is looking at.
+   */
+  ipcMain.handle(
+    'edit:rewrite',
+    async (_e, selection: string, instruction: string, language: string) =>
+      ai.oneShot(
+        [
+          'You rewrite a fragment of code to match an instruction.',
+          'Reply with the rewritten fragment and nothing else:',
+          'no explanation, no commentary, and no code fences.',
+          'Keep the surrounding indentation style. Change only what the instruction asks for.'
+        ].join(' '),
+        [`Language: ${language}`, '', `Instruction: ${instruction}`, '', 'Fragment:', selection].join('\n'),
+        2048
+      )
+  )
+
   ipcMain.on('ghost:cancel', (_e, id: number) => {
     ghostRuns.get(id)?.abort()
     ghostRuns.delete(id)

@@ -5,6 +5,7 @@ import { applyMonacoTheme, MONACO_THEME_ID } from '../editor/theme'
 import { ensureLanguageServer, findDefinition } from '../editor/lsp'
 import { attachBlame } from '../editor/blame'
 import { attachGhost, registerGhost } from '../editor/ghost'
+import { attachInlineEdit } from '../editor/inline-edit'
 import { ensureSnippets } from '../editor/snippets'
 import { openAt } from '../editor/navigate'
 import { lastSynced, noteSynced } from '../editor/synced'
@@ -281,6 +282,10 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
      * change under this editor without it being recreated.
      */
     const ghost = attachGhost(editor)
+    const inlineEdit = attachInlineEdit(editor, {
+      rewrite: (selection, instruction, language) =>
+        window.ember.rewriteSelection(selection, instruction, language)
+    })
 
     const blame = attachBlame(editor, () => {
       const state = useStore.getState()
@@ -330,6 +335,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
         errorLines.clear()
       blame.dispose()
       ghost.dispose()
+      inlineEdit.dispose()
         return
       }
       const lines = new Set<number>()

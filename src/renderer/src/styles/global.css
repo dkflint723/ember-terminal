@@ -5887,3 +5887,51 @@ label.field__check {
 :root[data-density='comfortable'] .pane__scroll {
   gap: 6px;
 }
+
+/* ---------- edit with Claude ---------- */
+
+/*
+ * A prompt over the selection it is about. Deliberately small and anchored above
+ * the code rather than centred over the window: the thing being changed has to
+ * stay readable while the change is described.
+ */
+.inline-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+}
+
+.inline-edit__input {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+.inline-edit__input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.inline-edit__input:disabled {
+  opacity: 0.6;
+}
+
+.inline-edit__hint {
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+/* A refusal reads as one, rather than as another hint. */
+.inline-edit__hint--bad {
+  color: var(--fail);
+}

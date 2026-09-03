@@ -147,6 +147,8 @@ const api: EmberApi = {
   ghostComplete: (id: number, request: GhostRequest) =>
     ipcRenderer.invoke('ghost:complete', id, request),
   ghostCancel: (id: number) => ipcRenderer.send('ghost:cancel', id),
+  rewriteSelection: (selection: string, instruction: string, language: string) =>
+    ipcRenderer.invoke('edit:rewrite', selection, instruction, language),
   gitBlameLine: (root: string, filePath: string, line: number) =>
     ipcRenderer.invoke('git:blameLine', root, filePath, line),
   gitLog: (root: string, filePath: string | null, limit: number) =>
