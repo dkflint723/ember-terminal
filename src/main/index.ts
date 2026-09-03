@@ -144,6 +144,29 @@ import {
 } from '../shared/types.js'
 
 /**
+ * Settings as the renderer is allowed to see them: no keys, and a flag saying
+ * whether each one exists.
+ *
+ * One function rather than the shape written out at each door, because writing it
+ * out is what went wrong twice. There are three doors — read, write, and noting a
+ * recent folder — and the third was added answering with the merged settings raw,
+ * so opening a folder handed both decrypted keys to the renderer. Adding a second
+ * secret later had the same shape of failure: only the first one was stripped.
+ * A door that forgets to call this does not compile into anything sensible; a
+ * door that writes its own copy of the shape compiles fine and leaks.
+ */
+function forRenderer(current: Settings): Settings & { hasApiKey: boolean; hasGhostKey: boolean } {
+  return {
+    ...current,
+    anthropicApiKey: null,
+    hasApiKey: !!current.anthropicApiKey?.trim(),
+    // The suggestion provider's key is a key too, and travels no further.
+    ghostApiKey: null,
+    hasGhostKey: !!current.ghostApiKey?.trim()
+  }
+}
+
+/**
  * Where a fault goes when there is no console: a packaged build's stderr lands
  * nowhere, so every report is also appended to ember.log in userData — the file
  * to ask for when something went wrong on a machine that is not this one.
@@ -1380,17 +1403,7 @@ function registerIpc(): void {
    * renderer needs its value: AiService reads it in main, and the dialog only
    * needs to know whether one is set.
    */
-  ipcMain.handle('settings:get', () => {
-    const current = settings.get()
-    return {
-      ...current,
-      anthropicApiKey: null,
-      hasApiKey: !!current.anthropicApiKey?.trim(),
-      // The suggestion provider's key is a key too, and travels no further.
-      ghostApiKey: null,
-      hasGhostKey: !!current.ghostApiKey?.trim()
-    }
-  })
+  ipcMain.handle('settings:get', () => forRenderer(settings.get()))
   ipcMain.handle('settings:set', (e, patch: Partial<Settings>) => {
     const res = settings.set(patch)
     /*
@@ -1399,13 +1412,7 @@ function registerIpc(): void {
      * way. Applying settings twice is writing the same values twice. The key
      * never travels: the broadcast carries the redacted shape the read gives.
      */
-    const redacted = {
-      ...res.settings,
-      anthropicApiKey: null,
-      hasApiKey: !!res.settings.anthropicApiKey?.trim(),
-      ghostApiKey: null,
-      hasGhostKey: !!res.settings.ghostApiKey?.trim()
-    }
+    const redacted = forRenderer(res.settings)
     sendToAll('settings:changed', redacted)
     /*
      * Redacted on the way back, the same as settings:get. The write path used
@@ -1501,7 +1508,15 @@ function registerIpc(): void {
       }
     })()
   })
-  ipcMain.handle('settings:noteFolder', (_e, folder: string) => settings.noteRecentFolder(folder))
+  /*
+   * Redacted like every other read. This one answered with the merged settings
+   * raw, and the store pipes its answer straight into applySettings whenever a
+   * tree root is opened — so opening a folder handed both decrypted keys to the
+   * renderer, which is the one thing the other two doors were written to prevent.
+   */
+  ipcMain.handle('settings:noteFolder', (_e, folder: string) =>
+    forRenderer(settings.noteRecentFolder(folder))
+  )
   ipcMain.handle('settings:loadError', () => settings.takeLoadError())
   ipcMain.on('window:zoom', (e, factor: number) => {
     // Clamped: a zoom of 0 leaves an invisible window with no way back to the

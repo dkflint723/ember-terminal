@@ -247,6 +247,50 @@ check(
   JSON.stringify(afterUnrelatedSave.hasApiKey)
 )
 
+/*
+ * The same for the suggestion provider's key.
+ *
+ * It is a second secret, added later than the first, and every piece of code that
+ * handles secrets was only ever taught about the first one. The read path redacts
+ * it, so the dialog's copy is null whether or not one is stored — and a save that
+ * does not strip that null writes it over the key that was there.
+ */
+await page.evaluate(() => window.ember.setSettings({ ghostApiKey: 'ghost-secret-value' }))
+await sleep(600)
+const ghostHeld = await page.evaluate(() => window.ember.getSettings())
+check('a suggestion key is held too', ghostHeld.hasGhostKey === true, JSON.stringify(ghostHeld.hasGhostKey))
+
+await page.keyboard.press('Control+Comma')
+await page.waitForSelector('.modal', { timeout: 10_000 })
+await sleep(600)
+await page.evaluate(() => {
+  const save = [...document.querySelectorAll('.modal__actions .btn')].find((b) =>
+    b.textContent?.includes('Save')
+  )
+  save?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+})
+await sleep(1200)
+const afterGhostSave = await page.evaluate(() => window.ember.getSettings())
+check(
+  'and an unrelated save does not discard that one either',
+  afterGhostSave.hasGhostKey === true,
+  JSON.stringify(afterGhostSave.hasGhostKey)
+)
+
+/*
+ * And no other door hands a key out. Noting a recent folder answers with the
+ * settings as well — the store pipes that straight into applySettings when a tree
+ * root is opened — so it is a read path like any other and has to redact like one.
+ * Two doors were built with the redaction written out at each of them, and the
+ * third was added without it.
+ */
+const viaFolder = await page.evaluate(() => window.ember.noteRecentFolder('D:/'))
+check(
+  'and noting a folder does not hand the keys back',
+  viaFolder.anthropicApiKey == null && viaFolder.ghostApiKey == null,
+  JSON.stringify({ anthropic: viaFolder.anthropicApiKey, ghost: viaFolder.ghostApiKey })
+)
+
 // It must not be readable from the settings file in the clear.
 const onDisk = path.join(profile.dir, 'settings.json')
 if (fs.existsSync(onDisk)) {

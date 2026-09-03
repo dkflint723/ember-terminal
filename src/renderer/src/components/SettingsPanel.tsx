@@ -17,6 +17,16 @@ import { leadFamily, monospaceFamilies, stackFor } from '../state/fonts'
  * with a key, an environment variable and a CLI login all possible at once, "it
  * works" is not enough to explain why an answer came back the way it did.
  */
+/**
+ * Every field that holds a secret, so the rule about them is written once.
+ *
+ * Main redacts these on the way out, which means the dialog's copy of one is null
+ * whether or not a key is stored — so anything sending the draft back has to drop
+ * them first. Listing them here is the difference between adding a third secret
+ * and remembering three separate places to teach about it.
+ */
+const SECRETS = ['anthropicApiKey', 'ghostApiKey'] as const
+
 function credentialLabel(credential: AiCredential | null, claude: ClaudeAccess | null): string {
   if (!credential) return 'Checking…'
   switch (credential.source) {
@@ -344,12 +354,15 @@ export function SettingsPanel(): React.JSX.Element | null {
     /*
      * An untouched key field means "leave it alone", not "clear it".
      *
-     * The stored key never comes back from main, so the draft's copy is null
+     * No stored key ever comes back from main, so the draft's copy is null
      * whether or not one exists — sending it would wipe a saved key every time
-     * anybody changed a font size.
+     * anybody changed a font size. Every secret, not the first one: the
+     * suggestion provider's key was added later and this line was not, so a save
+     * of any kind quietly emptied it and suggestions stopped for a reason the
+     * dialog reported as the endpoint refusing the key.
      */
     const patch: Partial<Settings> = { ...draft }
-    if (patch.anthropicApiKey == null) delete patch.anthropicApiKey
+    for (const secret of SECRETS) if (patch[secret] == null) delete patch[secret]
     const res = await window.ember.setSettings(patch)
     applySettings(res.settings)
     /*
@@ -1090,13 +1103,19 @@ export function SettingsPanel(): React.JSX.Element | null {
                           void (async () => {
                             // Saved first: the test asks main, which reads the
                             // stored settings rather than what is on screen.
-                            await window.ember.setSettings({
+                            const probe: Partial<Settings> = {
                               ghostEnabled: draft.ghostEnabled,
                               ghostProvider: draft.ghostProvider,
                               ghostBaseUrl: draft.ghostBaseUrl,
                               ghostModel: draft.ghostModel,
                               ghostApiKey: draft.ghostApiKey
-                            })
+                            }
+                            // Same rule as saving: an untouched field is not an
+                            // instruction to clear the key. Sending it deleted the
+                            // stored key and then reported the keyless probe it had
+                            // just caused as the endpoint refusing the key.
+                            if (probe.ghostApiKey == null) delete probe.ghostApiKey
+                            await window.ember.setSettings(probe)
                             const res = await window.ember.ghostTest()
                             setGhostTest(
                               res.ok
