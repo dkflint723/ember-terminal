@@ -220,6 +220,63 @@ export class AiService {
     }
   }
 
+  /**
+   * One short answer, through whichever door is open.
+   *
+   * chat() is the panel's shape — streamed, threaded, and full of instructions
+   * about fenced proposals. Two things want neither: the suggestion ahead of the
+   * caret, and an edit made to a selection. Both want a single string back.
+   *
+   * It matters that this resolves the credential the same way chat() does. The
+   * first version of the suggestion provider read `anthropicApiKey` directly and
+   * gave up when it was empty — which is the normal state for anyone signed in
+   * through the Claude Code CLI, so choosing Claude there failed with "no
+   * credential" while the panel beside it worked perfectly.
+   */
+  async oneShot(
+    system: string,
+    prompt: string,
+    maxTokens: number,
+    model?: string
+  ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+    if (process.env.EMBER_FAKE_AI) {
+      return { ok: true, text: `FAKE:${prompt.slice(-40)}` }
+    }
+
+    const chosen = model || this.settings.get().aiModel
+    const apiKey = this.settings.resolveApiKey()
+
+    if (apiKey) {
+      try {
+        const client = new Anthropic({ apiKey, maxRetries: 1 })
+        const message = await client.messages.create({
+          model: chosen,
+          max_tokens: maxTokens,
+          system,
+          messages: [{ role: 'user', content: prompt }]
+        })
+        const text = message.content
+          .map((part) => (part.type === 'text' ? part.text : ''))
+          .join('')
+        return { ok: true, text }
+      } catch (err) {
+        return { ok: false, error: this.describeError(err) }
+      }
+    }
+
+    const access = await this.claude.access()
+    if (!access.installed || !access.signedIn) {
+      return { ok: false, error: 'No API key, and Claude Code is not signed in. Settings has both doors.' }
+    }
+    let out = ''
+    const stream = this.claude.askStream(system, prompt, chosen, (delta) => {
+      out += delta
+    })
+    const res = await stream.done
+    if ('cancelled' in res) return { ok: false, error: 'cancelled' }
+    return res.ok ? { ok: true, text: out } : { ok: false, error: res.error }
+  }
+
   cancelChat(requestId: string): void {
     this.chatStreams.get(requestId)?.abort()
   }

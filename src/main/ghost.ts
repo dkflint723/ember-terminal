@@ -24,6 +24,14 @@ const TIMEOUT_MS = 10_000
 /** A suggestion is a line or a few, never an essay. Also a cost ceiling. */
 const MAX_TOKENS = 96
 
+/** Just enough of AiService to ask it one short question. */
+type OneShot = (
+  system: string,
+  prompt: string,
+  maxTokens: number,
+  model?: string
+) => Promise<{ ok: true; text: string } | { ok: false; error: string }>
+
 /** The three ways a local server will take a fill-in-the-middle request. */
 type LocalShape = 'ollama' | 'infill' | 'completions'
 
@@ -31,7 +39,11 @@ type LocalShape = 'ollama' | 'infill' | 'completions'
 const shapes = new Map<string, LocalShape>()
 
 export class GhostService {
-  constructor(private settings: () => Settings) {}
+  constructor(
+    private settings: () => Settings,
+    /** The app's own Claude access, so every door it knows about counts here too. */
+    private ai: () => { oneShot: OneShot }
+  ) {}
 
   /**
    * `signal` is not optional in spirit: the caller cancels on every keystroke, and
@@ -44,7 +56,7 @@ export class GhostService {
     try {
       const text =
         s.ghostProvider === 'claude'
-          ? await this.viaClaude(request, s, signal)
+          ? await this.viaClaude(request, s)
           : s.ghostProvider === 'local'
             ? await this.viaLocal(request, s, signal)
             : await this.viaChat(request, s, signal)
@@ -175,33 +187,21 @@ function add(..." through the
     return chat.choices?.[0]?.message?.content ?? ''
   }
 
-  /** Through the credential the app already has, so it needs no second key. */
-  private async viaClaude(
-    request: GhostRequest,
-    s: Settings,
-    signal: AbortSignal
-  ): Promise<string> {
-    const key = s.anthropicApiKey
-    if (!key) throw new Error('no-credential')
-
-    const res = await post(
-      'https://api.anthropic.com/v1/messages',
-      {
-        'content-type': 'application/json',
-        'x-api-key': key,
-        'anthropic-version': '2023-06-01'
-      },
-      {
-        model: s.ghostModel || 'claude-haiku-4-5-20251001',
-        max_tokens: MAX_TOKENS,
-        temperature: 0,
-        system: SYSTEM,
-        messages: [{ role: 'user', content: userTurn(request) }]
-      },
-      signal
+  /**
+   * Through whichever Claude credential is actually available — a key here, a key
+   * in the environment, or the Claude Code CLI sign-in. Reading the key field
+   * directly, which is what this did at first, fails for everyone who signed in
+   * through the browser rather than pasting a key.
+   */
+  private async viaClaude(request: GhostRequest, s: Settings): Promise<string> {
+    const res = await this.ai().oneShot(
+      SYSTEM,
+      userTurn(request),
+      MAX_TOKENS,
+      s.ghostModel || 'claude-haiku-4-5-20251001'
     )
-    const content = (res as { content?: { text?: string }[] }).content
-    return content?.map((c) => c.text ?? '').join('') ?? ''
+    if (!res.ok) throw new Error(res.error)
+    return res.text
   }
 }
 
@@ -265,9 +265,8 @@ function clean(text: string, suffix: string): string {
 
 function describe(err: unknown, provider: GhostProvider, baseUrl: string): string {
   const message = err instanceof Error ? err.message : String(err)
-  if (message === 'no-credential') {
-    return 'Claude has no credential here — add an API key in Settings, or pick another provider.'
-  }
+  // AiService already words the credential case, and it knows about all three
+  // doors rather than only the key. Its sentence is better than one made here.
   if (/ECONNREFUSED|fetch failed|Failed to fetch/i.test(message)) {
     return provider === 'local'
       ? `Nothing is listening at ${baseUrl}. Start your model server, or change the address in Settings.`

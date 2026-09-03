@@ -1578,7 +1578,10 @@ process.on('unhandledRejection', (reason) => {
 
   void app.whenReady().then(() => {
     settings = new SettingsStore()
-    ghost = new GhostService(() => settings.get())
+    ghost = new GhostService(
+      () => settings.get(),
+      () => ({ oneShot: (sys, prompt, max, model) => ai.oneShot(sys, prompt, max, model) })
+    )
     themes = new ThemeStore()
     history = new HistoryStore()
     files = new FileService()

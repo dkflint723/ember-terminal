@@ -73,7 +73,7 @@ const app = await electron.launch({
   executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
   args: [APP_DIR, profile.arg, work],
   cwd: APP_DIR,
-  env,
+  env: { ...env, EMBER_FAKE_AI: '1' },
   timeout: 60_000
 })
 const page = await app.firstWindow()
@@ -265,6 +265,34 @@ check(
   seen.length === asked,
   `${asked} then ${seen.length}`
 )
+
+/*
+ * --- Claude answers through whichever door is open ----------------------------
+ *
+ * The first version read the API key field directly and gave up when it was
+ * empty — which is the normal state for anyone signed in through the Claude Code
+ * CLI, so choosing Claude here failed with "no credential" while the panel beside
+ * it worked perfectly. It goes through the app's own Claude access now, and this
+ * profile has no key at all, so a plain refusal would be the old bug returning.
+ *
+ * EMBER_FAKE_AI stands in for the network, the same seam the agent suites use.
+ */
+seen.length = 0
+await page.evaluate(() => window.ember.setSettings({ ghostProvider: 'claude', ghostModel: '' }))
+await sleep(800)
+const viaClaude = await page.evaluate(() =>
+  window.ember.ghostComplete(4242, {
+    prefix: 'const total = ',
+    suffix: '\n',
+    language: 'typescript'
+  })
+)
+check(
+  'choosing Claude does not fail for want of a pasted key',
+  viaClaude.ok || !/no credential|add an API key/i.test(String(viaClaude.error)),
+  JSON.stringify(viaClaude)
+)
+check('and it asks nothing of the local server', seen.length === 0, `${seen.length} requests`)
 
 // --- the key stays in main ------------------------------------------------------
 await page.evaluate(() =>
