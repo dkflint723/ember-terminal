@@ -34,7 +34,15 @@ export function shortenPath(full: string, keep = 34): string {
     if (next.length > keep) break
     out = next
   }
-  return `…${out.startsWith('\\') ? '' : '\\'}${out}`
+  /*
+   * The budget was a guide rather than a bound: the loop only refuses to *add* a
+   * segment, so a single folder with a long name came back whole however long it
+   * was. Whatever displayed it then had to cut it, and cutting is done on the
+   * right — which took off the end, the one part this function exists to keep.
+   * Cut here instead, from the same side the ellipsis is on.
+   */
+  if (out.length > keep) return `…${out.slice(out.length - keep)}`
+  return `…\\${out}`
 }
 
 /** Whether `child` is `parent` itself or something inside it. */

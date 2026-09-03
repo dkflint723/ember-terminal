@@ -226,6 +226,44 @@ if (terminal) {
   )
 
   /*
+   * --- and the end of it survives being drawn ---------------------------------
+   *
+   * The head is dropped precisely so the tail can be read, and the tail was then
+   * being clipped off the right by the chip's own width: a forty-two character
+   * path wanted 314 pixels and was given 282. Measured rather than eyeballed,
+   * because a clipped chip looks exactly like a short path.
+   */
+  const deep = path.join(os.tmpdir(), 'ember-bar-deep', 'a_folder_with_a_really_quite_long_name')
+  fs.mkdirSync(deep, { recursive: true })
+  await page.click('.composer__input')
+  await page.keyboard.type(`cd "${deep}"`, { delay: 3 })
+  await page.keyboard.press('Enter')
+  await sleep(3000)
+
+  const chip = await page.evaluate(() => {
+    const el = document.querySelector('.statusbar__path')
+    if (!el) return null
+    return {
+      shown: el.textContent.trim(),
+      clipped: el.scrollWidth > el.clientWidth + 1
+    }
+  })
+  check('a long path is still drawn whole', chip !== null && !chip.clipped, JSON.stringify(chip))
+  check(
+    'ending in the folder it is standing in',
+    (chip?.shown ?? '').endsWith('a_folder_with_a_really_quite_long_name'),
+    JSON.stringify(chip?.shown)
+  )
+  fs.rmSync(path.join(os.tmpdir(), 'ember-bar-deep'), { recursive: true, force: true })
+
+  // Back where the rest of this suite expects to be standing: the checks below are
+  // about a repository, and a temp folder is not one.
+  await page.click('.composer__input')
+  await page.keyboard.type(`cd "${repo}"`, { delay: 3 })
+  await page.keyboard.press('Enter')
+  await sleep(3000)
+
+  /*
    * The shell, compared against the shells this machine actually has.
    *
    * Which one a fresh tab opens on depends on what is installed — PowerShell 7 where

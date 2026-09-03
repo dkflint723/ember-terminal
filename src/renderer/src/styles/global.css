@@ -1999,6 +1999,18 @@ button {
 
 .statusbar__path {
   font-family: var(--mono);
+  /*
+   * Wide enough for what shortenPath is allowed to return, which the shared
+   * 44ch cap was not: a forty-two character path needed 314 pixels and was given
+   * 282, so five characters of the end were clipped — the end being the whole
+   * point of dropping the head. The path is the chip people read, so it gets the
+   * room; the others keep the tighter cap.
+   */
+  max-width: 52ch;
+  /* And it does not give that room up when the bar is crowded: shrinking this
+     chip clips the tail again, which is the bug rather than a smaller version
+     of it. Everything beside it can shrink instead. */
+  flex-shrink: 0;
 }
 
 /* Not a control: a label with nothing behind it stays plain rather than
