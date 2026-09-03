@@ -218,6 +218,43 @@ check('and its last', many.includes('line 2000'), many.slice(-60))
 const after = await run('Write-Output "AFTER-COLLAPSE"')
 check('a command still runs after the strip collapses', after.includes('AFTER-COLLAPSE'), after.slice(0, 60))
 
+/*
+ * Coming back to a pane does not stack up renderers.
+ *
+ * Only the active session is rendered, so switching away unmounts the pane and
+ * switching back mounts it again — onto the same controller, which is cached by
+ * pane id and outlives the element. Each attach loaded another WebGL addon onto
+ * the same terminal without disposing the last.
+ *
+ * Counting canvases does not show it: xterm rebuilds its screen on open and the
+ * count moves for its own reasons. What does show it is the browser running out.
+ * A page gets a fixed number of live GL contexts, and past that Chromium drops the
+ * oldest and says so — which is both the proof and the symptom, since the context
+ * it drops belongs to a terminal somebody is looking at.
+ */
+const gl = []
+page.on('console', (m) => {
+  const t = m.text()
+  if (/webgl|context/i.test(t)) gl.push(t)
+})
+
+await page.keyboard.press('Control+Shift+T')
+await sleep(3000)
+for (let i = 0; i < 18; i += 1) {
+  await page.locator('.sessions__card').first().click()
+  await sleep(320)
+  await page.locator('.sessions__card').last().click()
+  await sleep(320)
+}
+await page.locator('.sessions__card').first().click()
+await sleep(1200)
+
+check(
+  'coming back to a session many times does not exhaust the GPU contexts',
+  !gl.some((t) => /too many|context lost|will be lost/i.test(t)),
+  JSON.stringify(gl.slice(0, 3))
+)
+
 await app.close()
 profile.cleanup()
 for (const f of failures) console.log(`  - ${f}`)

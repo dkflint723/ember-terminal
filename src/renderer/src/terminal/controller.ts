@@ -101,6 +101,18 @@ export class TerminalController {
   /** The same for width, and for the same reason: a pane with no size has one. */
   private lastVisibleCols = UNMEASURED_COLS
 
+  /**
+   * What the element this was last drawn into was given, so it can be taken back.
+   *
+   * A controller is cached by pane id and outlives any element: only the active
+   * session renders, so switching away unmounts the pane and switching back
+   * attaches again. Each attach used to load another WebGL addon onto the same
+   * terminal and leave the previous one loaded, and a browser hands out a fixed
+   * number of GL contexts before it starts refusing them.
+   */
+  private webgl: WebglAddon | null = null
+  private detachMenu: (() => void) | null = null
+
   /** Offscreen terminal used only to render captured output into HTML. */
   private renderTerm: Terminal
 
@@ -698,6 +710,13 @@ export class TerminalController {
   }
 
   attach(container: HTMLElement): void {
+    // Whatever the last element was given comes off first. Attaching is not
+    // necessarily a first attach.
+    this.detachMenu?.()
+    this.detachMenu = null
+    this.webgl?.dispose()
+    this.webgl = null
+
     this.term.open(container)
     this.enableWebgl()
     this.refit()
@@ -709,10 +728,12 @@ export class TerminalController {
      * draws its own chrome: there is no menu bar to fall back on, and a terminal is
      * the one place people reach for the mouse to move text around.
      */
-    container.addEventListener('contextmenu', (e) => {
+    const onContextMenu = (e: MouseEvent): void => {
       e.preventDefault()
       if (!this.copySelection()) void this.paste()
-    })
+    }
+    container.addEventListener('contextmenu', onContextMenu)
+    this.detachMenu = (): void => container.removeEventListener('contextmenu', onContextMenu)
 
     if (!this.spawned) {
       this.spawned = true
@@ -754,6 +775,7 @@ export class TerminalController {
       const webgl = new WebglAddon()
       webgl.onContextLoss(() => webgl.dispose())
       this.term.loadAddon(webgl)
+      this.webgl = webgl
     } catch {
       // No GPU path available; the DOM renderer is still correct, just slower.
     }
