@@ -182,6 +182,98 @@ check(
 const rightProject = await searchFor('NEEDLE-BRAVO')
 check('and does find this one', rightProject > 0, `${rightProject} hits`)
 
+/*
+ * And the chord moves between sessions without leaving the IDE.
+ *
+ * Sessions are only listed in terminal mode — the sidebar takes that slot in IDE
+ * mode — so with the sidebar up there is nothing on screen to switch with, and the
+ * chord is the whole of the answer. It matters more now than it did: a session is a
+ * project, so this is how you change projects without going back to the terminal.
+ *
+ * Tried with the caret in the editor as well, because Monaco claims Tab and would
+ * be the thing that swallowed it.
+ */
+const projectShown = () =>
+  page.evaluate(() => document.querySelector('.sidebar__project')?.textContent?.trim() ?? '')
+
+await inMode('ide')
+await page.keyboard.press('Control+Shift+R')
+await sleep(1500)
+const beforeChord = await projectShown()
+await page.keyboard.press('Control+Tab')
+await sleep(2000)
+const afterChord = await projectShown()
+check(
+  'the next-session chord changes project without leaving the IDE',
+  afterChord.length > 0 && afterChord !== beforeChord,
+  JSON.stringify({ beforeChord, afterChord })
+)
+
+await page.keyboard.press('Control+Shift+Tab')
+await sleep(2000)
+check(
+  'and the previous-session chord comes back',
+  (await projectShown()) === beforeChord,
+  JSON.stringify({ back: await projectShown(), want: beforeChord })
+)
+
+// With the caret in a file, which is where Monaco would swallow it.
+await page.keyboard.press('Control+P')
+await sleep(700)
+await page.keyboard.type('package.json', { delay: 25 })
+await page.waitForFunction(() => document.querySelectorAll('.qp__label').length > 0, {
+  timeout: 20_000
+})
+await page.keyboard.press('Enter')
+await sleep(2500)
+await page.click('.monaco-editor .view-lines')
+await sleep(500)
+const fromEditor = await projectShown()
+await page.keyboard.press('Control+Tab')
+await sleep(2000)
+check(
+  'the chord still works with the caret in a file',
+  (await projectShown()) !== fromEditor,
+  JSON.stringify({ fromEditor, now: await projectShown() })
+)
+
+/*
+ * And a session can be found by the project it is about.
+ *
+ * The one box built for finding things by name listed every session as "session"
+ * and nothing else — and a shell with no integration reports the same title in
+ * every project, so two sessions on two projects were an indistinguishable pair
+ * exactly where you would go to tell them apart.
+ */
+// The title bar's search is the one box that holds sessions, files and commands
+// together; Ctrl+Shift+P opens commands only, so it is not the box under test.
+await page.locator('.titlebar__searchbox').click({ force: true })
+await page.waitForSelector('.qp', { timeout: 15_000 })
+await sleep(600)
+await page.keyboard.type(nameOf(alpha), { delay: 20 })
+await sleep(1200)
+/*
+ * Read from the detail line rather than the whole row.
+ *
+ * The row already contains the project, because a session's title is its shell's
+ * directory — which is why the first version of this check could not fail. What is
+ * under test is whether the session says which project it belongs to in its own
+ * right, for the sessions whose title is not their project: one that has been given
+ * a name, or one whose shell reports no directory at all.
+ */
+const details = await page.evaluate(() =>
+  [...document.querySelectorAll('.qp__item')]
+    .filter((e) => (e.querySelector('.qp__detail')?.textContent ?? '').startsWith('session'))
+    .map((e) => e.querySelector('.qp__detail')?.textContent ?? '')
+)
+check(
+  'a session says which project it is about',
+  details.some((d) => d.includes(nameOf(alpha))),
+  JSON.stringify(details.slice(0, 4))
+)
+await page.keyboard.press('Escape')
+await sleep(500)
+
 // --- and a session keeps its project across a restart -------------------------
 await app.close()
 await sleep(1200)

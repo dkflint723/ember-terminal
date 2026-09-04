@@ -70,11 +70,22 @@ export function Palette({ onOpenFile }: Props): React.JSX.Element | null {
             : pane?.kind === 'editor'
               ? activeDocument(pane).title
               : (pane?.title ?? 'Shell')
+        /*
+         * Named by its project, because that is what a session is now.
+         *
+         * "session" under every one of them said nothing that told two apart, and
+         * a shell with no integration reports the same title in every project — so
+         * two sessions on two projects could be one indistinguishable pair, in the
+         * one place built for finding things by name. The project also goes in the
+         * haystack, so typing what you are working on finds the session you work
+         * on it in.
+         */
+        const project = t.workspace ? t.workspace.replace(/[\\/]+$/, '').split(/[\\/]/).pop() : ''
         return {
           id: `tab:${t.id}`,
           label: title || 'Shell',
-          detail: 'session',
-          haystack: `${title} session tab`
+          detail: project ? `session · ${project}` : 'session',
+          haystack: `${title} session tab ${project} ${t.workspace ?? ''}`
         }
       }),
       ...commandItems(),
