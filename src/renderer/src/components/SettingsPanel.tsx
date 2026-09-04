@@ -1092,7 +1092,6 @@ export function SettingsPanel(): React.JSX.Element | null {
                       <input
                         className="settings__ghost-url"
                         value={draft.ghostBaseUrl}
-                        className="settings__ghost-base"
                         spellCheck={false}
                         placeholder="http://localhost:11434/v1"
                         onChange={(e) => field('ghostBaseUrl', e.target.value)}

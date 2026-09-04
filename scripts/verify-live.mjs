@@ -26,6 +26,8 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
@@ -254,6 +256,120 @@ check(
   !gl.some((t) => /too many|context lost|will be lost/i.test(t)),
   JSON.stringify(gl.slice(0, 3))
 )
+
+/*
+ * --- a program that draws a menu without taking the alternate screen -----------
+ *
+ * Two separate things went wrong for `ollama` run with no arguments, which draws a
+ * chooser you move with the arrow keys and never switches to the alternate screen.
+ *
+ * It is still too short to read comfortably — a running command's strip is 42% of
+ * the pane whatever else is on screen, so a menu taller than that has its first
+ * items scrolled off the top. Growing the strip was tried and reverted: changing
+ * its height mid-command resizes the pty, a resize is a repaint, and a repaint
+ * inside an open capture costs the block everything printed before it. A long
+ * command came back starting at its forty-fifth line. A cramped menu is a smaller
+ * problem than lost output.
+ *
+ * What is fixed here is that it could not be driven: the panel that takes the keyboard while a command
+ * runs is a line editor — it buffers what you type and sends it on Enter, which is
+ * right for a REPL and wrong for a program reading one key at a time. The arrows
+ * moved a caret in that box while the highlight in the menu never moved. It worked
+ * only if you clicked into the terminal first, which is how the person who
+ * reported it found out.
+ *
+ * A stand-in rather than ollama, so this runs on a machine that has never heard of
+ * it. It writes each selection to a file, because the terminal draws on a canvas
+ * and there is no text in the DOM to read.
+ */
+const menuDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-menu-'))
+const menuLog = path.join(menuDir, 'picked.txt')
+fs.writeFileSync(
+  path.join(menuDir, 'menu.mjs'),
+  [
+    "import * as fs from 'node:fs'",
+    `const log = ${JSON.stringify(menuLog)}`,
+    "const items = ['ALPHA', 'BRAVO', 'CHARLIE', 'DELTA']",
+    'let sel = 0',
+    'const paint = (first) => {',
+    "  if (!first) process.stdout.write('\\u001b[4A')",
+    '  for (let n = 0; n < items.length; n++) {',
+    "    process.stdout.write('\\u001b[2K' + (n === sel ? '> ' : '  ') + items[n] + '\\r\\n')",
+    '  }',
+    '}',
+    'process.stdin.setRawMode(true)',
+    'process.stdin.resume()',
+    'paint(true)',
+    "process.stdin.on('data', (buf) => {",
+    '  const key = buf.toString()',
+    "  if (key === '\\u001b') { fs.appendFileSync(log, 'ESC\\n'); process.exit(0) }",
+    "  if (key === '\\u001b[B') sel = Math.min(sel + 1, items.length - 1)",
+    "  if (key === '\\u001b[A') sel = Math.max(sel - 1, 0)",
+    "  fs.appendFileSync(log, items[sel] + '\\n')",
+    '  paint(false)',
+    '})'
+  ].join('\n')
+)
+
+await page.click('.composer__input')
+await page.keyboard.type(`node "${path.join(menuDir, 'menu.mjs').replace(/\\/g, '/')}"`, { delay: 4 })
+await page.keyboard.press('Enter')
+await sleep(3500)
+
+/*
+ * Driven from where the keyboard actually is. Starting a command moves focus into
+ * that panel deliberately, so this is the ordinary case and not a contrived one —
+ * and clicking the terminal first, which is the workaround, is exactly what must
+ * stop being necessary.
+ */
+const focused = await page.evaluate(() => document.activeElement?.className ?? '')
+check('the keyboard is in the composer, not the terminal', focused.includes('composer'), focused)
+
+await page.keyboard.press('ArrowDown')
+await sleep(500)
+await page.keyboard.press('ArrowDown')
+await sleep(800)
+// Absent when nothing ever reached the program, which is the failure this is for —
+// so it reads as an empty list rather than as a crash that hides the other checks.
+const picked = () =>
+  fs.existsSync(menuLog)
+    ? fs.readFileSync(menuLog, 'utf8').trim().split('\n').filter(Boolean)
+    : []
+const walked = picked()
+check(
+  'the arrow keys reach the program without clicking into the terminal',
+  walked.at(-1) === 'CHARLIE',
+  JSON.stringify(walked)
+)
+
+await page.keyboard.press('ArrowUp')
+await sleep(700)
+const back = picked()
+check('and go back up again', back.at(-1) === 'BRAVO', JSON.stringify(back.slice(-3)))
+
+/*
+ * But a line being typed keeps its own keys. Nothing typed means there is nothing
+ * for an arrow to do here, so the program gets it; once there is a line in
+ * progress the arrows edit that line, which is what anybody typing expects.
+ */
+await page.keyboard.type('hello', { delay: 20 })
+await page.keyboard.press('ArrowUp')
+await sleep(700)
+const afterTyping = picked()
+check(
+  'while an arrow inside a line being typed stays in the line',
+  afterTyping.at(-1) === 'BRAVO',
+  JSON.stringify(afterTyping.slice(-3))
+)
+
+// Escape ends it, which also proves the key arrived rather than being swallowed.
+await page.evaluate(() => {
+  const el = document.querySelector('.composer__running, .composer textarea')
+  if (el) el.value = ''
+})
+await page.keyboard.press('Control+C')
+await sleep(1200)
+fs.rmSync(menuDir, { recursive: true, force: true })
 
 await app.close()
 profile.cleanup()

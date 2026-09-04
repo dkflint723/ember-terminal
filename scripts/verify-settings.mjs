@@ -475,7 +475,7 @@ check(
  * name Ember has just said is present — the exact failure the picker exists to
  * prevent.
  */
-await page.locator('.settings__ghost-base').fill(`http://127.0.0.1:${elsewhere.port}/v1`)
+await page.locator('.settings__ghost-url').fill(`http://127.0.0.1:${elsewhere.port}/v1`)
 // Past the debounce, which exists so that typing a URL is not one request per key.
 await sleep(2500)
 const afterRetype = await page.evaluate(() =>

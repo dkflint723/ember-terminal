@@ -763,6 +763,28 @@ ${c.output}`
  * because it has different rules: no history, no AI, and when the program is
  * asking for a secret the value must be masked and never retained.
  */
+/**
+ * The keys a program reads one at a time, and what they are on the wire.
+ *
+ * Normal-mode sequences rather than application-mode ones. A program that has set
+ * DECCKM strictly wants `ESC O A`, but every terminal UI library in use accepts
+ * both spellings, and choosing wrongly here is a menu that ignores an arrow —
+ * exactly what this is fixing. Measured against `ollama`, whose menu moves.
+ */
+const KEY_SEQUENCES: Record<string, string> = {
+  ArrowUp: '\x1b[A',
+  ArrowDown: '\x1b[B',
+  ArrowRight: '\x1b[C',
+  ArrowLeft: '\x1b[D',
+  Home: '\x1b[H',
+  End: '\x1b[F',
+  PageUp: '\x1b[5~',
+  PageDown: '\x1b[6~',
+  Escape: '\x1b',
+  Tab: '\t',
+  Backspace: '\x7f'
+}
+
 function RunningInput({ pane, controller }: Props): React.JSX.Element {
   const [value, setValue] = useState('')
   const secretRef = useRef<HTMLInputElement>(null)
@@ -803,6 +825,29 @@ function RunningInput({ pane, controller }: Props): React.JSX.Element {
   }
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
+    /*
+     * With nothing typed, the keys belong to the program.
+     *
+     * This panel is a line editor: it buffers what you type and sends it on Enter,
+     * which is right for anything reading lines — a REPL, a prompt, a password. It
+     * is wrong for a program reading one key at a time, and there is no signal
+     * separating the two, because a menu drawn without taking the alternate screen
+     * looks to this app exactly like a command printing output. `ollama` with no
+     * arguments draws one: the arrow keys went into this box and moved a caret,
+     * while the highlight in the menu above never moved.
+     *
+     * An empty buffer is the honest test. Nothing typed means there is nothing here
+     * for an arrow to do, so the program should have it; once there is a line in
+     * progress the keys edit that line, which is what somebody typing expects.
+     * Never while a secret is being asked for — those keystrokes belong to nobody.
+     */
+    const sequence = KEY_SEQUENCES[e.key]
+    if (sequence && !secret && value.length === 0 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      e.preventDefault()
+      controller.send(sequence)
+      return
+    }
+
     if (e.key === 'Enter') {
       e.preventDefault()
       submit()
