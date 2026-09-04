@@ -572,6 +572,67 @@ check(
   JSON.stringify({ net: netBraces, text: balanced?.text })
 )
 
+/*
+ * Closing the pane calls off what it was waiting for.
+ *
+ * The suggestion machinery, the blame annotation and the inline-edit widget were
+ * all being disposed inside the no-model branch of the error painter — a place
+ * that stands for a model swap, not for a pane closing, and one the effect's
+ * cleanup never reaches. So a closed editor left its timer running, its request in
+ * flight and billed, and a rewrite still to land in a buffer nobody was looking at.
+ */
+calledOff.length = 0
+await page.evaluate(
+  (p) =>
+    window.ember.setSettings({
+      ghostProvider: 'local',
+      ghostBaseUrl: `http://127.0.0.1:${p}/v1`,
+      ghostModel: 'slow',
+      ghostDebounceMs: 100
+    }),
+  port
+)
+await sleep(700)
+
+/*
+ * Saved first, and asked by moving the caret rather than by typing. A file with
+ * unsaved changes asks before it closes, and that question is not what this is
+ * about — the earlier cases in this file left it dirty.
+ */
+await page.click('.monaco-editor .view-lines')
+await page.keyboard.press('Control+End')
+await page.keyboard.press('Enter')
+// Ending in a space, so it is not read as a half-typed name, and a prefix nothing
+// has asked about before — a cached one is answered without asking anybody.
+await page.keyboard.type('const closing = ', { delay: 40 })
+// Past the debounce, so a slow request is in flight and unanswered.
+await sleep(500)
+/*
+ * Saved rather than closed over the top of the question: a file with unsaved
+ * changes asks before it closes, and that question is not what this is about.
+ * Saving neither moves the caret nor changes the text, so it calls nothing off —
+ * which the count below the save records, so that a pass here can only come from
+ * the close.
+ */
+await page.keyboard.press('Control+S')
+await sleep(900)
+const calledOffBeforeClose = calledOff.length
+// Through the tab's own close control: Monaco swallows the chord for this, and
+// closing the last file is what takes the pane away.
+await page.locator('.etab').last().hover()
+await sleep(300)
+await page.locator('.etab__close').last().click({ force: true })
+await sleep(1800)
+check(
+  'closing the pane calls off the request it was waiting for',
+  calledOffBeforeClose === 0 && calledOff.length >= 1,
+  JSON.stringify({
+    beforeClose: calledOffBeforeClose,
+    afterClose: calledOff.length,
+    tabsLeft: await page.locator('.etab').count()
+  })
+)
+
 await app.close()
 profile.cleanup()
 server.close()

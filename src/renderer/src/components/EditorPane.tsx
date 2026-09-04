@@ -333,9 +333,6 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
       const model = editor.getModel()
       if (!model) {
         errorLines.clear()
-      blame.dispose()
-      ghost.dispose()
-      inlineEdit.dispose()
         return
       }
       const lines = new Set<number>()
@@ -496,6 +493,20 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
       unwireDebugging()
       markerSub.dispose()
       sub.dispose()
+      /*
+       * The three things attached to this editor, taken off when it goes.
+       *
+       * These were being disposed inside the no-model branch of the error painter
+       * instead — a place that stands for a model swap rather than for a pane
+       * closing, and which the cleanup below never reaches. So closing a pane left
+       * the suggestion timer running, its request in flight and paid for, and a
+       * rewrite still to arrive for a buffer nobody was looking at. And had that
+       * branch ever run, it would have killed suggestions and blame for the rest of
+       * the life of a pane that was still open.
+       */
+      blame.dispose()
+      ghost.dispose()
+      inlineEdit.dispose()
       // The caret this pane was reporting no longer exists anywhere, and a position
       // left in the bar for an editor that has gone is worse than none at all.
       useStore.getState().setCursorAt(null)
