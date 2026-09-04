@@ -361,7 +361,21 @@ export function SettingsPanel(): React.JSX.Element | null {
      * of any kind quietly emptied it and suggestions stopped for a reason the
      * dialog reported as the endpoint refusing the key.
      */
-    const patch: Partial<Settings> = { ...draft }
+    /*
+     * What changed in this dialog, not everything it is showing.
+     *
+     * Saving sent the whole snapshot taken when the dialog opened, so anything
+     * main wrote in the meantime was overwritten by the stale copy on screen — the
+     * recent-folders list is written every time a tree root is opened, and a
+     * dialog left open across that lost it. Unedited values keep the references
+     * they were loaded with, so comparing per key is enough to tell.
+     */
+    const patch: Partial<Settings> = {}
+    for (const key of Object.keys(draft) as (keyof Settings)[]) {
+      if (!saved || !Object.is(draft[key], saved[key])) {
+        patch[key] = draft[key] as never
+      }
+    }
     for (const secret of SECRETS) if (patch[secret] == null) delete patch[secret]
     const res = await window.ember.setSettings(patch)
     applySettings(res.settings)

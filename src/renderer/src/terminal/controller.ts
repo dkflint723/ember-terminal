@@ -567,10 +567,22 @@ export class TerminalController {
      * row boundary so what is kept stays valid markup.
      */
     if (output.length > LIVE_OUTPUT_CAP) {
-      const cut = output.indexOf('<div', output.length - LIVE_OUTPUT_CAP)
+      const from = output.length - LIVE_OUTPUT_CAP
+      /*
+       * A row boundary if there is one, and a tag boundary if there is not.
+       *
+       * One `<div class="row">` is emitted per *logical* line, so a command that
+       * prints a single line longer than the cap has exactly one of them, at index
+       * zero — and the old fallback then cut at an arbitrary character, landing
+       * inside a tag or an entity and rendering `olor:#ff0000">` as literal text at
+       * the top of the block. The start of any tag is a safe place to cut; a stray
+       * closing tag after it is something the parser drops.
+       */
+      let cut = output.indexOf('<div', from)
+      if (cut < 0) cut = output.indexOf('<', from)
       output =
         '<div class="row">… earlier output trimmed — the full text is in history (Ctrl+R) …</div>' +
-        (cut > 0 ? output.slice(cut) : output.slice(-LIVE_OUTPUT_CAP))
+        (cut > 0 ? output.slice(cut) : output)
     }
 
     const pane = this.store().terminalPane(this.paneId)

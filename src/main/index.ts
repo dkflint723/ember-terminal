@@ -564,7 +564,26 @@ let notifier: Notifier
  * a call is settled by the user, or by the window going away.
  */
 let nextIdeCall = 0
-const pendingIdeCalls = new Map<number, (result: unknown) => void>()
+/** The window each call went to, so it can be answered if that window goes away. */
+const pendingIdeCalls = new Map<number, { resolve: (result: unknown) => void; windowId: number }>()
+
+/**
+ * Answer every call parked against a window that has gone.
+ *
+ * The comment above promises a call is settled "by the user, or by the window
+ * going away", and only the first of those was ever true: `ide:result` was the
+ * one path that cleared the map, and closing a window cleared five other maps
+ * and left this one alone. The CLI is blocked awaiting the tool result and gets
+ * no reply at all, so it waits for as long as it is left running — every other
+ * transport here gives up after ten seconds.
+ */
+function settleIdeCallsFor(windowId: number): void {
+  for (const [id, call] of [...pendingIdeCalls]) {
+    if (call.windowId !== windowId) continue
+    pendingIdeCalls.delete(id)
+    call.resolve({ success: false, message: 'The window showing this was closed.' })
+  }
+}
 
 function callRenderer(name: string, args: Record<string, unknown>): Promise<unknown> {
   // The window the user is looking at: a CLI asking about "the editor" means the
@@ -574,8 +593,9 @@ function callRenderer(name: string, args: Record<string, unknown>): Promise<unkn
     return Promise.resolve({ success: false, message: 'No window is open.' })
   }
   const id = ++nextIdeCall
+  const windowId = windowIdOf(target.webContents) ?? -1
   return new Promise((resolve) => {
-    pendingIdeCalls.set(id, resolve)
+    pendingIdeCalls.set(id, { resolve, windowId })
     target.webContents.send('ide:call', { id, name, args })
   })
 }
@@ -833,6 +853,9 @@ function createWindow(seed: WindowSeed = {}): number {
       paneOwners.delete(paneId)
     }
     windows.delete(id)
+    // Anything the CLI is still waiting on from this window will never be
+    // answered by it now.
+    settleIdeCallsFor(id)
     dap?.stopOwnedBy(id)
     unsavedCounts.delete(id)
     keepSets.delete(id)
@@ -1268,10 +1291,10 @@ function registerIpc(): void {
   )
 
   ipcMain.on('ide:result', (_e, id: number, result: unknown) => {
-    const resolve = pendingIdeCalls.get(id)
-    if (!resolve) return
+    const call = pendingIdeCalls.get(id)
+    if (!call) return
     pendingIdeCalls.delete(id)
-    resolve(result)
+    call.resolve(result)
   })
   ipcMain.on('ide:workspace', (_e, folders: string[]) => ide.setWorkspaceFolders(folders))
   ipcMain.on('ide:notify', (_e, method: string, params: unknown) => ide.notify(method, params))

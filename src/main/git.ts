@@ -441,12 +441,12 @@ export class GitService {
       const args = [
         'log',
         `--max-count=${capped}`,
-        `--format=%H${NUL}%h${NUL}%an${NUL}%at${NUL}%s${NUL}%P${RS}`
+        `--format=%H${NUL}%h${NUL}%an${NUL}%at${NUL}%s${NUL}%P${NUL}`
       ]
       if (filePath) args.push('--', filePath)
       const { stdout } = await this.git(root, args)
-      return splitRecords(stdout as string).map((record) => {
-        const [hash, short, author, at, subject, parents] = record.split('\0')
+      return fixedRecords(stdout as string, 6).map((record) => {
+        const [hash, short, author, at, subject, parents] = record
         const time = Number(at)
         return {
           hash: hash ?? '',
@@ -470,10 +470,10 @@ export class GitService {
       const { stdout } = await this.git(root, [
         'stash',
         'list',
-        `--format=%gd${NUL}%H${NUL}%gs${NUL}%at${RS}`
+        `--format=%gd${NUL}%H${NUL}%gs${NUL}%at${NUL}`
       ])
-      return splitRecords(stdout as string).map((record) => {
-        const [ref, hash, subject, at] = record.split('\0')
+      return fixedRecords(stdout as string, 4).map((record) => {
+        const [ref, hash, subject, at] = record
         const time = Number(at)
         return {
           ref: ref ?? '',
@@ -563,17 +563,35 @@ export class GitService {
  * record; the record separator divides the records.
  */
 const NUL = '%x00'
-const RS = '%x1e'
 
 /** A stash reference, and nothing that merely looks like one. */
 const STASH_REF = /^stash@\{\d+\}$/
 
 /** Records as git emitted them, with the empty tail and leading newlines gone. */
-function splitRecords(stdout: string): string[] {
-  return stdout
-    .split('\x1e')
-    .map((record) => record.replace(/^[\r\n]+/, ''))
-    .filter((record) => record.length > 0)
+/**
+ * Records of a fixed number of NUL-separated fields.
+ *
+ * These were separated by U+001E and split on it, which any field able to hold
+ * that byte could end early. A commit subject containing one truncated its own
+ * entry and turned the remainder into a second, phantom commit — one whose hash
+ * was the tail of the subject and whose short hash was the parent list, rendered
+ * in the history as a real row with a blank message, and which typed a string of
+ * parent hashes into the user's terminal when clicked. Ember can make such a
+ * commit itself: `commit()` passes whatever message it is given straight through.
+ *
+ * Git forbids NUL inside the fields of a commit object, so counting them is exact
+ * where splitting on a printable byte was a guess. The newline git puts between
+ * entries lands at the head of the next record's first field.
+ */
+function fixedRecords(stdout: string, fields: number): string[][] {
+  const parts = stdout.split('\0')
+  const out: string[][] = []
+  for (let i = 0; i + fields <= parts.length; i += fields) {
+    const record = parts.slice(i, i + fields)
+    record[0] = record[0].replace(/^[\r\n]+/, '')
+    if (record[0].length > 0) out.push(record)
+  }
+  return out
 }
 
 /** Git writes UTF-8; a NUL means the blob was never text to begin with. */

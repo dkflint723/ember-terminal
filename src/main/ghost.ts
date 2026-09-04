@@ -221,10 +221,22 @@ export class GhostService {
     const all: LocalShape[] = ['ollama', 'infill', 'ollama-raw', 'completions']
     const order = known ? [known, ...all.filter((shape) => shape !== known)] : all
 
+    /*
+     * One deadline for the whole ladder rather than one per rung.
+     *
+     * Each shape carried its own ten-second timeout, and there are four of them,
+     * so a server that hangs rather than refusing could hold a single suggestion
+     * for forty seconds — and a local server that answers one request at a time
+     * spends all forty unable to answer the request the caret is actually waiting
+     * on. Nobody wants a suggestion that arrives forty seconds after they typed.
+     */
+    const deadline = AbortSignal.timeout(TIMEOUT_MS)
+    const bounded = AbortSignal.any([signal, deadline])
+
     let last: unknown = null
     for (const shape of order) {
       try {
-        const text = await this.askLocal(shape, root, base, request, s, signal)
+        const text = await this.askLocal(shape, root, base, request, s, bounded)
         if (text !== null) {
           shapes.set(key, shape)
           return text
@@ -235,7 +247,8 @@ export class GhostService {
         // went wrong is the useful thing to say. Swallowing them all and returning
         // nothing made a dead port and a wrong model name give the same sentence:
         // "answered, but with nothing".
-        if (signal.aborted) throw err
+        // Out of time is not "try the next shape": there is no time to try it in.
+        if (signal.aborted || deadline.aborted) throw err
         shapes.delete(key)
         last = err
       }
