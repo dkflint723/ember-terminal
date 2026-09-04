@@ -54,8 +54,25 @@ fs.writeFileSync(
     '# A pattern names a shape rather than a machine.',
     'Host web-*',
     '  User deploy',
+    '',
+    '# ssh drops an unquoted # and everything after it on a config line.',
+    'Host commented   # the CI box',
+    '  HostName 10.0.0.9',
+    '',
+    '# And a value may be quoted so that it can hold a space.',
+    'Host "my server"',
+    '  HostName 10.0.0.10',
+    '',
+    '# Include is how real configs are organised, and ssh expands it first.',
+    'Include config.d/*.conf',
     ''
   ].join('\n')
+)
+
+fs.mkdirSync(path.join(home, '.ssh', 'config.d'))
+fs.writeFileSync(
+  path.join(home, '.ssh', 'config.d', 'work.conf'),
+  ['Host from-an-include', '  HostName 10.0.0.11', ''].join('\n')
 )
 
 const app = await electron.launch({
@@ -103,6 +120,55 @@ check('a host runs ssh, with the host as its argument', box?.path === 'ssh' && b
  * a pane waiting for command boundaries that never arrive.
  */
 check('and does not claim shell integration it cannot have', box?.integration === 'none', String(box?.integration))
+
+/*
+ * A line's arguments are read the way ssh reads them.
+ *
+ * Splitting on whitespace made every token a hostname, so an inline comment
+ * became four more profiles — `#`, `the`, `CI`, `box` — each with a menu entry
+ * that starts a shell which immediately dies, and a quoted name was offered as
+ * two broken halves instead of the one host that was configured.
+ */
+check('an inline comment is a comment, not four more hosts', names.includes('commented'), JSON.stringify(names))
+check(
+  'and none of its words become hosts of their own',
+  !names.some((n) => ['#', 'the', 'CI', 'box'].includes(n)),
+  JSON.stringify(names)
+)
+check(
+  'a quoted name is one host with a space in it',
+  names.includes('my server'),
+  JSON.stringify(names)
+)
+
+/*
+ * And Include is followed. It is how real configs are organised — 1Password's
+ * agent setup, Colima, corporate dotfiles, a config.d directory — and ssh expands
+ * it before matching any Host, so a config that delegates everything offered
+ * nothing at all, with nothing to say why.
+ */
+check(
+  'a host reached through an Include is offered too',
+  names.includes('from-an-include'),
+  JSON.stringify(names)
+)
+
+/*
+ * And a session whose shell is gone says so rather than quietly becoming another.
+ *
+ * An ssh profile's id comes from the text of the config, so renaming a host means
+ * a restored pane asks for something that no longer exists. That fell back to the
+ * first profile in the list — PowerShell on this machine — in a pane still
+ * wearing the name of the server.
+ */
+const gone = await page.evaluate(() =>
+  window.ember.spawn({ paneId: 'ssh-gone-probe', profileId: 'ssh-was-renamed', cols: 80, rows: 24 })
+)
+check(
+  'a session whose shell is gone is refused, not silently swapped',
+  gone?.ok === false && String(gone.error).includes('ssh-was-renamed'),
+  JSON.stringify(gone)
+)
 
 /*
  * The point of making them profiles: the menu that offers a new session offers

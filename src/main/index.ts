@@ -911,8 +911,25 @@ function registerIpc(): void {
 
   ipcMain.handle('pty:spawn', (e, req: SpawnRequest) => {
     const all = profiles()
-    const profile = all.find((p) => p.id === req.profileId) ?? all[0]
-    if (!profile) return { ok: false, error: 'No shell found on this machine.' }
+    /*
+     * A named shell that is gone is not the same as no name at all.
+     *
+     * These were one case — anything not found fell back to the first profile in
+     * the list. A restored pane carries the profile id it was started with, and an
+     * ssh profile's id is derived from the text of ~/.ssh/config, so renaming a
+     * host there brought the pane back as PowerShell on this machine while it went
+     * on wearing the name of the server. Nothing said so. Whatever gets typed into
+     * a pane like that goes somewhere it was never meant to go.
+     */
+    const profile = req.profileId ? all.find((p) => p.id === req.profileId) : all[0]
+    if (!profile) {
+      return {
+        ok: false,
+        error: req.profileId
+          ? `The shell this session used (${req.profileId}) is not set up on this machine any more.`
+          : 'No shell found on this machine.'
+      }
+    }
     try {
       // The spawner owns the pane's output until a move says otherwise.
       paneOwners.set(req.paneId, windowIdOf(e.sender) ?? 1)
