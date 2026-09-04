@@ -1,4 +1,4 @@
-import { useStore } from '../state/store'
+import { useStore, workspaceRoot } from '../state/store'
 import { FileTree } from './FileTree'
 import { SourceControl } from './SourceControl'
 import { GitHubPanel } from './GitHubPanel'
@@ -30,22 +30,37 @@ const TITLES: Record<string, string> = {
  */
 export function Sidebar({ onOpen, onOpenAt }: Props): React.JSX.Element {
   const view = useStore((s) => s.sidebarView)
-  const treeRoot = useStore((s) => s.treeRoot)
+  const treeRoot = useStore(workspaceRoot)
 
   /*
    * The explorer is titled by the workspace, not by itself. "EXPLORER" answered a
    * question nobody asked — the tree below makes what the view is self-evident —
    * while which project this window is holding is exactly what the header is for.
-   * The other views keep their names; they have no folder to be named after.
    */
-  const title =
-    view === 'explorer' && treeRoot
-      ? treeRoot.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || TITLES[view]
-      : TITLES[view]
+  const project = treeRoot ? treeRoot.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '' : ''
+  const title = view === 'explorer' && project ? project : TITLES[view]
+
+  /*
+   * And every other view says which project it is describing.
+   *
+   * They used to have no folder to be named after, because a window had one
+   * workspace and it was the explorer's. A session now carries its own, so
+   * switching sessions moves search, source control, scripts and problems to
+   * another project — and in IDE mode there is no session strip on screen, which
+   * left "why is search finding nothing" with nothing on screen to answer it.
+   */
+  const showProject = view !== 'explorer' && project.length > 0
 
   return (
     <div className="sidebar" data-view={view}>
-      <div className="sidebar__title">{title}</div>
+      <div className="sidebar__title">
+        {title}
+        {showProject && (
+          <span className="sidebar__project" title={treeRoot ?? undefined}>
+            {project}
+          </span>
+        )}
+      </div>
       {view === 'search' && <SearchPanel onOpen={onOpenAt} />}
       {view === 'scm' && <SourceControl />}
       {view === 'github' && <GitHubPanel />}

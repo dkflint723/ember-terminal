@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { DapEventPayload, DebugAdapter, DebugStartRequest } from '@shared/types'
 import { existingController } from '../terminal/controller'
-import { useStore, activeDocument, paneIdsOf } from './store'
+import { activeDocument, paneIdsOf, useStore, workspaceRoot } from './store'
 
 /**
  * Debugging, from the renderer's side of the protocol.
@@ -546,7 +546,7 @@ const dirnameOf = (p: string): string =>
 export async function refreshLaunchOptions(): Promise<void> {
   const options: LaunchOption[] = [{ id: 'active-file', label: 'Active file', kind: 'active-file' }]
   const adapters = await window.ember.listDebugAdapters()
-  const root = useStore.getState().treeRoot
+  const root = workspaceRoot(useStore.getState())
 
   if (root) {
     const read = await window.ember.readFile(`${root}\\.vscode\\launch.json`)
@@ -797,7 +797,7 @@ export async function startDebugging(): Promise<void> {
   const adapters = await window.ember.listDebugAdapters()
   const fresh = useDebugStore.getState()
   const choice = fresh.launchOptions.find((o) => o.id === fresh.launchChoice) ?? fresh.launchOptions[0]
-  const workspace = app.treeRoot ?? ''
+  const workspace = workspaceRoot(app) ?? ''
   const file = activeEditorFile()
 
   let adapterId: string | null = null

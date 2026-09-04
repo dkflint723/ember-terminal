@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { QuickPickItem } from './QuickPick'
 import { QuickPick } from './QuickPick'
-import { terminalPaneIdFor, useStore } from '../state/store'
+import { terminalPaneIdFor, useStore, workspaceRoot } from '../state/store'
 import { existingController } from '../terminal/controller'
 
 /**
@@ -70,7 +70,7 @@ export function ScriptRunner(): React.JSX.Element {
     holes: string[]
     filled: Record<string, string>
   } | null>(null)
-  const treeRoot = useStore((s) => s.treeRoot)
+  const treeRoot = useStore(workspaceRoot)
   const [scripts, setScripts] = useState<Script[]>([])
   const [runner, setRunner] = useState<(name: string) => string>(() => (n: string) => `npm run ${n}`)
   const [state, setState] = useState<'loading' | 'none' | 'ready'>('loading')

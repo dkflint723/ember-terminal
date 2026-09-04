@@ -243,6 +243,19 @@ export interface Tab {
   shells: LayoutNode
   /** Editor and diff panes, shown in the middle in IDE mode. Null until a file opens. */
   editors: LayoutNode | null
+  /**
+   * The project this session is about: what the explorer lists, what search
+   * searches, and where the language servers are pointed while it is in front.
+   *
+   * On the tab rather than on the window, because everything else here already
+   * treats a session as a project — `newTab` takes a directory to start in, a
+   * folder opened from outside becomes a session rather than stealing the root,
+   * and pane lookup was scoped to the active tab precisely because a build ran in
+   * another project's shell. The workspace was the last thing still window-wide,
+   * which is why switching sessions moved the sidebar to a project your shells,
+   * your open editors and your scrollback were not in.
+   */
+  workspace: string | null
   activePaneId: string
 }
 
@@ -269,6 +282,33 @@ export function paneIdsOf(tab: Tab): string[] {
  * a build ran in another tab's shell, in another project's directory, in
  * scrollback nobody was looking at.
  */
+/**
+ * The project in front of you: the active session's workspace.
+ *
+ * A function rather than a field. Mirroring it onto the store as well would be two
+ * sources of truth, and the first action that changed the active session without
+ * remembering to re-mirror would show one project's files under another project's
+ * name with nothing looking broken — which is the failure this whole change exists
+ * to remove, reintroduced one level down.
+ */
+/**
+ * Note that somebody worked in a folder.
+ *
+ * Called wherever a session is given a project — by the picker, by the palette, by
+ * a folder on the command line, by a second instance — rather than at each of those
+ * places, so no route in is forgotten. It was forgotten once already: opening a
+ * folder became "a new session with that project" rather than "set the root", and
+ * every folder opened that way stopped appearing under Open Recent.
+ */
+function rememberFolder(path: string | null, apply: (next: Settings) => void): void {
+  if (!path) return
+  void window.ember.noteRecentFolder(path).then(apply)
+}
+
+export function workspaceRoot(s: Store): string | null {
+  return s.tabs.find((t) => t.id === s.activeTabId)?.workspace ?? null
+}
+
 export function terminalPaneIdFor(s: Store): string | null {
   const tab = s.tabs.find((t) => t.id === s.activeTabId)
   if (!tab) return null
@@ -306,8 +346,6 @@ interface Store {
   panelView: PanelView
   /** The panel's height, as a fraction of the window. */
   panelHeight: number
-  /** Root of the file tree; null until a terminal reports a directory. */
-  treeRoot: string | null
   /**
    * Last read of the repository containing the tree root, shared because both
    * sidebar views need it: source control lists it, the explorer colours by it.
@@ -409,7 +447,11 @@ interface Store {
    * and would otherwise have to know which measurement it was writing.
    */
   setRegionSize(region: 'panel', fraction: number): void
-  setTreeRoot(path: string): void
+  /**
+   * Point the session in front at a project. Null gives it no project, which is
+   * what a session that has never been anywhere has.
+   */
+  setWorkspace(path: string | null): void
   setGitStatus(status: GitStatus | null): void
   /** File a directory's repository status, or the absence of one. */
   setCwdGit(cwd: string, status: GitStatus | null): void
@@ -457,7 +499,7 @@ interface Store {
   closePalette(): void
 
   /** Opens a tab and returns its *pane* id, which is what callers need to write to. */
-  newTab(profileId: string, cwd?: string): string
+  newTab(profileId: string, cwd?: string, workspace?: string | null): string
   /** `alreadyConfirmed` is for closePane, which has asked about the same documents. */
   closeTab(tabId: string, alreadyConfirmed?: boolean): void
   /**
@@ -743,17 +785,22 @@ export const useStore = create<Store>((set, get) => ({
   setRegionSize: (_region, fraction) =>
     set(() => ({ panelHeight: Math.min(0.8, Math.max(0.12, fraction)) })),
 
-  setTreeRoot: (treeRoot) => {
-    // Servers are started once per language and told their root in the handshake,
-    // so moving the workspace has to be passed on or they go on answering about
-    // the folder that was open before.
-    if (treeRoot && get().treeRoot !== treeRoot) {
-      window.ember.lspSetRoot(treeRoot)
-      // Recorded here rather than at each place that opens a folder, so every route
-      // in — the picker, the palette, the terminal's directory — is remembered.
-      void window.ember.noteRecentFolder(treeRoot).then((next) => get().applySettings(next))
-    }
-    set({ treeRoot })
+  setWorkspace: (path) => {
+    const tabId = get().activeTabId
+    if (!tabId) return
+    if (workspaceRoot(get()) === path) return
+
+    /*
+     * Remembered here rather than at each place that opens a folder, so every route
+     * in — the picker, the palette, the terminal's directory — is recorded. Only on
+     * opening, though: telling the language servers where to look now belongs to an
+     * effect on the active session's workspace, because that also changes when you
+     * merely switch sessions, and a switch is not an opening to remember.
+     */
+    rememberFolder(path, (next) => get().applySettings(next))
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, workspace: path } : t))
+    }))
   },
   setGitStatus: (gitStatus) => set({ gitStatus }),
 
@@ -856,16 +903,38 @@ export const useStore = create<Store>((set, get) => ({
       return { pendingInput: next }
     }),
 
-  newTab: (profileId, cwd) => {
+  newTab: (profileId, cwd, workspace) => {
+    /*
+     * A new session continues in the project you were already in.
+     *
+     * Passing a folder explicitly says otherwise, and passing null says "no
+     * project". But the ordinary Ctrl+Shift+T means "another session here", and a
+     * session that arrived with no project at all would open on the "open a folder"
+     * empty state with its shell standing in the home directory — a worse answer
+     * than the single window-wide root this replaced.
+     */
+    const inherited = workspace === undefined ? workspaceRoot(get()) : workspace
+
+    // Only an explicit folder is somebody opening a folder. Inheriting the project
+    // of the session you were in is not, and would push it up the recent list every
+    // time a session was opened.
+    if (workspace !== undefined) rememberFolder(workspace, (next) => get().applySettings(next))
+
     // A custom shell may say where it starts. Only a caller with no standing of
-    // its own defers to it — a split, a restore, or an "open here" still wins.
+    // its own defers to it — a split, a restore, or an "open here" still wins. The
+    // project comes after that and before the home directory, so a session that is
+    // about a project has its shell standing in it.
     const startIn = get().profiles.find((p) => p.id === profileId)?.cwd
-    const pane = makeTerminalPane(profileId, cwd ?? (startIn || window.ember.homeDir))
+    const pane = makeTerminalPane(
+      profileId,
+      cwd ?? (startIn || inherited || window.ember.homeDir)
+    )
     const tab: Tab = {
       thread: [],
       id: uid(),
       shells: { type: 'leaf', paneId: pane.id },
       editors: null,
+      workspace: inherited ?? null,
       activePaneId: pane.id
     }
     set((s) => ({

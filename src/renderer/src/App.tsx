@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
-import { useStore } from './state/store'
+import { useStore, workspaceRoot } from './state/store'
 import { chordOf, resolveBindings } from './keys'
 import { TitleBar } from './components/TitleBar'
 import { SplitView } from './components/SplitView'
@@ -10,7 +10,7 @@ import { Sidebar } from './components/Sidebar'
 import { Palette } from './components/Palette'
 import { disposeController } from './terminal/controller'
 import { activateTheme, refreshThemeList } from './state/theming'
-import { useGitStatusPolling } from './state/git'
+import { refreshGitStatus, useGitStatusPolling } from './state/git'
 import { useIdeBridge } from './state/ide'
 import { adoptTransfer, restore, unsavedWorkIsPreserved, useSessionAutosave } from './state/session'
 import { setRevealer } from './editor/navigate'
@@ -159,8 +159,32 @@ export function App(): React.JSX.Element {
    */
   useEffect(() => {
     const s = useStore.getState()
-    if (!s.treeRoot && terminalCwd && !isHomeDirectory(terminalCwd)) s.setTreeRoot(terminalCwd)
-  }, [terminalCwd])
+    if (!workspaceRoot(s) && terminalCwd && !isHomeDirectory(terminalCwd)) {
+      s.setWorkspace(terminalCwd)
+    }
+  }, [terminalCwd, activeTabId])
+
+  /*
+   * Where the language servers are pointed follows the session in front.
+   *
+   * Separate from setting a workspace, because the workspace in view also changes
+   * when you merely switch sessions — and a server told its root in the handshake
+   * goes on answering about the folder that was open before unless it is told
+   * again. Keyed on the resolved root rather than on the tab, so switching between
+   * two sessions on the same project says nothing to anybody.
+   */
+  const activeWorkspace = useStore(workspaceRoot)
+  useEffect(() => {
+    if (!activeWorkspace) return
+    window.ember.lspSetRoot(activeWorkspace)
+    /*
+     * The status chips on screen belong to the project that was in front. Clearing
+     * before re-reading is the difference between a moment of "loading" and a
+     * clean-looking tree that is really another project's.
+     */
+    useStore.getState().setGitStatus(null)
+    void refreshGitStatus()
+  }, [activeWorkspace])
 
   // Boot: discover shells, then open the first tab on the preferred one.
   useEffect(() => {
@@ -245,20 +269,33 @@ export function App(): React.JSX.Element {
           restored = false
         }
       }
-      // A folder argument overrides a restored root: launching on a folder is an
-      // explicit statement about where the user is working now.
-      if (root) useStore.getState().setTreeRoot(root)
-
       const preferred =
         profiles.find((p) => p.id === settings.defaultProfileId)?.id ?? profiles[0].id
-      // The shell starts in that folder too: "open here" would be a strange promise
-      // to keep in the sidebar and break in the terminal.
-      if (!restored && useStore.getState().tabs.length === 0) {
-        newTab(preferred, folders[0] ?? undefined)
-      } else if (folders[0]) {
-        // A folder asked for on top of a workspace that came back gets its own tab,
-        // the same answer a second instance gives when it is handed one.
-        newTab(preferred, folders[0])
+
+      /*
+       * A session per folder named on the command line.
+       *
+       * `ember A B` used to take the first and ignore the rest, because a window
+       * had one workspace and there was nowhere to put the second. A session
+       * carries its own now, so both projects open, each with its own shell
+       * standing in it, and Ctrl+Tab moves the explorer, search, source control,
+       * scripts and problems between them.
+       *
+       * The shell starts in the folder too: "open here" would be a strange promise
+       * to keep in the sidebar and break in the terminal.
+       */
+      if (folders.length > 0) {
+        for (const folder of folders) newTab(preferred, folder, folder)
+      } else if (!restored && useStore.getState().tabs.length === 0) {
+        newTab(preferred)
+      }
+
+      /*
+       * A file named on the command line seeds the session it opens in, when that
+       * session has no project of its own — which is the plain `ember file.ts` case.
+       */
+      if (folders.length === 0 && root && !isHomeDirectory(root)) {
+        useStore.getState().setWorkspace(root)
       }
 
       // Files named on the command line open once the first tab exists, since an
@@ -372,9 +409,10 @@ export function App(): React.JSX.Element {
   useEffect(
     () =>
       window.ember.onOpenFolder((folder) => {
+        // The new session is the one this folder is about, so it carries the
+        // workspace itself rather than the window claiming it only when empty.
         const s = useStore.getState()
-        if (!s.treeRoot) s.setTreeRoot(folder)
-        s.newTab(s.profiles[0]?.id ?? '', folder)
+        s.newTab(s.profiles[0]?.id ?? '', folder, folder)
       }),
     []
   )
@@ -393,9 +431,11 @@ export function App(): React.JSX.Element {
     // A file named on the command line says more about where the user is working
     // than the shell's start directory does, so it seeds the workspace root.
     const s0 = useStore.getState()
-    if (!s0.treeRoot) {
+    if (!workspaceRoot(s0)) {
       const dir = paths[0].replace(/[\\/][^\\/]*$/, '')
-      if (dir && dir !== paths[0]) s0.setTreeRoot(dir)
+      // The same refusal as everywhere else: a file in the home directory must not
+      // adopt the whole profile as a workspace.
+      if (dir && dir !== paths[0] && !isHomeDirectory(dir)) s0.setWorkspace(dir)
     }
     const { languageForPath } = await import('./editor/monaco')
     for (const filePath of paths) {

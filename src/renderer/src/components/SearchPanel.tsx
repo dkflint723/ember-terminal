@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SearchHit } from '@shared/types'
-import { useStore } from '../state/store'
+import { useStore, workspaceRoot } from '../state/store'
 
 /**
  * Search across the workspace.
@@ -17,7 +17,7 @@ interface Props {
 }
 
 export function SearchPanel({ onOpen }: Props): React.JSX.Element {
-  const treeRoot = useStore((s) => s.treeRoot)
+  const treeRoot = useStore(workspaceRoot)
   const [text, setText] = useState('')
   const [include, setInclude] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)

@@ -148,6 +148,8 @@ function wellFormed(snapshot: SessionSnapshot): boolean {
     // Absent in older files and in tabs where nothing has been opened; present it
     // must still be a layout, or the renderer would walk a malformed tree.
     if (tab.editors !== undefined && tab.editors !== null && !validNode(tab.editors)) return false
+    // Absent in every session written before a session had a project of its own.
+    if (tab.workspace !== undefined && typeof tab.workspace !== 'string') return false
   }
 
   for (const pane of snapshot.panes) {

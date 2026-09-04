@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import type { IdeCall } from '@shared/types'
-import { useStore, type DiffPaneState, type EditorDocument } from './store'
+import { type DiffPaneState, type EditorDocument, useStore, workspaceRoot } from './store'
 import { noteSynced } from '../editor/synced'
 
 /**
@@ -203,7 +203,7 @@ async function handle(call: IdeCall): Promise<unknown> {
 
   switch (call.name) {
     case 'getWorkspaceFolders': {
-      const root = state.treeRoot
+      const root = workspaceRoot(state)
       return {
         success: true,
         folders: root
@@ -393,7 +393,7 @@ const SEVERITY: Record<number, string> = { 8: 'Error', 4: 'Warning', 2: 'Informa
  * reads the lockfile sees the folder the user is actually working in.
  */
 export function useIdeBridge(): void {
-  const treeRoot = useStore((s) => s.treeRoot)
+  const treeRoot = useStore(workspaceRoot)
 
   useEffect(() => {
     window.ember.ideWorkspace(treeRoot ? [treeRoot] : [])

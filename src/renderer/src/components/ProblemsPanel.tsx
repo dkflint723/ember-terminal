@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { pathKey } from '@shared/paths'
 import { monaco } from '../editor/monaco'
-import { useStore } from '../state/store'
+import { useStore, workspaceRoot } from '../state/store'
 
 interface Props {
   onOpen: (filePath: string, line: number, column: number) => void
@@ -72,7 +72,7 @@ function severityWord(severity: number): string {
 
 export function ProblemsPanel({ onOpen }: Props): React.JSX.Element {
   const problems = useProblems()
-  const treeRoot = useStore((s) => s.treeRoot)
+  const treeRoot = useStore(workspaceRoot)
   const panes = useStore((s) => s.panes)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
 

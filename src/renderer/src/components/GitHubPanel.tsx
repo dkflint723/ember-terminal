@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { GitHubCheckState, GitHubIssue, GitHubOverview, GitHubPr } from '@shared/types'
-import { useStore } from '../state/store'
+import { useStore, workspaceRoot } from '../state/store'
 import { refreshGitStatus } from '../state/git'
 
 /**
@@ -11,7 +11,7 @@ import { refreshGitStatus } from '../state/git'
  * refreshed every three seconds. It loads when the view opens and when asked.
  */
 export function GitHubPanel(): React.JSX.Element {
-  const treeRoot = useStore((s) => s.treeRoot)
+  const treeRoot = useStore(workspaceRoot)
   const [overview, setOverview] = useState<GitHubOverview | null>(null)
   const [problem, setProblem] = useState<{ reason: string; error: string } | null>(null)
   /** An action that failed, shown above the list the user is still looking at. */

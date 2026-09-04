@@ -3436,6 +3436,27 @@ label.field__check {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+/*
+ * Which project this view is describing.
+ *
+ * Quieter than the view's own name and allowed to be the part that truncates: the
+ * name says what you are looking at, the project says what it is looking at, and
+ * when there is not room for both the first one is the one to keep. It is the only
+ * statement of the workspace on screen in IDE mode, where there is no session strip.
+ */
+.sidebar__project {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--fg-dim);
+  letter-spacing: 0.04em;
+  text-transform: none;
 }
 
 /* Inside the shell the tree is no longer the panel, so it drops its own frame. */

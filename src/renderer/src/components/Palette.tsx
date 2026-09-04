@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { modelLabel } from '@shared/models'
-import { activeDocument, useStore } from '../state/store'
+import { activeDocument, useStore, workspaceRoot } from '../state/store'
 import { QuickPick, type QuickPickItem } from './QuickPick'
 
 interface Props {
@@ -20,7 +20,7 @@ export function Palette({ onOpenFile }: Props): React.JSX.Element | null {
   const tabs = useStore((s) => s.tabs)
   const panes = useStore((s) => s.panes)
   const close = useStore((s) => s.closePalette)
-  const treeRoot = useStore((s) => s.treeRoot)
+  const treeRoot = useStore(workspaceRoot)
   const [files, setFiles] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   /** Why the file list is empty, when the reason is not that the folder is. */
@@ -292,9 +292,9 @@ function commands(): Command[] {
       label: 'File: Open Folder…',
       run: () => {
         void (async () => {
-          const picked = await window.ember.openFolderDialog(s.treeRoot ?? undefined)
+          const picked = await window.ember.openFolderDialog(workspaceRoot(s) ?? undefined)
           if (!picked) return
-          s.setTreeRoot(picked)
+          s.setWorkspace(picked)
           s.showSidebarView('explorer')
         })()
       }
@@ -302,13 +302,13 @@ function commands(): Command[] {
     // One command per folder rather than a mode of its own: the palette already
     // filters by typing, and a folder is found by its name either way.
     ...s.settings.recentFolders
-      .filter((folder) => folder !== s.treeRoot)
+      .filter((folder) => folder !== workspaceRoot(s))
       .map((folder) => ({
         id: `file.recent:${folder}`,
         label: `Open Recent: ${folder.split(/[\\/]/).filter(Boolean).pop() ?? folder}`,
         hint: folder,
         run: () => {
-          s.setTreeRoot(folder)
+          s.setWorkspace(folder)
           s.showSidebarView('explorer')
         }
       })),

@@ -20,7 +20,7 @@ import {
   useDebugStore,
   type DebugVariable
 } from '../state/debug'
-import { useStore } from '../state/store'
+import { useStore, workspaceRoot } from '../state/store'
 
 interface Props {
   onOpenAt: (filePath: string, line: number, column: number) => void
@@ -48,7 +48,7 @@ export function DebugPanel({ onOpenAt }: Props): React.JSX.Element {
   const launchChoice = useDebugStore((s) => s.launchChoice)
   const output = useDebugStore((s) => s.output)
   const repl = useDebugStore((s) => s.repl)
-  const treeRoot = useStore((s) => s.treeRoot)
+  const treeRoot = useStore(workspaceRoot)
 
   /** Which breakpoint's condition editor is open, as `${path}:${line}`. */
   const [editing, setEditing] = useState<string | null>(null)

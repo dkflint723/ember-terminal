@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { DirEntry } from '@shared/types'
-import { useStore } from '../state/store'
+import { useStore, workspaceRoot } from '../state/store'
 import { decorationFor, decorationsByPath, statusClass } from '../state/git'
 
 interface Props {
@@ -26,8 +26,8 @@ const STATUS_WORD: Record<string, string> = {
  * the store because it is view state — closing the sidebar should forget it.
  */
 export function FileTree({ onOpen }: Props): React.JSX.Element {
-  const root = useStore((s) => s.treeRoot)
-  const setRoot = useStore((s) => s.setTreeRoot)
+  const root = useStore(workspaceRoot)
+  const setRoot = useStore((s) => s.setWorkspace)
   const tabs = useStore((s) => s.tabs)
   const panes = useStore((s) => s.panes)
   const activeTabId = useStore((s) => s.activeTabId)

@@ -9,15 +9,7 @@ import type {
 } from '@shared/types'
 import { markAdopted } from '../terminal/controller'
 import { seedDebug, serializeDebug, useDebugStore } from './debug'
-import {
-  useStore,
-  type Block,
-  type ConversationBlock,
-  type EditorDocument,
-  type LayoutNode,
-  type Pane,
-  type Tab
-} from './store'
+import { type Block, type ConversationBlock, type EditorDocument, type LayoutNode, type Pane, type Tab, useStore, workspaceRoot } from './store'
 
 /**
  * Writing the workspace down, and putting it back.
@@ -82,6 +74,9 @@ export function snapshot(): SessionSnapshot {
       editors: editors ?? undefined,
       id: tab.id,
       name: tab.name,
+      // The project this session is about, which is the thing that used to be one
+      // field for the whole window.
+      workspace: tab.workspace ?? undefined,
       /*
        * The last forty turns, with anything mid-stream written down as
        * cancelled: a restored "streaming" would spin forever, and cancelled is
@@ -126,7 +121,14 @@ export function snapshot(): SessionSnapshot {
 
   return {
     version: 1,
-    treeRoot: state.treeRoot,
+    /*
+     * Still written, and still the workspace of the session in front.
+     *
+     * Kept because main validates the field and discards any session whose shape it
+     * does not recognise, and because a build older than per-session workspaces
+     * reads this and nothing else. New readers take each tab's own.
+     */
+    treeRoot: workspaceRoot(state),
     debug: serializeDebug(),
     sidebarOpen: state.sidebarOpen,
     sessionsOpen: state.sessionsOpen,
@@ -358,28 +360,29 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
     // old snapshot could still be honestly read as.
     const editors = tab.editors ? pruneLayout(tab.editors as LayoutNode, alive) : null
     const ids = [...collect(root), ...(editors ? collect(editors) : [])]
+    /*
+     * Each session's own project, and the window-wide one for anything written
+     * before sessions had one. A workspace that has gone is dropped rather than
+     * restored: the explorer, source control, the language servers and the Claude
+     * Code lockfile all key off it, and every one of them would point at nothing.
+     */
+    const saved = tab.workspace ?? snapshotIn.treeRoot
     tabs.push({
       id: tab.id,
       name: tab.name,
       thread: tab.thread ?? [],
       shells: root as LayoutNode,
       editors: (editors as LayoutNode) ?? null,
+      workspace: saved && (await stillThere(saved)) ? saved : null,
       activePaneId: ids.includes(tab.activePaneId) ? tab.activePaneId : ids[0]
     })
   }
   if (tabs.length === 0) return false
 
-  // A root that has gone is dropped rather than restored: the explorer, source
-  // control, the language servers and the Claude Code lockfile all key off it, and
-  // every one of them would be pointing at nothing.
-  const root =
-    snapshotIn.treeRoot && (await stillThere(snapshotIn.treeRoot)) ? snapshotIn.treeRoot : null
-
   useStore.setState({
     panes,
     tabs,
     activeTabId: tabs.find((t) => t.id === snapshotIn.activeTabId)?.id ?? tabs[0].id,
-    treeRoot: root,
     /*
      * Every launch opens as a terminal, whatever was open last time.
      *
@@ -471,6 +474,9 @@ export function packTab(tabId: string): TabTransfer | null {
       id: tab.id,
       name: tab.name,
       thread: tab.thread,
+      // Without this a session dragged into its own window arrived with no project
+      // and re-derived one from wherever its shell happened to be standing.
+      workspace: tab.workspace,
       root,
       editors,
       activePaneId: ids.includes(tab.activePaneId) ? tab.activePaneId : ids[0]
@@ -578,6 +584,10 @@ export async function adoptTransfer(transfer: TabTransfer | null): Promise<boole
     id: transfer.tab.id,
     name: transfer.tab.name,
     thread: transfer.tab.thread ?? [],
+    // The project travels with the session, which is the point of putting it there:
+    // a session moved to another window used to arrive with no project at all and
+    // re-derive one from whatever directory its shell happened to be standing in.
+    workspace: transfer.tab.workspace ?? null,
     shells: root as LayoutNode,
     editors: (editors as LayoutNode) ?? null,
     activePaneId: ids.includes(transfer.tab.activePaneId) ? transfer.tab.activePaneId : ids[0]

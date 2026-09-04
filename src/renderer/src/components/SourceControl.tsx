@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { GitStashes } from './GitStashes'
 import { GitHistory } from './GitHistory'
 import type { GitFileChange } from '@shared/types'
-import { useStore } from '../state/store'
+import { useStore, workspaceRoot } from '../state/store'
 import { refreshGitStatus, statusClass } from '../state/git'
 import { QuickPick, type QuickPickItem } from './QuickPick'
 
@@ -24,7 +24,7 @@ const OPERATION_NAME = {
 
 export function SourceControl(): React.JSX.Element {
   const status = useStore((s) => s.gitStatus)
-  const treeRoot = useStore((s) => s.treeRoot)
+  const treeRoot = useStore(workspaceRoot)
   const tabs = useStore((s) => s.tabs)
   const activeTabId = useStore((s) => s.activeTabId)
   const openDiff = useStore((s) => s.openDiffInSplit)

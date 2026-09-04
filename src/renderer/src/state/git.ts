@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import type { GitFileChange } from '@shared/types'
 import { isInside } from '@shared/paths'
-import { useStore } from './store'
+import { useStore, workspaceRoot } from './store'
 
 /**
  * Keeps the shared git status current.
@@ -26,7 +26,8 @@ const POLL_MS = 3000
 let polling = false
 
 export async function refreshGitStatus(): Promise<void> {
-  const { treeRoot, setGitStatus, setGitError } = useStore.getState()
+  const { setGitStatus, setGitError } = useStore.getState()
+  const treeRoot = workspaceRoot(useStore.getState())
   if (!treeRoot) {
     setGitStatus(null)
     setGitError(null)
@@ -69,7 +70,8 @@ export async function refreshGitStatus(): Promise<void> {
 let pollingCwd = false
 
 export async function refreshGitForCwd(cwd: string): Promise<void> {
-  const { treeRoot, setCwdGit } = useStore.getState()
+  const { setCwdGit } = useStore.getState()
+  const treeRoot = workspaceRoot(useStore.getState())
   if (!cwd) return
   // Inside the workspace the polled status already describes this directory, and
   // asking git the same question twice per tick is the kind of waste that shows up
@@ -95,7 +97,7 @@ export async function refreshGitForCwd(cwd: string): Promise<void> {
  * still not agree on when they had done it.
  */
 export function useGitStatusPolling(): void {
-  const treeRoot = useStore((s) => s.treeRoot)
+  const treeRoot = useStore(workspaceRoot)
 
   useEffect(() => {
     void refreshGitStatus()

@@ -384,6 +384,12 @@ export interface SessionSnapshot {
     name?: string
     root: SessionLayout
     editors?: SessionLayout
+    /**
+     * The project this session is about. Optional because every session written
+     * before sessions had one has none, and those fall back to the snapshot's
+     * window-wide `treeRoot`.
+     */
+    workspace?: string
     activePaneId: string
   }[]
   panes: SessionPane[]
@@ -424,6 +430,8 @@ export interface TabTransfer {
     thread: AgentTurn[]
     root: SessionLayout
     editors?: SessionLayout | null
+    /** The project travels with the session when it moves to another window. */
+    workspace?: string | null
     activePaneId: string
   }
   terminals: TerminalPaneTransfer[]

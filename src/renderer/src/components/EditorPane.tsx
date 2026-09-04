@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { activeDocument, useStore, type EditorPaneState } from '../state/store'
+import { activeDocument, type EditorPaneState, useStore, workspaceRoot } from '../state/store'
 import { modelUri, monaco } from '../editor/monaco'
 import { applyMonacoTheme, MONACO_THEME_ID } from '../editor/theme'
 import { ensureLanguageServer, findDefinition } from '../editor/lsp'
@@ -101,7 +101,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
   const moveDocument = useStore((s) => s.moveDocument)
   // Subscribed rather than read once: the breadcrumb row is drawn against the
   // workspace root, and opening a folder changes what every crumb should say.
-  const treeRoot = useStore((s) => s.treeRoot)
+  const treeRoot = useStore(workspaceRoot)
   /** Which tab is being dragged, and which one it is currently over. */
   const dragFrom = useRef<number | null>(null)
   const [dragOver, setDragOver] = useState<number | null>(null)
@@ -547,7 +547,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     const dirty = model.getValue() !== document.savedContent
     if (dirty !== document.dirty) patchDocument(pane.id, { dirty }, pane.activeIndex)
 
-    const treeRoot = useStore.getState().treeRoot
+    const treeRoot = workspaceRoot(useStore.getState())
     const fileDir = document.filePath?.replace(/[\\/][^\\/]*$/, '')
     registerGhost()
     void ensureLanguageServer(document.language, treeRoot ?? fileDir ?? undefined)
