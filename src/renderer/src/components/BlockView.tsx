@@ -2,6 +2,7 @@ import { memo, useRef, useState } from 'react'
 import { useStore, type CommandBlock } from '../state/store'
 import { linkHitAt, setLinkHighlight, type LinkHit } from '../terminal/links'
 import { textFromHtml } from '../terminal/serialize'
+import { markdownFrom } from '../terminal/share'
 
 interface Props {
   block: CommandBlock
@@ -104,9 +105,9 @@ export const BlockView = memo(function BlockView({ block, onToggle, onRerun, stu
    * The click answers. A copy that changes nothing on screen reads as a copy
    * that did nothing — the button says so for a moment, then goes back to work.
    */
-  const [copied, setCopied] = useState<'cmd' | 'out' | null>(null)
+  const [copied, setCopied] = useState<'cmd' | 'out' | 'md' | null>(null)
   const copiedTimer = useRef(0)
-  const copy = (e: React.MouseEvent, text: string, which: 'cmd' | 'out'): void => {
+  const copy = (e: React.MouseEvent, text: string, which: 'cmd' | 'out' | 'md'): void => {
     e.stopPropagation()
     void navigator.clipboard.writeText(text)
     setCopied(which)
@@ -168,6 +169,21 @@ export const BlockView = memo(function BlockView({ block, onToggle, onRerun, stu
             onClick={(e) => copy(e, textFromHtml(block.output), 'out')}
           >
             {copied === 'out' ? '✓ copied' : 'copy out'}
+          </button>
+          {/*
+            Sharing, without anywhere to host anything.
+            Warp answers this with a hosted permalink; Ember has no server and will
+            not have one, so what leaves here is Markdown on the clipboard — the
+            form a colleague, an issue or a chat window all already render, and the
+            only form that still works in a year. Credentials that name themselves
+            are taken out on the way; the title says so rather than promising more.
+          */}
+          <button
+            className="block__action"
+            title="Copy as Markdown, to paste into an issue or a message — credentials that name themselves are removed"
+            onClick={(e) => copy(e, markdownFrom(block, textFromHtml(block.output)), 'md')}
+          >
+            {copied === 'md' ? '✓ copied' : 'share'}
           </button>
           <button
             className="block__action"

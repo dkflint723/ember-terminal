@@ -107,6 +107,101 @@ check(
   JSON.stringify(copied.slice(0, 160))
 )
 
+/*
+ * --- what leaves the app when a block is shared --------------------------------
+ *
+ * Warp shares a block with a hosted permalink. Ember has no server, so what leaves
+ * is Markdown on the clipboard — which means the clipboard is the only place these
+ * can be observed, and the only place the truncation bug below was visible.
+ */
+
+const shareOf = async (index) => {
+  const block = index === undefined ? page.locator('.block').last() : page.locator('.block').nth(index)
+  await block.hover()
+  await block.locator('.block__action[title^="Copy as Markdown"]').click({ force: true })
+  await sleep(400)
+  // Windows hands back CRLF from the clipboard whatever went in, and the shape
+  // under test is the Markdown, not the platform's line endings.
+  const text = await page.evaluate(() => window.ember.clipboardRead())
+  return text.replace(/\r\n/g, '\n')
+}
+
+await run(`Write-Host "SHARED-ONE"; Write-Host "SHARED-TWO"`)
+const shared = await shareOf()
+
+/*
+ * A fenced `console` block with the command on a prompt line. That is the form
+ * every issue tracker and chat window already renders, so a reader knows what they
+ * are looking at without being told.
+ */
+check(
+  'a shared block is a fenced console block',
+  /```console\n\$ Write-Host "SHARED-ONE"/.test(shared),
+  JSON.stringify(shared.slice(0, 160))
+)
+check(
+  'carrying the output, with its lines intact',
+  shared.includes('SHARED-ONE\nSHARED-TWO'),
+  JSON.stringify(shared.slice(0, 240))
+)
+check(
+  'and how it went, which is usually why it is being shared',
+  /_exited 0( in .+)?_/.test(shared),
+  JSON.stringify(shared.slice(-120))
+)
+
+/*
+ * Output is arbitrary bytes from arbitrary programs, and plenty of them print
+ * three backticks — anything rendering Markdown, a linter quoting a sample, this
+ * app's own README. A three-tick fence around that closes early and the rest of
+ * the output escapes into the message as prose.
+ */
+await run('Write-Host "``````fenced``````"')
+const fenced = await shareOf()
+check(
+  'output containing a fence gets a longer one around it',
+  /````+console/.test(fenced),
+  JSON.stringify(fenced.slice(0, 120))
+)
+
+/*
+ * A credential on the command line is not handed to somebody else.
+ *
+ * The history database redacts what it stores for the same reason, but a row in a
+ * local SQLite file is read by the person who typed the command and this is on its
+ * way to another screen — so where redaction leaves a command still looking like it
+ * carries a credential, the command is withheld rather than shared.
+ */
+await run('Write-Host "done"; # curl --token abcdef123456789 https://example.invalid')
+const credential = await shareOf()
+check(
+  'a credential on the command line is not shared in the clear',
+  !credential.includes('abcdef123456789'),
+  JSON.stringify(credential.slice(0, 200))
+)
+
+/*
+ * --- a block that lost output says so, in the text as well as on screen ---------
+ *
+ * The live capture marks what it had to drop with a line reading "earlier output
+ * not kept". It was written as a bare span beside the rows rather than in one, and
+ * text is taken from a block by joining its `.row` children — so the one line
+ * saying output was lost was the one line dropped from every copy, from the
+ * history database, and from what gets handed to Claude. The block read as whole.
+ * The same marker written by the history layer has always been wrapped; only the
+ * live one was not, so only live blocks lied.
+ *
+ * Three megabytes on one line, which is past the capture cap and cannot be
+ * mistaken for anything else.
+ */
+await run('Write-Output ("x" * 3000000)', 180_000)
+const truncated = await shareOf()
+check(
+  'a block that lost output says so in what is copied out of it',
+  truncated.includes('earlier output not kept'),
+  JSON.stringify(truncated.slice(0, 200))
+)
+
 // --- the history record -------------------------------------------------------
 //
 // The one that had been quietly writing corrupted rows for as long as history has

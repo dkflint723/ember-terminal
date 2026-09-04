@@ -493,8 +493,18 @@ export class TerminalController {
         trimmed ||
         this.renderTerm.buffer.active.length >=
           this.renderTerm.rows + TerminalController.RENDER_SCROLLBACK
+      /*
+       * In a row of its own, like every other line.
+       *
+       * It used to be a bare span alongside the rows, and text is taken from a
+       * block by joining its `.row` children — so the one line saying output was
+       * lost was the one line dropped from every copy, from history, and from what
+       * gets handed to Claude. A truncated block read as a complete one. The same
+       * marker written by the history layer has always been wrapped; only the live
+       * one was not.
+       */
       return overflowed
-        ? `<span class="block__elided">… earlier output not kept</span>\n${html}`
+        ? `<div class="row"><span class="block__elided">… earlier output not kept</span></div>\n${html}`
         : html
     } catch {
       // Rendering must never lose the block; fall back to plain text.
