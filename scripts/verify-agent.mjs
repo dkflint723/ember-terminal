@@ -181,6 +181,44 @@ await waitAnswered('sky')
 
 // --- the conversation survives a restart ---------------------------------------
 await sleep(2600)
+/*
+ * A question asked in a second window is answered in that window.
+ *
+ * Replies went to the primary window unconditionally, so a panel opened anywhere
+ * else streamed forever while its answer was delivered into a panel nobody was
+ * looking at — and Stop could not help, because the turn it would have stopped
+ * was never the one on screen. Ember has had more than one window for a while:
+ * Ctrl+Shift+N opens one, and dragging a tab out makes one.
+ */
+await page.evaluate(() => window.ember.newWindow())
+const otherWindow = await app.waitForEvent('window', { timeout: 30_000 })
+await otherWindow.waitForSelector('.pane', { timeout: 40_000 })
+await sleep(3000)
+await otherWindow.keyboard.press('Control+Shift+B')
+await sleep(800)
+await otherWindow.locator('.agent__input').click()
+await otherWindow.keyboard.type('over here instead', { delay: 3 })
+await otherWindow.keyboard.press('Enter')
+
+let overThere = ''
+for (let i = 0; i < 70; i += 1) {
+  overThere = await otherWindow.evaluate(
+    () =>
+      [...document.querySelectorAll('.agent__turn--assistant .agent__text')].at(-1)?.textContent ??
+      ''
+  )
+  const streaming = await otherWindow.evaluate(
+    () => document.querySelectorAll('.agent__cursor').length > 0
+  )
+  if (!streaming && overThere.includes('over here instead')) break
+  await sleep(300)
+}
+check(
+  'a question asked in a second window is answered in that window',
+  overThere.includes('over here instead'),
+  JSON.stringify(overThere.slice(0, 140))
+)
+
 await app.close()
 await sleep(1000)
 app = await launch()

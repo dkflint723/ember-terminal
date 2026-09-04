@@ -91,11 +91,24 @@ export function attachInlineEdit(
       const instruction = input.value.trim()
       if (!instruction || !root) return
 
+      /*
+       * Which prompt this is, so the answer can tell.
+       *
+       * `root` is one variable for the whole editor rather than one per prompt, so
+       * asking whether it is null answers "is any prompt open" — not "is mine". Ask
+       * for one rewrite, then press Ctrl+I somewhere else while the first is still
+       * thinking, and the first answer closed the second prompt and threw away
+       * whatever had been typed into it.
+       */
+      const mine = root
+
       input.disabled = true
       hint.textContent = 'Asking Claude…'
 
       const res = await host.rewrite(selected, instruction, model.getLanguageId())
-      if (!root) return // Closed while it was thinking.
+      // Closed while it was thinking, or replaced by a later question that is now
+      // the one on screen. Either way this answer is no longer anybody's.
+      if (root !== mine) return
 
       if (!res.ok) {
         hint.textContent = res.error

@@ -240,6 +240,12 @@ export class AiService {
     model?: string
   ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
     if (process.env.EMBER_FAKE_AI) {
+      /*
+       * Slowly, when asked. A one-shot that answers instantly cannot be asked a
+       * second question over the top of the first, which is the case where an
+       * answer has to work out whether it is still the one being waited for.
+       */
+      if (process.env.EMBER_FAKE_AI_SLOW) await new Promise((r) => setTimeout(r, 900))
       return { ok: true, text: `FAKE:${prompt.slice(-40)}` }
     }
 

@@ -932,8 +932,20 @@ function registerIpc(): void {
     ptys.kill(paneId)
   })
 
-  ipcMain.on('ai:chat', (_e, req: AiChatRequest) => {
-    void ai.chat(req, (event) => sendToRenderer('ai:chat-event', event))
+  ipcMain.on('ai:chat', (e, req: AiChatRequest) => {
+    /*
+     * Back to the window that asked, rather than to the first one ever opened.
+     *
+     * Every reply went to the primary window unconditionally, so a question asked
+     * from a second window — opened with Ctrl+Shift+N, or made by dragging a tab
+     * out — left that window's panel streaming forever while its answer was
+     * delivered into a panel nobody was looking at. Stop could not help either,
+     * because the turn it would have stopped was never the one on screen.
+     */
+    const sender = e.sender
+    void ai.chat(req, (event) => {
+      if (!sender.isDestroyed()) sender.send('ai:chat-event', event)
+    })
   })
   ipcMain.on('ai:chat-cancel', (_e, requestId: string) => ai.cancelChat(requestId))
   /*

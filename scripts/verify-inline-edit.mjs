@@ -41,7 +41,7 @@ const app = await electron.launch({
   executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
   args: [APP_DIR, profile.arg, work],
   cwd: APP_DIR,
-  env: { ...env, EMBER_FAKE_AI: '1' },
+  env: { ...env, EMBER_FAKE_AI: '1', EMBER_FAKE_AI_SLOW: '1' },
   timeout: 60_000
 })
 const page = await app.firstWindow()
@@ -175,6 +175,53 @@ await page.keyboard.press('Escape')
 await sleep(700)
 check('Escape closes it', (await page.locator('.inline-edit').count()) === 0)
 check('having changed nothing', (await text()) === ORIGINAL, JSON.stringify((await text()).slice(0, 60)))
+
+/*
+ * A second question asked while the first is still thinking.
+ *
+ * The widget the prompt lives in is one variable for the whole editor rather than
+ * one per prompt, so the stale-answer guard — "am I still open?" — was really
+ * asking "is any prompt open?". Ask for one rewrite, press Ctrl+I somewhere else
+ * before it answers, and the first answer closed the second prompt and threw away
+ * what had been typed into it.
+ */
+await page.evaluate(() => {
+  const ed = window.monaco.editor.getEditors()[0]
+  ed.setSelection(new window.monaco.Range(2, 1, 2, 15))
+  ed.focus()
+})
+await sleep(400)
+await page.keyboard.press('Control+i')
+await page.waitForSelector('.inline-edit', { timeout: 8_000 })
+await page.keyboard.type('first question', { delay: 15 })
+await page.keyboard.press('Enter')
+await sleep(250)
+
+// Over the top of it, before the first has come back.
+await page.evaluate(() => {
+  const ed = window.monaco.editor.getEditors()[0]
+  ed.setSelection(new window.monaco.Range(3, 1, 3, 10))
+  ed.focus()
+})
+await sleep(250)
+await page.keyboard.press('Control+i')
+await page.waitForSelector('.inline-edit', { timeout: 8_000 })
+await page.keyboard.type('second question', { delay: 15 })
+await sleep(2200)
+
+check(
+  'a second question is not closed by the first one being answered',
+  (await page.locator('.inline-edit').count()) === 1,
+  `${await page.locator('.inline-edit').count()} prompts`
+)
+check(
+  'and keeps what was typed into it',
+  (await page.evaluate(() => document.querySelector('.inline-edit input')?.value ?? '')) ===
+    'second question',
+  JSON.stringify(await page.evaluate(() => document.querySelector('.inline-edit input')?.value ?? ''))
+)
+await page.keyboard.press('Escape')
+await sleep(400)
 
 await app.close()
 profile.cleanup()
