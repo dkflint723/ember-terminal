@@ -195,6 +195,49 @@ export class GhostService {
    * and it says what answered, how long it took, and which shape the server spoke.
    */
   /**
+   * The models this server already has, so a name can be chosen rather than typed.
+   *
+   * A model name is exact, unforgiving and easy to get subtly wrong — `qwen3-coder`
+   * without its tag, a colon where a slash belongs — and the failure is an endpoint
+   * answering "model not found" for something the user can see is installed. Both
+   * kinds of server say what they hold: Ollama at `/api/tags`, anything
+   * OpenAI-shaped at `/v1/models`. Both are asked, because one address can be both.
+   *
+   * An empty list is not an error. It means "nothing to offer here", and the field
+   * stays a field somebody can type into — which is what it has to remain anyway,
+   * since a server that lists nothing may still answer perfectly well.
+   */
+  async models(): Promise<string[]> {
+    const s = this.settings()
+    const base = s.ghostBaseUrl.replace(/\/+$/, '')
+    const root = base.replace(/\/v1$/, '')
+    const found = new Set<string>()
+
+    const read = async (url: string, pick: (json: unknown) => string[]): Promise<void> => {
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(4000) })
+        if (!res.ok) return
+        for (const name of pick(await res.json())) if (name) found.add(name)
+      } catch {
+        // A server that does not answer this is a server with nothing to say.
+      }
+    }
+
+    await Promise.all([
+      read(`${root}/api/tags`, (json) => {
+        const list = (json as { models?: { name?: string; model?: string }[] }).models ?? []
+        return list.map((m) => m.name ?? m.model ?? '')
+      }),
+      read(`${base}/models`, (json) => {
+        const list = (json as { data?: { id?: string }[] }).data ?? []
+        return list.map((m) => m.id ?? '')
+      })
+    ])
+
+    return [...found].sort((a, b) => a.localeCompare(b))
+  }
+
+  /**
    * Ask a local server to load the model and hold on to it.
    *
    * Sent with no prompt, which Ollama reads as "load this and keep it" — so the

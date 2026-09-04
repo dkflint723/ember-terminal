@@ -9,6 +9,7 @@ import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
 import * as fs from 'node:fs'
+import * as http from 'node:http'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
@@ -18,6 +19,24 @@ fs.mkdirSync(SHOT_DIR, { recursive: true })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
+
+/*
+ * A server that says what it holds, which is how the model field stops being a
+ * name somebody has to remember exactly. Ollama answers `/api/tags`; anything
+ * OpenAI-shaped answers `/v1/models`. This one answers the first, so the check
+ * also proves Ember asks both and is not simply lucky.
+ */
+const models = http.createServer((req, res) => {
+  if (req.url === '/api/tags') {
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ models: [{ name: 'stub-coder:7b' }, { name: 'stub-coder:1.5b' }] }))
+    return
+  }
+  res.writeHead(404, { 'content-type': 'application/json' })
+  res.end('{}')
+})
+await new Promise((r) => models.listen(0, '127.0.0.1', r))
+const modelsPort = models.address().port
 
 const app = await electron.launch({
   executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
@@ -144,7 +163,7 @@ const modelOptions = await page.evaluate(() =>
 )
 check(
   'the model field lists the curated models',
-  modelOptions.includes('claude-haiku-4-5') && modelOptions.includes('custom'),
+  modelOptions.includes('claude-haiku-4-5-20251001') && modelOptions.includes('custom'),
   JSON.stringify(modelOptions)
 )
 /*
@@ -178,7 +197,7 @@ check(
   await page.evaluate(() => document.documentElement.dataset.density)
 )
 
-await page.locator('.settings__model').selectOption('claude-haiku-4-5')
+await page.locator('.settings__model').selectOption('claude-haiku-4-5-20251001')
 await page.evaluate(() => {
   const save = [...document.querySelectorAll('.modal__actions .btn')].find((b) =>
     b.textContent?.includes('Save')
@@ -209,7 +228,7 @@ check(
   (applied.composer ?? '').includes('Consolas') && !/cascadia/i.test(applied.composer ?? ''),
   JSON.stringify(applied)
 )
-check('the picked model is saved', picked.aiModel === 'claude-haiku-4-5', picked.aiModel)
+check('the picked model is saved', picked.aiModel === 'claude-haiku-4-5-20251001', picked.aiModel)
 
 // The escape hatch: an id the list has never heard of can still be typed.
 await page.keyboard.press('Control+Comma')
@@ -387,8 +406,60 @@ check('and Tab stays inside it', stillInside)
 await page.keyboard.press('Escape')
 await sleep(400)
 
+/*
+ * --- the model field offers what the server has ---------------------------------
+ *
+ * A model name is exact and unforgiving, and the failure when it is subtly wrong is
+ * an endpoint reporting "model not found" for something plainly installed. Where
+ * the server will say what it holds, the name is chosen rather than remembered.
+ */
+await page.evaluate(
+  (port) =>
+    window.ember.setSettings({
+      // The fields only exist when the feature does.
+      ghostEnabled: true,
+      ghostProvider: 'local',
+      ghostBaseUrl: `http://127.0.0.1:${port}/v1`
+    }),
+  modelsPort
+)
+await sleep(600)
+const offered = await page.evaluate(() => window.ember.ghostModels())
+check(
+  'the models a server holds are discovered',
+  offered.includes('stub-coder:7b') && offered.includes('stub-coder:1.5b'),
+  JSON.stringify(offered)
+)
+
+await page.keyboard.press('Control+Comma')
+await page.waitForSelector('.modal', { timeout: 10_000 })
+await sleep(800)
+// The dialog is sectioned, and only the section on screen is rendered.
+await page.locator('.settings__nav-item', { hasText: 'Suggestions' }).click()
+await sleep(1500)
+const choices = await page.evaluate(() =>
+  [...document.querySelectorAll('.settings__ghost-model option')].map((o) => o.value)
+)
+check(
+  'and offered as a list rather than a field to type into',
+  choices.includes('stub-coder:7b'),
+  JSON.stringify(choices)
+)
+/*
+ * The field has to remain reachable: a server that lists nothing may answer
+ * perfectly well, and a name can be newer than the list.
+ */
+check(
+  'with a way back to typing one in',
+  choices.some((v) => v.includes('type')),
+  JSON.stringify(choices)
+)
+await page.keyboard.press('Escape')
+await sleep(400)
+
 await app.close()
 profile.cleanup()
+models.close()
 for (const f of failures) console.log(`  - ${f}`)
 console.log('settings:', failures.length === 0 ? 'PASS' : 'FAIL')
 console.log('page errors:', errors.length === 0 ? '(none)' : errors.slice(0, 4))

@@ -35,7 +35,7 @@ const profile = newProfile('claude-login')
 // one available and the run costs almost nothing.
 fs.writeFileSync(
   path.join(profile.dir, 'settings.json'),
-  JSON.stringify({ aiModel: 'claude-haiku-4-5', anthropicApiKey: null }),
+  JSON.stringify({ aiModel: 'claude-haiku-4-5-20251001', anthropicApiKey: null }),
   'utf8'
 )
 

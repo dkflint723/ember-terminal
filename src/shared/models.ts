@@ -37,7 +37,10 @@ export const AI_MODELS: AiModelChoice[] = [
     effort: true
   },
   {
-    id: 'claude-haiku-4-5',
+    // The dated id rather than the family alias: an alias is a promise the API
+    // makes and can stop making, and a model name that quietly stops resolving is
+    // a wrong answer rather than an error somebody can read.
+    id: 'claude-haiku-4-5-20251001',
     label: 'Haiku 4.5',
     note: 'Fastest and cheapest. Takes no effort setting.',
     effort: false
@@ -49,8 +52,8 @@ export const AI_MODELS: AiModelChoice[] = [
     effort: true
   },
   {
-    id: 'claude-fable-5',
-    label: 'Fable 5',
+    id: 'claude-fable-5-1',
+    label: 'Fable 5.1',
     note: 'The most capable there is, and the most expensive.',
     effort: true
   }

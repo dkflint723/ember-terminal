@@ -3449,6 +3449,28 @@ label.field__check {
  * when there is not room for both the first one is the one to keep. It is the only
  * statement of the workspace on screen in IDE mode, where there is no session strip.
  */
+/*
+ * A model name and the button that offers the installed ones, on one line.
+ *
+ * The field takes the room; the button asks for what it needs. A select long
+ * enough to hold `hf.co/someone/a-very-long-repo-name:Q4_K_M` must not push the
+ * button off the edge of the dialog.
+ */
+.settings__modelrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings__modelrow .settings__ghost-model {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.settings__modelrow .btn {
+  flex: 0 0 auto;
+}
+
 .sidebar__project {
   min-width: 0;
   overflow: hidden;

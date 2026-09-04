@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   AiCredential,
   ClaudeAccess,
@@ -26,6 +26,12 @@ import { leadFamily, monospaceFamilies, stackFor } from '../state/fonts'
  * and remembering three separate places to teach about it.
  */
 const SECRETS = ['anthropicApiKey', 'ghostApiKey'] as const
+
+/**
+ * The option that hands the field back. Not a model name anybody could have, and
+ * not the empty string, which already means "the endpoint's own default".
+ */
+const TYPE_A_NAME = '\u0000type'
 
 function credentialLabel(credential: AiCredential | null, claude: ClaudeAccess | null): string {
   if (!credential) return 'Checking…'
@@ -185,6 +191,11 @@ export function SettingsPanel(): React.JSX.Element | null {
   const applySettings = useStore((s) => s.applySettings)
   const setProfiles = useStore((s) => s.setProfiles)
   const [draft, setDraft] = useState<Settings | null>(null)
+  /** What the configured local server says it holds, and whether we are asking. */
+  const [localModels, setLocalModels] = useState<string[]>([])
+  const [findingModels, setFindingModels] = useState(false)
+  /** Set when somebody asked for the field back, so the list does not take it again. */
+  const [typedModel, setTypedModel] = useState(false)
   const [saved, setSaved] = useState<Settings | null>(null)
   const [themeError, setThemeError] = useState<string | null>(null)
   const [snippetError, setSnippetError] = useState<string | null>(null)
@@ -260,6 +271,29 @@ export function SettingsPanel(): React.JSX.Element | null {
     s.setPendingInput(paneId, 'claude auth login')
     toggle(false)
   }
+
+  /**
+   * What the configured server holds.
+   *
+   * Asked when settings open and whenever the address changes, because that is
+   * exactly when the answer is different — and asked again on request, since a
+   * server started after this dialog opened has models the dialog has not heard of.
+   */
+  const loadLocalModels = useCallback(async (): Promise<void> => {
+    setFindingModels(true)
+    try {
+      setLocalModels(await window.ember.ghostModels())
+    } catch {
+      setLocalModels([])
+    } finally {
+      setFindingModels(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!open || draft?.ghostProvider !== 'local') return
+    void loadLocalModels()
+  }, [open, draft?.ghostProvider, draft?.ghostBaseUrl, loadLocalModels])
 
   useEffect(() => {
     if (!open) return
@@ -1050,17 +1084,84 @@ export function SettingsPanel(): React.JSX.Element | null {
 
                   <div className="field">
                     <label>Model</label>
-                    <input
-                      className="settings__ghost-model"
-                      value={draft.ghostModel}
-                      spellCheck={false}
-                      placeholder={
-                        draft.ghostProvider === 'claude'
-                          ? 'claude-haiku-4-5-20251001'
-                          : 'qwen2.5-coder:1.5b'
-                      }
-                      onChange={(e) => field('ghostModel', e.target.value)}
-                    />
+                    {/*
+                      Chosen, where the server will say what it has.
+                      A model name is exact and unforgiving — a missing tag, a colon
+                      where a slash belongs — and getting it wrong produces "model
+                      not found" for something the user can plainly see installed.
+                      The list is whatever the address actually holds, so it is
+                      right by construction rather than by being kept up to date.
+
+                      The field is still a field, though. A server that lists
+                      nothing may answer perfectly well, a name can be newer than
+                      the list, and the endpoint's own default is a valid choice —
+                      so "Type a name" is always the last option rather than a
+                      fallback for when discovery breaks.
+                    */}
+                    {draft.ghostProvider === 'local' && localModels.length > 0 && !typedModel ? (
+                      <div className="settings__modelrow">
+                        <select
+                          className="settings__ghost-model"
+                          value={draft.ghostModel}
+                          onChange={(e) => {
+                            if (e.target.value === TYPE_A_NAME) {
+                              setTypedModel(true)
+                              return
+                            }
+                            field('ghostModel', e.target.value)
+                          }}
+                        >
+                          <option value="">The endpoint&rsquo;s own default</option>
+                          {/* A name already saved that the server no longer lists
+                              stays selectable, so opening settings cannot silently
+                              change which model is in use. */}
+                          {!localModels.includes(draft.ghostModel) && draft.ghostModel && (
+                            <option value={draft.ghostModel}>{draft.ghostModel} (not installed)</option>
+                          )}
+                          {localModels.map((name) => (
+                            <option key={name} value={name}>
+                              {name}
+                            </option>
+                          ))}
+                          <option value={TYPE_A_NAME}>Type a name…</option>
+                        </select>
+                        <button
+                          type="button"
+                          className="btn btn--quiet"
+                          onClick={() => void loadLocalModels()}
+                          disabled={findingModels}
+                        >
+                          {findingModels ? 'Looking…' : 'Refresh'}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="settings__modelrow">
+                        <input
+                          className="settings__ghost-model"
+                          value={draft.ghostModel}
+                          spellCheck={false}
+                          placeholder={
+                            draft.ghostProvider === 'claude'
+                              ? 'claude-haiku-4-5-20251001'
+                              : 'qwen2.5-coder:1.5b'
+                          }
+                          onChange={(e) => field('ghostModel', e.target.value)}
+                        />
+                        {draft.ghostProvider === 'local' && (
+                          <button
+                            type="button"
+                            className="btn btn--quiet"
+                            onClick={() => {
+                              setTypedModel(false)
+                              void loadLocalModels()
+                            }}
+                            disabled={findingModels}
+                          >
+                            {findingModels ? 'Looking…' : 'Installed…'}
+                          </button>
+                        )}
+                      </div>
+                    )}
                     <div className="field__note">
                       As the endpoint names it; left empty, the endpoint&rsquo;s own default
                       answers. Pick one trained to fill in the middle rather than to chat.
