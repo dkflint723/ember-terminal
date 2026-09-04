@@ -181,8 +181,17 @@ export function renderBufferAsHtml(term: Terminal, theme: TerminalPalette): stri
   for (const runs of logical) {
     while (runs.length > 0) {
       const last = runs[runs.length - 1]
+      /*
+       * A run carrying a background is not padding — its spaces are visible paint.
+       * The trim used to run first and only then refuse to pop it, which emptied
+       * the run and kept its style: a zero-width span drawing nothing where a
+       * block of colour belonged. Worse, every blank test here asks whether all
+       * runs are empty, so the emptied run made the whole line count as blank and
+       * it could be dropped from the head or tail of the output entirely.
+       */
+      if (last.style.css.includes('background')) break
       last.text = last.text.replace(/\s+$/, '')
-      if (last.text.length === 0 && !last.style.css.includes('background')) runs.pop()
+      if (last.text.length === 0) runs.pop()
       else break
     }
   }
@@ -224,7 +233,14 @@ export function renderBufferAsHtml(term: Terminal, theme: TerminalPalette): stri
       const inner = runs
         .map((run) =>
           run.style.css.length > 0
-            ? `<span style="${run.style.css}">${escapeHtml(run.text)}</span>`
+            ? // Escaped, because the style is built by concatenating colours out of
+              // the theme and nothing ever validated those as colours: `pick`
+              // returns whatever the JSON holds and `opaque` passes through
+              // anything that is not hex. A theme with a double quote in a colour
+              // therefore closed the attribute and the tag, in output that is
+              // rendered with dangerouslySetInnerHTML and written to the blocks
+              // table — so it came back on later launches, after the theme was gone.
+              `<span style="${escapeHtml(run.style.css)}">${escapeHtml(run.text)}</span>`
             : escapeHtml(run.text)
         )
         .join('')

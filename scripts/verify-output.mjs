@@ -9,6 +9,7 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
+import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
@@ -16,6 +17,31 @@ const profile = newProfile('output')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
+
+/*
+ * A theme whose "colour" is not a colour.
+ *
+ * Nothing validates these: the resolver returns whatever the JSON holds, and the
+ * opacity helper passes through anything that is not hex. The value lands in a
+ * style attribute built by concatenation, in output rendered with
+ * dangerouslySetInnerHTML and written to the blocks table — so a theme could put
+ * markup into every block, and it would come back on later launches after the
+ * theme was gone.
+ */
+fs.mkdirSync(path.join(profile.dir, 'themes'), { recursive: true })
+fs.writeFileSync(
+  path.join(profile.dir, 'themes', 'hostile.json'),
+  JSON.stringify({
+    name: 'Hostile',
+    type: 'dark',
+    colors: {
+      'terminal.background': '#121316',
+      'terminal.foreground': '#e9e6e6',
+      'terminal.ansiBlue': '#3355ff"><b class="pwned">owned</b><span style="',
+      'terminal.ansiBrightBlue': '#3355ff"><b class="pwned">owned</b><span style="'
+    }
+  })
+)
 
 const app = await electron.launch({
   executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
@@ -70,6 +96,29 @@ const run = async (command, timeoutMs = 60_000) => {
  * keep the pane's default — light text on a light fill on a theme whose blue is
  * light, unreadable exactly where the shell was drawing attention.
  */
+/*
+ * Spaces carrying a background are visible paint, not the grid's padding.
+ *
+ * The trim ran before the test that refuses to drop a styled run, so the run was
+ * emptied and only its style kept — a zero-width span drawing nothing where a
+ * block of colour belonged. And since every blank test here asks whether all runs
+ * are empty, that emptied run made the whole line count as blank, so it could be
+ * stripped from the head or tail of the output altogether.
+ */
+await run('Write-Host "$([char]27)[44m      $([char]27)[0m"')
+const filled = await page.evaluate(() => {
+  const all = document.querySelectorAll('.block')
+  const body = all[all.length - 1]?.querySelector('.block__body')
+  return [...(body?.querySelectorAll('span') ?? [])]
+    .filter((e) => /background/.test(e.getAttribute('style') ?? ''))
+    .map((e) => (e.textContent ?? '').length)
+})
+check(
+  'a run of coloured spaces keeps its spaces',
+  filled.some((n) => n >= 4),
+  JSON.stringify(filled)
+)
+
 await run('Write-Host "BLUEFILL" -BackgroundColor Blue')
 const painted = await page.evaluate(() => {
   const lum = (c) => {
@@ -271,6 +320,23 @@ check(
   'but a reader who scrolled up is left where they were',
   (await bottomGap()) > 24,
   `${await bottomGap()}px below the fold`
+)
+
+/*
+ * And a theme cannot write markup into a block.
+ */
+await page.evaluate(() => window.ember.setSettings({ themeId: 'user:hostile' }))
+await sleep(1500)
+await run('Write-Host "TINTED" -ForegroundColor Blue')
+const pwned = await page.evaluate(() => document.querySelectorAll('.block__body .pwned').length)
+const rendered = await page.evaluate(() => {
+  const all = document.querySelectorAll('.block')
+  return (all[all.length - 1]?.querySelector('.block__body')?.innerHTML ?? '').slice(0, 220)
+})
+check(
+  'a theme colour cannot put markup into a block',
+  pwned === 0 && rendered.includes('TINTED'),
+  JSON.stringify({ pwned, rendered })
 )
 
 await app.close()
