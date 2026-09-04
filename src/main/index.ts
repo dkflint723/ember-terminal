@@ -1470,6 +1470,18 @@ function registerIpc(): void {
      */
     const redacted = forRenderer(res.settings)
     sendToAll('settings:changed', redacted)
+
+    /*
+     * Choosing a local model starts loading it.
+     *
+     * Otherwise the first keystroke after setting one is the thing that waits for
+     * the model to be read off a disk, fails the suggestion deadline, and reports
+     * a timeout — which is how it looked to somebody who had just typed a model
+     * name in and could not understand why nothing worked.
+     */
+    if (patch.ghostModel !== undefined || patch.ghostProvider !== undefined) {
+      void ghost.warm()
+    }
     /*
      * Redacted on the way back, the same as settings:get. The write path used
      * to return the merged settings raw, which handed the stored key to the

@@ -60,6 +60,14 @@ const OVERRUN = "STUB_SUGGESTION\n}\n\nfunction extra() {}"
 const BALANCED = ['{', "    name: 'x'", '  }'].join('\n')
 
 const seen = []
+/*
+ * A request carrying a prompt is somebody asking for a suggestion. Ember also asks
+ * a local server to load the model and hold it — sent with no prompt, which is how
+ * Ollama reads "load this" — and that is not a suggestion and must not be counted
+ * as one. Without this distinction the load, which arrives first, was read as the
+ * first suggestion and the checks below described it instead.
+ */
+const questions = () => seen.filter((r) => r.body?.prompt !== undefined || r.url === '/infill')
 /** Requests whose client went away before the answer was written. */
 const calledOff = []
 const sentBack = []
@@ -232,7 +240,7 @@ check('and something was actually asked', seen.length > 0, `${seen.length} reque
  * objective and answering it in the wrong shape is both slower and worse; the
  * sentinels are the difference between the two.
  */
-const first = seen[0]
+const first = questions()[0]
 check(
   'the native fill-in-the-middle endpoint is preferred',
   first?.url === '/api/generate',
@@ -274,7 +282,11 @@ const widget = await page.evaluate(() => {
   return !!w && getComputedStyle(w).display !== 'none' && w.getBoundingClientRect().height > 4
 })
 if (widget) {
-  check('nothing is asked while the completion list is open', seen.length === 0, `${seen.length} requests`)
+  check(
+    'nothing is asked while the completion list is open',
+    questions().length === 0,
+    `${questions().length} requests`
+  )
 } else {
   // Not a failure of the app: this machine's server may not have answered in time.
   console.log('note: the suggest widget did not open, so the deferral check was skipped')

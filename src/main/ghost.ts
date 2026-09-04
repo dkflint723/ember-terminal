@@ -27,6 +27,24 @@ import type {
 /** Long enough for a slow first token, short enough that a stall is not a hang. */
 const TIMEOUT_MS = 10_000
 
+/**
+ * How long a local server is asked to hold the model in memory.
+ *
+ * Ollama drops a model a few minutes after the last request, and picking it up
+ * again is not free: measured on this machine, qwen3-coder:30b answers in 115 ms
+ * warm, takes 8.6 s to come back from the page cache, and 42 s from a cold disk.
+ * A suggestion cannot wait for any of that, so the model is asked to stay rather
+ * than being fetched again every time somebody pauses to think.
+ */
+const KEEP_ALIVE = '30m'
+
+/**
+ * How long loading is allowed to take, which is nothing like how long a suggestion
+ * is allowed to take. Eighteen gigabytes off a cold disk is minutes, and the whole
+ * point of doing it separately is that nobody is waiting on it.
+ */
+const LOAD_MS = 300_000
+
 /** A suggestion is a line or a few, never an essay. Also a cost ceiling. */
 const MAX_TOKENS = 96
 
@@ -107,6 +125,22 @@ function shapeKey(base: string, model: string): string {
   return `${base}|${model}`
 }
 
+/**
+ * Loads in flight, so a run of keystrokes asks once — and so that anyone else who
+ * wants the model can wait for the load already happening rather than starting a
+ * second one or, worse, carrying on as though it were ready.
+ *
+ * A map of promises rather than a set of keys, which is the difference between
+ * "somebody is loading this" and "here is the loading, join it". With a set, the
+ * Test button found a load already running, returned immediately, and timed its
+ * probe against a model still being read off the disk: nine seconds reported for
+ * something that answers in a tenth of one.
+ *
+ * Keyed like the shape memo, because one server holds several models and loading
+ * one says nothing about another.
+ */
+const warming = new Map<string, Promise<void>>()
+
 export class GhostService {
   constructor(
     private settings: () => Settings,
@@ -132,6 +166,22 @@ export class GhostService {
       return { ok: true, text: clean(text, request.suffix) }
     } catch (err) {
       if (signal.aborted) return { ok: false, error: 'cancelled' }
+
+      /*
+       * A local model that has not answered in ten seconds is almost always one
+       * that is not in memory yet, and no keystroke should be the thing that waits
+       * for eighteen gigabytes to be read off a disk. So the loading is started
+       * here and left to finish on its own, and the next keystroke finds it ready.
+       * Saying "took too long and was dropped" for this described the symptom and
+       * hid the cause — the cause being that nothing had asked for the model yet.
+       */
+      if (s.ghostProvider === 'local' && isTimeout(err)) {
+        void this.warm()
+        return {
+          ok: false,
+          error: 'The model is not in memory yet. Loading it now — suggestions start once it is ready.'
+        }
+      }
       return { ok: false, error: describe(err, s.ghostProvider, s.ghostBaseUrl) }
     }
   }
@@ -144,8 +194,59 @@ export class GhostService {
    * a wrong address from a quiet moment by watching. This is the way: press it,
    * and it says what answered, how long it took, and which shape the server spoke.
    */
+  /**
+   * Ask a local server to load the model and hold on to it.
+   *
+   * Sent with no prompt, which Ollama reads as "load this and keep it" — so the
+   * waiting happens once, in the background, instead of inside a suggestion nobody
+   * is going to want by the time it arrives. A server that does not understand the
+   * request is a server that does not need it, so a failure here is silence.
+   */
+  async warm(): Promise<void> {
+    const s = this.settings()
+    // Not for a feature that is switched off: loading eighteen gigabytes for
+    // suggestions nobody asked for is worse than the wait it saves.
+    if (!s.ghostEnabled || s.ghostProvider !== 'local' || !s.ghostModel.trim()) return
+
+    const root = s.ghostBaseUrl.replace(/\/+$/, '').replace(/\/v1$/, '')
+    const key = shapeKey(root, s.ghostModel)
+
+    const already = warming.get(key)
+    if (already) return already
+
+    const load = (async (): Promise<void> => {
+      try {
+        await post(
+          `${root}/api/generate`,
+          { 'content-type': 'application/json' },
+          { model: s.ghostModel, keep_alive: KEEP_ALIVE },
+          AbortSignal.timeout(LOAD_MS + 30_000),
+          LOAD_MS
+        )
+      } catch {
+        // Nothing to report: whoever asked has already been told something better.
+      } finally {
+        warming.delete(key)
+      }
+    })()
+    warming.set(key, load)
+    return load
+  }
+
   async test(): Promise<GhostTest> {
     const s = this.settings()
+
+    /*
+     * Loaded first, and not counted.
+     *
+     * "Check it works" is the one moment where waiting is the right answer, and a
+     * large local model is not in memory until something asks for it. Timing the
+     * probe from after the load is what makes the number mean what it says: how
+     * long a suggestion takes once the thing is running, not how long a disk took
+     * once.
+     */
+    if (s.ghostProvider === 'local') await this.warm()
+
     const started = Date.now()
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 15_000)
@@ -276,6 +377,7 @@ export class GhostService {
           prompt: request.prefix,
           suffix: request.suffix,
           stream: false,
+          keep_alive: KEEP_ALIVE,
           options: { temperature: 0.1, num_predict: MAX_TOKENS }
         },
         signal
@@ -317,6 +419,7 @@ export class GhostService {
           prompt: sentinelPrompt(s.ghostModel, request),
           raw: true,
           stream: false,
+          keep_alive: KEEP_ALIVE,
           options: { temperature: 0.1, num_predict: MAX_TOKENS, stop: STOPS }
         },
         signal
@@ -405,9 +508,10 @@ async function post(
   url: string,
   headers: Record<string, string>,
   body: unknown,
-  signal: AbortSignal
+  signal: AbortSignal,
+  timeoutMs: number = TIMEOUT_MS
 ): Promise<unknown> {
-  const timeout = AbortSignal.timeout(TIMEOUT_MS)
+  const timeout = AbortSignal.timeout(timeoutMs)
   const res = await fetch(url, {
     method: 'POST',
     headers,
@@ -488,6 +592,12 @@ function clean(text: string, suffix: string): string {
     if (stop > 0) out = lines.slice(0, stop).join('\n')
   }
   return out.replace(/\s+$/, '')
+}
+
+/** Whether this is the deadline rather than a refusal or a dead port. */
+function isTimeout(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err)
+  return /timed? ?out|AbortError|The operation was aborted/i.test(message)
 }
 
 function describe(err: unknown, provider: GhostProvider, baseUrl: string): string {
