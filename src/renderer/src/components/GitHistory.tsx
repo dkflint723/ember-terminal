@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { GitLogEntry } from '@shared/types'
-import { useStore } from '../state/store'
+import { terminalPaneIdFor, useStore } from '../state/store'
 import { existingController } from '../terminal/controller'
 import { ago } from '../util/relative-time'
 
@@ -52,16 +52,9 @@ export function GitHistory({ root }: Props): React.JSX.Element | null {
   if (!root) return null
 
   const show = (entry: GitLogEntry): void => {
-    const s = useStore.getState()
-    const tab = s.tabs.find((t) => t.id === s.activeTabId)
-    if (!tab) return
-    const active = s.panes[tab.activePaneId]
-    const pane =
-      active?.kind === 'terminal'
-        ? active
-        : Object.values(s.panes).find((p) => p.kind === 'terminal')
-    if (pane?.kind !== 'terminal') return
-    existingController(pane.id)?.runCommand(`git show ${entry.short}`)
+    const paneId = terminalPaneIdFor(useStore.getState())
+    if (!paneId) return
+    existingController(paneId)?.runCommand(`git show ${entry.short}`)
   }
 
   return (

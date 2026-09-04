@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { QuickPickItem } from './QuickPick'
 import { QuickPick } from './QuickPick'
-import { useStore } from '../state/store'
+import { terminalPaneIdFor, useStore } from '../state/store'
 import { existingController } from '../terminal/controller'
 
 /**
@@ -29,8 +29,14 @@ interface Script {
  */
 const LOCKFILES: { file: string; run: (name: string) => string }[] = [
   { file: 'pnpm-lock.yaml', run: (n) => `pnpm run ${n}` },
-  { file: 'yarn.lock', run: (n) => `yarn ${n}` },
+  // `yarn run`, not the bare shorthand: bare `yarn <name>` only reaches a script
+  // when the name is not one of yarn's own commands, and the builtin wins. A
+  // project with a `version` script got yarn's release command — a version bump,
+  // a commit and a tag — instead of the script it declared.
+  { file: 'yarn.lock', run: (n) => `yarn run ${n}` },
   { file: 'bun.lockb', run: (n) => `bun run ${n}` },
+  // Bun 1.2 writes a text lockfile under a different name.
+  { file: 'bun.lock', run: (n) => `bun run ${n}` },
   { file: 'package-lock.json', run: (n) => `npm run ${n}` }
 ]
 
@@ -100,9 +106,18 @@ export function ScriptRunner(): React.JSX.Element {
       // The lockfile decides how they are invoked.
       let run = (n: string): string => `npm run ${n}`
       for (const candidate of LOCKFILES) {
-        const hit = await window.ember.readFile(`${treeRoot}/${candidate.file}`).catch(() => null)
+        /*
+         * Asked whether the file is there, not for its contents. This used to read
+         * the file through the editor's loader, which refuses a binary one — so
+         * `bun.lockb`, which is binary by definition, never matched and every Bun
+         * project silently fell through to npm, the exact case the list exists to
+         * prevent. It also refuses anything over 16 MB, which a large monorepo's
+         * lockfile reaches, and shipped the whole file over the bridge to answer a
+         * yes-or-no question.
+         */
+        const hit = await window.ember.pathExists(`${treeRoot}/${candidate.file}`).catch(() => false)
         if (cancelled) return
-        if (hit?.ok) {
+        if (hit) {
           run = candidate.run
           break
         }
@@ -126,14 +141,9 @@ export function ScriptRunner(): React.JSX.Element {
    * where they will look for it when it fails.
    */
   const send = (command: string): void => {
-    const s = useStore.getState()
-    const tab = s.tabs.find((t) => t.id === s.activeTabId)
-    if (!tab) return
-    const active = s.panes[tab.activePaneId]
-    const pane =
-      active?.kind === 'terminal' ? active : Object.values(s.panes).find((p) => p.kind === 'terminal')
-    if (pane?.kind !== 'terminal') return
-    existingController(pane.id)?.runCommand(command)
+    const paneId = terminalPaneIdFor(useStore.getState())
+    if (!paneId) return
+    existingController(paneId)?.runCommand(command)
   }
 
   const run = (name: string): void => send(runner(name))

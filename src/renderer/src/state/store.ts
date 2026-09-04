@@ -258,6 +258,28 @@ export function paneIdsOf(tab: Tab): string[] {
   return [...collectPaneIds(tab.shells), ...(tab.editors ? collectPaneIds(tab.editors) : [])]
 }
 
+/**
+ * The terminal a command typed somewhere other than a terminal should go to.
+ *
+ * The active pane when that is one, and otherwise the first terminal *of this
+ * tab*. `panes` is a single record for the whole window, so searching it for a
+ * terminal finds the oldest one anywhere — which is normally the first tab's. The
+ * views that need this live in the IDE sidebar, where the active pane is an editor
+ * whenever a file is open, so that was the ordinary path rather than an edge case:
+ * a build ran in another tab's shell, in another project's directory, in
+ * scrollback nobody was looking at.
+ */
+export function terminalPaneIdFor(s: Store): string | null {
+  const tab = s.tabs.find((t) => t.id === s.activeTabId)
+  if (!tab) return null
+  const active = s.panes[tab.activePaneId]
+  if (active?.kind === 'terminal') return active.id
+  for (const id of paneIdsOf(tab)) {
+    if (s.panes[id]?.kind === 'terminal') return id
+  }
+  return null
+}
+
 interface Store {
   tabs: Tab[]
   activeTabId: string | null

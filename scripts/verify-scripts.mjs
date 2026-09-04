@@ -227,7 +227,101 @@ check(
   JSON.stringify(saidSoFar.slice(-2))
 )
 
+/*
+ * And it runs in the session you are looking at.
+ *
+ * `panes` is one record for the whole window, so the fallback for "the active
+ * pane is not a terminal" searched all of them and found the oldest — normally
+ * the first tab's. The Scripts view lives in the IDE sidebar, where the active
+ * pane is an editor whenever a file is open, so that fallback was the ordinary
+ * path: the build ran in another tab's shell, in another directory, in scrollback
+ * nobody was watching.
+ */
+await page.keyboard.press('Control+Shift+T')
+await sleep(3500)
+await page.keyboard.press('Control+P')
+await sleep(600)
+await page.keyboard.type('package.json', { delay: 30 })
+await page.waitForFunction(() => document.querySelectorAll('.qp__label').length > 0, { timeout: 20_000 })
+await sleep(300)
+await page.keyboard.press('Enter')
+await sleep(2500)
+
+// The chord toggles, and the view may already be up from an earlier case.
+if ((await page.locator('.scripts').count()) === 0) {
+  await page.keyboard.press('Control+Shift+R')
+  await sleep(1500)
+}
+await page.waitForSelector('.scripts__item', { timeout: 15_000 })
+await page.locator('.scripts__item', { hasText: 'lint' }).first().click()
+await sleep(3500)
+
+const hereNow = await page.evaluate(() =>
+  [...document.querySelectorAll('.block__cmd')].map((e) => e.textContent ?? '')
+)
+check(
+  'a script runs in the session that is on screen',
+  hereNow.some((c) => c.includes('pnpm run lint')),
+  JSON.stringify(hereNow.slice(-3))
+)
+
 await app.close()
+
+/*
+ * Two more projects, each in its own run, because the lockfile is read once when
+ * the tree root is set.
+ *
+ * `bun.lockb` is a binary format. Existence used to be probed by reading the file
+ * through the editor's loader, which refuses a binary one outright — so it never
+ * matched, and every Bun project fell through to npm: the exact "second,
+ * disagreeing node_modules" the list exists to prevent, arrived at silently.
+ *
+ * And yarn's row emitted the bare shorthand, which only reaches a script when its
+ * name is not one of yarn's own commands. A project declaring a `version` script
+ * got yarn's release command — a version bump, a commit and a tag.
+ */
+for (const fixture of [
+  {
+    lock: 'bun.lockb',
+    bytes: Buffer.from([0x62, 0x75, 0x6e, 0x00, 0x00, 0x13, 0x00, 0x07]),
+    script: 'build',
+    expect: 'Run: bun run build'
+  },
+  { lock: 'yarn.lock', bytes: '# yarn lockfile v1\n', script: 'version', expect: 'Run: yarn run version' }
+]) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-lock-'))
+  fs.writeFileSync(
+    path.join(dir, 'package.json'),
+    JSON.stringify({ name: 'fixture', scripts: { [fixture.script]: 'echo hi' } }, null, 2)
+  )
+  fs.writeFileSync(path.join(dir, fixture.lock), fixture.bytes)
+
+  const own = newProfile(`lock-${fixture.lock}`)
+  const second = await electron.launch({
+    executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
+    args: [APP_DIR, own.arg, dir],
+    cwd: APP_DIR,
+    env,
+    timeout: 60_000
+  })
+  const other = await second.firstWindow()
+  await other.waitForSelector('.pane', { timeout: 40_000 })
+  await sleep(2500)
+  await other.keyboard.press('Control+Shift+R')
+  await sleep(2500)
+  const titles = await other.evaluate(() =>
+    [...document.querySelectorAll('.scripts__item')].map((e) => e.getAttribute('title') ?? '')
+  )
+  check(
+    `a ${fixture.lock} project is run the way that lockfile says`,
+    titles.includes(fixture.expect),
+    JSON.stringify({ titles, wanted: fixture.expect })
+  )
+  await second.close()
+  own.cleanup()
+  fs.rmSync(dir, { recursive: true, force: true })
+}
+
 profile.cleanup()
 fs.rmSync(work, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)
