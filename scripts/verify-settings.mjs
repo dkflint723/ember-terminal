@@ -26,17 +26,29 @@ delete env.ELECTRON_RUN_AS_NODE
  * OpenAI-shaped answers `/v1/models`. This one answers the first, so the check
  * also proves Ember asks both and is not simply lucky.
  */
-const models = http.createServer((req, res) => {
-  if (req.url === '/api/tags') {
-    res.writeHead(200, { 'content-type': 'application/json' })
-    res.end(JSON.stringify({ models: [{ name: 'stub-coder:7b' }, { name: 'stub-coder:1.5b' }] }))
-    return
-  }
-  res.writeHead(404, { 'content-type': 'application/json' })
-  res.end('{}')
-})
-await new Promise((r) => models.listen(0, '127.0.0.1', r))
+const serverHolding = async (names) => {
+  const server = http.createServer((req, res) => {
+    if (req.url === '/api/tags') {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ models: names.map((name) => ({ name })) }))
+      return
+    }
+    res.writeHead(404, { 'content-type': 'application/json' })
+    res.end('{}')
+  })
+  await new Promise((r) => server.listen(0, '127.0.0.1', r))
+  return { server, port: server.address().port }
+}
+
+/*
+ * Two of them, holding different models, because the question that matters is not
+ * "does discovery work" but "which server did it ask". The dialog edits a draft and
+ * saves nothing until Save, so a first version of this asked main — which reads the
+ * stored address — and cheerfully described the server the user was leaving.
+ */
+const models = (await serverHolding(['stub-coder:7b', 'stub-coder:1.5b'])).server
 const modelsPort = models.address().port
+const elsewhere = await serverHolding(['other-machine:3b'])
 
 const app = await electron.launch({
   executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
@@ -454,12 +466,34 @@ check(
   choices.some((v) => v.includes('type')),
   JSON.stringify(choices)
 )
+/*
+ * And it follows the address on screen, not the one on disk.
+ *
+ * Retyping the address and being shown the old server's models is worse than being
+ * shown none: they are offered as installed, because whether a name is installed is
+ * judged against that same wrong list. Picking one produces "model not found" for a
+ * name Ember has just said is present — the exact failure the picker exists to
+ * prevent.
+ */
+await page.locator('.settings__ghost-base').fill(`http://127.0.0.1:${elsewhere.port}/v1`)
+// Past the debounce, which exists so that typing a URL is not one request per key.
+await sleep(2500)
+const afterRetype = await page.evaluate(() =>
+  [...document.querySelectorAll('.settings__ghost-model option')].map((o) => o.value)
+)
+check(
+  'the list follows the address being typed, not the one saved',
+  afterRetype.includes('other-machine:3b') && !afterRetype.includes('stub-coder:7b'),
+  JSON.stringify(afterRetype)
+)
+
 await page.keyboard.press('Escape')
 await sleep(400)
 
 await app.close()
 profile.cleanup()
 models.close()
+elsewhere.server.close()
 for (const f of failures) console.log(`  - ${f}`)
 console.log('settings:', failures.length === 0 ? 'PASS' : 'FAIL')
 console.log('page errors:', errors.length === 0 ? '(none)' : errors.slice(0, 4))

@@ -1024,7 +1024,7 @@ function registerIpc(): void {
   )
 
   ipcMain.handle('ghost:test', () => ghost.test())
-  ipcMain.handle('ghost:models', () => ghost.models())
+  ipcMain.handle('ghost:models', (_e, baseUrl?: string) => ghost.models(baseUrl))
   ipcMain.on('ghost:cancel', (_e, id: number) => {
     ghostRuns.get(id)?.abort()
     ghostRuns.delete(id)

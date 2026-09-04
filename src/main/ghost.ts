@@ -207,9 +207,21 @@ export class GhostService {
    * stays a field somebody can type into — which is what it has to remain anyway,
    * since a server that lists nothing may still answer perfectly well.
    */
-  async models(): Promise<string[]> {
+  async models(baseUrl?: string): Promise<string[]> {
+    /*
+     * The address the caller is asking about, which is not always the saved one.
+     *
+     * Settings edits a draft and writes nothing until Save, so reading the stored
+     * address here answered every question about the server the user was leaving.
+     * Retype the address, press Refresh, and the list stayed the old server's —
+     * offered as installed, because the "not installed" mark is judged against the
+     * same wrong list. Picking one then produced "model not found" for a name Ember
+     * had just shown as present: the exact failure this feature exists to prevent.
+     */
     const s = this.settings()
-    const base = s.ghostBaseUrl.replace(/\/+$/, '')
+    const configured = (baseUrl ?? s.ghostBaseUrl).trim()
+    if (!configured) return []
+    const base = configured.replace(/\/+$/, '')
     const root = base.replace(/\/v1$/, '')
     const found = new Set<string>()
 

@@ -207,7 +207,11 @@ const typeAtEnd = async (text) => {
 }
 
 await typeAtEnd('// note ')
-check('and nothing is asked of anyone while they are off', seen.length === 0, `${seen.length} requests`)
+check(
+  'and nothing is asked of anyone while they are off',
+  questions().length === 0,
+  `${questions().length} requests`
+)
 check(
   'so no suggestion is drawn',
   (await page.locator('.ghost-text-decoration').count()) === 0
@@ -233,7 +237,7 @@ const shown = await page.evaluate(() => {
   return el ? el.textContent.trim() : ''
 })
 check('a suggestion is drawn once they are on', shown.includes('STUB_SUGGESTION'), JSON.stringify(shown))
-check('and something was actually asked', seen.length > 0, `${seen.length} requests`)
+check('and something was actually asked', questions().length > 0, `${questions().length} requests`)
 
 /*
  * Asked as a fill-in-the-middle model, not in prose. A local code model has that
@@ -308,7 +312,7 @@ await page.keyboard.press('End')
 // The caret now sits at the end of line 1, which has code after it on line 2 but
 // nothing after it on its own line — so this one is allowed to ask.
 await sleep(2000)
-const allowedAtLineEnd = seen.length
+const allowedAtLineEnd = questions().length
 
 seen.length = 0
 await page.keyboard.press('Control+Home')
@@ -317,8 +321,8 @@ await page.keyboard.press('Control+Home')
 await sleep(2500)
 check(
   'nothing is asked with code still ahead of the caret',
-  seen.length === 0,
-  `${seen.length} requests (line-end asked ${allowedAtLineEnd})`
+  questions().length === 0,
+  `${questions().length} requests (line-end asked ${allowedAtLineEnd})`
 )
 
 seen.length = 0
@@ -329,8 +333,8 @@ await page.keyboard.type('someIdentifier', { delay: 60 })
 await sleep(2500)
 check(
   'nor part-way through an identifier, which the language server owns',
-  seen.length === 0,
-  `${seen.length} requests`
+  questions().length === 0,
+  `${questions().length} requests`
 )
 
 /*
@@ -341,7 +345,7 @@ await page.keyboard.press('Control+End')
 await page.keyboard.press('Enter')
 await page.keyboard.type('// twice ', { delay: 60 })
 await sleep(2500)
-const asked = seen.length
+const asked = questions().length
 await page.keyboard.press('ArrowUp')
 await sleep(600)
 await page.keyboard.press('ArrowDown')
@@ -349,8 +353,8 @@ await page.keyboard.press('End')
 await sleep(2500)
 check(
   'and a question already answered is not asked again',
-  seen.length === asked,
-  `${asked} then ${seen.length}`
+  questions().length === asked,
+  `${asked} then ${questions().length}`
 )
 
 /*
@@ -379,7 +383,11 @@ check(
   viaClaude.ok || !/no credential|add an API key/i.test(String(viaClaude.error)),
   JSON.stringify(viaClaude)
 )
-check('and it asks nothing of the local server', seen.length === 0, `${seen.length} requests`)
+check(
+  'and it asks nothing of the local server',
+  questions().length === 0,
+  `${questions().length} requests`
+)
 
 /*
  * --- and there is a way to find out why nothing is appearing -------------------
@@ -480,9 +488,14 @@ check(
   JSON.stringify(afterSwitch)
 )
 check(
+  // A question, not the load that precedes it. Ember asks a local server to load
+  // the model first, and that request also lands on /api/generate — so counting
+  // any request here would be satisfied by the load whatever the ladder did with
+  // the question, including going straight to the endpoint that wraps answers in
+  // a code fence.
   'through the endpoint that suits it',
-  seen.some((r) => r.url === '/api/generate'),
-  JSON.stringify(seen.map((r) => r.url))
+  questions().some((r) => r.url === '/api/generate'),
+  JSON.stringify(questions().map((r) => r.url))
 )
 
 // --- the key stays in main ------------------------------------------------------

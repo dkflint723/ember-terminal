@@ -147,7 +147,8 @@ const api: EmberApi = {
   ghostComplete: (id: number, request: GhostRequest) =>
     ipcRenderer.invoke('ghost:complete', id, request),
   ghostCancel: (id: number) => ipcRenderer.send('ghost:cancel', id),
-  ghostModels: (): Promise<string[]> => ipcRenderer.invoke('ghost:models'),
+  ghostModels: (baseUrl?: string): Promise<string[]> =>
+    ipcRenderer.invoke('ghost:models', baseUrl),
   ghostTest: () => ipcRenderer.invoke('ghost:test'),
   rewriteSelection: (selection: string, instruction: string, language: string) =>
     ipcRenderer.invoke('edit:rewrite', selection, instruction, language),

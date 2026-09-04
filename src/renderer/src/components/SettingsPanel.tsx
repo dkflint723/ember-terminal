@@ -279,10 +279,13 @@ export function SettingsPanel(): React.JSX.Element | null {
    * exactly when the answer is different — and asked again on request, since a
    * server started after this dialog opened has models the dialog has not heard of.
    */
-  const loadLocalModels = useCallback(async (): Promise<void> => {
+  const loadLocalModels = useCallback(async (baseUrl: string): Promise<void> => {
     setFindingModels(true)
     try {
-      setLocalModels(await window.ember.ghostModels())
+      // The address on screen, not the one on disk: this dialog edits a draft and
+      // writes nothing until Save, so asking about the stored address answered
+      // every question about the server the user was in the middle of leaving.
+      setLocalModels(await window.ember.ghostModels(baseUrl))
     } catch {
       setLocalModels([])
     } finally {
@@ -290,13 +293,31 @@ export function SettingsPanel(): React.JSX.Element | null {
     }
   }, [])
 
+  /*
+   * After the address stops moving, not on every keystroke of it.
+   *
+   * Typing a URL is twenty-odd renders, and without this each one sent a request
+   * to whatever the half-typed address happened to name — including, briefly, an
+   * address belonging to a provider the user was switching away from.
+   */
   useEffect(() => {
     if (!open || draft?.ghostProvider !== 'local') return
-    void loadLocalModels()
+    const address = draft.ghostBaseUrl
+    const timer = window.setTimeout(() => void loadLocalModels(address), 400)
+    return () => window.clearTimeout(timer)
   }, [open, draft?.ghostProvider, draft?.ghostBaseUrl, loadLocalModels])
 
   useEffect(() => {
     if (!open) return
+    /*
+     * A fresh dialog asks again and offers the picker again. Both of these are
+     * about the window rather than about the settings, so without this one press
+     * of "Type a name…" — even one that was escaped out of without saving — left
+     * the field a bare text box for as long as the app was running, with four
+     * models installed and discovery working perfectly.
+     */
+    setTypedModel(false)
+    setLocalModels([])
     void window.ember.getSettings().then((s) => {
       setDraft(s)
       setSaved(s)
@@ -1071,6 +1092,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                       <input
                         className="settings__ghost-url"
                         value={draft.ghostBaseUrl}
+                        className="settings__ghost-base"
                         spellCheck={false}
                         placeholder="http://localhost:11434/v1"
                         onChange={(e) => field('ghostBaseUrl', e.target.value)}
@@ -1128,7 +1150,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                         <button
                           type="button"
                           className="btn btn--quiet"
-                          onClick={() => void loadLocalModels()}
+                          onClick={() => void loadLocalModels(draft.ghostBaseUrl)}
                           disabled={findingModels}
                         >
                           {findingModels ? 'Looking…' : 'Refresh'}
@@ -1145,7 +1167,14 @@ export function SettingsPanel(): React.JSX.Element | null {
                               ? 'claude-haiku-4-5-20251001'
                               : 'qwen2.5-coder:1.5b'
                           }
-                          onChange={(e) => field('ghostModel', e.target.value)}
+                          onChange={(e) => {
+                            // Someone typing a name is someone who wants the field.
+                            // Without this, a slow server's answer arriving mid-word
+                            // replaced the box they were typing in with a dropdown
+                            // and dropped the rest of the name on the floor.
+                            setTypedModel(true)
+                            field('ghostModel', e.target.value)
+                          }}
                         />
                         {draft.ghostProvider === 'local' && (
                           <button
@@ -1153,7 +1182,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                             className="btn btn--quiet"
                             onClick={() => {
                               setTypedModel(false)
-                              void loadLocalModels()
+                              void loadLocalModels(draft.ghostBaseUrl)
                             }}
                             disabled={findingModels}
                           >

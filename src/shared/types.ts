@@ -1096,8 +1096,12 @@ export interface EmberApi {
    */
   ghostComplete(id: number, request: GhostRequest): Promise<GhostResult>
   ghostCancel(id: number): void
-  /** Model names the configured local server already holds, or none. */
-  ghostModels(): Promise<string[]>
+  /**
+   * Model names a local server already holds, or none. Takes the address to ask,
+   * because the settings dialog edits a draft and the saved address is the one the
+   * user may be leaving.
+   */
+  ghostModels(baseUrl?: string): Promise<string[]>
   /** Ask the configured provider once, and say what happened. */
   ghostTest(): Promise<GhostTest>
   /** Rewrite a selected fragment to match an instruction. */
