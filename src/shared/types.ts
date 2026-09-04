@@ -706,7 +706,10 @@ export interface GitLogEntry {
 
 /** One entry on the stash. `ref` is git's own name for it, `stash@{0}` and so on. */
 export interface GitStashEntry {
+  /** Positional, and therefore only true until somebody stashes something else. */
   ref: string
+  /** The stash commit itself, which does not move. */
+  hash: string
   subject: string
   at: number
 }
@@ -1099,8 +1102,8 @@ export interface EmberApi {
   gitStashList(root: string): Promise<GitStashEntry[]>
   gitStashPush(root: string, message: string): Promise<GitSimpleResult>
   /** Take one back — `drop` pops it, otherwise it is applied and kept. */
-  gitStashApply(root: string, ref: string, drop: boolean): Promise<GitSimpleResult>
-  gitStashDrop(root: string, ref: string): Promise<GitSimpleResult>
+  gitStashApply(root: string, ref: string, drop: boolean, expect?: string): Promise<GitSimpleResult>
+  gitStashDrop(root: string, ref: string, expect?: string): Promise<GitSimpleResult>
   openExternal(url: string): void
   search(query: SearchQuery): Promise<SearchResult>
   listFiles(root: string): Promise<FileListResult>

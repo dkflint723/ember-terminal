@@ -97,7 +97,7 @@ const check = (label, ok, detail) => {
   check('with no folder opened to make it happen', after.workspace === false)
   await page.screenshot({ path: path.join(SHOT_DIR, '71-git-cwd-chips.png') })
 
-  await app.close()
+await app.close()
   await sleep(800)
   bare.cleanup()
 }
@@ -388,6 +388,46 @@ check('picking an existing branch switches back', git('branch', '--show-current'
 
 fs.rmSync(remoteDir, { recursive: true, force: true })
 fs.rmSync(elsewhere, { recursive: true, force: true })
+
+/*
+ * A stash is acted on by identity, not by position.
+ *
+ * `stash@{n}` is positional and every push shifts it — including one made in the
+ * terminal in the next pane, which this app treats as the ordinary case. The
+ * panel loads its list once, so its rows can describe one stash while their
+ * references point at another, and the confirm-twice gesture then confirms a
+ * label while destroying something else.
+ */
+fs.writeFileSync(path.join(repo, 'tracked.ts'), 'export const value = 10\n', 'utf8')
+const pushed = await page.evaluate((r) => window.ember.gitStashPush(r, 'first stash'), repo)
+fs.writeFileSync(path.join(repo, 'tracked.ts'), 'export const value = 11\n', 'utf8')
+await page.evaluate((r) => window.ember.gitStashPush(r, 'second stash'), repo)
+const stashesBefore = await page.evaluate((r) => window.ember.gitStashList(r), repo)
+
+// The row the panel is showing for the older stash, read before anything moves.
+const older = stashesBefore.find((e) => e.subject.includes('first stash'))
+
+// Something else gets stashed — from the terminal, from another window, from
+// anywhere. Every reference below it now names a different stash.
+fs.writeFileSync(path.join(repo, 'tracked.ts'), 'export const value = 12\n', 'utf8')
+await page.evaluate((r) => window.ember.gitStashPush(r, 'third stash'), repo)
+
+const dropped = await page.evaluate(
+  ([r, ref, hash]) => window.ember.gitStashDrop(r, ref, hash),
+  [repo, older?.ref, older?.hash]
+)
+const stashesAfter = await page.evaluate((r) => window.ember.gitStashList(r), repo)
+check(
+  'a stash reference that no longer names the same stash is refused',
+  dropped?.ok === false,
+  JSON.stringify({ pushed: pushed?.ok, older, dropped })
+)
+check(
+  'and nothing is destroyed',
+  stashesAfter.length === 3,
+  JSON.stringify(stashesAfter.map((e) => e.subject))
+)
+
 
 await app.close()
 fs.rmSync(repo, { recursive: true, force: true })

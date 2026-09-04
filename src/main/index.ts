@@ -1316,10 +1316,14 @@ function registerIpc(): void {
   ipcMain.handle('git:stashPush', (_e, root: string, message: string) =>
     git.stashPush(root, message)
   )
-  ipcMain.handle('git:stashApply', (_e, root: string, ref: string, drop: boolean) =>
-    git.stashApply(root, ref, drop)
+  ipcMain.handle(
+    'git:stashApply',
+    (_e, root: string, ref: string, drop: boolean, expect?: string) =>
+      git.stashApply(root, ref, drop, expect)
   )
-  ipcMain.handle('git:stashDrop', (_e, root: string, ref: string) => git.stashDrop(root, ref))
+  ipcMain.handle('git:stashDrop', (_e, root: string, ref: string, expect?: string) =>
+    git.stashDrop(root, ref, expect)
+  )
   ipcMain.handle('git:checkout', (_e, root: string, name: string, create: boolean) =>
     create ? git.createBranch(root, name) : git.checkout(root, name)
   )

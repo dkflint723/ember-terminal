@@ -84,6 +84,16 @@ export function attachBlame(
 
   const schedule = (): void => {
     window.clearTimeout(timer)
+    /*
+     * Whatever is in flight is now about a place that has moved.
+     *
+     * Only `paint` bumped this, so for the whole window between an event and the
+     * timer firing an older answer still satisfied the guard. Both the position
+     * and the model are captured before the await, and the editor swaps models on
+     * a tab switch — so a blame for one file could be applied to another, on a
+     * line number that means something different there.
+     */
+    generation++
     clear()
     timer = window.setTimeout(() => void paint(), SETTLE_MS)
   }

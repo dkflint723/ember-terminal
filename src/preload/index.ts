@@ -157,9 +157,10 @@ const api: EmberApi = {
   gitStashList: (root: string) => ipcRenderer.invoke('git:stashList', root),
   gitStashPush: (root: string, message: string) =>
     ipcRenderer.invoke('git:stashPush', root, message),
-  gitStashApply: (root: string, ref: string, drop: boolean) =>
-    ipcRenderer.invoke('git:stashApply', root, ref, drop),
-  gitStashDrop: (root: string, ref: string) => ipcRenderer.invoke('git:stashDrop', root, ref),
+  gitStashApply: (root: string, ref: string, drop: boolean, expect?: string) =>
+    ipcRenderer.invoke('git:stashApply', root, ref, drop, expect),
+  gitStashDrop: (root: string, ref: string, expect?: string) =>
+    ipcRenderer.invoke('git:stashDrop', root, ref, expect),
   gitCheckout: (root: string, name: string, create: boolean) =>
     ipcRenderer.invoke('git:checkout', root, name, create),
   gitDiff: (root: string, path: string, staged: boolean) =>

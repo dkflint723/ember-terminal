@@ -92,7 +92,7 @@ export function GitStashes({ root, busy, act }: Props): React.JSX.Element | null
                   className="icon-btn"
                   title="Apply and remove from the stash"
                   disabled={busy}
-                  onClick={() => void run(() => window.ember.gitStashApply(root, entry.ref, true))}
+                  onClick={() => void run(() => window.ember.gitStashApply(root, entry.ref, true, entry.hash))}
                 >
                   ↥
                 </button>
@@ -100,7 +100,7 @@ export function GitStashes({ root, busy, act }: Props): React.JSX.Element | null
                   className="icon-btn"
                   title="Apply but keep it stashed"
                   disabled={busy}
-                  onClick={() => void run(() => window.ember.gitStashApply(root, entry.ref, false))}
+                  onClick={() => void run(() => window.ember.gitStashApply(root, entry.ref, false, entry.hash))}
                 >
                   ⎘
                 </button>
@@ -118,7 +118,7 @@ export function GitStashes({ root, busy, act }: Props): React.JSX.Element | null
                       return
                     }
                     setArmed(null)
-                    void run(() => window.ember.gitStashDrop(root, entry.ref))
+                    void run(() => window.ember.gitStashDrop(root, entry.ref, entry.hash))
                   }}
                 >
                   {armed === entry.ref ? 'sure?' : '✕'}

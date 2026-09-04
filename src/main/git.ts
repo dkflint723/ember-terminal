@@ -470,13 +470,14 @@ export class GitService {
       const { stdout } = await this.git(root, [
         'stash',
         'list',
-        `--format=%gd${NUL}%gs${NUL}%at${RS}`
+        `--format=%gd${NUL}%H${NUL}%gs${NUL}%at${RS}`
       ])
       return splitRecords(stdout as string).map((record) => {
-        const [ref, subject, at] = record.split('\0')
+        const [ref, hash, subject, at] = record.split('\0')
         const time = Number(at)
         return {
           ref: ref ?? '',
+          hash: hash ?? '',
           // Git prefixes every entry with "WIP on <branch>: " or "On <branch>: ".
           // The branch is worth keeping; the ceremony is not.
           subject: (subject ?? '').replace(/^(WIP on|On) /, ''),
@@ -500,14 +501,49 @@ export class GitService {
   }
 
   /** Take one back. Popping drops it; applying keeps it, for a second branch. */
-  async stashApply(root: string, ref: string, drop: boolean): Promise<GitSimpleResult> {
+  /**
+   * That `stash@{n}` still names the stash the caller meant.
+   *
+   * Stash references are positional and shift on every push — including one made
+   * in the terminal in the next pane, which is the ordinary case here rather than
+   * a rare one. The panel's list is loaded once, so its rows can describe one
+   * stash while their references point at another, and the confirm-twice gesture
+   * then confirms a label while acting on a reference.
+   */
+  private async stashStillIs(root: string, ref: string, expect?: string): Promise<boolean> {
+    if (!expect) return true
+    try {
+      const { stdout } = await this.git(root, ['rev-parse', '--verify', `${ref}^{commit}`])
+      return String(stdout).trim() === expect
+    } catch {
+      return false
+    }
+  }
+
+  private static readonly MOVED =
+    'That stash has moved — something else was stashed since this list was read. Reopening it will show where it is now.'
+
+  async stashApply(
+    root: string,
+    ref: string,
+    drop: boolean,
+    expect?: string
+  ): Promise<GitSimpleResult> {
     if (!STASH_REF.test(ref)) return { ok: false, error: 'Not a stash reference.' }
+    if (!(await this.stashStillIs(root, ref, expect))) {
+      return { ok: false, error: GitService.MOVED }
+    }
     return this.simple(root, ['stash', drop ? 'pop' : 'apply', ref])
   }
 
   /** Throw one away. The one operation here that nothing undoes. */
-  async stashDrop(root: string, ref: string): Promise<GitSimpleResult> {
+  async stashDrop(root: string, ref: string, expect?: string): Promise<GitSimpleResult> {
     if (!STASH_REF.test(ref)) return { ok: false, error: 'Not a stash reference.' }
+    // Destroying the wrong one is not recoverable, so this is checked even though
+    // applying the wrong one is merely confusing.
+    if (!(await this.stashStillIs(root, ref, expect))) {
+      return { ok: false, error: GitService.MOVED }
+    }
     return this.simple(root, ['stash', 'drop', ref])
   }
 
