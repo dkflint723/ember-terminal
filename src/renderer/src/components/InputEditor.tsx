@@ -513,7 +513,16 @@ ${c.output}`
      * and a completion that finds nothing quietly closes, which is the same silence
      * the shell reading already gives for a token with no matches.
      */
-    if (e.key === 'Tab') {
+    /*
+     * Plain Tab only. Shift+Tab is the way out of the terminal and has to stay one.
+     *
+     * xterm gives that chord up deliberately — it consumes every other key, so
+     * without it focus that entered a pane could never leave from the keyboard —
+     * and it hands focus to this composer. Taking it here for a completion closed
+     * the trap one step further along instead of opening it: xterm, composer, dead
+     * end. Falling through moves focus, which is the whole point of the gesture.
+     */
+    if (e.key === 'Tab' && !e.shiftKey) {
       e.preventDefault()
       void requestCompletions()
       return
@@ -890,7 +899,13 @@ function RunningInput({ pane, controller }: Props): React.JSX.Element {
      * progress the keys edit that line, which is what somebody typing expects.
      * Never while a secret is being asked for — those keystrokes belong to nobody.
      */
-    const sequence = KEY_SEQUENCES[e.key]
+    /*
+     * Except Shift+Tab, which leaves. This panel's own hint advertises it as "leave
+     * terminal", and forwarding it wrote a literal TAB into the running program
+     * while preventDefault ate the focus move — so the one gesture out of here did
+     * the opposite of what it said.
+     */
+    const sequence = e.shiftKey && e.key === 'Tab' ? undefined : KEY_SEQUENCES[e.key]
     if (sequence && !secret && value.length === 0 && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault()
       controller.send(sequence)

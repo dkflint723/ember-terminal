@@ -174,6 +174,31 @@ const motion = await page.evaluate(() => {
 })
 check('the stylesheet answers prefers-reduced-motion', motion)
 
+/*
+ * --- Shift+Tab keeps leaving, all the way out ---------------------------------
+ *
+ * xterm consumes every key, so focus that entered a terminal pane could never leave
+ * it from the keyboard. Shift+Tab is given up deliberately to break that trap, and
+ * it hands focus to the composer below — where both of the composer's own handlers
+ * then took it: the idle one spent it on a completion, and the running one wrote a
+ * literal TAB into the program while eating the focus move. So the trap closed one
+ * step later instead of opening, and the panel's own hint advertised the gesture
+ * that did not work.
+ */
+await page.click('.composer__input')
+await sleep(400)
+const landed = await page.evaluate(() => document.activeElement?.className ?? '')
+check('the composer is where the terminal hands focus', landed.includes('composer'), landed)
+
+await page.keyboard.press('Shift+Tab')
+await sleep(600)
+const left = await page.evaluate(() => document.activeElement?.className ?? '')
+check(
+  'and again leaves the composer rather than being spent there',
+  !left.includes('composer'),
+  left || '(nothing focused)'
+)
+
 await app.close()
 profile.cleanup()
 for (const f of failures) console.log(`  - ${f}`)
