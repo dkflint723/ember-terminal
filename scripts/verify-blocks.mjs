@@ -148,7 +148,11 @@ const timeline = (page) =>
   await page.click('.composer__input')
   await page.keyboard.type('Start-Sleep -Seconds 8', { delay: 8 })
   await page.keyboard.press('Enter')
-  await sleep(1800)
+  // Waited for rather than slept through: a fixed pause here is a race with how
+  // long the shell takes to start the command, and clearing before it has begun
+  // tests nothing at all.
+  await page.waitForSelector('.block--running', { timeout: 20_000 })
+  await sleep(400)
   await page.keyboard.press('Control+Shift+K')
   await sleep(1200)
   check(
