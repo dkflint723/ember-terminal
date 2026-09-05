@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useStore, workspaceRoot } from './state/store'
 import { chordOf, resolveBindings } from './keys'
+import { noteChord } from './composer/learned'
 import { TitleBar } from './components/TitleBar'
 import { SplitView } from './components/SplitView'
 import { SettingsPanel } from './components/SettingsPanel'
@@ -562,7 +563,17 @@ export function App(): React.JSX.Element {
         askTarget,
         openFile: () => openFileRef.current()
       })
-      if (handled !== false) e.preventDefault()
+      if (handled === false) return
+      /*
+       * A chord that has been pressed no longer needs advertising.
+       *
+       * Recorded here rather than at each command, because this is the one place
+       * that knows a chord was used rather than a menu item clicked — and it is
+       * after the decline, so Ctrl+F handed on to Monaco's own find does not count
+       * as having learned Ember's.
+       */
+      noteChord(command.id)
+      e.preventDefault()
     }
 
     window.addEventListener('keydown', onKey)

@@ -263,9 +263,6 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
     // closed over: it re-runs only when a request arrives, so the captured value is
     // whatever it was the last time one did.
     const { how } = askRequest
-    // Only the chord retires the chord's hint. 'agent' comes from the menu item,
-    // which is a different gesture and teaches nothing about Ctrl+K.
-    if (how === 'toggle') learn('pin')
     setOverride((o) => {
       if (how === 'agent') return 'agent'
       return (o ?? detectedRef.current) === 'agent' ? 'shell' : 'agent'
@@ -457,7 +454,7 @@ ${c.output}`
     // exactly the moment someone reaches for the error they are fixing.
     if (e.ctrlKey && e.key === 'ArrowUp') {
       e.preventDefault()
-      learn('attach')
+      learn('composer.attach')
       attachEarlier()
       return
     }
@@ -536,7 +533,7 @@ ${c.output}`
 
     // Shift+Enter always inserts a newline, whichever way the line reads.
     if (e.key === 'Enter' && e.shiftKey) {
-      learn('newline')
+      learn('composer.newline')
       return
     }
 
@@ -546,7 +543,7 @@ ${c.output}`
     // chord, without arguing with the label first.
     if (e.key === 'Enter' && e.ctrlKey) {
       e.preventDefault()
-      learn('ask')
+      learn('composer.ask')
       // Reaching here with a list open means the list is being abandoned, and its
       // replacement span points into a buffer that is about to be emptied.
       setCompletion(null)
@@ -580,7 +577,7 @@ ${c.output}`
       if (attached.length > 0) {
         // Only when there was something to let go of: Escape is also the way back
         // to the terminal, and that press is not the one the line is teaching.
-        learn('detach')
+        learn('composer.detach')
         setAttachments([])
         return
       }
@@ -811,27 +808,27 @@ ${c.output}`
         to live in the same row, offered only while there is an error to explain.
       */}
       <div className="composer__hint">
-        {!knows('pin') && (
+        {!knows('composer.pin') && (
           <span>
             <kbd>Ctrl</kbd> <kbd>K</kbd> {intent === 'agent' ? 'pin shell' : 'pin agent'}
           </span>
         )}
-        {!knows('ask') && (
+        {!knows('composer.ask') && (
           <span>
             <kbd>Ctrl</kbd> <kbd>Enter</kbd> send to agent
           </span>
         )}
-        {hasFailed && !knows('attach') && (
+        {hasFailed && !knows('composer.attach') && (
           <span>
             <kbd>Ctrl</kbd> <kbd>↑</kbd> attach failed block
           </span>
         )}
-        {attached.length > 0 && !knows('detach') && (
+        {attached.length > 0 && !knows('composer.detach') && (
           <span>
             <kbd>Esc</kbd> detach all
           </span>
         )}
-        {!knows('newline') && (
+        {!knows('composer.newline') && (
           <span>
             <kbd>Shift</kbd> <kbd>Enter</kbd> newline
           </span>
@@ -939,7 +936,7 @@ function RunningInput({ pane, controller }: Props): React.JSX.Element {
      */
     // Noted, not handled: the key is deliberately left to fall through and move
     // focus, and all this does is stop the panel offering to teach it again.
-    if (e.shiftKey && e.key === 'Tab') learn('leave')
+    if (e.shiftKey && e.key === 'Tab') learn('running.leave')
 
     const sequence = e.shiftKey && e.key === 'Tab' ? undefined : KEY_SEQUENCES[e.key]
     if (sequence && !secret && value.length === 0 && !e.ctrlKey && !e.altKey && !e.metaKey) {
@@ -955,7 +952,7 @@ function RunningInput({ pane, controller }: Props): React.JSX.Element {
     }
     if (e.ctrlKey && e.key.toLowerCase() === 'c') {
       e.preventDefault()
-      learn('interrupt')
+      learn('running.interrupt')
       setValue('')
       if (secretRef.current) secretRef.current.value = ''
       controller.send('\x03')
@@ -963,7 +960,7 @@ function RunningInput({ pane, controller }: Props): React.JSX.Element {
     }
     if (e.ctrlKey && e.key.toLowerCase() === 'd') {
       e.preventDefault()
-      learn('eof')
+      learn('running.eof')
       controller.send('\x04')
     }
   }
@@ -1019,17 +1016,17 @@ function RunningInput({ pane, controller }: Props): React.JSX.Element {
       */}
       <div className="composer__hint">
         {secret && <span>not saved to history</span>}
-        {!knows('interrupt') && (
+        {!knows('running.interrupt') && (
           <span>
             <kbd>Ctrl</kbd> <kbd>C</kbd> interrupt
           </span>
         )}
-        {!knows('leave') && (
+        {!knows('running.leave') && (
           <span>
             <kbd>Shift</kbd> <kbd>Tab</kbd> leave terminal
           </span>
         )}
-        {!knows('eof') && (
+        {!knows('running.eof') && (
           <span>
             <kbd>Ctrl</kbd> <kbd>D</kbd> end input
           </span>

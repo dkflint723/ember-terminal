@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStore, type Block, type TerminalPaneState } from '../state/store'
+import { useLearned } from '../composer/learned'
 import { getController } from '../terminal/controller'
 import { AgentBlock } from './AgentBlock'
 import { BlockView } from './BlockView'
@@ -53,6 +54,19 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
   const mode = useStore((s) => s.mode)
   const profileName = useStore((s) => s.profiles.find((p) => p.id === pane.profileId)?.name)
   const firstRunDone = useStore((s) => s.settings.firstRunDone)
+  const { knows } = useLearned()
+  /*
+   * Whether there is anything left in it. Rendered as a whole or not at all: the
+   * wrapper carries the padding that holds the sentence off the composer, and an
+   * empty one leaves a band of it in the middle of a pane with nothing in it.
+   */
+  const emptyPaneHasSomethingToSay =
+    !firstRunDone ||
+    !knows('mode.toggle') ||
+    !knows('composer.pin') ||
+    !knows('slot.toggle') ||
+    !knows('palette.files') ||
+    !knows('palette.commands')
   const applySettings = useStore((s) => s.applySettings)
 
   /** The welcome is put away for good — by its button, or by a first command. */
@@ -371,30 +385,52 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
               </button>
             </div>
           )}
-          {pane.blocks.length === 0 && pane.integration === 'ready' && (
+          {/*
+            What an empty pane has left to say.
+
+            It used to say all of it every time: the sentence and five chords, in
+            every new session for ever. Both halves retire now — the sentence with
+            the first command ever run, each chord with its own first press — so the
+            pane a new user opens explains itself and the pane somebody opens on
+            their second week is empty, which is what an empty terminal should look
+            like.
+          */}
+          {pane.blocks.length === 0 && pane.integration === 'ready' && emptyPaneHasSomethingToSay && (
             <div className="pane__note">
               <div>
-                <div>Run a command — each one becomes a block with its exit code and timing.</div>
+                {!firstRunDone && (
+                  <div>Run a command — each one becomes a block with its exit code and timing.</div>
+                )}
                 <div className="pane__hints">
                   {/* First, because it is the thing this app does that a terminal
                       does not. It said "turn into an IDE" in both modes, which is
                       the wrong half of the sentence to read while already in one. */}
-                  <span>
-                    <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>I</kbd>{' '}
-                    {mode === 'ide' ? 'back to the terminal' : 'turn into an IDE'}
-                  </span>
-                  <span>
-                    <kbd>Ctrl</kbd> <kbd>K</kbd> ask Claude for a command
-                  </span>
-                  <span>
-                    <kbd>Ctrl</kbd> <kbd>B</kbd> files
-                  </span>
-                  <span>
-                    <kbd>Ctrl</kbd> <kbd>P</kbd> go to file
-                  </span>
-                  <span>
-                    <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>P</kbd> all commands
-                  </span>
+                  {!knows('mode.toggle') && (
+                    <span>
+                      <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>I</kbd>{' '}
+                      {mode === 'ide' ? 'back to the terminal' : 'turn into an IDE'}
+                    </span>
+                  )}
+                  {!knows('composer.pin') && (
+                    <span>
+                      <kbd>Ctrl</kbd> <kbd>K</kbd> ask Claude for a command
+                    </span>
+                  )}
+                  {!knows('slot.toggle') && (
+                    <span>
+                      <kbd>Ctrl</kbd> <kbd>B</kbd> files
+                    </span>
+                  )}
+                  {!knows('palette.files') && (
+                    <span>
+                      <kbd>Ctrl</kbd> <kbd>P</kbd> go to file
+                    </span>
+                  )}
+                  {!knows('palette.commands') && (
+                    <span>
+                      <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>P</kbd> all commands
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

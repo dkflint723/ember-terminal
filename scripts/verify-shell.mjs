@@ -53,6 +53,53 @@ const run = async (command, settle = 2600) => {
 // for good, which the settings flag records.
 check('a first run opens with the welcome card', (await page.locator('.pane__hello').count()) === 1)
 
+/*
+ * --- and the chords an empty pane teaches --------------------------------------
+ *
+ * The card is shown once ever; the row of chords under it used to be shown in every
+ * empty pane for ever, which is a permanent legend for something that stops being
+ * news after the first press. Each line goes when its own chord is used.
+ *
+ * The mode chord is the one driven here because it is the only one of the five that
+ * can be pressed twice and leave the pane exactly as it was found — no palette open
+ * over the thing being read, no sidebar taking the pane's width.
+ */
+const paneHints = () =>
+  page.evaluate(() =>
+    [...document.querySelectorAll('.pane__hints > *')].map((e) =>
+      (e.textContent ?? '').replace(/\s+/g, ' ').trim()
+    )
+  )
+const hintsBefore = await paneHints()
+check(
+  'an empty pane offers the mode chord',
+  hintsBefore.some((h) => h.includes('Ctrl Shift I')),
+  JSON.stringify(hintsBefore)
+)
+check(
+  'and the command palette beside it',
+  hintsBefore.some((h) => h.includes('all commands')),
+  JSON.stringify(hintsBefore)
+)
+
+await page.keyboard.press('Control+Shift+I')
+await sleep(1800)
+await page.keyboard.press('Control+Shift+I')
+await sleep(1800)
+const hintsAfter = await paneHints()
+check(
+  'using it retires its line',
+  !hintsAfter.some((h) => h.includes('Ctrl Shift I')),
+  JSON.stringify(hintsAfter)
+)
+// And only its line. A row that emptied on the first chord would pass the check
+// above while throwing away four things nobody has pressed yet.
+check(
+  'and leaves the chords that have not been used',
+  hintsAfter.some((h) => h.includes('all commands')),
+  JSON.stringify(hintsAfter)
+)
+
 const state = () =>
   page.evaluate(() => ({
     integration: document.querySelector('.pane')?.getAttribute('data-integration') ?? null,

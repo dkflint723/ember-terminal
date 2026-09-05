@@ -4856,6 +4856,12 @@ label.field__check {
   font-size: 11px;
 }
 
+/* No margin above nothing: with every chord learned the row is empty, and the only
+   thing left of it would be the gap it was keeping from the sentence. */
+.pane__hints:empty {
+  display: none;
+}
+
 /* ---------- when the interface stops drawing ---------- */
 
 /*
