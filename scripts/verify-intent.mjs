@@ -527,6 +527,116 @@ check(
   `head ${JSON.stringify(head)}, block elisions ${elisions}`
 )
 
+/*
+ * --- Up walks the history one entry per press ---------------------------------
+ *
+ * Recalling puts the line back by assigning the textarea's value, which parks the
+ * caret at the end of it, and React restores a saved selection only when the commit
+ * moved focus — recalling does not. So the caret test that lets Up through was true
+ * exactly once, and the second press was spent walking the caret back to the start
+ * instead of reaching the entry before it.
+ *
+ * Three different lines are named rather than asking whether the buffer changed,
+ * because the failure is a repeat: the composer still holds the newest entry after
+ * the second press, which any check that only asks "did something come back" calls a
+ * pass. Down is read afterwards for the opposite reason — parking the caret at 0
+ * would make Up walk and quietly break Down, and swapping the two is not a fix.
+ */
+check('three commands to walk back through', await run('echo hist-one'))
+check('the second of them', await run('echo hist-two'))
+check('and the third', await run('echo hist-three'))
+
+await clearInput()
+await page.keyboard.press('ArrowUp')
+await sleep(400)
+const up1 = await composer()
+check('Up puts the newest command back', up1.value === 'echo hist-three', JSON.stringify(up1.value))
+
+await page.keyboard.press('ArrowUp')
+await sleep(400)
+const up2 = await composer()
+check(
+  'a second Up reaches the one before it',
+  up2.value === 'echo hist-two',
+  JSON.stringify(up2.value)
+)
+
+await page.keyboard.press('ArrowUp')
+await sleep(400)
+const up3 = await composer()
+check(
+  'and a third the one before that',
+  up3.value === 'echo hist-one',
+  JSON.stringify(up3.value)
+)
+
+await page.keyboard.press('ArrowDown')
+await sleep(400)
+const down1 = await composer()
+check(
+  'Down walks forward one at a time as well',
+  down1.value === 'echo hist-two',
+  JSON.stringify(down1.value)
+)
+await clearInput()
+
+/*
+ * --- a command handed over by Ctrl+R lets its pin go the way a recalled one does -
+ *
+ * The hand-off pins the line to the shell, which is right: it came out of the shell's
+ * own history and is already a command. But the pin belongs to that line and not to
+ * the composer, and the only handle the composer has for letting it go is the record
+ * that the line was put back — which the hand-off did not write. So a question typed
+ * over a handed-over command went to PowerShell, while the identical question typed
+ * over a line recalled with Up went to Claude.
+ *
+ * Read from both ends: the label while the handed-over line still stands, and where
+ * Enter actually lands once it has been typed over. The label alone would pass for a
+ * fix that pinned nothing at all.
+ */
+check('a command to hand back later', await run('echo handover-marker'))
+await clearInput()
+await page.keyboard.press('Control+r')
+await page.waitForSelector('.hist', { timeout: 10_000 })
+await page.click('.hist__input')
+await page.keyboard.type('handover-marker', { delay: 8 })
+await sleep(1400)
+await page.keyboard.press('Enter')
+const handed = await composerUntil((c) => (c.value ?? '').includes('handover-marker'), 6000)
+check(
+  'history search hands the command to the composer',
+  handed.value === 'echo handover-marker',
+  JSON.stringify(handed.value)
+)
+check(
+  'pinned to the shell, since it is already a command',
+  handed.label === 'shell' && handed.auto === null,
+  JSON.stringify(handed)
+)
+
+const beforeOvertype = { commands: await commandBlocks().count(), turns: await userTurns().count() }
+await page.click('.composer__input')
+await page.keyboard.press('Control+A')
+await page.keyboard.type('why did that fail?', { delay: 8 })
+await sleep(400)
+const overtyped = await settle('agent')
+check(
+  'typing a question over it lets the pin go',
+  overtyped.label === 'agent' && overtyped.auto === 'autodetected',
+  JSON.stringify(overtyped)
+)
+await page.keyboard.press('Enter')
+const askedAfterHandover = await until(
+  async () => (await userTurns().count()) > beforeOvertype.turns,
+  20_000
+)
+check('so Enter asks it rather than running it', askedAfterHandover)
+check(
+  'and PowerShell never saw the sentence',
+  (await commandBlocks().count()) === beforeOvertype.commands,
+  `${await commandBlocks().count()} command blocks`
+)
+
 await app.close()
 profile.cleanup()
 fs.rmSync(work, { recursive: true, force: true })

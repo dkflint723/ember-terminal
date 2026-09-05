@@ -111,11 +111,20 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
   // read and edit it before committing.
   useEffect(() => {
     if (pending === undefined) return
-    setValue(pending)
-    // What arrives here came out of the shell's history, or is a sign-in command
-    // the settings panel typed for the user. Either way it is a command already,
-    // and is pinned as one for the same reason a recalled line is — see recall().
-    setOverride('shell')
+    /*
+     * What arrives here came out of the shell's history, or is a sign-in command
+     * the settings panel typed for the user. Either way it is a command already,
+     * and is pinned as one for the same reason a recalled line is — so it goes
+     * through recall() rather than restating the half of it that is obvious.
+     *
+     * Restating it is what went wrong: setting the value and the override without
+     * recording the line left `recalled.current` null, and that ref is the only
+     * thing the effect below can release the pin by. The pin then survived a
+     * question typed over the command — Ctrl+R `git log --oneline`, select all, type
+     * a sentence — and Enter sent the sentence to PowerShell, while the same edit
+     * over a line recalled with Up went to the agent.
+     */
+    recall(pending)
     useStore.getState().clearPendingInput(pane.id)
     const el = ref.current
     if (el) {
@@ -582,10 +591,31 @@ ${c.output}`
       return
     }
 
-    // History only when the caret is on the first/last line, so arrows still
-    // navigate a multi-line command.
+    /*
+     * History only when the caret is on the first/last line, so arrows still
+     * navigate a multi-line command — or when the buffer is still exactly the line
+     * history just put back.
+     *
+     * That second clause is not a convenience. recall() puts the line back by
+     * assigning the textarea's value, and assigning a value parks the caret at the
+     * end of it; React restores a saved selection only when the commit moved focus,
+     * and recalling does not move focus, so nothing puts the caret back. The caret
+     * test was therefore true exactly once: after the first Up the caret sat at
+     * value.length, and the second press was spent walking it back to the start
+     * rather than reaching the entry before. Every entry past the newest cost two
+     * presses, and `historyIdx - 1` advanced on only half of them.
+     *
+     * `recalled.current` is already the record of "the buffer is the line history
+     * put back" — the effect above lets go of it the moment anything is typed over
+     * it — so a half-written line is still safe from Up. Single-line only: a
+     * recalled command with newlines in it still has lines to arrow through.
+     */
     const el = e.currentTarget
-    if (e.key === 'ArrowUp' && el.selectionStart === 0 && history.length > 0) {
+    if (
+      e.key === 'ArrowUp' &&
+      (el.selectionStart === 0 || (recalled.current === value && !value.includes('\n'))) &&
+      history.length > 0
+    ) {
       e.preventDefault()
       const next = historyIdx === null ? history.length - 1 : Math.max(0, historyIdx - 1)
       setHistoryIdx(next)
