@@ -274,12 +274,28 @@ check('and no key sent to a local server', first?.auth === null, String(first?.a
  * list, one a ghost — is the state where neither can be read and Tab means two
  * different things.
  */
-seen.length = 0
+/*
+ * After a dot, which is the case where the two would actually collide.
+ *
+ * Typing a name asks nothing anyway — a caret part-way through an identifier is
+ * the language server's business and is turned down before the list is even
+ * consulted — so a check written that way passes whether or not this guard exists.
+ * A dot is different: it is in the very set of characters that says "not
+ * mid-identifier, go ahead", so the only thing standing between it and a request
+ * is the list being open.
+ *
+ * It also removes a flake. Counting from the first keystroke counted the request
+ * legitimately made after `A`, before any list existed, which failed about one run
+ * in three for doing exactly the right thing.
+ */
 await page.click('.monaco-editor .view-lines')
 await page.keyboard.press('Control+End')
 await page.keyboard.press('Enter')
-await page.keyboard.type('AI_MO', { delay: 90 })
-await sleep(3000)
+await page.keyboard.type('AI_MODELS', { delay: 60 })
+await sleep(1200)
+seen.length = 0
+await page.keyboard.type('.', { delay: 60 })
+await sleep(2500)
 
 const widget = await page.evaluate(() => {
   const w = document.querySelector('.suggest-widget')
@@ -296,6 +312,19 @@ if (widget) {
   console.log('note: the suggest widget did not open, so the deferral check was skipped')
 }
 await page.keyboard.press('Escape')
+/*
+ * Left part-way through a name, which is what the line above used to end in.
+ *
+ * The checks after this one arrow up onto this line and back, and a caret landing
+ * after a dot is a caret Ember will happily ask about — so leaving one here made
+ * the cache check below count a request that had nothing to do with it.
+ */
+await page.keyboard.type('length', { delay: 40 })
+await sleep(600)
+// And with the list dismissed again: left open, it floats over the editor and
+// swallows the clicks the checks below make.
+await page.keyboard.press('Escape')
+await sleep(400)
 
 /*
  * --- the suppressions, which are where the quality is -------------------------

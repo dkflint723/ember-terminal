@@ -219,6 +219,17 @@ check(
   JSON.stringify(overThere.slice(0, 140))
 )
 
+/*
+ * And it goes away again before the restart below.
+ *
+ * Two windows are two sessions in the session file, and the one that comes back
+ * first is not promised to be either of them — so leaving this one open made the
+ * conversation check after the restart a coin toss between a thread with three
+ * turns in it and a thread with one.
+ */
+await otherWindow.evaluate(() => window.close())
+await sleep(1500)
+
 await app.close()
 await sleep(1000)
 app = await launch()

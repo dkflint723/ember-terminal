@@ -5,3 +5,6 @@ release/
 *.log
 release/
 resources/js-debug/
+
+# Incremental compiler state: a build artifact, and noise in every diff.
+*.tsbuildinfo
