@@ -1024,7 +1024,10 @@ button {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  background: var(--bg);
+  /* Transparent, so the ground reaches the blocks. `.region--shells` was made
+     transparent for exactly this and the chain was never followed down to here,
+     which left the window's one gradient painted over everywhere it mattered. */
+  background: transparent;
   border: 1px solid transparent;
   overflow: hidden;
 }

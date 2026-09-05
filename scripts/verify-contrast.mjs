@@ -96,6 +96,37 @@ for (const name of fs.readdirSync(THEMES).filter((f) => f.endsWith('.json'))) {
   }
 
   /*
+   * And the ground descends.
+   *
+   * The window is one ramp: grad-top at the ceiling, the base at 46%, grad-bottom at
+   * the floor. That is only a light source if it actually falls the whole way down.
+   * On the three light themes it did not — grad-top was mix(fg, bg, 0.02), DARKER
+   * than the base, so a light window was a valley with a band of light across its
+   * middle and the light came from nowhere. The dark branch was the only one anybody
+   * had reasoned about.
+   *
+   * Measured as relative luminance rather than as the formulas, because the defect
+   * was in the shape and the shape is what a person sees. A ramp that merely has
+   * three different values passes nothing here.
+   */
+  const lum = (hex) => {
+    const c = hex.replace('#', '')
+    const ch = [0, 2, 4].map((i) => {
+      const u = parseInt(c.slice(i, i + 2), 16) / 255
+      return u <= 0.03928 ? u / 12.92 : ((u + 0.055) / 1.055) ** 2.4
+    })
+    return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2]
+  }
+  const top = lum(v['grad-top'])
+  const mid = lum(v.bg)
+  const foot = lum(v['grad-bottom'])
+  check(
+    `${theme.name}: the ground is lit from above`,
+    top > mid && mid > foot,
+    `top ${top.toFixed(4)} (${v['grad-top']}), base ${mid.toFixed(4)} (${v.bg}), foot ${foot.toFixed(4)} (${v['grad-bottom']})`
+  )
+
+  /*
    * Black ANSI output has to be visible too. Several dark themes set ansiBlack to
    * exactly their own background, so anything a program printed in black — which
    * is a normal thing for a program to do — vanished completely.

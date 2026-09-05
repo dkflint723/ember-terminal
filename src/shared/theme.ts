@@ -336,7 +336,36 @@ export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
    * surfaces differ enough to matter — a value that passes on the pane background
    * can fail on an elevated panel or a hovered row.
    */
-  const surfaces = [bg, chrome, elevated, hover, mix(fg, bg, dark ? 0.03 : 0.02)]
+  /*
+   * The ground the whole window is painted on, computed up here rather than with
+   * the other derived tokens below, because it IS a surface — and a colour is only
+   * readable if it is readable on every surface it can land on. Derived below, it
+   * would have been the one background nothing was ever measured against.
+   *
+   * Both ends lean on the RAW accent rather than the lifted one, the way
+   * `card-border` does: `text(accent)` collapses to grey in a theme like Solar
+   * Dusk, and a ground that has had its hue lifted out of it is the flat grey ramp
+   * this is replacing. It is also why this cannot be written after `text` exists —
+   * the accent it wants is the one that has not been through it.
+   *
+   * The light branch runs the other way round on purpose. It used to be
+   * mix(fg, bg, 0.02), which is DARKER than the base, while the 46% stop is the
+   * base itself and the foot is darker again — so a light window was a valley with
+   * a band of light across its middle, and the only theme anybody had reasoned
+   * about was a dark one. Light themes are lit from above like every other one now.
+   */
+  const gradTop = dark ? mix(mix(accent, fg, 0.35), bg, 0.13) : mix('#ffffff', bg, 0.8)
+  const gradBottom = dark ? mix('#000000', bg, 0.55) : mix(fg, bg, 0.1)
+
+  const surfaces = [
+    bg,
+    chrome,
+    elevated,
+    hover,
+    mix(fg, bg, dark ? 0.03 : 0.02),
+    gradTop,
+    gradBottom
+  ]
   const text = (color: string): string => readable(color, surfaces, 4.5, fg)
   // 3:1 is the floor for borders, icons and other non-text marks.
   const mark = (color: string): string => readable(color, surfaces, 3, fg)
@@ -384,10 +413,8 @@ export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
      * foreground, because mixing a dark foreground into a light base only makes
      * mud.
      */
-    'grad-top': mix(fg, bg, dark ? 0.08 : 0.02),
-    /* The ground falls away harder in the dark: a card can only read as floating
-       if what it floats over is visibly deeper than it is. */
-    'grad-bottom': dark ? mix('#000000', bg, 0.5) : mix(fg, bg, 0.05),
+    'grad-top': gradTop,
+    'grad-bottom': gradBottom,
     card: dark ? mix(fg, bg, 0.115) : mix('#ffffff', bg, 0.55),
     /* A whisper of the accent in the frame, which is what keeps the cards looking
        lit by the theme rather than cut from grey card stock. */

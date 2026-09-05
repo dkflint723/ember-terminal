@@ -216,6 +216,47 @@ const timeline = (page) =>
   check('the last one failed', before[2]?.failed === true, JSON.stringify(before[2]))
   check('and carries its exit code', (before[2]?.exit ?? '').includes('exit'), before[2]?.exit)
 
+  /*
+   * --- the ground reaches the blocks --------------------------------------------
+   *
+   * The window is painted with one vertical ramp on `.workspace`, and the blocks are
+   * meant to sit on it. `.region--shells` was made transparent for exactly that, with
+   * a comment saying so — but `.pane`, one level further down, had carried
+   * `background: var(--bg)` since the first commit and nobody followed the chain. So
+   * the ramp was covered by a flat fill over the whole scrollback, and the only place
+   * it ever showed was a thirty-pixel band under the composer.
+   *
+   * Checked as the chain rather than as one selector, because that is the actual
+   * invariant and the actual way it broke: any opaque fill between a block and the
+   * ground hides the ground, and it does not matter which element introduces it. A
+   * check naming `.pane` would have to be rewritten by whoever breaks it next.
+   */
+  const covering = await page.evaluate(() => {
+    const start = document.querySelector('.block')
+    const ground = document.querySelector('.workspace')
+    if (!start || !ground) return null
+    const opaque = []
+    for (let el = start; el && el !== ground; el = el.parentElement) {
+      const bg = getComputedStyle(el).backgroundColor
+      // rgba(...,0) and the keyword transparent both resolve to this.
+      if (bg && bg !== 'rgba(0, 0, 0, 0)') opaque.push(`${el.className || el.tagName}: ${bg}`)
+    }
+    return opaque
+  })
+  /*
+   * Null, not empty, when there was nothing to walk. The first version of this ran
+   * straight after Ctrl+Shift+K, found no block to start from, walked nothing and
+   * reported a clean chain — it passed with the covering fill still in place, which
+   * is the only way a check like this can be wrong.
+   */
+  check('there is a block to look at', covering !== null, String(covering))
+  check(
+    'nothing between a block and the ground paints over it',
+    covering !== null && covering.length === 0,
+    JSON.stringify(covering)
+  )
+
+
   // The session file has to land before the window goes, or the panes themselves
   // will not come back and the blocks would have nowhere to be.
   await sleep(2500)
