@@ -32,35 +32,30 @@
   --close-hover: #c42b1c;
   --selection: #3a4a63;
   --scrim: rgba(0, 0, 0, 0.58);
+  /*
+   * The ground and the face, which were missing from this block entirely.
+   *
+   * This block exists so nothing renders unstyled before `applyTheme()` writes the
+   * real values — its comment says so. But `.workspace`'s gradient names
+   * `--grad-top` and `--grad-bottom`, and `.composer` names `--card`, and none of
+   * the four were declared here: an undefined custom property makes the whole
+   * declaration invalid at computed-value time, so for the first frames the window
+   * had no ground and the composer had no fill. The one thing the block is for.
+   */
+  --grad-top: #1d1d1d;
+  --grad-bottom: #060606;
+  --card: #252525;
+  --card-top: #292929;
+  --card-bottom: #171717;
+  --card-border: #423a35;
+  --raise: #3d3d3d;
+  --settle: #0d0d0d;
   /* No --radius. It was 10px and it was what made a block a card, an input a
      search box and the composer a widget. Corners are now one of two values,
      stated where they are used: 0 for anything that frames content, 2px for the
      things you press or type into. */
   --mono: 'Cascadia Code', 'Cascadia Mono', Consolas, 'Courier New', monospace;
   --ui: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
-
-  /*
-   * One light source, named twice: what a raised edge catches along its top, and
-   * the line it casts underneath itself.
-   *
-   * The ground already runs light at the ceiling and dark at the floor, so an
-   * object on it is only lit if it agrees with that — a rim along the top and a
-   * shade along the bottom. These are the only two values in the app that say
-   * "up", which is why they are two tokens rather than a color-mix repeated at
-   * nine call sites, each free to drift.
-   *
-   * Light is white on both kinds of theme; what changes is how much of it there
-   * is. A dark surface catches a whisper, a light one catches nearly all of it —
-   * and the shade goes the other way, because a black cast edge on paper reads as
-   * dirt rather than as depth.
-   */
-  --raise: color-mix(in srgb, #ffffff 85%, transparent);
-  --settle: color-mix(in srgb, var(--fg) 9%, transparent);
-}
-
-:root[data-theme-type='dark'] {
-  --raise: color-mix(in srgb, #ffffff 7%, transparent);
-  --settle: color-mix(in srgb, #000000 45%, transparent);
 }
 
 * {
@@ -542,8 +537,8 @@ button {
   background-color: transparent;
   background-image: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--card) 92%, transparent) 0%,
-    color-mix(in srgb, var(--bg-hover) 80%, transparent) 100%
+    color-mix(in srgb, var(--card-top) 92%, transparent) 0%,
+    color-mix(in srgb, var(--card-bottom) 88%, transparent) 100%
   );
   border-color: var(--card-border);
   box-shadow:
@@ -1883,10 +1878,22 @@ button {
 .composer {
   flex: 0 0 auto;
   margin: 12px 16px 10px;
-  background: var(--card);
+  /*
+   * The largest raised object in the window, lit like the small ones.
+   *
+   * It was a single flat `--card`, which on the three light themes is between
+   * 1.009 and 1.052 against the base — a fill nobody could see, so the composer
+   * was its border and nothing else there. The face ramp gives it the same top
+   * and bottom the chips have, and the rim gives it the edge that says the light
+   * is coming from above rather than from everywhere.
+   */
+  background-color: transparent;
+  background-image: linear-gradient(180deg, var(--card-top) 0%, var(--card-bottom) 100%);
   border: 1px solid var(--border-strong);
   border-radius: 12px;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.38);
+  box-shadow:
+    inset 0 1px 0 var(--raise),
+    0 12px 28px rgba(0, 0, 0, 0.38);
   /* The rows carry the inset themselves, so the two of them can disagree. */
   padding: 0;
 }
@@ -2029,8 +2036,8 @@ button {
   background-color: transparent;
   background-image: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--card) 88%, transparent) 0%,
-    color-mix(in srgb, var(--bg) 88%, transparent) 100%
+    color-mix(in srgb, var(--card-top) 88%, transparent) 0%,
+    color-mix(in srgb, var(--card-bottom) 88%, transparent) 100%
   );
   box-shadow:
     inset 0 1px 0 var(--raise),
@@ -2069,7 +2076,7 @@ button {
   background-image: linear-gradient(
     180deg,
     var(--bg-hover) 0%,
-    color-mix(in srgb, var(--card) 92%, transparent) 100%
+    color-mix(in srgb, var(--card-top) 92%, transparent) 100%
   );
   color: var(--fg);
 }

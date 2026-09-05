@@ -72,7 +72,9 @@ const SURFACES = [
   'bg-block',
   'grad-top',
   'grad-bottom',
-  'card'
+  'card',
+  'card-top',
+  'card-bottom'
 ]
 
 let checked = 0
@@ -124,6 +126,25 @@ for (const name of fs.readdirSync(THEMES).filter((f) => f.endsWith('.json'))) {
     `${theme.name}: the ground is lit from above`,
     top > mid && mid > foot,
     `top ${top.toFixed(4)} (${v['grad-top']}), base ${mid.toFixed(4)} (${v.bg}), foot ${foot.toFixed(4)} (${v['grad-bottom']})`
+  )
+
+  /*
+   * And a raised face stays inside the envelope that is already paid for.
+   *
+   * Being in SURFACES above proves the face is READABLE. It does not prove the face
+   * is cheap: `readable()` would happily lift the whole palette to accommodate a
+   * brighter card, and the first sign of that is not a failure here but every text
+   * colour in the theme quietly getting paler. The hover fill is the lightest ground
+   * on a dark theme and the darkest on a light one, and it is what every token is
+   * already lifted against — so a face capped there costs the palette nothing, and
+   * one that is not is spending contrast the theme does not have.
+   */
+  const face = theme.type === 'dark' ? lum(v['card-top']) : lum(v['card-bottom'])
+  const paid = lum(v['bg-hover'])
+  check(
+    `${theme.name}: a raised face costs the palette nothing`,
+    theme.type === 'dark' ? face <= paid : face >= paid,
+    `face ${face.toFixed(4)} vs hover ${paid.toFixed(4)} (${theme.type})`
   )
 
   /*

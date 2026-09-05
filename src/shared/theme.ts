@@ -357,6 +357,28 @@ export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
   const gradTop = dark ? mix(mix(accent, fg, 0.35), bg, 0.13) : mix('#ffffff', bg, 0.8)
   const gradBottom = dark ? mix('#000000', bg, 0.55) : mix(fg, bg, 0.1)
 
+  /*
+   * The face a raised object wears, hoisted up here for the same reason the ground
+   * was: these are surfaces. A chip, the composer and the selected session card all
+   * carry text, and a colour is only readable if it is readable on every surface it
+   * can land on.
+   *
+   * Both ends stop at the hover fill. That is not a taste decision — hover is the
+   * lightest ground on a dark theme and the darkest on a light one, and it is
+   * already the surface `readable()` lifts every text token against, so a face
+   * capped there is depth bought inside an envelope that is paid for. Measured over
+   * all ten themes with these in the array: the worst text and mark ratios come back
+   * unchanged, and hover still binds everywhere.
+   *
+   * The light branch takes the mirror fork. A near-white card has no headroom above
+   * it, so its light is white and its depth is the settled end — which is why the
+   * rim is the strong edge on a dark theme and the cast edge is the strong one on a
+   * light theme. Light still falls from above in both.
+   */
+  const card = dark ? mix(fg, bg, 0.115) : mix('#ffffff', bg, 0.55)
+  const cardTop = dark ? mix(hover, card, 0.7) : mix('#ffffff', card, 0.9)
+  const cardBottom = dark ? mix(bg, card, 0.55) : mix(hover, card, 0.65)
+
   const surfaces = [
     bg,
     chrome,
@@ -364,7 +386,10 @@ export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
     hover,
     mix(fg, bg, dark ? 0.03 : 0.02),
     gradTop,
-    gradBottom
+    gradBottom,
+    card,
+    cardTop,
+    cardBottom
   ]
   const text = (color: string): string => readable(color, surfaces, 4.5, fg)
   // 3:1 is the floor for borders, icons and other non-text marks.
@@ -415,7 +440,19 @@ export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
      */
     'grad-top': gradTop,
     'grad-bottom': gradBottom,
-    card: dark ? mix(fg, bg, 0.115) : mix('#ffffff', bg, 0.55),
+    card,
+    'card-top': cardTop,
+    'card-bottom': cardBottom,
+    /*
+     * The pixel a raised edge catches, and the one it casts.
+     *
+     * Derived against the face they sit on rather than against the base, which is
+     * what makes the light half of this render at all: an `--fg` rim mixed into the
+     * background is a no-op on a near-white card, and that is exactly why the first
+     * version of these had to be hand-written and gated to dark themes.
+     */
+    raise: dark ? mix(fg, cardTop, 0.2) : mix(fg, cardTop, 0.07),
+    settle: dark ? mix('#000000', cardBottom, 0.45) : mix(fg, cardBottom, 0.18),
     /* A whisper of the accent in the frame, which is what keeps the cards looking
        lit by the theme rather than cut from grey card stock. */
     'card-border': mix(mix(accent, fg, 0.35), bg, dark ? 0.24 : 0.15),
