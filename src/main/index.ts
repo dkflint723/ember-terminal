@@ -10,7 +10,16 @@ import {
   shell
 } from 'electron'
 import { join } from 'node:path'
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync
+} from 'node:fs'
 import { spawn } from 'node:child_process'
 
 /*
@@ -85,6 +94,77 @@ if (process.platform === 'win32') {
   app.setAppUserModelId(app.isPackaged ? 'dev.dkflint.ember.app' : 'dev.dkflint.ember.dev')
 }
 
+/**
+ * The preferences the two windows share, and only those.
+ *
+ * Deliberately not the whole file. `windowBounds`, `windowMaximized`,
+ * `learnedChords`, `recentFolders` and `pendingUpdateVersion` all live in
+ * settings.json and are legitimately the elevated window's own — copying them
+ * would stamp the ordinary window's rectangle over it on every launch, and hand it
+ * an update to install that it is specifically not allowed to install.
+ */
+const SHARED_SETTINGS = [
+  'fontFamily',
+  'fontSize',
+  'uiZoom',
+  'themeId',
+  'keybindings',
+  'defaultProfileId',
+  'blockDensity',
+  'restoreSession',
+  'ghostEnabled',
+  'ghostProvider',
+  'ghostBaseUrl',
+  'ghostModel',
+  'ghostDebounceMs',
+  'aiModel',
+  'aiEffort',
+  'aiMode',
+  'formatOnSave',
+  'notifyAfterSeconds',
+  'autoSaveAfterSeconds'
+] as const
+
+/**
+ * Make the elevated window look like the ordinary one, every time it opens.
+ *
+ * It used to be one `copyFileSync` guarded by "only if there is nothing there
+ * yet", so the elevated window was a photograph of the settings on the day it was
+ * first opened and drifted from that moment on. Six days later this machine's twin
+ * still had a different default shell and a different suggestion model, with
+ * nothing on screen to say why — the whole point of seeding is that the two look
+ * the same, and it held for one launch.
+ *
+ * Merged rather than overwritten, and only the keys above, so the elevated window
+ * keeps the handful of things that are honestly its own.
+ *
+ * The theme and snippet directories go too. A `themeId` is a reference: copying
+ * the name of a user theme without the file it names leaves the elevated window
+ * falling back to the default, which is the one difference somebody notices
+ * instantly. `force: false` so anything authored inside the elevated window
+ * survives.
+ */
+function seedAdminProfile(ordinary: string, mine: string): void {
+  const from = join(ordinary, 'settings.json')
+  if (existsSync(from)) {
+    const source = JSON.parse(readFileSync(from, 'utf8')) as Record<string, unknown>
+    const to = join(mine, 'settings.json')
+    const target = existsSync(to)
+      ? (JSON.parse(readFileSync(to, 'utf8')) as Record<string, unknown>)
+      : {}
+    for (const key of SHARED_SETTINGS) if (key in source) target[key] = source[key]
+    // Through a temporary file, like every other settings write: an interrupted
+    // one here would leave the elevated window with a file it cannot parse.
+    const temp = `${to}.tmp`
+    writeFileSync(temp, JSON.stringify(target, null, 2), 'utf8')
+    renameSync(temp, to)
+  }
+  for (const dir of ['themes', 'snippets']) {
+    const source = join(ordinary, dir)
+    if (existsSync(source)) cpSync(source, join(mine, dir), { recursive: true, force: false })
+  }
+}
+
 if (isAdminWindow) {
   /*
    * Before anything reads a path. The seed is a copy rather than a share: the
@@ -96,9 +176,7 @@ if (isAdminWindow) {
   const mine = join(ordinary, 'admin-window')
   try {
     mkdirSync(mine, { recursive: true })
-    const from = join(ordinary, 'settings.json')
-    const to = join(mine, 'settings.json')
-    if (existsSync(from) && !existsSync(to)) copyFileSync(from, to)
+    seedAdminProfile(ordinary, mine)
   } catch {
     // A seed that cannot be copied costs the theme, not the window.
   }
@@ -1171,19 +1249,68 @@ function registerIpc(): void {
       ...(profileArg ? [profileArg] : []),
       ADMIN_FLAG
     ]
-    const list = args.map((a) => `'${a.replace(/'/g, "''")}'`).join(',')
-    const command = `Start-Process -FilePath '${exe.replace(/'/g, "''")}' -ArgumentList ${list} -Verb RunAs`
-    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], {
+    const quoted = (value: string): string => `'${value.replace(/'/g, "''")}'`
+    const list = args.map(quoted).join(',')
+    /*
+     * Classified inside PowerShell, on the number rather than the sentence.
+     *
+     * Declining is an ordinary answer and every other failure is not, and the two
+     * were told apart by "PowerShell exited non-zero" — which is also what a
+     * missing executable, a policy refusing to elevate an unsigned build, and a
+     * child killed by a signal all produce. So anyone whose elevation was broken
+     * for a reason they had not chosen was told they had dismissed a prompt they
+     * never saw, at tone `info`, with the reason discarded by `stdio: 'ignore'`.
+     *
+     * 1223 is ERROR_CANCELLED: the user said no. Matching the English text would
+     * have been the same bug again on a Windows that is not in English.
+     */
+    const command =
+      `try { Start-Process -FilePath ${quoted(exe)} -ArgumentList ${list} -Verb RunAs -ErrorAction Stop } ` +
+      `catch { if ($_.Exception.NativeErrorCode -eq 1223) { exit 2 } ` +
+      `else { [Console]::Error.WriteLine($_.Exception.Message); exit 3 } }`
+    /*
+     * By path, not by name. This is the one gesture in the app that must not fail
+     * quietly, and resolving it through PATH makes a corrupted PATH indistinguishable
+     * from a button that does nothing — which is the exact confusion the watchdog
+     * below exists to end.
+     */
+    const powershell = join(
+      process.env.SystemRoot ?? 'C:\\Windows',
+      'System32',
+      'WindowsPowerShell',
+      'v1.0',
+      'powershell.exe'
+    )
+    const child = spawn(powershell, ['-NoProfile', '-NonInteractive', '-Command', command], {
       windowsHide: true,
-      stdio: 'ignore',
+      // stderr kept: it is the only place the reason for a failure is written.
+      stdio: ['ignore', 'ignore', 'pipe'],
       detached: true
     })
+    let why = ''
+    child.stderr?.on('data', (chunk) => {
+      why += String(chunk)
+    })
     child.on('exit', (code) => {
-      // A cancelled prompt is the usual non-zero here, and worth saying once.
-      if (code !== 0) {
+      // The one answer that is not a fault: they were asked, and they said no.
+      if (code === 2) {
         sendToAll('ui:notice', {
           text: 'The administrator window was not started — the permission prompt was declined.',
           tone: 'info'
+        })
+        return
+      }
+      /*
+       * Anything else went wrong, including a null code from a signal. Say what is
+       * known instead of inventing a cause the user did not choose, and write it
+       * down: an unexplained failure that leaves no record is one nobody can act on.
+       */
+      if (code !== 0) {
+        const first = why.trim().split('\n')[0] || `PowerShell exited ${String(code)}`
+        reportFault('admin window could not be started', first)
+        sendToAll('ui:notice', {
+          text: `The administrator window could not be started — ${first} Details are in ember.log.`,
+          tone: 'error'
         })
         return
       }
@@ -1213,7 +1340,22 @@ function registerIpc(): void {
         })
       }, 1000)
     })
-    child.on('error', (err) => reportFault('admin window could not be launched', err))
+    /*
+     * Said out loud, not only logged.
+     *
+     * When spawn fails outright Node emits `error` and `close` and never `exit`, so
+     * neither the notice above nor the watchdog below runs at all: the press
+     * produced no prompt, no window and not one word — which is precisely the
+     * "a broken machine looks exactly like a broken button" this whole path was
+     * written to end, surviving in the one branch that did not cover it.
+     */
+    child.on('error', (err) => {
+      reportFault('admin window could not be launched', err)
+      sendToAll('ui:notice', {
+        text: 'The administrator window could not be started — PowerShell would not run. Details are in ember.log.',
+        tone: 'error'
+      })
+    })
     child.unref()
   })
 
@@ -1664,17 +1806,28 @@ function registerIpc(): void {
 // A second instance should focus the existing window rather than opening a
 // duplicate that competes for the same shells.
 /*
- * Exempt from the single-instance lock, belt and braces.
+ * One lock, whichever kind of Ember this is.
  *
- * In practice the lock never sees it: Electron keys the lock on the user-data
- * directory, and the admin window moved to its own before this line runs — so
- * it holds a lock of its own. Removing this exemption changes nothing today,
- * which a test proved by removing it. It stays because the exemption should be
- * stated rather than inherited from a side effect of where its files live: the
- * lock exists to stop a second ORDINARY Ember competing for one session, and
- * this process is not that.
+ * This used to read `!isAdminWindow && !app.requestSingleInstanceLock()`, above a
+ * comment claiming the elevated window "holds a lock of its own". It held none:
+ * `&&` short-circuits, so an elevated process never asked for one, and a lock that
+ * is never requested is never held. The test that "proved removing the exemption
+ * changes nothing" was run with a single elevated window, which is the one case
+ * where that is true.
+ *
+ * What it cost: two elevated Embers on one fixed directory, both autosaving the
+ * whole session file from their own private map every 1.2 seconds, so each erased
+ * the other's windows continuously — and session snapshots carry unsaved editor
+ * buffers. Settings went the same way, last writer winning from a stale cache. It
+ * did not need the button, either: `isAdminWindow` is true for any elevated launch,
+ * so Run as administrator from the taskbar while a twin was open reached it too.
+ *
+ * Asking for the lock is correct rather than merely safe: Electron keys it on the
+ * user-data directory and `app.setPath` moved this process to `admin-window` long
+ * before this line, so the elevated Ember locks its own directory and the ordinary
+ * one locks its own. Neither can turn the other away.
  */
-if (!isAdminWindow && !app.requestSingleInstanceLock()) {
+if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', (_e, argv) => {
