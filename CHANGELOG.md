@@ -3,6 +3,79 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
+## 0.3.24 — 2026-09-05
+
+Three things that all presented the same way: the app quietly doing nothing.
+Two of them were found by using it, and the third by an adversarial audit of
+the code around them. None of them were visible to the checks, and in each case
+the reason is more interesting than the bug.
+
+### Asking Claude about an error now sends the error
+
+- **"Explain last error" sent the question and threw the error away.** A question
+  reaches a model one of two ways — the Anthropic API when a key is set, the
+  Claude Code CLI when one is not — and each door assembled the system prompt for
+  itself. The two copies drifted: the API path grew the attached blocks and the
+  open file, and the CLI path never did. So for everyone signed in through the
+  CLI rather than with a key, which is the ordinary way to use this, the model
+  was asked why something had failed and shown nothing that had failed. The open
+  file went the same way, so a question asked in the editor arrived without it.
+- **Why no check caught it.** Every attachment check runs against the fake
+  backend, which short-circuits before both real paths — so the covered path was
+  not the used one, and the suite proved attachments reached a backend nobody is
+  on. The fix is not another check on that seam: there is one builder now, and a
+  door cannot forget to call what it does not have.
+
+### Suggestions say why they are not appearing
+
+- **A model that cannot fill in the middle now says so**, instead of returning
+  nothing. That ability has to be trained into a model and spelled out in its
+  template, and the newer agent-shaped coder models have dropped it while keeping
+  the word "coder" in the name — `qwen3-coder:30b` cannot, the whole
+  `qwen2.5-coder` family can. Asked anyway, such a model answers nothing and
+  raises nothing, which is exactly what a model with nothing to suggest looks
+  like. So the feature appeared broken with no clue anywhere as to what to change.
+- **The model list marks them.** Read from the server rather than from a list of
+  names kept in the app — Ollama reports what each model can do, and a hand-kept
+  list of known-bad names would be wrong the week after it shipped. Marked rather
+  than hidden: it is your server, and a list that quietly omits something you can
+  see installed is the same unexplained silence one layer further back.
+- **Unknown is not no.** An endpoint that lists names and nothing else leaves the
+  answer unknown, and the request goes ahead exactly as before — refusing there
+  would break every server that works fine and does not advertise.
+
+### The administrator window stops fighting itself
+
+- **Two elevated Embers can no longer run at once.** The single-instance check
+  read "if this is not the admin window, and the lock is not free" — which
+  short-circuits, so an elevated Ember never asked for a lock at all, above a
+  comment claiming it held one. Two of them then shared one directory, each
+  rewriting the whole session file from its own private map every second or so,
+  so each erased the other's windows continuously — and a session snapshot
+  carries unsaved editor buffers. It never needed the menu item either: any
+  elevated launch is an administrator window, so Run as administrator from the
+  taskbar beside an open one reached the same state.
+- **The elevated window keeps up with your settings.** It was seeded once, ever —
+  a photograph of your preferences on the day it first opened, drifting from that
+  moment on. On the machine this was found on it still had a different default
+  shell and a different suggestion model six days later, with nothing on screen
+  to say why. Your themes and snippets travel with it now too: a theme id is a
+  reference, and carrying the name without the file it names left the elevated
+  window in a different colour scheme.
+- **A failure is no longer reported as "you declined the prompt".** The reason was
+  being discarded and then a cause asserted, so anyone whose elevation was broken
+  for a reason they had not chosen was told they had dismissed a prompt they never
+  saw. It now tells a real decline apart from everything else, says what actually
+  went wrong, and writes it to the log.
+- **And a press can no longer produce nothing at all.** When the launch failed
+  before it began, the notice and the twenty-five second watchdog both sat in a
+  branch that never ran — which is precisely the "a broken machine looks exactly
+  like a broken button" the watchdog exists to end, surviving in the one path it
+  did not cover.
+- **The administrator window's own suite now runs in the gate.** It had one, and
+  it was never run — which is how a lock that was never requested survived in a
+  project that gates on everything else.
+
 ## 0.3.23 — 2026-09-05
 
 ### A window with a light source
