@@ -232,14 +232,22 @@ const timeline = (page) =>
    * check naming `.pane` would have to be rewritten by whoever breaks it next.
    */
   const covering = await page.evaluate(() => {
-    const start = document.querySelector('.block')
     const ground = document.querySelector('.workspace')
-    if (!start || !ground) return null
+    /*
+     * Two starting points, because the scrollback is not the only thing standing on
+     * the ground: the overview ruler is a twelve-pixel column down the right of the
+     * same scroll area, and it was the last opaque one — invisible while the pane
+     * was flat too, a seam the moment the ground came through.
+     */
+    const starts = [document.querySelector('.block'), document.querySelector('.ruler')]
+    if (!ground || starts.some((el) => el === null)) return null
     const opaque = []
-    for (let el = start; el && el !== ground; el = el.parentElement) {
-      const bg = getComputedStyle(el).backgroundColor
-      // rgba(...,0) and the keyword transparent both resolve to this.
-      if (bg && bg !== 'rgba(0, 0, 0, 0)') opaque.push(`${el.className || el.tagName}: ${bg}`)
+    for (const start of starts) {
+      for (let el = start; el && el !== ground; el = el.parentElement) {
+        const bg = getComputedStyle(el).backgroundColor
+        // rgba(...,0) and the keyword transparent both resolve to this.
+        if (bg && bg !== 'rgba(0, 0, 0, 0)') opaque.push(`${el.className || el.tagName}: ${bg}`)
+      }
     }
     return opaque
   })
@@ -249,9 +257,9 @@ const timeline = (page) =>
    * reported a clean chain — it passed with the covering fill still in place, which
    * is the only way a check like this can be wrong.
    */
-  check('there is a block to look at', covering !== null, String(covering))
+  check('there is a block and a ruler to look at', covering !== null, String(covering))
   check(
-    'nothing between a block and the ground paints over it',
+    'nothing standing on the ground paints over it',
     covering !== null && covering.length === 0,
     JSON.stringify(covering)
   )

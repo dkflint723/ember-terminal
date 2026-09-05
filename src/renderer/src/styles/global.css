@@ -1150,7 +1150,11 @@ button {
 .ruler {
   position: relative;
   flex: 0 0 12px;
-  background: var(--bg);
+  /* The last opaque column on a transparent pane. Twelve pixels of flat base down
+     the right of every scroll area, which read as nothing at all while the pane was
+     flat too and as a seam the moment the ground came through. The viewport marker
+     and the failure marks paint on top of this and are unaffected. */
+  background: transparent;
   border-left: 1px solid var(--border);
 }
 
