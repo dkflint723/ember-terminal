@@ -41,6 +41,21 @@ const LOCKFILES: { file: string; run: (name: string) => string }[] = [
 ]
 
 /**
+ * What a test file is called, which is a convention rather than a rule.
+ *
+ * `foo.test.ts`, `foo.spec.js`, and anything under a `__tests__`, `test` or `tests`
+ * directory — the shapes vitest, jest and every runner that copied them look for by
+ * default. Deliberately no attempt to read a runner's configured `include` globs: a
+ * list that is right for the common project and honest about being a guess is worth
+ * more than a config parser that is subtly wrong for the uncommon one, because the
+ * command that runs is the project's own and it decides what it actually runs.
+ */
+const TEST_FILE = /(^|[\\/])(__tests__|tests?)[\\/]|[.](test|spec)[.][cm]?[jt]sx?$/i
+
+/** Enough to be useful, few enough that the view stays a list rather than a tree. */
+const TEST_LIMIT = 300
+
+/**
  * The holes in a saved command, in the order they are first written.
  *
  * `{{name}}`, which is Warp's spelling and reads as a blank rather than as
@@ -74,6 +89,8 @@ export function ScriptRunner(): React.JSX.Element {
   const [scripts, setScripts] = useState<Script[]>([])
   const [runner, setRunner] = useState<(name: string) => string>(() => (n: string) => `npm run ${n}`)
   const [state, setState] = useState<'loading' | 'none' | 'ready'>('loading')
+  /** Test files in this project, when it has a way to run them. */
+  const [tests, setTests] = useState<string[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -127,6 +144,37 @@ export function ScriptRunner(): React.JSX.Element {
       setRunner(() => run)
       setScripts(found)
       setState(found.length > 0 ? 'ready' : 'none')
+
+      /*
+       * Test files, but only where the project says how to run them.
+       *
+       * A `test` script is the whole of the detection. Ember does not need to know
+       * whether this is vitest or jest or something written in-house — the project
+       * already declares the command, and every one of those runners takes a path
+       * to narrow what it runs. Guessing the runner instead would mean guessing its
+       * flags, and being wrong there is a command that does not run.
+       *
+       * Nothing is listed for a project with no test script, which is the honest
+       * answer: there is no button to offer if there is no way to press it.
+       */
+      if (!parsed?.scripts?.test) {
+        setTests([])
+        return
+      }
+      const listed = await window.ember
+        .listFiles(treeRoot)
+        .catch(() => ({ ok: false as const, error: 'unavailable' }))
+      if (cancelled) return
+      const files = listed.ok ? listed.files : []
+      const root = treeRoot.replace(/\\/g, '/').replace(/[/]+$/, '')
+      setTests(
+        files
+          .map((full) => full.replace(/\\/g, '/'))
+          .filter((full) => TEST_FILE.test(full))
+          .map((full) => (full.startsWith(`${root}/`) ? full.slice(root.length + 1) : full))
+          .sort((a, b) => a.localeCompare(b))
+          .slice(0, TEST_LIMIT)
+      )
     })()
 
     return () => {
@@ -228,6 +276,39 @@ export function ScriptRunner(): React.JSX.Element {
 
       <div className="scripts__head">This project</div>
       {projectHalf()}
+
+      {/*
+        The project's tests, one press each.
+        Running one file is the thing a test runner makes you type a path for, and
+        the path is the part that is easy to get wrong. The command is the project's
+        own `test` script with that path after it — every runner worth the name
+        narrows to a path that way, so this needs to know nothing about which one it
+        is. What comes back is an ordinary block, with the runner's own output in
+        it: no second opinion about what passed, no parsing of a report that would
+        have to be kept in step with four different formats.
+      */}
+      {tests.length > 0 && (
+        <>
+          <div className="scripts__head">Tests</div>
+          {tests.map((file) => (
+            <button
+              key={file}
+              className="scripts__item"
+              type="button"
+              title={`Run: ${runner('test')} -- ${file}`}
+              onClick={() => send(`${runner('test')} -- ${file}`)}
+            >
+              <span className="scripts__play" aria-hidden="true">
+                ▸
+              </span>
+              {/* The file's own name leads, since that is what is being run; the
+                  folders it sits in follow, quieter, to tell two apart. */}
+              <span className="scripts__name">{file.split('/').pop()}</span>
+              <span className="scripts__cmd">{file.split('/').slice(0, -1).join('/')}</span>
+            </button>
+          ))}
+        </>
+      )}
 
       {asking && (
         <QuickPick

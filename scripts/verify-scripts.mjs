@@ -35,9 +35,18 @@ const check = (label, ok, detail) => {
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-scripts-'))
 fs.writeFileSync(
   path.join(work, 'package.json'),
-  JSON.stringify({ name: 'fixture', scripts: { build: 'echo building', lint: 'echo linting' } }, null, 2)
+  JSON.stringify(
+    { name: 'fixture', scripts: { build: 'echo building', lint: 'echo linting', test: 'echo testing' } },
+    null,
+    2
+  )
 )
 fs.writeFileSync(path.join(work, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n")
+// Two test files by two of the conventions, and one ordinary file that is neither.
+fs.mkdirSync(path.join(work, 'src', '__tests__'), { recursive: true })
+fs.writeFileSync(path.join(work, 'src', 'adder.test.ts'), 'export const t = 1\n')
+fs.writeFileSync(path.join(work, 'src', '__tests__', 'walker.ts'), 'export const w = 1\n')
+fs.writeFileSync(path.join(work, 'src', 'ordinary.ts'), 'export const o = 1\n')
 
 const app = await electron.launch({
   executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
@@ -75,11 +84,22 @@ const items = await page.evaluate(() =>
     title: e.getAttribute('title') ?? ''
   }))
 )
-check('it lists the scripts the project declares', items.length === 2, JSON.stringify(items))
+/*
+ * The declared scripts, which are not the only rows any more — the project's test
+ * files are offered below them, each running the same `test` script narrowed to one
+ * path. Named rather than counted, so a new section cannot silently change what
+ * this is asserting.
+ */
+const declared = items.map((i) => i.name)
 check(
-  'by name',
-  items.map((i) => i.name).join(',') === 'build,lint',
-  JSON.stringify(items.map((i) => i.name))
+  'it lists the scripts the project declares',
+  ['build', 'lint', 'test'].every((n) => declared.includes(n)),
+  JSON.stringify(declared)
+)
+check(
+  'by name, in the order the project wrote them',
+  declared.slice(0, 3).join(',') === 'build,lint,test',
+  JSON.stringify(declared)
 )
 check(
   'and says what each one actually runs',
@@ -134,7 +154,11 @@ await sleep(1200)
 const heads = await page.evaluate(() =>
   [...document.querySelectorAll('.scripts__head')].map((e) => e.textContent)
 )
-check('the two kinds are told apart', heads.join('|') === 'Saved|This project', JSON.stringify(heads))
+check(
+  'the kinds are told apart',
+  heads.join('|') === 'Saved|This project|Tests',
+  JSON.stringify(heads)
+)
 
 // One with nothing to fill in runs straight away.
 await page.locator('.scripts__item', { hasText: 'Say hello' }).first().click()
@@ -263,6 +287,62 @@ check(
   'a script runs in the session that is on screen',
   hereNow.some((c) => c.includes('pnpm run lint')),
   JSON.stringify(hereNow.slice(-3))
+)
+
+/*
+ * --- the project's tests, one press each ---------------------------------------
+ *
+ * Running one test file is the thing a runner makes you type a path for, and the
+ * path is the part that is easy to get wrong. What is offered is the project's own
+ * `test` script with the path after it, so this needs to know nothing about which
+ * runner it is — every one of them narrows to a path that way.
+ *
+ * The detection is the `test` script and nothing else: a project with no way to run
+ * its tests has no button worth offering.
+ */
+if ((await page.locator('.scripts').count()) === 0) {
+  await page.keyboard.press('Control+Shift+R')
+  await sleep(1500)
+}
+await sleep(800)
+const sections = await page.evaluate(() =>
+  [...document.querySelectorAll('.scripts__head')].map((e) => e.textContent ?? '')
+)
+check('a project with tests gets a section for them', sections.includes('Tests'), JSON.stringify(sections))
+
+const offered = await page.evaluate(() =>
+  [...document.querySelectorAll('.scripts__item')].map((e) => e.getAttribute('title') ?? '')
+)
+check(
+  'a file named for a test is offered',
+  offered.some((t) => t.includes('adder.test.ts')),
+  JSON.stringify(offered.filter((t) => t.includes('test')))
+)
+check(
+  'and one inside a tests directory, which is the other convention',
+  offered.some((t) => t.includes('__tests__/walker.ts')),
+  JSON.stringify(offered.filter((t) => t.includes('walker')))
+)
+check(
+  'while an ordinary file beside them is not',
+  !offered.some((t) => t.includes('ordinary.ts')),
+  JSON.stringify(offered)
+)
+
+// Only pressed if it is there: a click that waits for a row this feature never
+// added wedges the suite instead of reporting that the row is missing.
+const testRow = page.locator('.scripts__item', { hasText: 'adder.test.ts' })
+if ((await testRow.count()) > 0) {
+  await testRow.first().click()
+  await sleep(3000)
+}
+const testRan = await page.evaluate(() =>
+  [...document.querySelectorAll('.block__cmd')].map((e) => e.textContent ?? '')
+)
+check(
+  "pressing one runs the project's own test script, narrowed to that file",
+  testRan.some((c) => c.includes('pnpm run test') && c.includes('adder.test.ts')),
+  JSON.stringify(testRan.slice(-2))
 )
 
 await app.close()
