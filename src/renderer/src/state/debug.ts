@@ -774,7 +774,29 @@ function terminalPaneForDebuggee(): string | null {
       (p): p is Extract<typeof p, { kind: 'terminal' }> =>
         p?.kind === 'terminal' && speaksPs.has(p.profileId)
     )
-  return terminals.find((p) => p.integration === 'ready' && !p.exited)?.id ?? null
+  /*
+   * A prompt, not merely a shell. `integration === 'ready'` says the handshake
+   * happened once; it says nothing about what has the keyboard now. The line
+   * handed over is written straight into the pty (controller.runCommand ->
+   * send(`${line}\r`)), so a pane with a program in it takes it as that
+   * program's stdin: F5 with `npm run dev` (or vim, or a python REPL) in the
+   * tab's shell typed `$env:NODE_OPTIONS=…; cd …; & 'node' 'app.js'` into the
+   * dev server, reported success to the adapter, and the session died 15s
+   * later on dap.ts's REQUEST_TIMEOUT_MS with 'The adapter never answered
+   * launch.' — after a line of PowerShell had been injected into whatever the
+   * user had open. The pane already knows: the alternate screen (mode 'raw'),
+   * a command still running, and a masked secret prompt. With no pane at a
+   * prompt the callers fall back to console 'internalConsole', which is honest
+   * about where the output goes.
+   */
+  return (
+    terminals.find((p) => {
+      if (p.integration !== 'ready' || p.exited) return false
+      if (p.mode !== 'blocks' || p.awaitingSecret) return false
+      const last = p.blocks.at(-1)
+      return !(last?.kind === 'command' && last.status === 'running')
+    })?.id ?? null
+  )
 }
 
 export async function startDebugging(): Promise<void> {

@@ -97,6 +97,67 @@ for (let i = 0; i < 20; i++) {
 }
 check('hover answers with the taught server’s words', hover.includes('taught-server-answer'), hover.slice(0, 120))
 
+/*
+ * --- a server that never speaks LSP gives up rather than parking forever --------
+ *
+ * A request waits for the handshake before it starts its own ten-second clock, so
+ * the guard the comment promises protected nothing that happened during the wait.
+ * The gate opens on an `initialize` reply or on the child exiting, and a process
+ * that spawns, lives and says nothing reaches neither — so every request against it
+ * parked a promise that could never settle, one every few seconds for as long as
+ * the editor was open. A wrapper script that was meant to be a language server and
+ * is actually a REPL is the ordinary way to get there.
+ *
+ * `node -e` with a stdin reader is exactly that: alive, silent, and never a server.
+ */
+await page.evaluate(
+  ({ node }) =>
+    window.ember.setSettings({
+      languageServers: [
+        {
+          id: 'mute-server',
+          languageId: 'mutelang',
+          name: 'A server that never answers',
+          command: node,
+          args: ['-e', 'process.stdin.resume()'],
+          extensions: ['.mute']
+        }
+      ]
+    }),
+  { node: process.execPath }
+)
+await sleep(1200)
+
+// Started explicitly: a request against a language with no server returns at once
+// on its own guard, which is not the wait under test.
+await page.evaluate((root) => window.ember.lspStart('mutelang', root), dir)
+await sleep(1500)
+
+/*
+ * Raced against a timer inside the page, so a request that never settles reports a
+ * failure instead of wedging the suite. Without the fix it never settles at all,
+ * and a check that hangs tells nobody anything.
+ */
+const started = Date.now()
+const answer = await page.evaluate(
+  () =>
+    Promise.race([
+      window.ember.lspRequest('mutelang', 'textDocument/hover', {
+        textDocument: { uri: 'file:///nowhere.mute' },
+        position: { line: 0, character: 0 }
+      }),
+      new Promise((resolve) => setTimeout(() => resolve('never-settled'), 25_000))
+    ]),
+  undefined
+)
+const waited = Date.now() - started
+check(
+  'a request to a silent server gives up rather than waiting forever',
+  answer !== 'never-settled',
+  `still waiting after ${waited} ms`
+)
+check('and answers with nothing rather than hanging its caller', answer === null, JSON.stringify(answer))
+
 await app.close()
 profile.cleanup()
 fs.rmSync(dir, { recursive: true, force: true })

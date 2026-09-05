@@ -1415,11 +1415,20 @@ export const useStore = create<Store>((set, get) => ({
 
         const res = await window.ember.readFile(doc.filePath)
         if (!res.ok) continue
-        // Re-found by path after the read, since a tab closed in the meantime would
-        // leave this index pointing at some other document.
+        /*
+         * Re-found by path after the read, since a tab closed in the meantime would
+         * leave this index pointing at some other document — and re-read for
+         * dirtiness for the same reason. `doc` comes off a snapshot of the panes
+         * taken before the first await, and this loop makes one sequential IPC read
+         * per open document, so by the Nth document that reading of "clean" is N-1
+         * round trips old. Typing into a clean file while an earlier one was still
+         * being read had its buffer replaced by disk, its undo stack emptied by
+         * setValue and the result recorded as agreeing with disk: the user's work
+         * gone, with no unsaved marker and nothing to undo.
+         */
         const current = get().editorPane(pane.id)
         const at = current?.documents.findIndex((d) => samePath(d.filePath, doc.filePath)) ?? -1
-        if (at === -1) continue
+        if (!current || at === -1 || current.documents[at].dirty) continue
         get().patchDocument(pane.id, { savedContent: res.content, eol: res.eol }, at)
         const model = monaco.editor.getModel(modelUri(doc.filePath))
         if (model && model.getValue() !== res.content) {

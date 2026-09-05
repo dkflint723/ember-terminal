@@ -645,7 +645,29 @@ export class LspService {
 
   async request(language: string, method: string, params: unknown): Promise<unknown> {
     if (!this.servers.has(language)) return null
-    await this.whenReady(language)
+    /*
+     * The handshake gets the same deadline the request does.
+     *
+     * The 10s guard below is built after this wait, so it protects nothing that
+     * happens during it. The gate opens on an `initialize` reply or on the child's
+     * `exit`, and a process that spawns, lives and never speaks LSP reaches
+     * neither — a command taught in settings that is really a shell or a REPL is
+     * enough. Every lsp:request then stayed pending forever, and the Outline asks
+     * again every 2500 ms while its tab is visible (Outline.tsx), so the promises
+     * piled up on both sides of the IPC boundary with nothing to settle them.
+     *
+     * A slow handshake is not punished: the gate promise is kept, so requests made
+     * after the server finally answers are served normally.
+     */
+    let handshake: NodeJS.Timeout | undefined
+    const opened = await Promise.race([
+      this.whenReady(language).then(() => true),
+      new Promise<boolean>((resolve) => {
+        handshake = setTimeout(() => resolve(false), 10_000)
+      })
+    ])
+    clearTimeout(handshake)
+    if (!opened) return null
     // The wait is not instant, and a server can be gone by the end of it.
     if (!this.servers.has(language)) return null
     const id = ++this.nextDirectId

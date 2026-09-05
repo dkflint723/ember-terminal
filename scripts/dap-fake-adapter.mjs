@@ -95,6 +95,22 @@ const onRequest = (req) => {
       event('initialized', {})
       return
     case 'launch':
+      /*
+       * Where the debuggee was told to run. Ember chooses `integratedTerminal` only
+       * when a pane is actually at a prompt — a pane with a program in it takes the
+       * command line as that program's stdin — so this is the only place outside
+       * Ember that can say which choice it made.
+       */
+      if (process.env.EMBER_DAP_LOG) {
+        try {
+          fs.appendFileSync(
+            process.env.EMBER_DAP_LOG,
+            `launch-console:${req.arguments?.console ?? 'unset'}\n`
+          )
+        } catch {
+          // Nothing to do about it from in here.
+        }
+      }
       beginLaunch(req, 'launch')
       return
     case 'attach':
