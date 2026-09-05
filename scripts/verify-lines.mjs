@@ -87,13 +87,42 @@ check(
 
 // --- the clipboard ------------------------------------------------------------
 await page.locator('.block').last().hover()
-// The meta column overlaps the actions until the head is hovered; the press is
-// what is under test, not whether the pointer can reach it.
+/*
+ * Pressed the way a person presses it, without forcing.
+ *
+ * This used to need `force: true`, with a note saying the actions only exist while
+ * the command line itself is hovered — which is the defect written down as a
+ * workaround. Hovering the block is what reveals them now, so an honest click is
+ * possible and is worth more than the copy it is checking: it fails if the buttons
+ * are unreachable, which forcing could never report.
+ */
+/*
+ * Asked of the page rather than of Playwright first, because a click on a button
+ * that is there but unreachable does not fail — it hangs for thirty seconds and
+ * then throws, which tears the suite down instead of reporting the one thing that
+ * went wrong. What is under the pointer is a question with an immediate answer.
+ */
+const underPointer = await page.evaluate(() => {
+  const block = [...document.querySelectorAll('.block')].pop()
+  const button = block?.querySelector('.block__action[title="Copy output"]')
+  if (!button) return 'no such button'
+  const box = button.getBoundingClientRect()
+  const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+  return hit === button || button.contains(hit) ? 'the button' : (hit?.className ?? 'nothing')
+})
+const reachable = underPointer === 'the button'
+check('hovering a block puts its actions under the pointer', reachable, underPointer)
+/*
+ * Forced only when it has already been reported as unreachable. A plain click on a
+ * button nothing can reach waits thirty seconds and then throws, taking the rest of
+ * the suite with it — so the honest click is used when it is honest, and the
+ * fallback keeps the clipboard checks below answerable either way.
+ */
 await page
   .locator('.block')
   .last()
   .locator('.block__action[title="Copy output"]')
-  .click({ force: true })
+  .click(reachable ? {} : { force: true })
 await sleep(400)
 const copied = await page.evaluate(() => window.ember.clipboardRead())
 check(
@@ -118,6 +147,8 @@ check(
 const shareOf = async (index) => {
   const block = index === undefined ? page.locator('.block').last() : page.locator('.block').nth(index)
   await block.hover()
+  // Forced for the same reason as above: whether the pointer can reach these is
+  // checked once, in one place, and this one is about the Markdown.
   await block.locator('.block__action[title^="Copy as Markdown"]').click({ force: true })
   await sleep(400)
   // Windows hands back CRLF from the clipboard whatever went in, and the shape

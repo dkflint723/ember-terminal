@@ -42,6 +42,7 @@ export function App(): React.JSX.Element {
   const fontFamily = useStore((s) => s.settings.fontFamily)
   const blockDensity = useStore((s) => s.settings.blockDensity)
   const keyOverrides = useStore((s) => s.settings.keybindings)
+  const learnedChords = useStore((s) => s.settings.learnedChords)
   const bindings = useMemo(() => resolveBindings(keyOverrides ?? {}), [keyOverrides])
   const bindingsRef = useRef(bindings)
   bindingsRef.current = bindings
@@ -645,9 +646,14 @@ export function App(): React.JSX.Element {
                 ) : (
                   <div className="empty">
                     <div>No files open</div>
-                    <div style={{ fontSize: 11 }}>
-                      <kbd>Ctrl</kbd> <kbd>P</kbd> to go to a file
-                    </div>
+                    {/* The same retiring legend as the terminal's: the chord is
+                        worth a line until it has been pressed, and after that this
+                        is a caption on an empty box. */}
+                    {!learnedChords.includes('palette.files') && (
+                      <div style={{ fontSize: 11 }}>
+                        <kbd>Ctrl</kbd> <kbd>P</kbd> to go to a file
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

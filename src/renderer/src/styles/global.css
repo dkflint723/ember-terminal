@@ -1364,7 +1364,12 @@ button {
   pointer-events: none;
 }
 
-.block__head:hover .block__actions,
+/* Anywhere on the block, not only on its command line.
+   The fill is already the block's — hovering it lights the whole card — so the head
+   was the one part of a lit block that offered anything, and reading an error then
+   reaching for "copy output" meant travelling back up to the line above it to make
+   the button exist. Warp treats the block as the target and it is right to. */
+.block:hover .block__actions,
 .block__head:focus-within .block__actions {
   opacity: 1;
   pointer-events: auto;
