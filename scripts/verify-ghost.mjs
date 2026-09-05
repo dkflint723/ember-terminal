@@ -97,6 +97,27 @@ const server = http.createServer((req, res) => {
     }
 
     /*
+     * What this server holds, and what each model can do.
+     *
+     * Ollama reports `capabilities` on every entry here, and `insert` is its word
+     * for fill-in-the-middle. Two models, differing only in that: one that can and
+     * one that cannot, so a check can tell the difference being drawn from the
+     * mere presence of a list.
+     */
+    if (req.url === '/api/tags') {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(
+        JSON.stringify({
+          models: [
+            { name: 'fills-in:1b', capabilities: ['completion', 'tools', 'insert'] },
+            { name: 'no-insert:1b', capabilities: ['completion', 'tools'] }
+          ]
+        })
+      )
+      return
+    }
+
+    /*
      * No /infill here, because Ollama has none — that endpoint is llama.cpp's, and
      * a stub that answers everything cannot show which one is preferred or what
      * happens when the preferred one is refused.
@@ -685,6 +706,94 @@ check(
     afterClose: calledOff.length,
     tabsLeft: await page.locator('.etab').count()
   })
+)
+
+/*
+ * --- a model that cannot do this says so, instead of saying nothing -------------
+ *
+ * Filling in the middle has to be trained into a model and spelled in its template,
+ * and the newer agent-shaped coder models dropped it while keeping the word "coder"
+ * in the name: qwen3-coder:30b cannot, the whole qwen2.5-coder family can. Asked
+ * anyway, such a model returns nothing usable and raises nothing — which is exactly
+ * what a model with nothing to suggest looks like. So the feature appeared to be
+ * broken, with no clue anywhere as to what to change. A user lost an evening to it.
+ *
+ * Read from the server rather than from a list of names kept here: the names give
+ * no clue, and a list of known-bad models would be wrong the week after it shipped.
+ */
+seen.length = 0
+await page.evaluate(
+  (p) => window.ember.setSettings({ ghostProvider: 'local', ghostBaseUrl: `http://127.0.0.1:${p}/v1` }),
+  port
+)
+await sleep(600)
+
+const listed = await page.evaluate(
+  (p) => window.ember.ghostModels(`http://127.0.0.1:${p}/v1`),
+  port
+)
+const canFill = listed.find((m) => m.name === 'fills-in:1b')
+const cannot = listed.find((m) => m.name === 'no-insert:1b')
+check('the list says which models can fill in the middle', canFill?.fim === true, JSON.stringify(listed))
+check('and which cannot', cannot?.fim === false, JSON.stringify(listed))
+
+/*
+ * And the suggestion path acts on it. Set the model the ordinary way — through
+ * settings, which is what a person does — and ask for a suggestion: the answer has
+ * to name the problem rather than be empty. Polled, because the capability is
+ * learned in the background when the model changes and the first keystroke after
+ * that may still be going ahead in ignorance, which is the deliberate behaviour.
+ */
+await page.evaluate(() => window.ember.setSettings({ ghostModel: 'no-insert:1b' }))
+await sleep(800)
+
+let saidWhy = null
+for (let i = 0; i < 14 && saidWhy === null; i += 1) {
+  const r = await page.evaluate(() =>
+    window.ember.ghostComplete(9101, {
+      prefix: 'const total = ',
+      suffix: '\n',
+      language: 'typescript'
+    })
+  )
+  if (r && r.ok === false && /fill in the middle/i.test(String(r.error))) saidWhy = r
+  else await sleep(400)
+}
+check(
+  'asking a model that cannot fill in the middle says so',
+  saidWhy !== null,
+  JSON.stringify(saidWhy)
+)
+if (saidWhy) {
+  check(
+    'and names the model, so it is clear what to change',
+    String(saidWhy.error).includes('no-insert:1b'),
+    String(saidWhy.error)
+  )
+  check(
+    'and points at something that would work',
+    /qwen2\.5-coder|Settings/i.test(String(saidWhy.error)),
+    String(saidWhy.error)
+  )
+}
+
+/*
+ * The one that can is not saidWhy. Without this the check above passes for a build
+ * that has simply stopped suggesting anything at all.
+ */
+await page.evaluate(() => window.ember.setSettings({ ghostModel: 'fills-in:1b' }))
+await sleep(900)
+const allowed = await page.evaluate(() =>
+  window.ember.ghostComplete(9102, {
+    prefix: 'const total = ',
+    suffix: '\n',
+    language: 'typescript'
+  })
+)
+check(
+  'while a model that can is asked as usual',
+  !(allowed.ok === false && /fill in the middle/i.test(String(allowed.error))),
+  JSON.stringify(allowed)
 )
 
 await app.close()

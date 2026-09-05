@@ -437,9 +437,21 @@ await page.evaluate(
 )
 await sleep(600)
 const offered = await page.evaluate(() => window.ember.ghostModels())
+const offeredNames = offered.map((m) => m.name)
 check(
   'the models a server holds are discovered',
-  offered.includes('stub-coder:7b') && offered.includes('stub-coder:1.5b'),
+  offeredNames.includes('stub-coder:7b') && offeredNames.includes('stub-coder:1.5b'),
+  JSON.stringify(offered)
+)
+/*
+ * And each one carries whether it can fill in the middle, which is the whole of
+ * what a suggestion is. Null here, deliberately: this stub is OpenAI-shaped and
+ * lists names only, and "the server did not say" must not be recorded as "no" —
+ * a server that works fine and does not advertise would otherwise be refused.
+ */
+check(
+  'and each says whether it can fill in the middle, or that it did not say',
+  offered.every((m) => m.fim === null),
   JSON.stringify(offered)
 )
 

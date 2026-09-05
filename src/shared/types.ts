@@ -989,6 +989,24 @@ export const DEFAULT_SETTINGS: Settings = {
   learnedChords: []
 }
 
+/**
+ * A model a local server holds, and whether it can do the one thing suggestions need.
+ *
+ * Filling in the middle is not a general property of a language model. A model has
+ * to be trained for it and its template has to carry the tokens, and the newer
+ * agent-shaped coder models have dropped it while keeping the word "coder" in their
+ * name — `qwen3-coder:30b` cannot, `qwen2.5-coder:32b` can. Asking one that cannot
+ * produces no suggestion and no error, which is indistinguishable from a model that
+ * simply had nothing to say.
+ *
+ * Null rather than false when the server does not say: an OpenAI-shaped endpoint
+ * lists names and nothing else, and "we do not know" must not be drawn as "no".
+ */
+export interface GhostModel {
+  name: string
+  fim: boolean | null
+}
+
 /** The API the preload script exposes on `window.ember`. */
 export interface EmberApi {
   startupFiles(): Promise<string[]>
@@ -1117,7 +1135,7 @@ export interface EmberApi {
    * because the settings dialog edits a draft and the saved address is the one the
    * user may be leaving.
    */
-  ghostModels(baseUrl?: string): Promise<string[]>
+  ghostModels(baseUrl?: string): Promise<GhostModel[]>
   /** Ask the configured provider once, and say what happened. */
   ghostTest(): Promise<GhostTest>
   /** Rewrite a selected fragment to match an instruction. */

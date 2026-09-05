@@ -6,28 +6,10 @@ import type {
   AiLimit,
   AiUsage
 } from '../shared/types.js'
+import { chatSystem } from '../shared/prompt.js'
 import type { SettingsStore } from './settings.js'
 import type { ClaudeCliService } from './claude-cli.js'
 
-
-/**
- * The side panel, where the conversation is about the work rather than one command.
- *
- * Separate from the explain prompt because that one is written for a failure that
- * just happened and answers in a short paragraph — right for "why did that break",
- * wrong for "how should I structure this". This one can be asked anything,
- * including questions with no command in the answer at all.
- */
-function chatSystemPrompt(shell: string, cwd: string): string {
-  return [
-    'You are helping someone inside their terminal and editor. They can see their',
-    `files, their shell (${shell}) and their working directory (${cwd}).`,
-    '',
-    'Answer the question that was asked, at the length it deserves — a sentence when',
-    'a sentence will do. Show commands and code in fenced blocks so they can be read',
-    'and copied. Where you are unsure about their setup, say so rather than assuming.'
-  ].join('\n')
-}
 
 
 export class AiService {
@@ -180,18 +162,7 @@ export class AiService {
     if (!apiKey) return this.chatThroughClaudeCode(req, sink)
 
     const client = new Anthropic({ apiKey, maxRetries: 1 })
-    const system = [
-      chatSystemPrompt(req.shell, req.cwd),
-      'When you propose changing a file, put its complete new content in a fenced',
-      'block whose info string is `lang path=<path>`. When you propose a shell',
-      'command to run, put it alone in a fenced block whose info string is `run`.',
-      req.activeFile
-        ? 'The user is editing ' + req.activeFile.path + ':\n' + req.activeFile.text
-        : '',
-      ...(req.attached ?? []).map((a) => 'Attached terminal output:\n' + a)
-    ]
-      .filter(Boolean)
-      .join('\n\n')
+    const system = chatSystem(req)
 
     try {
       const stream = client.messages.stream({
@@ -304,11 +275,18 @@ export class AiService {
     const transcript = req.messages
       .map((m) => (m.role === 'user' ? 'User: ' : 'Claude: ') + m.text)
       .join('\n\n')
+    /*
+     * The same prompt the API door is asked under, plus the one line that is true
+     * only here: this path has no messages array, so the thread arrives as a
+     * transcript inside the prompt and the model has to be told to continue it.
+     *
+     * Everything else — including the attached blocks and the open file — comes
+     * from the shared builder. It used to be assembled here by hand and left both
+     * of those out, so every question asked without an API key was answered with
+     * no idea what it was about.
+     */
     const system = [
-      chatSystemPrompt(req.shell, req.cwd),
-      'When you propose changing a file, put its complete new content in a fenced',
-      'block whose info string is `lang path=<path>`. When you propose a shell',
-      'command to run, put it alone in a fenced block whose info string is `run`.',
+      chatSystem(req),
       'Continue the conversation below; reply as Claude, in plain markdown.'
     ].join('\n\n')
 

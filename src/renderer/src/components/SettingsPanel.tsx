@@ -4,6 +4,7 @@ import type {
   ClaudeAccess,
   CustomLanguageServer,
   CustomProfile,
+  GhostModel,
   Settings
 } from '@shared/types'
 import { chordOf, COMMANDS, resolveBindings } from '../keys'
@@ -192,7 +193,7 @@ export function SettingsPanel(): React.JSX.Element | null {
   const setProfiles = useStore((s) => s.setProfiles)
   const [draft, setDraft] = useState<Settings | null>(null)
   /** What the configured local server says it holds, and whether we are asking. */
-  const [localModels, setLocalModels] = useState<string[]>([])
+  const [localModels, setLocalModels] = useState<GhostModel[]>([])
   const [findingModels, setFindingModels] = useState(false)
   /** Set when somebody asked for the field back, so the list does not take it again. */
   const [typedModel, setTypedModel] = useState(false)
@@ -1136,12 +1137,29 @@ export function SettingsPanel(): React.JSX.Element | null {
                           {/* A name already saved that the server no longer lists
                               stays selectable, so opening settings cannot silently
                               change which model is in use. */}
-                          {!localModels.includes(draft.ghostModel) && draft.ghostModel && (
-                            <option value={draft.ghostModel}>{draft.ghostModel} (not installed)</option>
-                          )}
-                          {localModels.map((name) => (
-                            <option key={name} value={name}>
-                              {name}
+                          {!localModels.some((m) => m.name === draft.ghostModel) &&
+                            draft.ghostModel && (
+                              <option value={draft.ghostModel}>
+                                {draft.ghostModel} (not installed)
+                              </option>
+                            )}
+                          {/*
+                            Marked where the server says a model cannot fill in the
+                            middle, which is the whole of what a suggestion is. Those
+                            models answer nothing and raise nothing, so choosing one
+                            looks exactly like the feature being broken — and the
+                            names give no clue, because the agent-shaped coder models
+                            dropped the ability and kept the word "coder".
+
+                            Marked rather than hidden: it is still the user's server
+                            and their choice, and a list that quietly omits something
+                            they can plainly see installed is the same unexplained
+                            silence one layer further back.
+                          */}
+                          {localModels.map((m) => (
+                            <option key={m.name} value={m.name}>
+                              {m.name}
+                              {m.fim === false ? ' — cannot suggest' : ''}
                             </option>
                           ))}
                           <option value={TYPE_A_NAME}>Type a name…</option>

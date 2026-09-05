@@ -1,4 +1,5 @@
 import type {
+  GhostModel,
   GhostProvider,
   GhostRequest,
   GhostResult,
@@ -141,6 +142,24 @@ function shapeKey(base: string, model: string): string {
  */
 const warming = new Map<string, Promise<void>>()
 
+/** Ollama's word for fill-in-the-middle, on every entry of `/api/tags`. */
+const FILL_IN_MIDDLE = 'insert'
+
+/** Keys are `${root}\0${model}` — a name means nothing without its server. */
+const NUL = '\u0000'
+
+/*
+ * What each model can do, remembered across keystrokes.
+ *
+ * Suggestions are asked for on a timer while somebody types, and asking the server
+ * what a model is capable of on every one of those would cost more than the
+ * suggestion. It is filled in by `models()` — which Settings already calls — and by
+ * `warm()`, which runs when the feature is switched on and when the model changes.
+ * Unknown until then, and unknown means the request goes ahead as it always did.
+ */
+const fimByModel = new Map<string, boolean>()
+
+
 export class GhostService {
   constructor(
     private settings: () => Settings,
@@ -155,6 +174,30 @@ export class GhostService {
   async complete(request: GhostRequest, signal: AbortSignal): Promise<GhostResult> {
     const s = this.settings()
     if (!s.ghostEnabled) return { ok: false, error: 'Suggestions are turned off.' }
+
+    /*
+     * A model that cannot fill in the middle cannot do this at all.
+     *
+     * Filling in the middle has to be trained in and spelled in the template, and
+     * the newer agent-shaped coder models have dropped it while keeping the word
+     * "coder" in the name: `qwen3-coder:30b` cannot, `qwen2.5-coder:32b` can. Asked
+     * anyway, such a model returns nothing usable and no error — which looks exactly
+     * like a model that had nothing to suggest, so the feature appears to be broken
+     * in a way that gives no clue what to change. Somebody lost an evening to that.
+     *
+     * Only when the server has actually said so. Unknown is not no: an OpenAI-shaped
+     * endpoint lists names and nothing else, and refusing to try there would break
+     * every server that works fine and does not advertise.
+     */
+    if (s.ghostProvider === 'local') {
+      const root = s.ghostBaseUrl.trim().replace(/\/+$/, '').replace(/\/v1$/, '')
+      if (fimByModel.get(`${root}${NUL}${s.ghostModel.trim()}`) === false) {
+        return {
+          ok: false,
+          error: `${s.ghostModel.trim()} cannot fill in the middle, which is what suggestions are made of. Choose a model marked as able to in Settings — the qwen2.5-coder family can.`
+        }
+      }
+    }
 
     try {
       const text =
@@ -207,7 +250,7 @@ export class GhostService {
    * stays a field somebody can type into — which is what it has to remain anyway,
    * since a server that lists nothing may still answer perfectly well.
    */
-  async models(baseUrl?: string): Promise<string[]> {
+  async models(baseUrl?: string): Promise<GhostModel[]> {
     /*
      * The address the caller is asking about, which is not always the saved one.
      *
@@ -223,13 +266,27 @@ export class GhostService {
     if (!configured) return []
     const base = configured.replace(/\/+$/, '')
     const root = base.replace(/\/v1$/, '')
-    const found = new Set<string>()
+    /*
+     * Name to what it can do. Ollama reports `capabilities` on every entry of
+     * `/api/tags`, and `insert` there is the fill-in-the-middle this feature is
+     * built on. An OpenAI-shaped `/v1/models` lists names and nothing else, so a
+     * model seen only there stays null — unknown, which is not the same as no.
+     */
+    const found = new Map<string, boolean | null>()
 
-    const read = async (url: string, pick: (json: unknown) => string[]): Promise<void> => {
+    const read = async (
+      url: string,
+      pick: (json: unknown) => GhostModel[]
+    ): Promise<void> => {
       try {
         const res = await fetch(url, { signal: AbortSignal.timeout(4000) })
         if (!res.ok) return
-        for (const name of pick(await res.json())) if (name) found.add(name)
+        for (const m of pick(await res.json())) {
+          if (!m.name) continue
+          // A definite answer wins over an unknown one, whichever arrived first:
+          // one address can be both kinds of server, and only one of them says.
+          if (m.fim !== null || !found.has(m.name)) found.set(m.name, m.fim)
+        }
       } catch {
         // A server that does not answer this is a server with nothing to say.
       }
@@ -237,16 +294,24 @@ export class GhostService {
 
     await Promise.all([
       read(`${root}/api/tags`, (json) => {
-        const list = (json as { models?: { name?: string; model?: string }[] }).models ?? []
-        return list.map((m) => m.name ?? m.model ?? '')
+        const list =
+          (json as { models?: { name?: string; model?: string; capabilities?: string[] }[] })
+            .models ?? []
+        return list.map((m) => ({
+          name: m.name ?? m.model ?? '',
+          fim: Array.isArray(m.capabilities) ? m.capabilities.includes(FILL_IN_MIDDLE) : null
+        }))
       }),
       read(`${base}/models`, (json) => {
         const list = (json as { data?: { id?: string }[] }).data ?? []
-        return list.map((m) => m.id ?? '')
+        return list.map((m) => ({ name: m.id ?? '', fim: null }))
       })
     ])
 
-    return [...found].sort((a, b) => a.localeCompare(b))
+    const models = [...found].map(([name, fim]) => ({ name, fim }))
+    // Remembered for the suggestion path, which cannot afford to ask per keystroke.
+    for (const m of models) if (m.fim !== null) fimByModel.set(`${root}${NUL}${m.name}`, m.fim)
+    return models.sort((a, b) => a.name.localeCompare(b.name))
   }
 
   /**
@@ -268,6 +333,17 @@ export class GhostService {
 
     const already = warming.get(key)
     if (already) return already
+
+    /*
+     * Ask what this model can do while it loads, not when somebody types.
+     *
+     * `models()` fills the same cache, but only Settings calls that — and the person
+     * whose suggestions are silent is not necessarily in Settings. This runs when
+     * the feature is switched on and whenever the model changes, which are exactly
+     * the moments the answer can have become wrong. Fire and forget: a server that
+     * will not say leaves it unknown, and unknown lets the request go ahead.
+     */
+    void this.models(s.ghostBaseUrl).catch(() => {})
 
     const load = (async (): Promise<void> => {
       try {

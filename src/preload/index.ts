@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type {
+import type { GhostModel,
   AiChatEvent,
   AiChatRequest,
   CommandNotice,
@@ -147,7 +147,7 @@ const api: EmberApi = {
   ghostComplete: (id: number, request: GhostRequest) =>
     ipcRenderer.invoke('ghost:complete', id, request),
   ghostCancel: (id: number) => ipcRenderer.send('ghost:cancel', id),
-  ghostModels: (baseUrl?: string): Promise<string[]> =>
+  ghostModels: (baseUrl?: string): Promise<GhostModel[]> =>
     ipcRenderer.invoke('ghost:models', baseUrl),
   ghostTest: () => ipcRenderer.invoke('ghost:test'),
   rewriteSelection: (selection: string, instruction: string, language: string) =>
