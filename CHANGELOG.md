@@ -3,7 +3,93 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
-## Unreleased
+## 0.3.23 — 2026-09-05
+
+### A window with a light source
+
+A design pass with Warp as the reference. It began as a question of taste and
+turned into a list of decisions that had been made and then silently overridden:
+four separate times, the stylesheet said one thing and rendered another. The app
+was not flat for want of effects. It was flat because the effects it had did not
+reach the screen.
+
+- **The window's ground is visible for the first time.** Ember has had a vertical
+  gradient on the workspace since the look was chosen, and `.region--shells` was
+  made transparent so the blocks would sit on it — there is a comment saying so.
+  Nobody followed the chain one level further down. `.pane` has carried a flat
+  fill since the first commit, and `.pane` holds the scrollback, the ruler, the
+  terminal and the composer, so the ramp was painted over everywhere it mattered.
+  What showed was a thirty-pixel band under the composer.
+- **Light themes are lit from above.** The ramp had only ever been reasoned about
+  on a dark theme. On Paper, Ember Light and Red–Green Safe (Light) the top of the
+  window was *darker* than the middle, so a light window was a valley with a band
+  of light across it and no light source anywhere.
+- **What you can press is lit; what you cannot is not.** The status chips are
+  raised panels now, lit from a top face down to a bottom one and translucent so
+  the ground still tints them. The language label beside them is not — it carried
+  a comment reading "a label with nothing behind it stays plain rather than
+  pretending to be pressable" directly above six declarations giving it, byte for
+  byte, the chrome of the eight things next to it that are.
+- **You can tell which session you are in.** The active card and a card the
+  pointer happened to be crossing were the same fill, byte for byte, separated by
+  one hairline — and because `:hover` is a class plus a pseudo-class while the
+  active class is a bare class, hover outranked it, so under the pointer there was
+  no difference at all. The active card is a lit surface carrying the accent edge
+  this app already uses for active in five other places.
+- **A running session and a failed one differ in shape, not only in hue.** They
+  were one seven-pixel circle in two colours, with a breathing animation carrying
+  the difference — except the app clamps every animation to nothing for anyone who
+  asks their system to stop moving things, and the two colours resolve to *the same
+  hex* on Solar Dusk. A ring for in progress, a square for stopped badly.
+- **Blocks stop casting a shadow for a card they no longer are.** When blocks were
+  flattened for density they were given no shadow; a more specific rule from the
+  card era went on winning, so every block on every dark theme cast a twenty-six
+  pixel shadow with nothing above it to justify one. Invisible against a flat
+  pane. Not invisible against a ground, which is what finally made it findable.
+- **Contrast is measured against the surfaces text actually lands on.** Every
+  colour was checked against the base — a colour that exists on one line of the
+  window. Both ends of the ground and all three faces are now in the same list,
+  and a guard fails if a raised surface ever escapes the band the palette has
+  already paid for. All ten themes clear it unchanged, so this is a gate widened
+  rather than a palette altered.
+
+Not one pixel of padding, gap, type size or radius moves in any of it. Blocks are
+exactly as dense as they were.
+
+### Say a thing where it is news, and nowhere else
+
+The other half of the pass, from Warp's per-block context line.
+
+- **A block says where it ran** — on the blocks where that changed, and not on the
+  forty after it. A block scrolled back to could not previously tell you where it
+  had happened, and the status bar only ever knows about now.
+- **Keyboard hints retire once they have taught you.** Five chords were listed
+  under the composer permanently. Each line now disappears for good the first time
+  its chord is pressed, which is the proof it was read. Nothing is timed out and
+  nothing is counted, so a chord you never press is never taken away from you. A
+  composer that has been used for a week shows one line, and it is an action
+  rather than a legend.
+- **An empty pane stops explaining itself** once it has. The welcome sentence goes
+  with the first command ever run, and each of the five chord hints with its own
+  first press.
+- **The whole block is the target for its actions**, rather than the command line
+  inside it — the copy and re-run controls appeared on a hover area narrower than
+  the thing you were pointing at.
+- **Failure is the rule down the left and nothing else.** It used to colour the
+  separator underneath as well, and a red line under a block read as a frame drawn
+  around it.
+
+### The project's tests, one press each
+
+- **The Run view lists the test files it can find** and runs one on a press,
+  alongside the scripts it already listed. Discovery is gated on the project
+  actually having a test script, so nothing appears for a project that cannot run
+  them.
+
+*Releases 0.3.9 through 0.3.22 have no entries here — the file went unmaintained
+through those. Their contents are in the tags and the commit log.*
+
+## 0.3.9 — 2026-08-29
 
 ### An administrator window, beside the ordinary one
 
