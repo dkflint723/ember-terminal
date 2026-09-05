@@ -500,8 +500,11 @@ export class LspService {
     }
 
     if (this.isInitialize(message)) {
-      // The enriched form, not the renderer's: replay must carry the same
-      // workspace and initializationOptions the first start did.
+      // The enriched form, not the renderer's: the replay needs the
+      // initializationOptions and the workspace root, neither of which the
+      // client's own initialize carries. The workspace in this copy is kept
+      // current by setRoot, so a replay after a crash lands on the folder that
+      // is open now rather than the one that was open at the first start.
       this.initRequests.set(language, outgoing as Record<string, unknown>)
     }
 
@@ -540,6 +543,27 @@ export class LspService {
         uri: pathToFileURL(path).href,
         name: basename(path)
       })
+      /*
+       * The kept handshake moves with the live server.
+       *
+       * restart() replays `initRequests` verbatim after a crash, so a copy still
+       * naming the folder the user left would silently re-root the fresh server
+       * there — this method's own failure, reintroduced by any crash and hidden
+       * behind a notice that says the server came back. Rewritten here rather
+       * than at replay time because this is the one place the root moves.
+       */
+      const init = this.initRequests.get(language)
+      if (init) {
+        this.initRequests.set(language, {
+          ...init,
+          params: {
+            ...((init.params ?? {}) as Record<string, unknown>),
+            rootUri: folder(root).uri,
+            rootPath: root,
+            workspaceFolders: [folder(root)]
+          }
+        })
+      }
       this.write(
         language,
         normalizeUris({
@@ -765,7 +789,9 @@ export class LspService {
 
     // The handshake, replayed under an id of ours: the renderer answered the
     // original years of messages ago, so the reply is swallowed on arrival —
-    // which is also the moment the parked traffic can be let through.
+    // which is also the moment the parked traffic can be let through. What it
+    // carries is the workspace as it stands now, not as it stood at the first
+    // start; setRoot keeps this copy current.
     const restartId = `ember-restart-${++this.restartSerial}`
     this.restartInitIds.add(restartId)
     this.write(language, { ...init, id: restartId })

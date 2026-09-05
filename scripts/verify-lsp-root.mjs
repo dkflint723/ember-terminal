@@ -6,6 +6,7 @@
 // wrong code — so this checks the traffic rather than the appearance.
 //
 // Run: node scripts/verify-lsp-root.mjs
+import { execFileSync } from 'node:child_process'
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
@@ -106,6 +107,68 @@ check(
 )
 await page.keyboard.press('Escape')
 await sleep(400)
+
+/*
+ * --- and a server that crashes comes back where the user is now ----------------
+ *
+ * The handshake is kept so a crashed server can be restarted without the renderer
+ * having to answer it again. It was kept as it was first sent, though, and the root
+ * moves afterwards — so a crash re-rooted the fresh server at the folder that had
+ * been left, which is precisely the failure the re-rooting above was written to fix,
+ * reintroduced by any crash and hidden behind a notice saying the server came back.
+ *
+ * Read from the replayed handshake itself rather than from behaviour, because the
+ * wrong folder is spelled out in it and nothing about that is inferential.
+ */
+const serverPids = () => {
+  const out = execFileSync(
+    'powershell',
+    [
+      '-NoProfile',
+      '-Command',
+      "Get-CimInstance Win32_Process -Filter \"Name like '%node%' or Name like '%electron%'\" | Where-Object { $_.CommandLine -like '*typescript-language-server*' } | Select-Object -ExpandProperty ProcessId"
+    ],
+    { encoding: 'utf8', windowsHide: true }
+  ).trim()
+  return out ? out.split(/\s+/).map(Number) : []
+}
+
+const living = serverPids()
+if (living.length === 0) {
+  console.log('note: no language server process found, so the restart check was skipped')
+} else {
+  for (const pid of living) {
+    try {
+      execFileSync('taskkill', ['/PID', String(pid), '/F'], { windowsHide: true })
+    } catch {
+      // Already gone, which is the state this wanted anyway.
+    }
+  }
+
+  let replay = null
+  for (let i = 0; i < 60 && replay === null; i += 1) {
+    await sleep(500)
+    replay = traffic().find((l) => l.includes('"id":"ember-restart-')) ?? null
+  }
+
+  check(
+    'a crashed server is restarted',
+    replay !== null,
+    'no replayed handshake appeared within thirty seconds'
+  )
+  if (replay !== null) {
+    /*
+     * `second` is where the user is; `first` is where they were. The line carries
+     * rootUri, rootPath and workspaceFolders, so naming the old folder anywhere in
+     * it is the defect.
+     */
+    check(
+      'and rooted where the workspace is now, not where it started',
+      replay.includes('second') && !replay.includes('first'),
+      replay.slice(0, 400)
+    )
+  }
+}
 
 await app.close()
 profile.cleanup()
