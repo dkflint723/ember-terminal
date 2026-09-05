@@ -211,6 +211,24 @@ const onRequest = (req) => {
       setTimeout(finish, 80)
       return
     case 'disconnect':
+      /*
+       * Written down where the suite can see it. A launched debuggee is this
+       * adapter's child and Ember's grandchild, so nothing Ember holds can reach
+       * it — `disconnect` with terminateDebuggee is the only thing that kills it,
+       * and whether one arrives before the adapter is killed is the whole of what
+       * there is to check.
+       */
+      if (process.env.EMBER_DAP_LOG) {
+        try {
+          fs.appendFileSync(
+            process.env.EMBER_DAP_LOG,
+            `disconnect:${req.arguments?.terminateDebuggee === true}
+`
+          )
+        } catch {
+          // Nothing to do about it from in here.
+        }
+      }
       respond(req)
       setTimeout(() => process.exit(0), 100)
       return

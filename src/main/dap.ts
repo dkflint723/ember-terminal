@@ -472,10 +472,46 @@ export class DapService {
     setTimeout(() => session.end(), 1200)
   }
 
+  /**
+   * The sessions belonging to a window that has gone.
+   *
+   * Through `stop`, not straight to `end`. A launched debuggee is the adapter's
+   * child and Ember's grandchild, with no job object anywhere in the chain, so
+   * killing the adapter outright leaves the program running — a debugged server
+   * still holding its port, invisible and unreachable, and the next F5 failing
+   * with the address in use. `disconnect` is the only thing that reaches it, and
+   * closing a window leaves plenty of time to send it.
+   *
+   * The pty side has always done this: the pane owners are walked on window close
+   * precisely so that nothing outlives the window as an orphan.
+   */
   stopOwnedBy(windowId: number): void {
     for (const session of [...this.sessions.values()]) {
-      if (session.ownerWindowId === windowId) session.end()
+      if (session.ownerWindowId === windowId) this.stop(session.id)
     }
+  }
+
+  /**
+   * Ask every launched debuggee to die, and tear nothing down yet.
+   *
+   * Separate from `dispose` because the two cannot happen in the same breath:
+   * ending a session destroys its socket, and a `disconnect` written a moment
+   * earlier goes with it unflushed. So this is what quitting does first, and the
+   * quit waits briefly before the rest.
+   *
+   * Returns whether anything was asked, so a quit with no debugger running is not
+   * delayed for a reply nobody is waiting for.
+   */
+  askLaunchedToStop(): boolean {
+    let asked = false
+    for (const session of this.sessions.values()) {
+      // An attached debuggee is somebody else's process; letting go of it is not
+      // the same as killing it.
+      if (session.requestKind !== 'launch') continue
+      void session.request('disconnect', { terminateDebuggee: true })
+      asked = true
+    }
+    return asked
   }
 
   dispose(): void {

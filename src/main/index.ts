@@ -1756,8 +1756,28 @@ process.on('unhandledRejection', (reason) => {
     if (process.platform !== 'darwin') app.quit()
   })
 
-  app.on('before-quit', () => {
+  /*
+   * Quitting waits, once, for a debugged program to be let go of.
+   *
+   * A launched debuggee is the adapter's child and Ember's grandchild, so nothing
+   * here can reach it: `disconnect` is the only thing that ends it, and a
+   * `disconnect` written in the same breath as the teardown goes out with the
+   * socket unflushed. Without the pause it was never delivered, and quitting left
+   * a debugged server running and holding its port, invisible and unkillable, with
+   * the next F5 failing on the address being in use.
+   *
+   * At most once, and only when something was actually asked, so an ordinary quit
+   * is not delayed and a second quit cannot be refused.
+   */
+  let lettingGo = false
+  app.on('before-quit', (e) => {
     quitting = true
+    if (!lettingGo && dap?.askLaunchedToStop()) {
+      lettingGo = true
+      e.preventDefault()
+      setTimeout(() => app.quit(), 600)
+      return
+    }
     dap?.dispose()
     ptys?.killAll()
     completion?.dispose()

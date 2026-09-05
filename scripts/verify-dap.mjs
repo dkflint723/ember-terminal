@@ -22,7 +22,14 @@ import * as path from 'node:path'
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 const profile = newProfile('dap')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const env = { ...process.env }
+/*
+ * Where the adapter records being asked to let go. A launched debuggee is the
+ * adapter's child and Ember's grandchild, so nothing Ember holds can reach it —
+ * `disconnect` with terminateDebuggee is the only thing that ends it.
+ */
+const dapLog = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ember-dap-log-')), 'disconnects.txt')
+
+const env = { ...process.env, EMBER_DAP_LOG: dapLog }
 delete env.ELECTRON_RUN_AS_NODE
 
 // A pretend workspace with its own extension, so no detected adapter outbids
@@ -341,7 +348,48 @@ await page.locator('.dbg-breakpoint').click({ force: true })
 await sleep(500)
 check('clicking the dot removes the breakpoint', (await page.locator('.dbg-breakpoint').count()) === 0)
 
+/*
+ * --- quitting lets go of the debuggee rather than killing the adapter over it ---
+ *
+ * `stop` has always asked politely, and its comment states the rule the design
+ * rests on: a launched debuggee dies with its session. But the two paths that run
+ * when the app actually goes away — a window closing and the app quitting — went
+ * straight to killing the adapter. On Windows that is TerminateProcess, so no
+ * teardown runs, and the program the adapter launched is orphaned: a debugged
+ * server still holding its port, invisible to Ember and unkillable from it, with
+ * the next F5 failing on the address being in use.
+ *
+ * The pty side has always walked its owners on window close for exactly this
+ * reason. Debug sessions had no equivalent.
+ */
+/*
+ * Stopped at a breakpoint, so there is a live session at the moment the app goes.
+ * The check above this one takes the last breakpoint away, and without one F5 runs
+ * to the end and the session is over before quitting can let go of anything.
+ */
+await page.click('.monaco-editor .view-lines')
+await page.keyboard.press('Control+Home')
+await page.keyboard.press('F9')
+await sleep(600)
+await page.keyboard.press('F5')
+await sleep(3000)
+check(
+  'a session is stopped at a breakpoint before the app goes',
+  (await page.locator('.dbg-breakpoint').count()) > 0,
+  `${await page.locator('.dbg-breakpoint').count()} breakpoints`
+)
+const beforeQuit = fs.existsSync(dapLog) ? fs.readFileSync(dapLog, 'utf8') : ''
+
 await app.close()
+await sleep(1500)
+const whole = fs.existsSync(dapLog) ? fs.readFileSync(dapLog, 'utf8') : ''
+const disconnects = whole.slice(beforeQuit.length).trim()
+check(
+  'quitting asks the adapter to let go of what it launched',
+  disconnects.includes('disconnect:true'),
+  JSON.stringify(disconnects)
+)
+
 profile.cleanup()
 fs.rmSync(dir, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)
