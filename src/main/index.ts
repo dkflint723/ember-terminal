@@ -543,7 +543,36 @@ let themes: ThemeStore
 let completion: CompletionService
 let history: HistoryStore
 let files: FileService
-let lsp: LspService
+/*
+ * A language service per window, not one per app.
+ *
+ * A server is one JSON-RPC connection with one id space, and every window builds
+ * its own Monaco client on it — each numbering its requests from 1, because the
+ * renderer's start-once map is module state and so is per window. Shared, the ids
+ * collide on the wire: tsserver answers window A's hover id 7 and window B's
+ * completion id 7, both replies are broadcast to both renderers, and each client
+ * resolves its own pending 7 with whichever arrives first. The documents collide
+ * for the same reason — B's didClose closes the file A still has open — and each
+ * window pushes its own workspace onto the one server through lsp:setRoot.
+ *
+ * A window that never opens a file of a language still spawns nothing for it, so
+ * only windows that are really editing pay for a server.
+ */
+const lsps = new Map<number, LspService>()
+
+/** The service belonging to the window that asked, made on its first request. */
+function lspFor(e: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): LspService {
+  const id = windowIdOf(e.sender) ?? 1
+  const existing = lsps.get(id)
+  if (existing) return existing
+  const service = new LspService(
+    (payload) => sendToWindow(id, 'lsp:message', payload),
+    () => settings.get().languageServers
+  )
+  lsps.set(id, service)
+  return service
+}
+
 let git: GitService
 let ide: IdeServer
 let github: GitHubService
@@ -857,6 +886,11 @@ function createWindow(seed: WindowSeed = {}): number {
     // answered by it now.
     settleIdeCallsFor(id)
     dap?.stopOwnedBy(id)
+    // This window's language servers go with it, exactly like its shells: nothing
+    // else holds their documents, and a tsserver left running per closed window is
+    // the leak that would make one shared service look like the cheaper design.
+    lsps.get(id)?.dispose()
+    lsps.delete(id)
     unsavedCounts.delete(id)
     keepSets.delete(id)
     parkedSnapshots.delete(id)
@@ -1284,11 +1318,16 @@ function registerIpc(): void {
   ipcMain.handle('file:trash', (_e, target: string) => files.trash(target))
   ipcMain.on('file:reveal', (_e, target: string) => files.reveal(target))
 
-  ipcMain.handle('lsp:start', (_e, language: string, root?: string) => lsp.start(language, root))
-  ipcMain.on('lsp:setRoot', (_e, root: string) => lsp.setRoot(root))
-  ipcMain.on('lsp:send', (_e, language: string, message: unknown) => lsp.post(language, message))
-  ipcMain.handle('lsp:request', (_e, language: string, method: string, params: unknown) =>
-    lsp.request(language, method, params)
+  // Every one of these is answered by the asking window's own service. See lspFor.
+  ipcMain.handle('lsp:start', (e, language: string, root?: string) =>
+    lspFor(e).start(language, root)
+  )
+  ipcMain.on('lsp:setRoot', (e, root: string) => lspFor(e).setRoot(root))
+  ipcMain.on('lsp:send', (e, language: string, message: unknown) =>
+    lspFor(e).post(language, message)
+  )
+  ipcMain.handle('lsp:request', (e, language: string, method: string, params: unknown) =>
+    lspFor(e).request(language, method, params)
   )
 
   ipcMain.on('ide:result', (_e, id: number, result: unknown) => {
@@ -1689,12 +1728,6 @@ process.on('unhandledRejection', (reason) => {
     themes = new ThemeStore()
     history = new HistoryStore()
     files = new FileService()
-    // Every window: each renderer keeps only the documents it holds, and
-    // ignores diagnostics about files that are open somewhere else.
-    lsp = new LspService(
-      (payload) => sendToAll('lsp:message', payload),
-      () => settings.get().languageServers
-    )
     git = new GitService()
     github = new GitHubService()
     session = new SessionStore()
@@ -1782,7 +1815,8 @@ process.on('unhandledRejection', (reason) => {
     ptys?.killAll()
     completion?.dispose()
     history?.close()
-    lsp?.dispose()
+    for (const service of lsps.values()) service.dispose()
+    lsps.clear()
     // Before the process goes, so no lockfile is left naming a dead port for the
     // next CLI that goes looking for an IDE.
     ide?.stop()
