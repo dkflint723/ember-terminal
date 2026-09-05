@@ -115,6 +115,11 @@ check('and a shell that ran something', start.blocks >= 1, JSON.stringify(start)
 check('commands are separated from each other', parseFloat(start.rule ?? '0') > 0, start.rule)
 check('and each one opens', start.chevron !== 'none', start.chevron)
 check('the switch offers the other shape', start.modeButton === 'IDE', start.modeButton)
+// The other half of the pair below: whatever is in the slot, it is the same surface.
+const sessionsBg = await page.evaluate(() => {
+  const el = document.querySelector('.sessions')
+  return el ? getComputedStyle(el).backgroundColor : null
+})
 await page.screenshot({ path: path.join(SHOT_DIR, '72-mode-terminal.png') })
 
 // --- one key makes it an IDE -------------------------------------------------
@@ -130,6 +135,63 @@ check('drawn as a stream instead', ide.streamed === true)
 check('with the separators gone', parseFloat(ide.rule ?? '1') === 0, ide.rule)
 check('and the chevrons with them', ide.chevron === 'none', ide.chevron)
 check('the switch now offers the way back', ide.modeButton === 'Terminal', ide.modeButton)
+
+/*
+ * --- and the side slot is the same surface in both faces -----------------------
+ *
+ * Sessions in a terminal, files in an IDE, one slot. The sessions list was
+ * translucent so the window's ground would carry through it; the sidebar said in a
+ * comment that it was too, and was not — a second `.sidebar` rule further down the
+ * stylesheet stated a flat `--bg-chrome` at the same specificity and later in the
+ * file, so it had been winning silently ever since it was added. The comment
+ * describing the translucency sat above a declaration that had not rendered.
+ *
+ * Read as the alpha channel of what is actually computed, on both faces, because
+ * what went wrong was two rules disagreeing about one surface and only one of them
+ * being visible. `rgb(...)` with no alpha is the failure; `rgba(..., <1)` is the fix.
+ */
+/*
+ * The alpha of a computed colour, in either spelling the engine uses.
+ *
+ * `color-mix()` comes back as `rgba(...)` for one declaration and as
+ * `color(srgb r g b / a)` for another — which one you get depends on the space the
+ * mix resolved in rather than on anything this app wrote. Reading only the first
+ * form reported a translucent surface as having no alpha at all, which is the wrong
+ * answer in the direction that hides the bug this is here to catch.
+ */
+const alphaOf = (colour) => {
+  if (!colour) return null
+  const slashed = /\/\s*([0-9.]+)\s*\)/.exec(colour)
+  if (slashed) return parseFloat(slashed[1])
+  const fn = /rgba?\(([^)]+)\)/.exec(colour)
+  if (fn) {
+    const parts = fn[1].split(',').map((p) => parseFloat(p))
+    return parts.length > 3 ? parts[3] : 1
+  }
+  // `color(srgb r g b)` with no slash is opaque, and so is any bare keyword.
+  return /^(color|rgb)\(/.test(colour) ? 1 : null
+}
+const slotAlpha = async (selector) =>
+  alphaOf(
+    await page.evaluate((sel) => {
+      const el = document.querySelector(sel)
+      return el ? getComputedStyle(el).backgroundColor : null
+    }, selector)
+  )
+
+const sidebarAlpha = await slotAlpha('.sidebar')
+const railAlpha = await slotAlpha('.activity')
+check(
+  'the file sidebar lets the ground through',
+  sidebarAlpha !== null && sidebarAlpha < 1,
+  `alpha ${sidebarAlpha}`
+)
+check('and so does the rail beside it', railAlpha !== null && railAlpha < 1, `alpha ${railAlpha}`)
+check(
+  'the sessions list did the same in the other face',
+  alphaOf(sessionsBg) !== null && alphaOf(sessionsBg) < 1,
+  `alpha ${alphaOf(sessionsBg)} (${sessionsBg})`
+)
 
 /*
  * The stream has to be a stream: everything that has been run, scrollable.

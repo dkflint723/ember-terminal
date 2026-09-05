@@ -3373,7 +3373,9 @@ label.field__check {
      flex sizing — the column was collapsing to its content and squeezing every
      glyph. The design gives the rail 44px of room. */
   width: 44px;
-  background: var(--bg-chrome);
+  /* The same translucency as the two panels it stands beside. Full height against
+     the window's left edge, it was the tallest flat slab in the app. */
+  background: color-mix(in srgb, var(--bg-chrome) 78%, transparent);
   border-right: 1px solid var(--border);
   padding-top: 12px;
 }
@@ -3465,7 +3467,16 @@ label.field__check {
    */
   min-width: 170px;
   max-width: 640px;
-  background: var(--bg-chrome);
+  /*
+   * Translucent over the ground, like the session list that shares this slot.
+   *
+   * It is stated here rather than only in the first `.sidebar` block: that one says
+   * the same thing at the same specificity and earlier in the file, so this rule has
+   * been quietly winning and painting flat chrome ever since it was added. Two rules
+   * disagreeing about one surface is how the sidebar came to be the one part of the
+   * side slot that did not match the other.
+   */
+  background: color-mix(in srgb, var(--bg-chrome) 78%, transparent);
   border-right: 1px solid var(--border);
   overflow: hidden;
   resize: horizontal;
