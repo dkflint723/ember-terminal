@@ -3,6 +3,7 @@ import { useStore, type CommandBlock } from '../state/store'
 import { linkHitAt, setLinkHighlight, type LinkHit } from '../terminal/links'
 import { textFromHtml } from '../terminal/serialize'
 import { markdownFrom } from '../terminal/share'
+import { shortenPath } from '@shared/paths'
 
 interface Props {
   block: CommandBlock
@@ -10,6 +11,11 @@ interface Props {
   onRerun: (command: string) => void
   /** True while this block's head is the one pinned to the top of the list. */
   stuck?: boolean
+  /**
+   * The directory this ran in, on the blocks where it changed. Null on the rest,
+   * which is most of them — the answer is only worth a line when it is news.
+   */
+  where?: string | null
 }
 
 /**
@@ -38,7 +44,13 @@ function formatDuration(ms: number | null): string {
  * The output HTML comes from xterm's serialize addon operating on bytes this app
  * captured from its own pty, so it is styling markup rather than remote content.
  */
-export const BlockView = memo(function BlockView({ block, onToggle, onRerun, stuck }: Props) {
+export const BlockView = memo(function BlockView({
+  block,
+  onToggle,
+  onRerun,
+  stuck,
+  where
+}: Props) {
   /*
    * A path or URL under the pointer opens; everything else stays plain text.
    * The work runs at most once a frame, and only the block being pointed at
@@ -120,7 +132,7 @@ export const BlockView = memo(function BlockView({ block, onToggle, onRerun, stu
 
   return (
     <div
-      className={`block block--${block.status}`}
+      className={`block block--${block.status} ${where ? 'block--moved' : ''}`}
       // Read by the ruler, which measures where each block sits rather than being
       // told — the list is the thing that knows its own layout.
       data-block-id={block.id}
@@ -130,6 +142,12 @@ export const BlockView = memo(function BlockView({ block, onToggle, onRerun, stu
       {/* A div with a click handler is invisible to the keyboard: it cannot be
           tabbed to and Enter does nothing, so collapsing a block — and reaching the
           copy and re-run controls inside it — needed a mouse. */}
+      {/*
+        Where this one ran, when that is not where the last one ran.
+        A block scrolled back to otherwise cannot say where it happened, and the
+        status bar only ever knows about now.
+      */}
+      {where && <div className="block__where">{shortenPath(where, 60)}</div>}
       <div
         className={`block__head ${stuck ? 'block__head--stuck' : ''}`}
         role="button"

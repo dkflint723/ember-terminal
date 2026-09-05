@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStore, type Block, type TerminalPaneState } from '../state/store'
 import { getController } from '../terminal/controller'
 import { AgentBlock } from './AgentBlock'
@@ -173,6 +173,26 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
     const wanted = Math.round((free / region) * 100)
     setStripPct(Math.min(STRIP_CEILING, Math.max(STRIP_FLOOR, wanted)))
   }, [running, pane.blocks.length])
+
+  /**
+   * The blocks that should say which directory they ran in.
+   *
+   * Warp prints the directory above every command. That is the right information —
+   * scrolled back, a block otherwise cannot tell you where it happened, and the
+   * status bar only ever knows about now — but printing it every time spends a line
+   * on an answer that is usually the same as the line above it. So it is shown
+   * where it changes, which is where it is news.
+   */
+  const saysWhere = useMemo(() => {
+    const marks = new Set<string>()
+    let last: string | null = null
+    for (const b of pane.blocks) {
+      if (b.kind !== 'command') continue
+      if (b.cwd !== last) marks.add(b.id)
+      last = b.cwd
+    }
+    return marks
+  }, [pane.blocks])
 
   useLayoutEffect(() => {
     if (termHost.current) controller.attach(termHost.current)
@@ -417,6 +437,7 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
               ) : (
                 <BlockView
                   block={b}
+                  where={saysWhere.has(b.id) ? b.cwd : null}
                   stuck={b.id === geometry.stuckId}
                   onToggle={() => toggleBlock(pane.id, b.id)}
                   onRerun={rerun}

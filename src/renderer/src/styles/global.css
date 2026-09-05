@@ -1179,11 +1179,16 @@ button {
   contain-intrinsic-size: auto 44px;
 }
 
-/* Status is the card's own border, at partial strength so the text on it stays
-   the loud part - a full-strength red frame would shout louder than the error. */
-.block--failed {
-  border-color: color-mix(in srgb, var(--fail) 42%, transparent);
-}
+/*
+ * Failure is the rule down the left and nothing else.
+ *
+ * It used to colour every border this block has, which is the left rule and the
+ * separator underneath — and a red line under a block, above the red left rule of
+ * nothing in particular, read as a frame drawn around it. Warp marks a failed block
+ * with the bar alone, and it is right to: the separator's job is to say where one
+ * block ends, and it does not change its mind because the command failed. The error
+ * text is already red and already the loudest thing there.
+ */
 
 /*
  * A running block is carried by its pulsing dot and nothing else.
@@ -1235,6 +1240,31 @@ button {
 
 .block--failed {
   border-left-color: var(--fail);
+}
+
+/*
+ * Where this one ran, on the blocks where that changed.
+ *
+ * Dimmer and smaller than the command, and above it rather than beside it, so the
+ * eye goes command → output and finds this only when it asks where. Warp prints it
+ * over every command; this prints it where the answer is different from the line
+ * before, which is the only time it is telling you anything.
+ */
+.block__where {
+  padding: 7px 12px 0 12px;
+  color: var(--fg-faint);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A block that opens a new place gets a little air above it, so the run of
+   commands in one directory reads as a run. */
+.block--moved {
+  margin-top: 6px;
 }
 
 .block__chevron {

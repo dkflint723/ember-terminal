@@ -178,6 +178,35 @@ const timeline = (page) =>
     JSON.stringify((await blocks(page)).map((b) => b.command))
   )
 
+  /*
+   * --- a block says where it ran, when that is not where the last one ran -------
+   *
+   * Warp prints the directory over every command, which is the right information —
+   * scrolled back, a block otherwise cannot say where it happened, and the status
+   * bar only ever knows about now. Printing it every time spends a line on an
+   * answer that is usually identical to the one above, so it is shown where it
+   * changes, which is where it is news.
+   */
+  await run(page, 'New-Item -ItemType Directory -Force inner | Out-Null')
+  await run(page, 'cd inner')
+  await run(page, 'echo moved-here')
+  const wheres = await page.evaluate(() =>
+    [...document.querySelectorAll('.block__where')].map((e) => e.textContent ?? '')
+  )
+  check(
+    'the directory is named when a command runs somewhere new',
+    wheres.some((w) => w.endsWith('inner')),
+    JSON.stringify(wheres)
+  )
+  check(
+    'and not again for the next command in the same place',
+    wheres.filter((w) => w.endsWith('inner')).length === 1,
+    JSON.stringify(wheres)
+  )
+  await run(page, 'cd ..')
+  await page.keyboard.press('Control+Shift+K')
+  await sleep(1200)
+
   await run(page, 'echo first-command-here')
   await run(page, 'echo second-command-here')
   await run(page, 'Get-Item .\definitely-not-here.txt', 3200)
