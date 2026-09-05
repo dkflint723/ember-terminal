@@ -789,7 +789,19 @@ export async function startDebugging(): Promise<void> {
   // faster than any IPC answers, and two launches of the same program is not a
   // thing anyone has ever wanted.
   useDebugStore.setState({ status: 'starting' })
-  const idleAgain = (): void => useDebugStore.setState({ status: 'idle' })
+  /*
+   * The window a stop can land in opens on the line above, so it starts empty
+   * here rather than in startWith, which is several awaits too late to be the
+   * beginning of anything. Reaching this line means the status was 'idle', and
+   * a stop only raises the flag while it is 'starting' — so anything still
+   * raised belongs to a start that is already over.
+   */
+  cancelRequested = false
+  const idleAgain = (): void => {
+    // Going idle with a stop still pending would carry it into the next F5.
+    cancelRequested = false
+    useDebugStore.setState({ status: 'idle' })
+  }
 
   // The options may never have been built — F5 works without the panel open,
   // and a restored launch choice must mean what it says.
@@ -873,9 +885,25 @@ async function startWith(req: DebugStartRequest, adapters?: DebugAdapter[]): Pro
   const list = adapters ?? (await window.ember.listDebugAdapters())
   const adapter = list.find((a) => a.id === req.adapterId)
 
+  /*
+   * A stop asked for during the handshake, honoured before anything is spawned.
+   * This line used to clear the flag instead, which threw away every stop asked
+   * for between startDebugging's synchronous 'starting' claim and here: two
+   * listDebugAdapters round trips and a disk read of .vscode/launch.json, which
+   * on a network path is long enough to read 'Starting…', realise it is the
+   * wrong launch choice, and press Shift+F5. Only a stop landing later, during
+   * dapStart, survived. The panel's Stop button is enabled for the whole of
+   * that window (DebugPanel.tsx: disabled={!live}, and 'starting' is live), so
+   * the click it advertises was discarded too.
+   */
+  if (cancelRequested) {
+    cancelRequested = false
+    useDebugStore.setState({ status: 'idle', adapterName: null })
+    return
+  }
+
   lastStart = req
   restartPending = false
-  cancelRequested = false
   endedEarly.clear()
   useDebugStore.setState({
     status: 'starting',
@@ -891,6 +919,9 @@ async function startWith(req: DebugStartRequest, adapters?: DebugAdapter[]): Pro
 
   const res = await window.ember.dapStart(req)
   if (!res.ok || !res.sessionId) {
+    // A stop asked for during a start that failed anyway dies with it, rather
+    // than outliving it to cancel the next one.
+    cancelRequested = false
     useDebugStore.setState({ status: 'idle', adapterName: null })
     app.setNotice(res.error ?? 'The debugger could not start.', 'error')
     return

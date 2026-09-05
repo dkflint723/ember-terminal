@@ -1,4 +1,5 @@
-// The Claude panel: threads that stream, stop, remember, and propose.
+// The Claude panel: threads that stream, stop, remember, propose, and hand the
+// API a window it will accept.
 //
 // Driven against the deterministic fake backend (EMBER_FAKE_AI), which echoes
 // the last message back with the turn count — so "follow-ups carry the thread"
@@ -178,6 +179,28 @@ check(
   `${await page.locator('.agent__turn').count()} vs ${turnsBefore}`
 )
 await waitAnswered('sky')
+
+// --- the window handed over always starts on a user turn -----------------------
+/*
+ * Only assistant turns can be dropped before the thread is cut to sixteen, so
+ * one drop shifts the window's parity and it can begin on an assistant message —
+ * which the Messages API refuses with a 400, losing the whole answer. Fourteen
+ * turns stand by this point; the errored turn plus two more asks push the kept
+ * list past sixteen, which is the only place the fault can show. The fake
+ * reports the role it was handed first because that is what the API validates.
+ */
+await ask('fail-me please')
+await sleep(2500)
+check('a failed turn shows its error', (await page.locator('.agent__error').count()) === 1)
+await ask('filler that pushes the window along')
+await waitAnswered('filler')
+await ask('and now the probe')
+const probed = await waitAnswered('probe')
+check(
+  'the history handed over starts on a user turn',
+  probed.includes('first=user'),
+  probed.slice(0, 160)
+)
 
 // --- the conversation survives a restart ---------------------------------------
 await sleep(2600)

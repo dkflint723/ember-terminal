@@ -86,11 +86,25 @@ export function sendToAgent(prompt: string, attached?: string[]): void {
   if (!tab) return
   s.toggleAgent(true)
 
-  // The request carries the thread as it stood, then the new question.
-  const history = tab.thread
+  /*
+   * The thread as it stood, then the new question — trimmed forward to the first
+   * user turn once the window has been cut.
+   *
+   * Only assistant turns can be dropped by the filter: a user turn is never empty
+   * and never errored. So a drop breaks the stored thread's alternation and shifts
+   * the parity of the 16-turn window, and slice(-16) can then begin on an assistant
+   * message. The Messages API refuses that outright, and the panel showed
+   * "Anthropic API error (400)" where the answer should have been. One turn
+   * erroring, or one stopped before any text arrived, is enough to cause it.
+   */
+  const recent = tab.thread
     .filter((t) => t.text.trim().length > 0 && t.status !== 'error')
     .slice(-16)
-    .map((t) => ({ role: t.role, text: t.text }))
+  const from = recent.findIndex((t) => t.role === 'user')
+  const history = (from < 0 ? [] : recent.slice(from)).map((t) => ({
+    role: t.role,
+    text: t.text
+  }))
 
   const turnId = crypto.randomUUID()
   s.threadAppend(tab.id, {

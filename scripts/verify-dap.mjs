@@ -242,6 +242,37 @@ check(
 await page.keyboard.press('Shift+F5')
 await waitForState('Not debugging')
 
+/*
+ * --- Stop during the handshake actually stops it -------------------------------
+ *
+ * Starting claims 'starting' synchronously and then waits: two round trips to list
+ * the adapters and a read of .vscode/launch.json off disk. The panel's Stop button
+ * is enabled for the whole of that window, and pressing it raised a flag that the
+ * start then cleared as its third statement — so every stop asked for before the
+ * spawn was thrown away and the launch the user had just cancelled ran anyway.
+ *
+ * Driven from inside the page rather than by sleeping between two key presses: both
+ * chords resolve through the same window listener, so dispatching them in one task
+ * puts the stop inside the handshake every time instead of most of the time.
+ */
+await openFile('app')
+await sleep(600)
+await page.evaluate(() => {
+  const press = (shift) =>
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'F5', code: 'F5', shiftKey: shift, bubbles: true })
+    )
+  press(false)
+  press(true)
+})
+await sleep(4000)
+const afterCancel = await state()
+check(
+  'a stop asked for during the handshake is not thrown away',
+  !afterCancel.includes('Paused'),
+  `state is ${JSON.stringify(afterCancel)} — the cancelled launch ran to its breakpoint`
+)
+
 // --- an uncaught exception pauses when asked -------------------------------------
 await openFile('crash')
 await page.locator('.dbg__exc input').check()

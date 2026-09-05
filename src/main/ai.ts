@@ -330,7 +330,10 @@ export class AiService {
   private async fakeChat(req: AiChatRequest, sink: (e: AiChatEvent) => void): Promise<void> {
     const last = req.messages[req.messages.length - 1]?.text ?? ''
     const attachedHead = (req.attached?.[0] ?? '').split(String.fromCharCode(10))[0].slice(0, 120)
-    let reply = `fake-reply(turns=${req.messages.length}, attached=${req.attached?.length ?? 0}, head="${attachedHead}"): ${last}`
+    // `first` is reported because it is the thing the real API validates: the
+    // Messages endpoint refuses a request whose first message is an assistant
+    // turn, and the panel's own 16-turn window can produce one.
+    let reply = `fake-reply(turns=${req.messages.length}, first=${req.messages[0]?.role ?? 'none'}, attached=${req.attached?.length ?? 0}, head="${attachedHead}"): ${last}`
     const file = last.match(/make-file:(\S+)/)
     if (file) {
       reply =
@@ -350,6 +353,18 @@ export class AiService {
         '- first item',
         '- second item'
       ].join('\n')
+    }
+
+    /*
+     * The one way the suite can get an errored turn on purpose.
+     *
+     * Turns dropped by the panel's filter are what break the thread's
+     * user/assistant alternation, and a drop has to be reproducible to be tested:
+     * cancelling before the first delta is a race, an error is not.
+     */
+    if (last.includes('fail-me')) {
+      sink({ requestId: req.requestId, done: 'error', error: 'fake failure' })
+      return
     }
 
     let cancelled = false
