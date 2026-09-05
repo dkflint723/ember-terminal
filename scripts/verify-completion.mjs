@@ -25,6 +25,10 @@ delete env.ELECTRON_RUN_AS_NODE
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-cmp-'))
 fs.mkdirSync(path.join(dir, 'alpha'))
 fs.writeFileSync(path.join(dir, 'beta.txt'), 'x', 'utf8')
+// Two names sharing a prefix, so Tab has something unambiguous to insert and
+// something still to choose between afterwards.
+fs.writeFileSync(path.join(dir, 'report-a.txt'), 'x', 'utf8')
+fs.writeFileSync(path.join(dir, 'report-b.txt'), 'x', 'utf8')
 /** The same directory in a bash accent: C:\Users\… → /c/Users/…. */
 const bashDir = `/${dir[0].toLowerCase()}${dir.slice(2).replace(/\\/g, '/')}`
 
@@ -112,6 +116,83 @@ check(
   'and its directories keep the backslash',
   cmdPath.items.some((i) => i.text === 'alpha\\'),
   JSON.stringify(cmdPath.items.slice(0, 5))
+)
+
+/*
+ * --- a quoted argument is replaced, and nothing beside it -----------------------
+ *
+ * The pattern that finds the token captures the opening quote inside it, so the
+ * span already covers the quote. Adjusting for it a second time reached one
+ * character further left — which is the space between the command and its
+ * argument — and completing `cat "al` produced `catalpha`, welding the two
+ * together into something that cannot run. At column zero it reached index -1 and
+ * the clamp swallowed the quote instead.
+ */
+const quoted = await ask('custom-bashish', bashDir, 'cat "al')
+check(
+  'a quoted token is replaced from the quote, not from the space before it',
+  quoted.replaceIndex === 'cat "al'.indexOf('"'),
+  JSON.stringify({ replaceIndex: quoted.replaceIndex, want: 'cat "al'.indexOf('"') })
+)
+check(
+  'and for exactly its own length',
+  quoted.replaceIndex + quoted.replaceLength === 'cat "al'.length,
+  JSON.stringify({ index: quoted.replaceIndex, length: quoted.replaceLength })
+)
+
+/*
+ * And what the renderer does with that span: `before + text + after` must put the
+ * command back exactly as it was.
+ */
+const rebuilt =
+  'cat "al'.slice(0, quoted.replaceIndex) +
+  (quoted.items[0]?.text ?? '') +
+  'cat "al'.slice(quoted.replaceIndex + quoted.replaceLength)
+check(
+  'so applying it leaves the command name intact',
+  rebuilt.startsWith('cat '),
+  JSON.stringify({ rebuilt, from: 'cat "al' })
+)
+
+/*
+ * --- accepting from a list that is still open over a rewritten line -------------
+ *
+ * Tab with more than one match inserts the part they agree on and leaves the list
+ * up. The span the list carries describes the token as it was when the request was
+ * sent, and inserting the prefix rewrote exactly that span — so accepting an item
+ * afterwards spliced the tail of the prefix back in behind it. Driven through the
+ * composer, because the corruption happens in the renderer's own apply and the
+ * checks above call main directly.
+ */
+await page.click('.composer__input')
+await page.keyboard.type(`cd "${dir.replace(/\\/g, '/')}"`, { delay: 4 })
+await page.keyboard.press('Enter')
+await sleep(2500)
+
+await page.click('.composer__input')
+await page.keyboard.type('type r', { delay: 30 })
+await page.keyboard.press('Tab')
+await sleep(1500)
+const afterTab = await page.evaluate(
+  () => document.querySelector('.composer__input')?.value ?? ''
+)
+// The shell's own accent decides the leading `.\` or `./`; what matters is that
+// the line ends at the part the matches agree on and goes no further.
+check(
+  'Tab inserts the part the matches agree on',
+  afterTab.startsWith('type ') && afterTab.endsWith('report-'),
+  JSON.stringify(afterTab)
+)
+
+await page.keyboard.press('Enter')
+await sleep(900)
+const accepted = await page.evaluate(
+  () => document.querySelector('.composer__input')?.value ?? ''
+)
+check(
+  'and accepting one of them replaces that, rather than appending to it',
+  /^type .*report-[ab]\.txt$/.test(accepted),
+  JSON.stringify(accepted)
 )
 
 await app.close()

@@ -1819,6 +1819,20 @@ export const useStore = create<Store>((set, get) => ({
   // the next launch would be a strange kind of clear.
   clearBlocks: (paneId) => {
     window.ember.clearBlocks(paneId)
-    get().patchPane(paneId, { blocks: [] })
+    /*
+     * A command still running is not history, and tidying it away costs two things.
+     *
+     * Its block is what its output is written into when it finishes, so removing it
+     * means the output arrives for a block that is not there and is dropped. And
+     * while it is in the list, the composer knows to hand the keyboard to the
+     * program rather than to the shell — including the masked field for a password
+     * prompt. Clearing the screen under a live `ssh` therefore put its password
+     * prompt back in the ordinary composer, typed in the clear and bound for the
+     * history database.
+     */
+    const kept = (get().terminalPane(paneId)?.blocks ?? []).filter(
+      (b) => b.kind === 'command' && b.status === 'running'
+    )
+    get().patchPane(paneId, { blocks: kept })
   }
 }))

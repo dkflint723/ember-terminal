@@ -134,9 +134,49 @@ const timeline = (page) =>
   await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
   await sleep(1500)
 
+  /*
+   * Clearing the screen does not tidy away a command that is still going.
+   *
+   * Two things hang off a running block being in the list. Its output is written
+   * into it when it finishes, so removing it means the output arrives for a block
+   * that is not there and is dropped. And while it is there, the composer hands the
+   * keyboard to the program rather than to the shell — including the masked field
+   * for a password prompt. Clearing under a live `ssh` therefore put its password
+   * prompt back in the ordinary composer, typed in the clear and on its way to the
+   * history database.
+   */
+  await page.click('.composer__input')
+  await page.keyboard.type('Start-Sleep -Seconds 8', { delay: 8 })
+  await page.keyboard.press('Enter')
+  await sleep(1800)
+  await page.keyboard.press('Control+Shift+K')
+  await sleep(1200)
+  check(
+    'clearing the screen keeps the command still running in it',
+    (await page.locator('.block--running').count()) === 1,
+    `${await page.locator('.block--running').count()} running blocks`
+  )
+  check(
+    'so the keyboard still belongs to the program',
+    (await page.locator('.composer__badge--warn').count()) === 1,
+    `${await page.locator('.composer__badge--warn').count()} running panels`
+  )
+  while ((await page.locator('.block--running').count()) > 0) await sleep(500)
+  await sleep(800)
+
+  // And once it has finished it is history like anything else, so a second clear
+  // takes it — which is also the ordinary case working as it always did.
+  await page.keyboard.press('Control+Shift+K')
+  await sleep(1000)
+  check(
+    'and clears it once it has finished',
+    (await blocks(page)).length === 0,
+    JSON.stringify((await blocks(page)).map((b) => b.command))
+  )
+
   await run(page, 'echo first-command-here')
   await run(page, 'echo second-command-here')
-  await run(page, 'Get-Item .\\definitely-not-here.txt', 3200)
+  await run(page, 'Get-Item .\definitely-not-here.txt', 3200)
 
   const before = await blocks(page)
   check('three commands became three blocks', before.length === 3, JSON.stringify(before.map((b) => b.command)))

@@ -381,8 +381,27 @@ ${c.output}`
     // Insert whatever part is unambiguous, then let the list resolve the rest.
     const token = value.slice(result.replaceIndex, result.replaceIndex + result.replaceLength)
     const prefix = commonPrefix(result.items.map((i) => i.text))
-    if (prefix.length > token.length) applyCompletion(prefix, result)
-    setCompletion({ result, index: 0 })
+    if (prefix.length <= token.length) {
+      setCompletion({ result, index: 0 })
+      return
+    }
+
+    /*
+     * The list stays open over a buffer that has just changed, so the span it
+     * carries has to change with it.
+     *
+     * `replaceIndex` and `replaceLength` describe the token as it was when the
+     * request was sent. Inserting the common prefix rewrites exactly that span, so
+     * the old length now points into the middle of what was just inserted — and
+     * accepting an item spliced the tail of the prefix back in after it. Typing
+     * `type r` in a folder of `report-a.txt` and `report-b.txt` gave
+     * `type report-a.txteport-`.
+     */
+    applyCompletion(prefix, result)
+    setCompletion({
+      result: { ...result, replaceLength: prefix.length },
+      index: 0
+    })
   }
 
   /** The part of a history suggestion that is not yet typed. */

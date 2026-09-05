@@ -342,12 +342,18 @@ class GenericCompleter {
       // Not a readable directory; command matches alone are still useful.
     }
 
-    return {
-      replaceIndex: replaceIndex - (quote ? 1 : 0),
-      replaceLength: token.length + (quote ? 1 : 0),
-      items,
-      source: 'generic'
-    }
+    /*
+     * The span is the token as matched, quote and all.
+     *
+     * This used to shift left by one and lengthen by one when the token was
+     * quoted, to account for the opening quote — but the pattern above captures
+     * that quote inside group 2, so `token` already holds it and `replaceIndex`
+     * already points at it. Adjusting again ate the character before the quote,
+     * which is the space between a command and its argument: `cat "foo` completed
+     * to `catfoobar`, welding the two together into something that cannot run. At
+     * column zero it went to -1, and the clamp then swallowed the quote instead.
+     */
+    return { replaceIndex, replaceLength: token.length, items, source: 'generic' }
   }
 }
 

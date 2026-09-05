@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { activeDocument, useStore } from '../state/store'
+import { activeDocument, terminalPaneIdFor, useStore } from '../state/store'
 import type { AgentTurn, AiChatEvent } from '@shared/types'
 import { openLocalProposal } from '../state/ide'
 import { modelUri, monaco } from '../editor/monaco'
@@ -60,13 +60,12 @@ function ensureSubscribed(): void {
 /** The terminal a thread's context comes from: active if it is one, else first. */
 function contextPane(): { id: string; cwd: string; profileId: string } | null {
   const s = useStore.getState()
-  const tab = s.tabs.find((t) => t.id === s.activeTabId)
-  if (!tab) return null
-  const active = s.panes[tab.activePaneId]
-  const pane =
-    active?.kind === 'terminal'
-      ? active
-      : Object.values(s.panes).find((p) => p.kind === 'terminal')
+  // Scoped to the session, like everything else that reaches for a terminal. The
+  // third copy of these lines: `panes` is one record for the whole window, so
+  // searching it finds the oldest terminal anywhere — normally another project's —
+  // and the agent then answered about a directory nobody was looking at.
+  const paneId = terminalPaneIdFor(s)
+  const pane = paneId ? s.panes[paneId] : undefined
   return pane?.kind === 'terminal'
     ? { id: pane.id, cwd: pane.cwd, profileId: pane.profileId }
     : null
