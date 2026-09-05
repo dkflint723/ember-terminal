@@ -272,6 +272,21 @@ export function paneIdsOf(tab: Tab): string[] {
 }
 
 /**
+ * The files those panes have open, in the order they were opened.
+ *
+ * Read out of a `panes` record passed in rather than out of the store, because the
+ * callers need this *before* they remove the panes and park the models after.
+ */
+function documentPathsIn(panes: Record<string, Pane>, paneIds: string[]): (string | null)[] {
+  const out: (string | null)[] = []
+  for (const id of paneIds) {
+    const pane = panes[id]
+    if (pane?.kind === 'editor') out.push(...pane.documents.map((d) => d.filePath))
+  }
+  return out
+}
+
+/**
  * The terminal a command typed somewhere other than a terminal should go to.
  *
  * The active pane when that is one, and otherwise the first terminal *of this
@@ -958,6 +973,24 @@ export const useStore = create<Store>((set, get) => ({
 
     for (const id of paneIdsOf(tab)) window.ember.kill(id)
 
+    /*
+     * The files this session held go to the parking lot, the same as closing them
+     * one at a time does.
+     *
+     * Only closePane and closeDocument parked, so closing a session disposed
+     * nothing: a model that is never parked can never be evicted, and eviction is
+     * the only goodbye — it disposes the buffer, it is what makes the language
+     * client send its didClose, and it is what stops the Problems panel counting
+     * diagnostics for files in a session that is gone. Six files a session and
+     * twenty sessions left a hundred and twenty models alive with no bound at all.
+     *
+     * Read before the panes go and parked after, on a microtask, for closePane's
+     * reasons: documentIsOpen has to answer from the store this close has already
+     * changed, and eviction disposes models whose editors React has not unmounted
+     * yet if it runs inside the click.
+     */
+    const closingDocs = documentPathsIn(panes, paneIdsOf(tab))
+
     const nextPanes = { ...panes }
     for (const id of paneIdsOf(tab)) delete nextPanes[id]
 
@@ -969,12 +1002,20 @@ export const useStore = create<Store>((set, get) => ({
         : get().activeTabId
 
     set({ tabs: nextTabs, panes: nextPanes, activeTabId: nextActive })
+    queueMicrotask(() => {
+      for (const path of closingDocs) parkModel(path, get().documentIsOpen(path))
+    })
   },
 
   releaseTab: (tabId) => {
     const { tabs, panes } = get()
     const tab = tabs.find((t) => t.id === tabId)
     if (!tab) return
+
+    // Same as closeTab, for the same reason: the session is leaving this window, so
+    // the files it held are no longer open here and their models have to become
+    // evictable. The window it moves to builds its own from the transfer.
+    const closingDocs = documentPathsIn(panes, paneIdsOf(tab))
 
     const nextPanes = { ...panes }
     for (const id of paneIdsOf(tab)) delete nextPanes[id]
@@ -987,6 +1028,9 @@ export const useStore = create<Store>((set, get) => ({
         : get().activeTabId
 
     set({ tabs: nextTabs, panes: nextPanes, activeTabId: nextActive })
+    queueMicrotask(() => {
+      for (const path of closingDocs) parkModel(path, get().documentIsOpen(path))
+    })
   },
 
   setActiveTab: (activeTabId) => set({ activeTabId }),

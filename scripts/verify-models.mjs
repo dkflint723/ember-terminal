@@ -94,6 +94,45 @@ const crumbs = await page.evaluate(
 )
 check('the evicted file reopens cold', crumbs.includes('mod00.ts'), crumbs)
 
+/*
+ * --- closing a session parks what it held --------------------------------------
+ *
+ * Parking was reached from closing a document and from closing a pane, and from
+ * nowhere else. Closing a whole session deleted its editor panes straight out of
+ * the record, so their models were never parked — and parking is the only route to
+ * disposal, so those buffers, the language server's mirror of each of them, and
+ * their diagnostics stayed for the life of the window. Twenty files a session and
+ * the retention had no bound at all.
+ *
+ * A second session first, so the window survives closing the first one.
+ */
+await page.keyboard.press('Control+Shift+T')
+await sleep(3000)
+const beforeClose = (await modelNames()).length
+
+/*
+ * Sessions are listed in terminal mode; the sidebar takes that slot in IDE mode,
+ * and this suite opens files so it is in IDE mode.
+ */
+if ((await page.locator('.sessions__card').count()) === 0) {
+  await page.keyboard.press('Control+Shift+I')
+  await sleep(1500)
+}
+await page.waitForSelector('.sessions__card', { timeout: 15_000 })
+check('the session still holds its files', beforeClose > 0, `${beforeClose} models`)
+
+await page.locator('.sessions__card').first().hover()
+await sleep(300)
+await page.locator('.sessions__card').first().locator('.sessions__close').click({ force: true })
+await sleep(2500)
+
+const afterClose = await modelNames()
+check(
+  'closing a session parks the files it held, so the lot can evict them',
+  afterClose.length < beforeClose,
+  `${beforeClose} models before, ${afterClose.length} after`
+)
+
 await app.close()
 profile.cleanup()
 fs.rmSync(work, { recursive: true, force: true })
