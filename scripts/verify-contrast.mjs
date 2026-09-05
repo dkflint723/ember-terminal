@@ -52,7 +52,28 @@ const check = (label, ok, detail) => {
 /** Text has to clear 4.5:1; borders, icons and other marks 3:1. */
 const TEXT = ['fg', 'fg-dim', 'fg-faint', 'accent', 'ok', 'fail', 'info', 'info-fg']
 const MARKS = ['border', 'border-strong']
-const SURFACES = ['bg', 'bg-chrome', 'bg-elevated', 'bg-hover', 'bg-block']
+/*
+ * Every surface text can land on, INCLUDING both ends of the window's gradient.
+ *
+ * The ground is a ramp, not a fill — grad-top at the top of the window, grad-bottom
+ * at the floor — and a token measured only against --bg is measured against a colour
+ * that exists on exactly one line of the window. The status chips sit at the bottom,
+ * where the dark themes fall away hardest, and were never checked there at all.
+ *
+ * --card is here for a different reason: it is derived for every theme and used
+ * nowhere, which is what a surface looks like just before somebody starts painting
+ * things with it. Checked now, while the answer is still free, rather than after.
+ */
+const SURFACES = [
+  'bg',
+  'bg-chrome',
+  'bg-elevated',
+  'bg-hover',
+  'bg-block',
+  'grad-top',
+  'grad-bottom',
+  'card'
+]
 
 let checked = 0
 for (const name of fs.readdirSync(THEMES).filter((f) => f.endsWith('.json'))) {
