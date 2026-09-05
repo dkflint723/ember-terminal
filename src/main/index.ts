@@ -1625,6 +1625,10 @@ function registerIpc(): void {
   ipcMain.handle('settings:noteFolder', (_e, folder: string) =>
     forRenderer(settings.noteRecentFolder(folder))
   )
+  // Redacted like the rest: this answer goes straight into applySettings too.
+  ipcMain.handle('settings:noteChord', (_e, chord: string) =>
+    forRenderer(settings.noteLearnedChord(chord))
+  )
   ipcMain.handle('settings:loadError', () => settings.takeLoadError())
   ipcMain.on('window:zoom', (e, factor: number) => {
     // Clamped: a zoom of 0 leaves an invisible window with no way back to the

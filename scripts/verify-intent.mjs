@@ -111,6 +111,21 @@ const check = (label, ok, detail) => {
 }
 
 /**
+ * Every line the composer's legend is currently offering to teach.
+ *
+ * Read as separate items rather than as one string, so a check can say which line
+ * went away — the row retires them one at a time and a substring test on the whole
+ * row could not tell the difference between one retiring and all of them.
+ */
+const hints = () =>
+  page.evaluate(() =>
+    [...document.querySelectorAll('.composer__hint > *')].map((e) =>
+      (e.textContent ?? '').replace(/\s+/g, ' ').trim()
+    )
+  )
+const offers = (list, text) => list.some((h) => h.includes(text))
+
+/**
  * Poll until the condition holds or until the clock runs out, and say which it was.
  *
  * Returns rather than throws, and the caller decides whether the timeout was a
@@ -273,6 +288,20 @@ check('a plain question reads as one too', question.label === 'agent', JSON.stri
 check('and it is autodetected as well', question.auto === 'autodetected', String(question.auto))
 await page.screenshot({ path: path.join(SHOT_DIR, '78-intent-agent.png') })
 
+/*
+ * --- and the legend that teaches itself out of a job ---------------------------
+ *
+ * The footer used to list the same five chords under the input forever. A legend
+ * earns its space while it is teaching and is chrome afterwards, so each line goes
+ * away the first time its chord is pressed — which is the proof it was read.
+ *
+ * Taken here, immediately before the first Ctrl+K of the run, so the "before" is
+ * not an assumption about what has happened earlier in the suite.
+ */
+const legendBefore = await hints()
+check('the composer offers the pin chord to begin with', offers(legendBefore, 'pin'), JSON.stringify(legendBefore))
+check('and the newline chord beside it', offers(legendBefore, 'newline'), JSON.stringify(legendBefore))
+
 // --- and the override that overrules it ---------------------------------------
 await page.keyboard.press('Control+K')
 const overridden = await settle('shell')
@@ -281,6 +310,22 @@ check(
   'and stops claiming the reading is its own',
   overridden.auto === null,
   String(overridden.auto)
+)
+
+const legendAfter = await hints()
+check(
+  'pressing it retires that line',
+  !offers(legendAfter, 'pin'),
+  JSON.stringify(legendAfter)
+)
+/*
+ * And only that one. A row that emptied on the first chord would satisfy the check
+ * above while throwing away four things nobody has learned yet.
+ */
+check(
+  'and leaves the chords that have not been used',
+  offers(legendAfter, 'newline'),
+  JSON.stringify(legendAfter)
 )
 
 /*
@@ -637,7 +682,47 @@ check(
   `${await commandBlocks().count()} command blocks`
 )
 
+/*
+ * --- and a chord stays learned across a restart --------------------------------
+ *
+ * The whole point of retiring a line is that it is gone for good. Held in memory it
+ * would come back every launch, which is the same permanent legend with an extra
+ * step, so this is read from a second launch on the same profile rather than from
+ * the window that did the learning.
+ */
 await app.close()
+await sleep(1500)
+
+const again = await electron.launch({
+  executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
+  args: [APP_DIR, profile.arg, work],
+  cwd: APP_DIR,
+  env,
+  timeout: 60_000
+})
+const back = await again.firstWindow()
+await placeTopRight(again)
+back.on('pageerror', (e) => errors.push(e.message))
+await back.waitForSelector('.pane[data-integration="ready"]', { timeout: 45_000 })
+await sleep(2500)
+
+const legendReturned = await back.evaluate(() =>
+  [...document.querySelectorAll('.composer__hint > *')].map((e) =>
+    (e.textContent ?? '').replace(/\s+/g, ' ').trim()
+  )
+)
+check(
+  'a chord learned in one session is still learned in the next',
+  !legendReturned.some((h) => h.includes('pin')),
+  JSON.stringify(legendReturned)
+)
+check(
+  'while one that was never pressed is still offered',
+  legendReturned.some((h) => h.includes('newline')),
+  JSON.stringify(legendReturned)
+)
+
+await again.close()
 profile.cleanup()
 fs.rmSync(work, { recursive: true, force: true })
 server.close()

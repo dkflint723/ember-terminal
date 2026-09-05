@@ -231,6 +231,8 @@ const api: EmberApi = {
   keyEncryptionAvailable: (): Promise<boolean> => ipcRenderer.invoke('settings:encryption'),
   noteRecentFolder: (folder: string): Promise<Settings> =>
     ipcRenderer.invoke('settings:noteFolder', folder),
+  noteLearnedChord: (chord: string): Promise<Settings> =>
+    ipcRenderer.invoke('settings:noteChord', chord),
   settingsLoadError: (): Promise<string | null> => ipcRenderer.invoke('settings:loadError'),
   reportUnsaved: (count: number) => ipcRenderer.send('window:unsaved', count),
   setZoom: (factor: number) => ipcRenderer.send('window:zoom', factor),

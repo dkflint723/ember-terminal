@@ -114,6 +114,20 @@ export class SettingsStore {
   }
 
   /**
+   * Record that a composer chord has been pressed, so it stops being advertised.
+   *
+   * Unioned here rather than in the renderer for the same reason the recent folders
+   * are: the settings cache is one object shared by every window, and a renderer
+   * that sends the whole array sends the copy it happened to be holding — two
+   * windows learning two different chords would each drop the other's.
+   */
+  noteLearnedChord(chord: string): Settings {
+    const known = this.get().learnedChords
+    if (!chord.trim() || known.includes(chord)) return this.get()
+    return this.set({ learnedChords: [...known, chord] }).settings
+  }
+
+  /**
    * The key the AI feature should use. An explicit setting wins; otherwise fall
    * back to the ambient environment, which many developers already have set.
    */

@@ -2435,6 +2435,13 @@ button {
   font-size: 10.5px;
 }
 
+/* A legend everybody has finished with takes no room. Every child of this row is
+   conditional now, so once the last one retires the row is genuinely empty and its
+   padding would be the only thing left of it. */
+.composer__hint:empty {
+  display: none;
+}
+
 .composer__hint > *,
 .pane__hints > * {
   white-space: nowrap;

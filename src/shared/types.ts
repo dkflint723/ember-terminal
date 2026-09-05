@@ -937,6 +937,19 @@ export interface Settings {
    * running a first command, which says the same thing better.
    */
   firstRunDone: boolean
+  /**
+   * The composer's chords that have actually been pressed, which stop being
+   * advertised once they have.
+   *
+   * A footer that lists the same five chords forever is a legend, and a legend is
+   * only worth its space while it is teaching something. Pressing the chord is the
+   * proof that it taught it, so that is what retires the line — nothing is timed
+   * out, and a chord that is never used is never taken away.
+   *
+   * Kept as names rather than as a count so the set can grow without meaning
+   * something different, and so clearing one is possible later.
+   */
+  learnedChords: string[]
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -972,7 +985,8 @@ export const DEFAULT_SETTINGS: Settings = {
   windowMaximized: false,
   autoUpdate: false,
   pendingUpdateVersion: null,
-  firstRunDone: false
+  firstRunDone: false,
+  learnedChords: []
 }
 
 /** The API the preload script exposes on `window.ember`. */
@@ -1061,6 +1075,8 @@ export interface EmberApi {
   revealPath(target: string): void
   lspStart(language: string, root?: string): Promise<{ ok: boolean; error?: string }>
   noteRecentFolder(folder: string): Promise<Settings>
+  /** Record that a composer chord has been used, so its hint retires. */
+  noteLearnedChord(chord: string): Promise<Settings>
   /** Whether a saved API key would really be encrypted at rest. */
   keyEncryptionAvailable(): Promise<boolean>
   /** Which credential AI requests would use right now. */
