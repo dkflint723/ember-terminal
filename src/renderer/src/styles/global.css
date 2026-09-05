@@ -38,6 +38,29 @@
      things you press or type into. */
   --mono: 'Cascadia Code', 'Cascadia Mono', Consolas, 'Courier New', monospace;
   --ui: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+
+  /*
+   * One light source, named twice: what a raised edge catches along its top, and
+   * the line it casts underneath itself.
+   *
+   * The ground already runs light at the ceiling and dark at the floor, so an
+   * object on it is only lit if it agrees with that — a rim along the top and a
+   * shade along the bottom. These are the only two values in the app that say
+   * "up", which is why they are two tokens rather than a color-mix repeated at
+   * nine call sites, each free to drift.
+   *
+   * Light is white on both kinds of theme; what changes is how much of it there
+   * is. A dark surface catches a whisper, a light one catches nearly all of it —
+   * and the shade goes the other way, because a black cast edge on paper reads as
+   * dirt rather than as depth.
+   */
+  --raise: color-mix(in srgb, #ffffff 85%, transparent);
+  --settle: color-mix(in srgb, var(--fg) 9%, transparent);
+}
+
+:root[data-theme-type='dark'] {
+  --raise: color-mix(in srgb, #ffffff 7%, transparent);
+  --settle: color-mix(in srgb, #000000 45%, transparent);
 }
 
 * {
@@ -498,9 +521,34 @@ button {
   background: var(--bg-hover);
 }
 
-.sessions__card--on {
-  background: var(--bg-hover);
-  border-color: var(--border-strong);
+/*
+ * The session you are actually in.
+ *
+ * It was `background: var(--bg-hover)` and so was `:hover` — byte for byte the
+ * same fill — so the card you were working in and a card the pointer happened to
+ * be crossing differed by one hairline of neutral grey, and while the pointer was
+ * on the active card they did not differ at all. Worse, `:hover` is a class plus
+ * a pseudo-class and `--on` is a bare class, so hover outranked it and won.
+ *
+ * Both halves are fixed here. The selector is doubled so it carries the same
+ * weight as `:hover` and holds while the pointer is on it, and the card becomes a
+ * lit surface: the ramp says raised, and the 2px accent edge — already how this
+ * app says active, at five other places in this file — says which one. Three
+ * differences from hover, only one of which is colour, which is what the two
+ * colour-vision-deficiency-safe themes are shipped for.
+ */
+.sessions__card.sessions__card--on,
+.sessions__card.sessions__card--on:hover {
+  background-color: transparent;
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--card) 92%, transparent) 0%,
+    color-mix(in srgb, var(--bg-hover) 80%, transparent) 100%
+  );
+  border-color: var(--card-border);
+  box-shadow:
+    inset 2px 0 0 var(--accent),
+    inset 0 1px 0 var(--raise);
 }
 
 .sessions__icon {
@@ -606,13 +654,28 @@ button {
   margin-left: 4px;
 }
 
+/*
+ * Running and failed differ in shape, not only in hue.
+ *
+ * They were the same seven-pixel circle in two colours, and the breathing was
+ * carrying the difference — except the blanket reduced-motion clamp further down
+ * this file caps every animation to 0.01ms, so for anyone who asked their system
+ * to stop moving things, hue was the whole of the signal. In a build that ships
+ * three colour-vision-deficiency-safe themes precisely so that hue never has to
+ * carry one alone.
+ *
+ * A ring for something in progress, a solid square for something that stopped
+ * badly. Same box, same seven pixels, no new colour and no new fact.
+ */
 .sessions__dot--running {
-  background: var(--info);
+  background: transparent;
+  border: 2px solid var(--info);
   animation: sessions-breathe 1.6s ease-in-out infinite;
 }
 
 .sessions__dot--failed {
   background: var(--fail);
+  border-radius: 2px;
 }
 
 @keyframes sessions-breathe {
@@ -1951,7 +2014,27 @@ button {
   padding: 4px 10px;
   border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  /*
+   * A raised panel rather than a flat patch.
+   *
+   * These sit at the very foot of the window, which is where the ground is
+   * deepest — so of everything on screen they are the surface most obviously
+   * missing a light source, and they were a single flat wash with an outline.
+   * Lit from `--card` at the top down to `--bg` at the bottom, kept translucent
+   * so the ramp still tints them, with the rim above and the cast edge below.
+   *
+   * `background-image`, not the shorthand: the colour underneath stays
+   * transparent, so the ground is what the chip is translucent *over*.
+   */
+  background-color: transparent;
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--card) 88%, transparent) 0%,
+    color-mix(in srgb, var(--bg) 88%, transparent) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 var(--raise),
+    0 1px 0 var(--settle);
   color: inherit;
   font: inherit;
   white-space: nowrap;
@@ -1979,8 +2062,15 @@ button {
   padding: 10px 16px 14px;
 }
 
+/* Hover lifts the whole chip toward the hover colour without flattening it —
+   the shorthand here would reset `background-image` and take the panel with it,
+   which is how a hover state comes to be the one place a treatment disappears. */
 .statusbar__item:hover {
-  background: var(--bg-hover);
+  background-image: linear-gradient(
+    180deg,
+    var(--bg-hover) 0%,
+    color-mix(in srgb, var(--card) 92%, transparent) 100%
+  );
   color: var(--fg);
 }
 
@@ -2051,14 +2141,19 @@ button {
   flex-shrink: 0;
 }
 
-/* Not a control: a label with nothing behind it stays plain rather than
-   pretending to be pressable. */
+/*
+ * Not a control: a label with nothing behind it stays plain rather than
+ * pretending to be pressable.
+ *
+ * That was written here and then contradicted by the six declarations under it,
+ * which gave the label the padding, the border, the radius and the fill of the
+ * eight things beside it that ARE pressable. Now that being raised is what a
+ * control looks like, the sentence can be true: the language name is text in the
+ * bar, and it is the only thing down here that does nothing when pressed.
+ */
 .statusbar__label {
   flex: 0 0 auto;
-  padding: 4px 10px;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  padding: 4px 2px;
   white-space: nowrap;
 }
 
@@ -5008,11 +5103,17 @@ label.field__check {
  * catch what little light there is. Gated on the theme's own word for itself,
  * and kept away from the IDE stream, whose rows are deliberately not cards.
  */
-:root[data-theme-type='dark'] .pane__scroll:not(.pane__scroll--stream) .block {
-  box-shadow:
-    0 10px 26px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 color-mix(in srgb, var(--fg) 8%, transparent);
-}
+/*
+ * The block's own elevation is gone with the card it belonged to.
+ *
+ * `Blocks stop being cards` set `box-shadow: none` on `.block`, and this rule —
+ * written while they still were — is far more specific and has been quietly
+ * winning ever since: every block on every dark theme has been casting a
+ * twenty-six pixel drop shadow with no fill above it to justify one, plus a lit
+ * rim one pixel above its own bottom hairline. It was invisible against a flat
+ * pane. It is not invisible against a ground, which is what finally made it
+ * findable.
+ */
 
 :root[data-theme-type='dark'] .composer {
   box-shadow:
