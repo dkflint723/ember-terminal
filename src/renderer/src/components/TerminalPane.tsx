@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useRef } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useStore, type Block, type TerminalPaneState } from '../state/store'
 import { getController } from '../terminal/controller'
 import { AgentBlock } from './AgentBlock'
@@ -28,6 +28,18 @@ function whenRan(blocks: Block[]): string {
   const day = at.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
   return `${day} at ${at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
 }
+
+/**
+ * The least of the pane a running command's live view gets, whatever is above it.
+ * A command that prints a great deal should not push its own history off screen.
+ */
+const STRIP_FLOOR = 42
+
+/** And the most, so the running block's own header stays in view. */
+const STRIP_CEILING = 88
+
+/** A block's header, for the one about to exist, when there is none to measure. */
+const NEW_BLOCK_PX = 44
 
 export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Element {
   const termHost = useRef<HTMLDivElement>(null)
@@ -101,6 +113,66 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
    */
   const last = pane.blocks.at(-1)
   const running = !plain && last?.kind === 'command' && last.status === 'running'
+
+  /**
+   * How much of the pane the live view takes while a command runs.
+   *
+   * Decided once, when the command starts, and held for its whole life. That is
+   * the entire trick and the reason an earlier attempt at this was reverted: the
+   * obvious version lets the strip flex, so it changes height as the blocks above
+   * it do — and changing height resizes the pty, a resize is a repaint, and a
+   * repaint inside an open capture costs the block everything printed before it. A
+   * six-thousand-line command came back starting at its forty-fifth line.
+   *
+   * A percentage rather than pixels, so that resizing the window while a command
+   * runs keeps the same split instead of leaving a strip the wrong size for its
+   * pane.
+   *
+   * The floor is what this always was. The ceiling leaves the running block's own
+   * header on screen, because a program drawing a menu still belongs to a command
+   * somebody started and can still be scrolled back to.
+   */
+  const [stripPct, setStripPct] = useState(STRIP_FLOOR)
+
+  useLayoutEffect(() => {
+    /*
+     * Worked out while nothing is running, so that the first frame of the next
+     * command is already the right size.
+     *
+     * Measuring when the command starts is too late by one render: the strip goes
+     * from nothing to the old share and then to the new one, and the second of
+     * those two steps lands inside the capture. That cost the first two lines of a
+     * six-thousand-line command — better than the forty-four the flexing version
+     * lost, and still two lines nobody printed for nothing.
+     *
+     * Nothing here resizes anything: the strip has no height while idle, so this
+     * only decides what it will be when it next has one.
+     */
+    if (running) return
+    const scroll = scroller.current
+    if (!scroll) return
+
+    const region = scroll.clientHeight
+    if (region <= 0) return
+
+    /*
+     * The blocks themselves, added up — not the height of what is on screen.
+     *
+     * What fills an empty pane is the welcome panel, and it goes the moment a
+     * command starts, so measuring the scroller answered "there is no room" for
+     * precisely the pane with the most room going. Blocks are what will still be
+     * there, plus one header's worth for the command about to begin.
+     */
+    const head = scroll.querySelector('.block__head')
+    let content = head ? head.getBoundingClientRect().height : NEW_BLOCK_PX
+    for (const block of scroll.querySelectorAll('.block')) {
+      content += block.getBoundingClientRect().height
+    }
+
+    const free = region - content
+    const wanted = Math.round((free / region) * 100)
+    setStripPct(Math.min(STRIP_CEILING, Math.max(STRIP_FLOOR, wanted)))
+  }, [running, pane.blocks.length])
 
   useLayoutEffect(() => {
     if (termHost.current) controller.attach(termHost.current)
@@ -365,7 +437,7 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
       <div
         ref={liveWrap}
         className={`live ${raw ? 'live--raw' : running ? '' : 'live--idle'}`}
-        style={raw ? undefined : running ? { height: '42%' } : undefined}
+        style={raw ? undefined : running ? { height: `${stripPct}%` } : undefined}
       >
         <div ref={termHost} style={{ width: '100%', height: '100%' }} />
       </div>

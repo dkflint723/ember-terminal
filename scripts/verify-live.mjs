@@ -263,15 +263,17 @@ check(
  * Two separate things went wrong for `ollama` run with no arguments, which draws a
  * chooser you move with the arrow keys and never switches to the alternate screen.
  *
- * It is still too short to read comfortably — a running command's strip is 42% of
- * the pane whatever else is on screen, so a menu taller than that has its first
- * items scrolled off the top. Growing the strip was tried and reverted: changing
- * its height mid-command resizes the pty, a resize is a repaint, and a repaint
- * inside an open capture costs the block everything printed before it. A long
- * command came back starting at its forty-fifth line. A cramped menu is a smaller
- * problem than lost output.
+ * It was too short to read: a running command's strip was 42% of the pane whatever
+ * else was on screen, so a menu taller than that had its first items scrolled off
+ * the top while half the pane sat empty. The strip is sized to what the blocks
+ * actually need now — but decided while nothing is running and held for the whole
+ * command, because changing it mid-command resizes the pty, a resize is a repaint,
+ * and a repaint inside an open capture costs the block everything printed before
+ * it. Two earlier versions of this proved that: one let the strip flex and a long
+ * command came back starting at line 45, the other measured a render too late and
+ * it started at line 3.
  *
- * What is fixed here is that it could not be driven: the panel that takes the keyboard while a command
+ * And it could not be driven: the panel that takes the keyboard while a command
  * runs is a line editor — it buffers what you type and sends it on Enter, which is
  * right for a REPL and wrong for a program reading one key at a time. The arrows
  * moved a caret in that box while the highlight in the menu never moved. It worked
@@ -311,10 +313,37 @@ fs.writeFileSync(
   ].join('\n')
 )
 
+/*
+ * In a session of its own: this suite has filled its first one with blocks, and
+ * those legitimately keep their room.
+ */
+await page.keyboard.press('Control+Shift+T')
+await sleep(3500)
 await page.click('.composer__input')
 await page.keyboard.type(`node "${path.join(menuDir, 'menu.mjs').replace(/\\/g, '/')}"`, { delay: 4 })
 await page.keyboard.press('Enter')
 await sleep(3500)
+
+/*
+ * A pane with nothing above the command gives it the room.
+ *
+ * The floor is what a pane with a history behind it still gets, and verify-output
+ * is the other half of this: it runs a six-thousand-line command and checks the
+ * block kept its first line, which is what any resize during the capture destroys.
+ */
+const menuGeom = await page.evaluate(() => {
+  const pane = document.querySelector('.pane')
+  const live = document.querySelector('.live')
+  return {
+    panePx: pane ? Math.round(pane.getBoundingClientRect().height) : 0,
+    livePx: live ? Math.round(live.getBoundingClientRect().height) : 0
+  }
+})
+check(
+  'a program with nothing above it gets more of the pane than the floor',
+  menuGeom.livePx > menuGeom.panePx * 0.6,
+  JSON.stringify({ ...menuGeom, pct: Math.round((menuGeom.livePx / menuGeom.panePx) * 100) })
+)
 
 /*
  * Driven from where the keyboard actually is. Starting a command moves focus into
