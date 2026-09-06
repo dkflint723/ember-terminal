@@ -47,7 +47,16 @@ export function TitleBar(): React.JSX.Element {
   }
 
   return (
-    <div className="titlebar">
+    /*
+      A named group, not an anonymous div.
+
+      This is the first eight tab stops of the window and was the only strip of
+      chrome in the app without a name — the rail is a toolbar, the session list a
+      tablist. `header` rather than `role="toolbar"`: the toolbar role carries an
+      arrow-key contract the rail actually implements and this bar does not, and a
+      role whose contract is unmet is worse than no role at all.
+    */
+    <header className="titlebar">
       <button
         className="titlebar__icon"
         aria-label="Toggle the side bar"
@@ -236,6 +245,6 @@ export function TitleBar(): React.JSX.Element {
           ✕
         </button>
       </div>
-    </div>
+    </header>
   )
 }

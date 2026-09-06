@@ -112,6 +112,13 @@ button {
   cursor: pointer;
 }
 
+/*
+ * Three rules were deleted from this file with nothing to be about: the tab
+ * strip's scrollbar, gone since the tabs left the title bar, and `.titlebar__new`,
+ * which was defined twice a hundred-odd lines apart and rendered nowhere. One of
+ * the file's nineteen 13px declarations was on an element that does not exist.
+ */
+
 /* ---------- app shell ---------- */
 
 .app {
@@ -153,22 +160,6 @@ button {
   flex: 0 0 auto;
   /* Everything in the title bar drags the window except explicit controls. */
   -webkit-app-region: drag;
-}
-
-
-.titlebar__tabs::-webkit-scrollbar {
-  display: none;
-}
-
-
-
-
-
-
-.titlebar__new {
-  width: 26px;
-  height: 24px;
-  font-size: 13px;
 }
 
 
@@ -305,12 +296,6 @@ button {
 
 /* Holds the new-tab button and its menu, beside the scrolling strip rather than
    inside it, so the menu is not clipped by the strip's overflow. */
-
-.titlebar__new {
-  align-self: center;
-  margin: 0 6px;
-  -webkit-app-region: no-drag;
-}
 
 /*
  * The profile list under the new-tab button.
@@ -2094,7 +2079,9 @@ button {
   background: transparent;
   color: var(--fg-dim);
   font-size: 11px;
-  -webkit-app-region: no-drag;
+  /* No drag exemption: the status bar renders inside the workspace and has
+     never been in a drag region. That this was here is the proof both of these
+     were copied rather than reasoned about. */
 }
 
 /* Everything in the bar is a real button where it does something, so it is
@@ -5553,7 +5540,9 @@ label.field__check {
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.04em;
-  -webkit-app-region: no-drag;
+  /* No drag exemption: this is a non-interactive span, and holding ninety-odd
+     pixels of the bar out of the drag region — on the one window you are most
+     likely to be dragging next to another — bought nothing. */
 }
 
 /* The titlebar's door to it, lit while the panel stands. */

@@ -219,6 +219,41 @@ check(
 )
 
 /*
+ * --- every rule has an element, every exemption has a control -------------------
+ *
+ * Read from the source rather than from the window, because what is being looked
+ * for is a rule that draws nothing — and a rule that draws nothing is, by
+ * definition, invisible to anything that inspects the page.
+ */
+const cssRaw = fs.readFileSync(path.join(APP_DIR, 'src/renderer/src/styles/global.css'), 'utf8')
+// Comments stripped first: this file explains its own deletions by name, and a
+// class named in prose is not a rule that draws anything.
+const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, '')
+const tsx = []
+;(function walk(dir) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, e.name)
+    if (e.isDirectory()) walk(full)
+    else if (e.name.endsWith('.tsx')) tsx.push(fs.readFileSync(full, 'utf8'))
+  }
+})(path.join(APP_DIR, 'src/renderer/src'))
+const markup = tsx.join('\n')
+const titlebarClasses = [...new Set([...css.matchAll(/\.(titlebar__[a-z-]+)/g)].map((m) => m[1]))]
+const orphans = titlebarClasses.filter((c) => !markup.includes(c))
+check('every title-bar rule has an element to be about', orphans.length === 0, orphans.join(', '))
+
+/*
+ * And the bar is a named region. It is the first eight tab stops of the window and
+ * was the only strip of chrome here without a name — the rail is a toolbar, the
+ * session list a tablist.
+ */
+const landmark = await page.evaluate(() => {
+  const bar = document.querySelector('.titlebar')
+  return bar ? bar.tagName.toLowerCase() : null
+})
+check('and the bar is a landmark rather than an anonymous div', landmark === 'header', String(landmark))
+
+/*
  * --- the bar stops saying what the palette is about to say ----------------------
  *
  * The label was, word for word, the placeholder of the input it opens — a sentence
