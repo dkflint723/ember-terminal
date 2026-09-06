@@ -11,7 +11,7 @@
     "start": "electron-vite preview",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "test:units": "node scripts/test-secret-prompt.mjs && node scripts/test-chat-context.mjs",
+    "test:units": "node scripts/test-secret-prompt.mjs && node scripts/test-chat-context.mjs && node scripts/test-elevate-command.mjs",
     "verify": "npm run test:units && electron-vite build && node scripts/verify.mjs",
     "fetch:js-debug": "node scripts/fetch-js-debug.mjs",
     "package": "node scripts/fetch-js-debug.mjs && electron-vite build && electron-builder --win --dir",

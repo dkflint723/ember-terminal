@@ -193,6 +193,7 @@ import { LspService } from './lsp.js'
 import { GitService } from './git.js'
 import { GhostService } from './ghost.js'
 import type { GhostRequest } from '../shared/types.js'
+import { buildAdminCommand } from '../shared/elevate.js'
 import { IdeServer } from './ide.js'
 import { GitHubService } from './github.js'
 import { ExplorerMenu } from './explorer.js'
@@ -1249,25 +1250,17 @@ function registerIpc(): void {
       ...(profileArg ? [profileArg] : []),
       ADMIN_FLAG
     ]
-    const quoted = (value: string): string => `'${value.replace(/'/g, "''")}'`
-    const list = args.map(quoted).join(',')
     /*
-     * Classified inside PowerShell, on the number rather than the sentence.
+     * Two parsers, not one.
      *
-     * Declining is an ordinary answer and every other failure is not, and the two
-     * were told apart by "PowerShell exited non-zero" — which is also what a
-     * missing executable, a policy refusing to elevate an unsigned build, and a
-     * child killed by a signal all produce. So anyone whose elevation was broken
-     * for a reason they had not chosen was told they had dismissed a prompt they
-     * never saw, at tone `info`, with the reason discarded by `stdio: 'ignore'`.
-     *
-     * 1223 is ERROR_CANCELLED: the user said no. Matching the English text would
-     * have been the same bug again on a Windows that is not in English.
+     * The first version quoted each argument for PowerShell and stopped there. But
+     * `Start-Process -ArgumentList` joins its elements with a single space and adds
+     * no quoting of its own, and that joined line is what the elevated Ember parses
+     * as argv — so a path with a space in it arrived as two arguments. Built in
+     * `shared/elevate` now, where it can be held to account without raising a real
+     * consent prompt, which is the only way to observe the running of it.
      */
-    const command =
-      `try { Start-Process -FilePath ${quoted(exe)} -ArgumentList ${list} -Verb RunAs -ErrorAction Stop } ` +
-      `catch { if ($_.Exception.NativeErrorCode -eq 1223) { exit 2 } ` +
-      `else { [Console]::Error.WriteLine($_.Exception.Message); exit 3 } }`
+    const command = buildAdminCommand(exe, args)
     /*
      * By path, not by name. This is the one gesture in the app that must not fail
      * quietly, and resolving it through PATH makes a corrupted PATH indistinguishable
@@ -1325,19 +1318,46 @@ function registerIpc(): void {
        * So watch for the window to say it arrived, and speak up when it does not.
        */
       const deadline = Date.now() + 25_000
+      /*
+       * And the verdict can be taken back.
+       *
+       * Twenty-five seconds is a guess at how long a cold start takes, and a guess
+       * is sometimes wrong: a first launch off a slow disk, or a machine under load,
+       * can beat it. The notice is a single-slot toast that waits to be dismissed by
+       * hand, so getting this wrong left somebody reading "Windows never started it,
+       * try restarting" while looking straight at the window it says did not open —
+       * a diagnosis that is not merely useless but actively misleading, standing on
+       * screen for as long as they leave it there.
+       *
+       * So the watch does not stop at the verdict. It keeps looking for another
+       * minute, and if the window turns up it says so, because a correction nobody
+       * asked for is worth far less than the wrong answer costs.
+       */
+      let announced = false
+      const giveUp = Date.now() + 85_000
       const poll = setInterval(() => {
         if (startedAt() > before) {
           clearInterval(poll)
+          if (announced) {
+            sendToAll('ui:notice', {
+              text: 'The administrator window has appeared after all — it was only slow to start.',
+              tone: 'info'
+            })
+          }
           return
         }
-        if (Date.now() < deadline) return
-        clearInterval(poll)
-        sendToAll('ui:notice', {
-          text:
-            'Windows accepted the request to run as administrator but never started it. ' +
-            'That is usually elevation itself being stuck — restarting Windows normally fixes it.',
-          tone: 'error'
-        })
+        if (!announced && Date.now() >= deadline) {
+          announced = true
+          sendToAll('ui:notice', {
+            text:
+              'Windows accepted the request to run as administrator but never started it. ' +
+              'That is usually elevation itself being stuck — restarting Windows normally fixes it.',
+            tone: 'error'
+          })
+        }
+        // Stop eventually either way: a window that has not arrived in ninety
+        // seconds is not arriving, and a timer that never clears is a leak.
+        if (Date.now() >= giveUp) clearInterval(poll)
       }, 1000)
     })
     /*

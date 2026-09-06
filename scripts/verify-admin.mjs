@@ -69,6 +69,28 @@ check(
   await adminPage.locator('.titlebar__admin').textContent().catch(() => 'absent')
 )
 
+/*
+ * And says what that costs, where somebody would ask.
+ *
+ * Keeping its own settings, session and history is deliberate — a file written by
+ * an administrator is one the ordinary Ember may no longer be able to replace — but
+ * it means two windows that look identical do not share what you change in them.
+ * Nothing said so, so a preference set in one and missing from the other read as a
+ * bug rather than as the design, and the six-day drift found on this machine had
+ * nothing on screen to explain it.
+ */
+const badgeTitle = await adminPage.locator('.titlebar__admin').getAttribute('title')
+check(
+  'the badge says the elevated window keeps its own settings',
+  /own settings/i.test(badgeTitle ?? ''),
+  JSON.stringify(badgeTitle)
+)
+check(
+  'and that changes made in it stay in it',
+  /stay here|copied across/i.test(badgeTitle ?? ''),
+  JSON.stringify(badgeTitle)
+)
+
 // Its own user-data directory, seeded from the ordinary one.
 const adminDir = path.join(profile.dir, 'admin-window')
 check('it keeps its own user-data directory', fs.existsSync(adminDir), adminDir)

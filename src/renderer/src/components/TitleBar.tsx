@@ -90,8 +90,28 @@ export function TitleBar(): React.JSX.Element {
         </button>
       </div>
 
+      {/*
+        The badge says what this window is; the tooltip says the part that is
+        otherwise invisible.
+
+        An elevated Ember keeps its own settings, session and history, because a
+        file written by an administrator is a file the ordinary Ember may no longer
+        be able to replace. That is the right design and it has one cost: two
+        windows that look identical do not share what you change in them. Nothing
+        said so, so a preference set here and missing there read as a bug — the
+        settings the elevated window was seeded with had been six days stale on the
+        machine this was found on, with nothing on screen to explain it.
+      */}
       {window.ember.isAdmin && (
-        <span className="titlebar__admin" title="Every shell in this window runs as administrator">
+        <span
+          className="titlebar__admin"
+          title={
+            'Every shell in this window runs as administrator.' +
+            '\n' +
+            'It keeps its own settings, session and history — your preferences are ' +
+            'copied across each time it opens, but changes made here stay here.'
+          }
+        >
           Administrator
         </span>
       )}
