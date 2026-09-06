@@ -7,6 +7,7 @@ import type {
   TabTransfer,
   TerminalPaneTransfer
 } from '@shared/types'
+import { settleThread } from '@shared/thread'
 import { markAdopted } from '../terminal/controller'
 import { seedDebug, serializeDebug, useDebugStore } from './debug'
 import { type Block, type ConversationBlock, type EditorDocument, type LayoutNode, type Pane, type Tab, useStore, workspaceRoot } from './store'
@@ -81,10 +82,12 @@ export function snapshot(): SessionSnapshot {
        * The last forty turns, with anything mid-stream written down as
        * cancelled: a restored "streaming" would spin forever, and cancelled is
        * the truth of what the restart did to it.
+       *
+       * The rule moved to `settleThread` when it turned out to be stated here and
+       * forgotten in both halves of a session move — which is what happens to a
+       * rule kept as a `.map()` in the middle of a packer.
        */
-      thread: tab.thread.slice(-40).map((turn) =>
-        turn.status === 'streaming' ? { ...turn, status: 'cancelled' as const } : turn
-      ),
+      thread: settleThread(tab.thread.slice(-40)),
       root,
       activePaneId: ids.includes(tab.activePaneId) ? tab.activePaneId : ids[0]
     })
@@ -473,7 +476,14 @@ export function packTab(tabId: string): TabTransfer | null {
     tab: {
       id: tab.id,
       name: tab.name,
-      thread: tab.thread,
+      /*
+       * Nothing mid-answer travels. The deltas are addressed to the window being
+       * left — by main, to its webContents, and by the panel, through a route map
+       * in its own module — so a turn still streaming here can never be finished
+       * anywhere. It arrived in the new window able only to spin, with the panel
+       * refusing to send while anything streams and Stop aiming at it for ever.
+       */
+      thread: settleThread(tab.thread),
       // Without this a session dragged into its own window arrived with no project
       // and re-derived one from wherever its shell happened to be standing.
       workspace: tab.workspace,
@@ -583,7 +593,9 @@ export async function adoptTransfer(transfer: TabTransfer | null): Promise<boole
   const tab: Tab = {
     id: transfer.tab.id,
     name: transfer.tab.name,
-    thread: transfer.tab.thread ?? [],
+    // Belt to packTab's braces, and the only one of the two that protects a window
+    // adopting a session packed by an older build.
+    thread: settleThread(transfer.tab.thread ?? []),
     // The project travels with the session, which is the point of putting it there:
     // a session moved to another window used to arrive with no project at all and
     // re-derive one from whatever directory its shell happened to be standing in.

@@ -19,7 +19,9 @@ import * as path from 'node:path'
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 const profile = newProfile('windows')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const env = { ...process.env }
+// The deterministic fake, answering slowly on purpose: the move below has to
+// happen while an answer is still arriving, which is the whole of the defect.
+const env = { ...process.env, EMBER_FAKE_AI: '1', EMBER_FAKE_AI_SLOW: '1' }
 delete env.ELECTRON_RUN_AS_NODE
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-move-'))
@@ -86,6 +88,33 @@ check(
 )
 check('nor the first window’s output the second', !(await paneText(two)).includes('win-one-marker'))
 
+/*
+ * --- and an answer still arriving does not travel as a ghost --------------------
+ *
+ * A delta is addressed twice: main sends it to the webContents that asked, and the
+ * panel routes it through a map in that window's own module. So a turn still
+ * streaming when its session walks out can never be finished by anybody — it
+ * arrived in the new window able only to spin.
+ *
+ * `snapshot()` has always known this and written mid-stream turns down as cancelled
+ * on the way to disk, saying so in a comment. Neither half of a move did, which is
+ * why nobody ever saw it survive a restart. It is not cosmetic: the panel refuses
+ * to send while anything is streaming, so its input was dead for the life of the
+ * window, and Stop takes the FIRST streaming turn — so the ghost absorbed every
+ * Stop from then on and a genuinely live turn behind it could never be reached.
+ */
+await one.click('.composer__input')
+await one.keyboard.type('what is in this folder', { delay: 8 })
+await one.keyboard.press('Control+Enter')
+// Waited for rather than timed: the panel has to open, the request has to reach
+// the fake, and the first delta has to arrive before there is anything to see.
+let asking = 0
+for (let i = 0; i < 30 && asking === 0; i += 1) {
+  await sleep(200)
+  asking = await one.evaluate(() => document.querySelectorAll('.agent__cursor').length)
+}
+check('an answer is still arriving when the session is moved', asking > 0, `${asking} streaming`)
+
 // --- the move: blocks travel, the shell stays alive ----------------------------
 await one.click('.composer__input')
 // The window can close under the keystroke: the move empties it and it follows
@@ -122,6 +151,54 @@ if (adopted) {
     (await paneText(adopted)).includes('alive-7'),
     (await paneText(adopted)).slice(-160)
   )
+
+  /*
+   * The turn that was in flight arrives settled, not spinning. Read as the absence
+   * of a streaming cursor after a generous wait: if anything were still marked
+   * streaming it would stay that way for ever, since nothing in this window can
+   * finish it.
+   */
+  /*
+   * The panel has to be on screen before any of this means anything. Whether it
+   * travels open is not what is under test, and a closed panel renders no turns at
+   * all — so a check that counted cursors without this would pass for every build,
+   * fixed or not. It did, the first time it was written.
+   */
+  const panelOpen = await adopted.evaluate(() => document.querySelectorAll('.agent').length > 0)
+  if (!panelOpen) {
+    await adopted.keyboard.press('Control+Shift+B')
+    await sleep(1200)
+  }
+  await sleep(2500)
+  const carried = await adopted.evaluate(
+    () => document.querySelectorAll('.agent__turn--user').length
+  )
+  check('the conversation made the trip', carried > 0, `${carried} user turns`)
+  const ghosts = await adopted.evaluate(
+    () => document.querySelectorAll('.agent__cursor').length
+  )
+  check('the turn that was mid-answer did not travel as a ghost', ghosts === 0, `${ghosts} still streaming`)
+  /*
+   * And put the panel back the way it was found. Leaving it open changes the
+   * layout this window writes down, and the restart checks further on read the
+   * terminal that layout decides the shape of — which is how the first version of
+   * this check made a passing suite fail two scenarios later.
+   */
+  if (!panelOpen) {
+    await adopted.keyboard.press('Control+Shift+B')
+    await sleep(1000)
+  }
+  /*
+   * And the panel can be used. This is what the ghost actually cost: `send()`
+   * refuses while anything streams, so the input and the button were dead for the
+   * life of the window — a check on the cursor alone would pass for a build that
+   * merely hid it.
+   */
+  const canAsk = await adopted.evaluate(() => {
+    const box = document.querySelector('.agent__input')
+    return box ? !box.disabled : null
+  })
+  check('and the panel can be asked something else', canAsk !== false, String(canAsk))
 }
 {
   const until = Date.now() + 15_000
