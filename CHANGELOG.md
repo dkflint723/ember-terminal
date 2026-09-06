@@ -62,8 +62,69 @@ nothing.
   that look identical do not share what you change in them. Nothing said so, which
   is why settings that had drifted apart for six days looked like a bug.
 
+### The administrator window opens
+
+- **The button did nothing, and it was never your machine.** Ember raised the
+  elevated window through a PowerShell child created as a *detached* process — and
+  a detached process cannot raise the consent prompt. No prompt appeared, nothing
+  started, and PowerShell exited reporting success. So Ember watched for a window
+  that was never coming and, after twenty-five seconds, told you your machine's
+  elevation was stuck and to restart Windows. Right-clicking the icon and choosing
+  Run as administrator worked the whole time, which is what finally told the two
+  apart. The child is no longer detached.
+
+### Typing, suggestions and completion
+
+- **Inline suggestions reach the terminal, not only the editor.** A model chosen in
+  Settings did nothing for anybody typing a *command*, which is most of what this
+  app is for — the feature was wired to the editor alone, and the grey text in the
+  composer was command history and only ever history. The model is asked behind
+  history rather than beside it: history is instant and already right for the
+  command you ran last week, so the model is consulted only where history has
+  nothing to say. Its answer joins the same grey text you already accept with Right
+  or End, so there is one suggestion and one gesture rather than two competing.
+- **A switch is no longer completed as a path.** Typing `dism /On` and pressing Tab
+  replaced the switch with `C:\OneDriveTemp`. PowerShell reads a token beginning
+  with `/` as a path from the drive root, which is right for `cd /Users` and wrong
+  for the whole family of Windows tools that take switches — dism, robocopy, sfc,
+  chkdsk, ipconfig, reg, icacls. The result shared nothing with what you typed, so
+  it was not a completion but damage. Switches after a native command are left
+  alone now; `cd /Users` still completes.
+- **The size you set is the size you type at.** The font-size setting reached the
+  terminal, the editor and the block that echoes your command — and stopped at the
+  box you type into. Set nineteen pixels and you typed at thirteen, then watched it
+  come back at eighteen and a half one row above. The agent's own surfaces had the
+  same fault: at the largest setting its answers rendered at thirteen pixels beside
+  thirty-one pixels of output.
+
 ### The rest of the design pass
 
+- **The window is lit from its own first pixel.** The title bar sat outside the
+  window's gradient on a flat fill that was *darker* than the ramp below it on
+  every theme — so the brightest row in an Ember window was the forty-first, those
+  first forty pixels read as a lid, and the seam beneath them read as a slot of
+  light. The ramp starts at the top of the window now.
+- **The window buttons are buttons.** They had a width and no height, so each was
+  the line box of an eleven-pixel glyph — about fifteen pixels tall in a
+  forty-pixel bar, the only controls in the window under the twenty-four the
+  guidelines ask for. And the bar's right padding meant the very corner of a
+  maximized window was a drag region: the fling into the corner that closes every
+  other Windows program started moving this one instead.
+- **A toggle says whether it is on, and keeps saying it under the pointer.** The
+  panel toggle's entire pressed state was a text colour its own hover already set,
+  so open-and-hovered and closed-and-hovered were identical — the button said
+  nothing at the exact moment you were deciding whether to press it. The slot
+  toggle had no pressed state at all.
+- **The search box stops repeating the palette.** It said, word for word, the
+  placeholder of the box it opens — a sentence whose only reader is somebody who
+  has not pressed it yet. It names its chord instead, and the everything-search has
+  one for the first time: **Ctrl+Shift+O**. Like every other hint here, the chord
+  retires the first time you press it.
+- **One mark, one treatment.** A keyboard cap was drawn four different ways
+  depending on which legend wanted it; a file and a folder in one list were two
+  different sizes to end up the same height; a button shrank because it moved into
+  a different bar. A cap is a word in the sentence it stands in, so it takes that
+  sentence's size.
 - **Shadows are made of the theme's own light.** Every shadow in the app was
   literal black, which greys the ground on a light theme and pulls the colour out
   of one with a hue — Tidewater, Solar Dusk, Ember Deep. Each theme derives its
