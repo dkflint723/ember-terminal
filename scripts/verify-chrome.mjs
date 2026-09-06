@@ -306,9 +306,16 @@ if (running && failed) {
     running.radius !== failed.radius,
     JSON.stringify({ running: running.radius, failed: failed.radius })
   )
+  /*
+   * A ring is hollow and has a rule; a disc is filled and has none. Read as
+   * "there is a border at all" rather than as a number of pixels: the window
+   * scales CSS pixels, so the two-pixel rule computes to about 1.75 here, and
+   * asserting the number written in the stylesheet fails on the display rather
+   * than on the app.
+   */
   check(
     'the running one is a ring rather than a disc',
-    running.colour === 'rgba(0, 0, 0, 0)' && parseFloat(running.border) >= 2,
+    running.colour === 'rgba(0, 0, 0, 0)' && parseFloat(running.border) > 0,
     JSON.stringify(running)
   )
 }
