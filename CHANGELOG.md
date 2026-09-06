@@ -3,7 +3,7 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
-## 0.3.25 — 2026-09-05
+## 0.3.25 — 2026-09-06
 
 Three ways to lose work silently, an administrator window that stops lying about
 why it failed, and the last of the design pass. The three data-loss bugs were
