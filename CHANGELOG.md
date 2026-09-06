@@ -3,6 +3,74 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
+## 0.3.25 — 2026-09-05
+
+Three ways to lose work silently, an administrator window that stops lying about
+why it failed, and the last of the design pass. The three data-loss bugs were
+found by an adversarial audit of code that had been recorded as suspect months
+earlier and never re-examined; two of the four claims it re-tested turned out to
+be wrong, which is recorded here because re-asserting them would cost a fix for
+nothing.
+
+### Three ways your work could disappear without a word
+
+- **Accepting a proposed change no longer overwrites edits made while it waited.**
+  A proposal pane is a frozen snapshot: it reads the file once, nothing watches it
+  afterwards, and a proposal raised in the Claude panel waits indefinitely. The
+  file stays writable the whole time — by your own save, a formatter, a
+  `git checkout` in the terminal below, a second Claude session — and accepting
+  wrote the proposed text with no read-back, so whatever had arrived in between
+  was gone. The editor then had its buffer reset to match, because the buffer
+  looked unmodified: it had been saved. No dialog, no unsaved marker, and Claude
+  was told the file was written. It reads the file first now and refuses rather
+  than merging, telling both you and Claude why.
+- **A breakpoint set while the debugger is starting is no longer erased.** Startup
+  tells the adapter about one file at a time and waits for each. Every file's list
+  was captured before the first of those exchanges, so a breakpoint added during
+  an earlier file's turn was written back out of existence by the time its own
+  file came round — from the margin, from the adapter, and permanently, because
+  nothing resends afterwards. Which is precisely the moment somebody is most
+  likely to be setting one.
+- **A session moved to another window mid-answer no longer arrives holding a
+  ghost.** Claude's reply is addressed to the window that asked, so a turn still
+  streaming when its session walks out can never be finished by anyone. The panel
+  refuses to send while anything is streaming, so its input was dead for the life
+  of that window — and Stop always targets the first streaming turn, so the ghost
+  absorbed every Stop from then on and a real answer behind it could never be
+  interrupted.
+- **And a change that cannot be written now says so.** A read-only file, one
+  locked by another process, or a missing folder produced no message anywhere and
+  left the proposal pane standing with both its buttons dead and no way to close
+  it.
+
+### The administrator window
+
+- **Arguments with spaces in them survive the crossing.** The elevated window is
+  raised through PowerShell, and its arguments cross two parsers that quote
+  differently; only one of them was handled. An account name like
+  `C:\Users\First Last` split in two, and the elevated Ember then adopted a
+  truncated settings directory, wrote its "I have started" marker in the wrong
+  place, and twenty-five seconds later the ordinary window announced that Windows
+  had never started a window you were looking straight at.
+- **That twenty-five second verdict can now be taken back.** It is a guess at how
+  long a cold start takes, and the notice waits to be dismissed by hand — so
+  getting it wrong left a false and alarming diagnosis on screen indefinitely. The
+  watch keeps looking for another minute and says so if the window turns up.
+- **The Administrator badge says what being elevated costs.** Keeping its own
+  settings, session and history is deliberate — a file written by an administrator
+  may be one the ordinary Ember can no longer replace — but it means two windows
+  that look identical do not share what you change in them. Nothing said so, which
+  is why settings that had drifted apart for six days looked like a bug.
+
+### The rest of the design pass
+
+- **Shadows are made of the theme's own light.** Every shadow in the app was
+  literal black, which greys the ground on a light theme and pulls the colour out
+  of one with a hue — Tidewater, Solar Dusk, Ember Deep. Each theme derives its
+  own now: Paper casts a warm grey, Tidewater something very nearly black. The
+  scrim over a dialog stays neutral on purpose; it is darkness laid over the whole
+  window rather than light falling off an object.
+
 ## 0.3.24 — 2026-09-05
 
 Three things that all presented the same way: the app quietly doing nothing.

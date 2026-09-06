@@ -189,6 +189,20 @@ class PowerShellCompleter {
  * its own builtins, cmd wants `\` and its verbs, and a shell we know nothing
  * about gets paths alone — guessing a stranger's builtins helps nobody.
  */
+/**
+ * Whether the thing being completed is a Windows switch rather than a path.
+ *
+ * Read from the input rather than from the shell's answer, because the point is to
+ * decide what to do when there is no answer. The token is what sits under the
+ * cursor: everything back to the last space, which is how both backends split.
+ */
+function switchToken(req: CompletionRequest): boolean {
+  const upto = req.input.slice(0, req.cursor)
+  const token = upto.slice(upto.lastIndexOf(' ') + 1)
+  // Only after a command. A bare `/x` first on the line is a path somebody typed.
+  return token.startsWith('/') && upto.trimStart().includes(' ')
+}
+
 type Flavor = 'bash' | 'cmd' | 'plain'
 
 /** The words PATH cannot offer: each dialect's own first-token vocabulary. */
@@ -379,9 +393,21 @@ export class CompletionService {
         this.powershell.set(profile.id, completer)
       }
       const result = await completer.complete(req)
-      // Fall through to the generic backend if the helper could not answer, so
-      // Tab still does something useful.
       if (result.items.length > 0) return result
+      /*
+       * Fall through to the generic backend if the helper could not answer, so Tab
+       * still does something useful — except for a switch.
+       *
+       * PowerShell reads a token beginning with `/` as a path from the drive root,
+       * and the helper now refuses to answer one for a native command, because
+       * `dism /On` completing to `C:\OneDriveTemp` destroys the line rather than
+       * finishing it. The generic backend is a path completer and makes exactly the
+       * same mistake, so falling through to it hands the surprise straight back.
+       *
+       * No cmdlet check is needed here: if the head had been a cmdlet the helper
+       * would have answered, and an answered request never reaches this line.
+       */
+      if (switchToken(req)) return result
     }
 
     const flavor: Flavor =

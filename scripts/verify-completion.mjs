@@ -195,6 +195,58 @@ check(
   JSON.stringify(accepted)
 )
 
+/*
+ * --- a switch is not a path ------------------------------------------------------
+ *
+ * PowerShell reads a token beginning with `/` as a path from the root of the
+ * current drive. That is right for `cd /Users` and actively harmful for the whole
+ * family of native Windows tools that take `/switches` — dism, robocopy, sfc,
+ * chkdsk, ipconfig, reg, icacls. Typing `dism /On` and pressing Tab replaced the
+ * switch with `C:\OneDriveTemp`: a "completion" sharing nothing with what was
+ * typed, which destroys the line it lands in rather than finishing it.
+ *
+ * It is PowerShell's own behaviour and not something this app added — a bare
+ * console answers `robocopy /M` with a directory too — but faithfully reproducing a
+ * surprise is not a reason to keep it.
+ *
+ * Anchored on the drive root rather than a fixture, because the token has to
+ * resolve from the root to reproduce the bug at all, and nothing a test writes can
+ * live there. `\Windows` is the safest thing on a Windows machine to assume.
+ */
+const systemDrive = (process.env.SystemDrive || 'C:') + '\\'
+const rootHasWindows = fs.existsSync(path.join(systemDrive, 'Windows'))
+
+if (!rootHasWindows) {
+  // Reported rather than skipped in silence: a check that quietly does nothing is
+  // indistinguishable from one that passes.
+  check('the drive root has Windows to complete against', false, systemDrive)
+} else {
+  const nativeSwitch = await ask('windows-powershell', systemDrive, 'dism /Wi')
+  check(
+    'a switch after a native command is not completed as a path',
+    !nativeSwitch.items.some((i) => /Windows/i.test(i.text)),
+    JSON.stringify(nativeSwitch.items.slice(0, 4))
+  )
+  /*
+   * And the narrowing is real: the same token after a cmdlet still completes, because
+   * `cd /Users` is a gesture somebody actually makes. Without this the check above
+   * would pass for a build that had simply switched completion off.
+   */
+  const cmdletSwitch = await ask('windows-powershell', systemDrive, 'cd /Wi')
+  check(
+    'while the same token after a cmdlet still completes',
+    cmdletSwitch.items.some((i) => /Windows/i.test(i.text)),
+    JSON.stringify(cmdletSwitch.items.slice(0, 4))
+  )
+  // And an ordinary command still completes, so nothing was turned off wholesale.
+  const ordinary = await ask('windows-powershell', systemDrive, 'Get-ChildIt')
+  check(
+    'and an ordinary command name is unaffected',
+    ordinary.items.some((i) => i.text === 'Get-ChildItem'),
+    JSON.stringify(ordinary.items.slice(0, 4))
+  )
+}
+
 await app.close()
 profile.cleanup()
 fs.rmSync(dir, { recursive: true, force: true })
