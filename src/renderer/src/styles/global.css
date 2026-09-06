@@ -50,6 +50,7 @@
   --card-border: #423a35;
   --raise: #3d3d3d;
   --settle: #0d0d0d;
+  --shade: #050505;
   /* No --radius. It was 10px and it was what made a block a card, an input a
      search box and the composer a widget. Corners are now one of two values,
      stated where they are used: 0 for anything that frames content, 2px for the
@@ -1285,7 +1286,7 @@ button {
   border-bottom: 1px solid var(--border);
   /* Deeper now that it truly overhangs the output: the shadow is what says the
      text is passing underneath the command rather than colliding with it. */
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--shade) 55%, transparent);
   padding: 4px 12px;
 }
 
@@ -1897,7 +1898,7 @@ button {
   border-radius: 12px;
   box-shadow:
     inset 0 1px 0 var(--raise),
-    0 12px 28px rgba(0, 0, 0, 0.38);
+    0 12px 28px color-mix(in srgb, var(--shade) 38%, transparent);
   /* The rows carry the inset themselves, so the two of them can disagree. */
   padding: 0;
 }
@@ -1932,7 +1933,7 @@ button {
   background: var(--card);
   border: 1px solid var(--card-border);
   border-radius: 10px;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--shade) 32%, transparent);
   overflow: hidden;
 }
 
@@ -1941,7 +1942,7 @@ button {
   background: var(--card);
   border: 1px solid var(--card-border);
   border-radius: 10px;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--shade) 32%, transparent);
   overflow: hidden;
 }
 
@@ -2216,7 +2217,7 @@ button {
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   background: var(--bg-elevated);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--shade) 45%, transparent);
 }
 
 .claude__heading {
@@ -4625,7 +4626,7 @@ label.field__check {
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
   border-radius: 12px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 12px 40px color-mix(in srgb, var(--shade) 45%, transparent);
   overflow: hidden;
 }
 
@@ -4750,7 +4751,7 @@ label.field__check {
   padding: 4px 0;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--shade) 45%, transparent);
 }
 
 .menu__item {
@@ -5128,14 +5129,14 @@ label.field__check {
 
 :root[data-theme-type='dark'] .composer {
   box-shadow:
-    0 12px 30px rgba(0, 0, 0, 0.55),
+    0 12px 30px color-mix(in srgb, var(--shade) 55%, transparent),
     inset 0 1px 0 color-mix(in srgb, var(--fg) 10%, transparent);
 }
 
 :root[data-theme-type='dark'] [data-mode='ide'] .region--editors,
 :root[data-theme-type='dark'] [data-mode='ide'] .region--shells {
   box-shadow:
-    0 10px 26px rgba(0, 0, 0, 0.5),
+    0 10px 26px color-mix(in srgb, var(--shade) 50%, transparent),
     inset 0 1px 0 color-mix(in srgb, var(--fg) 7%, transparent);
 }
 
@@ -6120,7 +6121,7 @@ label.field__check {
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
   border-radius: 8px;
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--shade) 45%, transparent);
 }
 
 .inline-edit__input {

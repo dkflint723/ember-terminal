@@ -452,6 +452,24 @@ export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
      * version of these had to be hand-written and gated to dark themes.
      */
     raise: dark ? mix(fg, cardTop, 0.2) : mix(fg, cardTop, 0.07),
+    /*
+     * The colour a shadow is made of, in the theme's own light.
+     *
+     * Every shadow in the stylesheet was a literal `rgba(0, 0, 0, …)`. Black is not
+     * neutral: on paper it greys the ground it falls on, and on a theme with a hue
+     * — Tidewater, Solar Dusk, Ember Deep — it pulls that hue out of everything it
+     * touches, which is the one thing a shadow must not do to a coloured ground.
+     *
+     * Opaque here, alpha at the call site, so the hue is decided once and the
+     * weight stays wherever it was tuned: `color-mix(in srgb, var(--shade) 38%,
+     * transparent)` is the same 0.38 the literal had.
+     *
+     * A dark theme's shadow is still very nearly black — it is a shadow, and there
+     * is little light to lose — with just enough of the base in it to belong. A
+     * light one leans on the accent rather than on grey, because on paper the
+     * darkest honest thing is a warm shadow rather than a smudge.
+     */
+    shade: dark ? mix('#000000', bg, 0.82) : mix(mix(accent, fg, 0.25), bg, 0.22),
     settle: dark ? mix('#000000', cardBottom, 0.45) : mix(fg, cardBottom, 0.18),
     /* A whisper of the accent in the frame, which is what keeps the cards looking
        lit by the theme rather than cut from grey card stock. */

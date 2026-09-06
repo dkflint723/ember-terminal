@@ -128,6 +128,34 @@ if (chip) {
   )
 }
 
+/*
+ * --- and a shadow is made of the theme's own light -------------------------------
+ *
+ * Every shadow in the stylesheet was a literal `rgba(0, 0, 0, …)`. Black is not
+ * neutral: on paper it greys the ground it falls on, and on a theme with a hue —
+ * Tidewater, Solar Dusk, Ember Deep — it pulls that hue out of everything it
+ * touches, which is the one thing a shadow must not do to a coloured ground.
+ *
+ * The hue is decided once in the theme and the weight stays at the call site, so
+ * this reads the composer's shadow and asks only that it is not the literal black
+ * it used to be. A scrim is exempt and stays black on purpose: it is meant to be
+ * neutral darkness over the whole window rather than light falling off an object.
+ */
+const shadow = await page.evaluate(() => {
+  const el = document.querySelector('.composer')
+  const root = getComputedStyle(document.documentElement)
+  return {
+    box: el ? getComputedStyle(el).boxShadow : null,
+    shade: root.getPropertyValue('--shade').trim()
+  }
+})
+check('the theme names a colour for its shadows', shadow.shade.length > 0, JSON.stringify(shadow))
+check(
+  'and the composer casts one made of it rather than of black',
+  shadow.box !== null && !/rgba?\(0, ?0, ?0/.test(shadow.box),
+  JSON.stringify(shadow.box)
+)
+
 // --- and the thing that is not a control is not ---------------------------------
 await page.keyboard.press('Control+P')
 await sleep(800)
