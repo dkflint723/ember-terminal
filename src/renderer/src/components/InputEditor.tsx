@@ -256,9 +256,19 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
       void window.ember
         .ghostComplete(id, {
           prefix: value,
-          // Nothing follows the caret on a command line, and saying so is what
-          // makes this fill-in-the-middle rather than open-ended generation.
-          suffix: '',
+          /*
+           * A newline, not an empty string.
+           *
+           * What follows the caret on a command line is the Enter that runs it, so
+           * a newline is the honest answer — and it is also the only one that works.
+           * An empty suffix reads to the server as NO suffix, which drops
+           * fill-in-the-middle and falls back to the chat template: asked to
+           * complete `dism /online /`, the model answered "The `dism` command in
+           * Windows is used for Deployment Image Servicing and Management…" and the
+           * composer offered that as a suggestion. With a newline it answers
+           * `enable-feature /featurename:… /all /norestart`, which is a command.
+           */
+          suffix: '\n',
           language: shellLanguage
         })
         .then((res) => {

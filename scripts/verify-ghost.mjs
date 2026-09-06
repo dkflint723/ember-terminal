@@ -908,6 +908,26 @@ check(
 )
 
 /*
+ * And it asked for a fill-in-the-middle, which means carrying a suffix.
+ *
+ * The first version sent an empty string, reasoning that nothing follows the caret
+ * on a command line. An empty suffix reads to the server as NO suffix, which drops
+ * fill-in-the-middle and falls back to the chat template — so asked to complete
+ * `dism /online /` the model answered "The `dism` command in Windows is used for
+ * Deployment Image Servicing and Management…", and the composer offered that
+ * paragraph as a suggestion. What actually follows the caret is the Enter that runs
+ * the line, so a newline is both the honest answer and the working one.
+ */
+const fimAsk = seen.find(
+  (r) => typeof r.body?.prompt === 'string' && r.body.prompt.includes('zzq-never-typed-before')
+)
+check(
+  'and asked for a fill-in-the-middle rather than an essay',
+  typeof fimAsk?.body?.suffix === 'string' && fimAsk.body.suffix.length > 0,
+  JSON.stringify({ suffix: fimAsk?.body?.suffix })
+)
+
+/*
  * Accepting is the gesture that already existed. The model answer goes into the
  * same suggestion the history path feeds, so there is one thing to accept and one
  * way to accept it rather than two ghosts competing for the same grey.
