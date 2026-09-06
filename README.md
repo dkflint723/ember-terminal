@@ -5,119 +5,166 @@
 <h1 align="center">Ember</h1>
 
 <p align="center">
-  A fast, block-based terminal for Windows that turns into an IDE on a keystroke —
-  with Claude riding along inside it.
+  A terminal for Windows where every command is a block you can keep —
+  and the same window is an editor, with Claude already in it.
 </p>
 
 ![The terminal](docs/terminal.png)
 
-Every command runs as a **block**: a card holding the command, its output, its
-exit code and duration. Blocks collapse, copy, re-run, survive restarts, and are
-searchable across sessions. Ask a question instead of running a command and the
-answer arrives as a block too — the agent lives in the flow of work, not in a
-side panel.
+## The idea
 
-Press `Ctrl+Shift+I` and the same window is an IDE: Monaco with real language
-servers, a file tree, workspace search, problems, and git — while the terminal
-becomes the panel underneath. Nothing restarts and no shell is lost; press it
-again and it's a terminal.
+A terminal loses things. Output scrolls away and takes the command that produced
+it along; finding either again means squinting at a wall of text you cannot
+select cleanly. Then the moment you want to change a file you leave for another
+program, and the shell you were standing in is somewhere behind that window.
+
+Ember keeps the work in one place.
+
+**Every command is a block** — the command, its output, its exit code, when it
+ran and how long it took, held together and still there tomorrow.
+
+**The same window is an editor**, one keystroke away, with your shell still
+running underneath it.
+
+**Claude is already inside**, so "why did that fail" is a question you ask where
+it failed rather than somewhere else.
+
+It is a Windows app, built around PowerShell, and it does not pretend otherwise.
+
+## What that feels like
+
+**Commands you can come back to.** A block collapses, copies — the command, the
+output, or the whole thing as Markdown to paste into an issue — and re-runs on a
+press. It says which directory it ran in, but only when that changed, so a
+session reads as a story rather than a stutter of repeated paths. Blocks survive
+quitting: reopen Ember and last week's failure is still there with its exit code,
+and `Ctrl+R` searches every command you have ever run.
+
+**An editor a keystroke away.** `Ctrl+Shift+I` and the window is Monaco with real
+language servers, a file tree, search, problems and git — while the terminal
+becomes the panel underneath. Nothing restarts, no shell is lost, and pressing it
+again puts you back.
 
 ![The IDE](docs/ide.png)
 
-## Features
+**Claude, where the work is.** Type a question instead of a command and it goes
+to Claude rather than the shell — the composer reads which you meant and says so
+before you press Enter. `Ctrl+↑` attaches the command that just failed, so the
+question arrives carrying the error. Answers stream into a panel beside the
+terminal that remembers each session, and a proposed edit arrives as a diff you
+accept or reject rather than a block of text to copy by hand.
 
-- **Blocks** — collapse, copy command or output, re-run, jump by the overview
-  ruler. Restored on launch, bounded in memory and on disk.
-- **Shell integration** — PowerShell reports command boundaries, exit codes and
-  working directories through OSC 133. cmd, Git Bash and WSL run as plain
-  terminals.
-- **The agent** — Claude lives in a panel of its own (`Ctrl+Shift+B`): threads
-  that stream and remember per session, a Stop that means it, and proposals
-  that open as accept/reject diffs or runnable commands. Through your API key
-  or the Claude Code CLI; quick asks still answer in the flow.
-- **IDE mode** — TypeScript, Python, YAML and PowerShell language servers in
-  the box, and any LSP server teachable in settings (rust-analyzer, gopls…);
-  go-to definition, snippets, auto-save, format-on-save with the workspace's
-  own prettier when it has one, split panes, search and replace.
-- **Debugging** — breakpoints in the margin (`F9`, with conditions and
-  logpoints), `F5` runs the active file or a `.vscode/launch.json` config,
-  attach included; step, pause, restart; exception filters; variables, threads
-  and the call stack in the Debug view, values on hover, a console that
-  evaluates in the paused frame — and the program runs as a real block in the
-  terminal, stdin and all. Node via bundled js-debug (`npm run fetch:js-debug`
-  in a dev checkout); any DAP adapter can be taught in settings.
-- **Edit with Claude** — select code, press `Ctrl+I`, say what you want changed,
-  and it is rewritten in place as a single undoable edit.
-- **Inline suggestions** — off until you ask for them, then answered by whoever
-  you choose: a model on your own machine (anything speaking the OpenAI API —
-  Ollama, llama.cpp, LM Studio), any OpenAI-compatible endpoint, or Claude. A
-  local model is asked to fill in the middle rather than to chat, which is both
-  quicker and more accurate. Most of the work is deciding when *not* to ask, and
-  a Test button says what answered, how fast, and what is wrong when nothing does.
-  `node scripts/bakeoff.mjs` scores local models on this codebase, since published
-  infilling benchmarks rank them differently from how they behave in an editor.
-- **Scripts** — the commands a project already declares, listed from its
-  `package.json` and one press from running (`Ctrl+Shift+R`). The lockfile
-  decides whether that is npm, pnpm, yarn or bun, and each one runs as an
-  ordinary block with its exit code and timing. Your own saved commands sit
-  beside them, and anything in double braces — `deploy {{env}}` — is asked for
-  before it runs.
-- **Git** — status, staging, diffs, commits, branch and line counts in the
-  status chips; blame for the line the caret is on, a log you can open a commit
-  from, and a stash that takes untracked files with it; a GitHub panel checks out
-  pull requests via `gh`.
-- **History** — every command searchable across sessions (`Ctrl+R`), with
-  inline secrets scrubbed before anything is written.
+## Everything it does
+
+- **Blocks** — collapse, copy, re-run, share as Markdown, jump between them with
+  the overview ruler. Restored on launch and bounded in memory and on disk, so a
+  window left open for a fortnight still starts quickly.
+- **Shell integration** — PowerShell, Git Bash and WSL report where each command
+  starts and stops, its exit code and its directory, through OSC 133. cmd has no
+  integration script and runs as a plain terminal, which the pane says out loud
+  rather than leaving you to wonder.
+- **Inline suggestions** — grey text ahead of the caret, in the editor *and* on
+  the command line, off until you ask for them. Answered by a model on your own
+  machine (Ollama, llama.cpp, LM Studio), any OpenAI-compatible endpoint, or
+  Claude. On the command line your own history answers first — instant, free, and
+  usually right — and the model is asked only where history has nothing, in the
+  dialect of that pane's shell. Take one with `Tab` in the editor, or `→` / `End`
+  on the command line, where `Tab` belongs to shell completion. Local models are
+  asked to fill in the middle rather than to chat, and the picker marks the ones
+  that cannot: several recent "coder" models dropped the ability and kept the name.
+- **The agent** — a panel of its own (`Ctrl+Shift+B`) with threads that stream and
+  remember per session, a Stop that means it, and proposals that open as
+  accept/reject diffs or runnable commands. Through your own API key or the Claude
+  Code CLI you are already signed in to.
+- **Edit with Claude** — select code in the editor, press `Ctrl+I`, say what you
+  want changed, and it is rewritten in place as one undoable edit.
+- **IDE mode** — TypeScript, Python, Bash, YAML and PowerShell language servers in
+  the box, and any other LSP server teachable in settings (rust-analyzer, gopls…);
+  go-to-definition, snippets, auto-save, format-on-save with the project's own
+  prettier when it has one, split panes, search and replace.
+- **Debugging** — breakpoints in the margin (`F9`, with conditions and logpoints),
+  `F5` runs the active file or a `.vscode/launch.json` config, attach included;
+  step, pause, restart; exception filters; variables, threads and the call stack,
+  values on hover, and a console that evaluates in the paused frame. The program
+  runs as a real block in the terminal, stdin and all. Node through bundled
+  js-debug; any DAP adapter can be taught in settings.
+- **Scripts and tests** — the commands your project already declares, listed from
+  its `package.json` and one press from running (`Ctrl+Shift+R`). The lockfile
+  decides whether that is npm, pnpm, yarn or bun. Test files are listed the same
+  way, so you can run one without typing its path, and your own saved commands sit
+  beside them — anything in double braces, `deploy {{env}}`, is asked for first.
+- **Git** — status, staging, diffs, commits, branch and line counts in the status
+  chips; blame for the line the caret is on, a log you can open a commit from, and
+  a stash that takes untracked files with it. A GitHub panel checks out pull
+  requests through `gh`.
+- **Sessions** — the sidebar lists every open shell with its directory and branch,
+  and marks the ones doing something while you are looking elsewhere. Each session
+  carries its own project. The whole window comes back on launch, unsaved edits
+  included.
 - **SSH** — every `Host` in your `~/.ssh/config` appears as a shell to open, so a
-  server is a new session rather than a command to remember. A remote shell has no
-  Ember in it, so those panes are plain terminals and say so.
-- **Sessions** — the sidebar lists every open shell with its directory and
-  branch; the whole window restores on launch, unsaved edits included.
-- **Density** — how much room a block takes is a setting, not a verdict:
-  Compact, Normal or Comfortable, applied as you pick it.
-- **Themes** — any VS Code color theme. Drop a `.json` into the themes folder
-  (Settings opens it) and it appears in the picker. Ten ship in the box,
-  including colour-blind-safe pairs.
+  server is a session rather than a command to remember.
+- **An administrator window** — `Ctrl+Alt+Shift+N` opens a second Ember running
+  elevated, beside the ordinary one rather than instead of it, with a badge in its
+  title bar for its whole life. It keeps its own settings, session and history,
+  because a file written by an administrator is one the ordinary Ember may not be
+  able to replace.
+- **History** — every command searchable across sessions (`Ctrl+R`), with inline
+  secrets scrubbed before anything is written down.
+- **Themes** — any VS Code colour theme. Drop a `.json` into the themes folder and
+  it appears in the picker. Ten ship in the box, including colour-blind-safe
+  pairs, and every surface in the app derives its own colours from whichever you
+  choose — including the light it is lit by.
+- **Density** — how much room a block takes is a setting, not a verdict: Compact,
+  Normal or Comfortable, applied as you pick it.
 
 ## Install
 
-Grab `Ember Setup <version>.exe` from
+Grab `Ember-Setup-<version>.exe` from
 [Releases](https://github.com/dkflint723/ember-terminal/releases) and run it.
 
-> The installer is not yet code-signed, so SmartScreen will ask whether you
-> mean it. Updates are **off by default**; turn them on in Settings, or use
-> "Check now" whenever you like — a new version installs when Ember quits,
-> never underneath a running shell.
+> It is not code-signed, so SmartScreen will ask whether you mean it. Updates are
+> **off by default** — turn them on in Settings, or press "Check now" whenever you
+> like. A new version downloads in the background and waits; installing it runs
+> the installer where you can watch it, and nothing is replaced underneath a
+> running shell.
 
 ## Keyboard
 
 | Chord | Does |
 | --- | --- |
 | `Ctrl+Shift+I` | Terminal ↔ IDE |
+| `Ctrl+Shift+O` | Search everything — sessions, files and commands together |
+| `Ctrl+P` / `Ctrl+Shift+P` | Go to file / commands |
 | `Ctrl+Shift+T` | New session |
 | `Ctrl+Shift+N` | New window |
 | `Ctrl+Alt+Shift+N` | New window as administrator |
 | `Ctrl+Shift+U` | Move session to new window |
-| `F5` | Debug: run the active file, or continue |
+| `Ctrl+Tab` | Next session |
+| `Ctrl+B` | Side slot — sessions (terminal) or files (IDE) |
+| `Ctrl+J` | Panel, bringing the IDE with it |
+| `Ctrl+Shift+B` | Claude panel |
+| `Ctrl+K` | Pin the composer to shell or agent |
+| `Ctrl+Enter` | Send the composer's text to Claude |
+| `Ctrl+↑` | Attach the last failed block to the question |
+| `Ctrl+I` | Edit the selection with Claude (editor) |
+| `Tab` / `→` `End` | Accept an inline suggestion — editor / command line |
+| `Shift+Tab` | Leave the terminal for the composer |
+| `F5` | Debug: start, or continue |
 | `F9` | Debug: toggle breakpoint |
 | `F10` / `F11` / `Shift+F11` | Debug: step over / in / out |
 | `Shift+F5` | Debug: stop |
-| `Ctrl+Tab` | Next session |
-| `Ctrl+B` | Side slot — sessions (terminal) or files (IDE) |
-| `Ctrl+J` | Panel |
-| `Ctrl+Shift+B` | Claude panel |
-| `Ctrl+K` | Pin the composer to shell or agent |
-| `Ctrl+Enter` | Send the composer's text to the agent |
-| `Ctrl+P` / `Ctrl+Shift+P` | Files and sessions / commands |
 | `Ctrl+F` | Find in the terminal or editor |
 | `Ctrl+R` | Search command history |
-| `Ctrl+O` | Open a folder |
-| `Ctrl+Shift+F` `G` `H` `M` `R` | Search, source control, GitHub, problems, scripts |
+| `Ctrl+O` | Open a file |
+| `Ctrl+Shift+F` `G` `H` `M` `R` | Search, source control, GitHub, problems, scripts — each brings the IDE |
 | `Ctrl+Alt+S` | Save all |
 | `Alt+Shift+F` | Format document |
-| `Ctrl+I` | Edit the selection with Claude |
 | `Ctrl+=` `-` `0` | Zoom |
 | `Ctrl+,` | Settings |
+
+Every chord is rebindable in Settings. The hints the app shows you retire
+themselves once you have pressed the key they were teaching, so the legends thin
+out as you learn them.
 
 ## Building it
 
@@ -137,16 +184,28 @@ npm run dist
 
 ### Verifying it
 
-The test suite is 61 Playwright scripts under `scripts/verify-*.mjs`, each of
-which launches the real app with a throwaway profile and drives it like a hand:
+There is almost no unit-test suite. Instead there are sixty-odd Playwright
+scripts under `scripts/verify-*.mjs`, nearly all of which launch the real app
+with a throwaway profile and drive it like a hand — typing into the composer,
+pressing chords, reading what is on screen. (The contrast suite is the exception:
+it is arithmetic over the theme files and needs no window.)
 
 ```bash
-node scripts/verify.mjs
+npm run verify:all
 ```
 
-Every suite prints `PASS`/`FAIL` and exits nonzero on failure. They cover the
-terminal, blocks, session restore, the editor, LSP, git, themes, keyboard
-chords, the status chips, a11y, and the packaged build.
+Every suite prints `PASS` or `FAIL` and exits nonzero on failure. Together they
+cover the terminal and its blocks, session restore, the editor, language servers,
+the debugger, git and GitHub, Claude, inline suggestions, search, the
+administrator window, per-session workspaces, themes and contrast, keyboard
+chords, accessibility, and the packaged build.
+
+The rule the project holds itself to is that **no check is believed until it has
+been watched to fail**. A check written against a bug that is already fixed proves
+nothing, so each one is first run against the broken code and the failure it
+produced is recorded in the commit that fixes it. Several checks written this way
+turned out to pass whether the bug was present or not; those are the ones worth
+finding.
 
 ## License
 

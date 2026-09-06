@@ -1059,7 +1059,9 @@ export function SettingsPanel(): React.JSX.Element | null {
                   Off unless you turn it on, because every way of answering costs
                   something: a paid endpoint is billed per pause in your typing, a
                   subscription is drawn down the same way, and a local model runs your
-                  GPU while you type. Tab accepts what is offered; Esc dismisses it.
+                  GPU while you type. They appear in the editor and on the command
+                  line. Tab takes one in the editor; on the command line it is Right
+                  or End, because Tab there belongs to shell completion.
                 </div>
               </div>
 
