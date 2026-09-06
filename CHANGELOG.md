@@ -3,6 +3,30 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
+## 0.3.26 — 2026-09-06
+
+- **Suggestions on the command line stopped writing essays.** Asked to complete
+  `dism /online /`, the composer offered a paragraph explaining what DISM is. The
+  request carried an empty suffix, on the reasoning that nothing follows the caret
+  on a command line — but an empty suffix reads to the server as *no* suffix,
+  which drops fill-in-the-middle entirely and falls back to the chat template. A
+  chat template asked about `dism` explains `dism`. What actually follows the
+  caret is the Enter that runs the line, so that is what is sent now: `sfc /`
+  becomes `scannow`, `git comm` becomes `it -m "Initial commit"`, and
+  `dism /online /` becomes `cleanup-image /restorehealth`.
+- **Search everything is `Ctrl+Shift+A`.** It was briefly `Ctrl+Shift+O`, which is
+  Monaco's Go to Symbol in File — so the chord the title bar advertised opened the
+  search in a terminal and the symbol list in an editor. Checking this app's own
+  registry for a conflict is not enough when half the window is somebody else's
+  keymap.
+- **Settings no longer says Tab accepts a suggestion everywhere.** It does in the
+  editor. On the command line Tab belongs to shell completion, and the gesture is
+  Right or End.
+- The README was rewritten for somebody deciding whether to install this, and an
+  audit against the source found several claims that had never been true — Git
+  Bash and WSL do have shell integration, there are five language servers rather
+  than four, and `Ctrl+O` opens a file rather than a folder.
+
 ## 0.3.25 — 2026-09-06
 
 Three ways to lose work silently, an administrator window that stops lying about

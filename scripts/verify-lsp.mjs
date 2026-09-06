@@ -170,7 +170,23 @@ async function run(language) {
   const target = page.locator('.view-line span[class*="mtk"]', { hasText: spec.hoverWord }).first()
   if (await target.count()) {
     await target.hover()
-    await sleep(2500)
+    /*
+     * Waited for, not slept through.
+     *
+     * Two and a half seconds is plenty for a warm server on an idle machine and
+     * not always enough at the tail of a five-language sweep with the rest of the
+     * suite competing for the processor — where tsserver answered the hover late
+     * and the case reported an empty tooltip. The neighbouring wait below already
+     * says this about the servers; the hover was left on a fixed sleep.
+     */
+    const hoverBy = Date.now() + 20_000
+    for (;;) {
+      const shown = await page.evaluate(
+        () => (document.querySelector('.monaco-hover')?.textContent ?? '').trim().length > 0
+      )
+      if (shown || Date.now() >= hoverBy) break
+      await sleep(300)
+    }
   }
 
   // Waited for rather than slept through. PowerShell Editor Services boots a whole

@@ -52,6 +52,66 @@ const focusEditor = async () => {
   await sleep(400)
 }
 
+/*
+ * --- and the everything-search means one thing wherever the caret is ------------
+ *
+ * This suite exists because Monaco keeps its own keybinding table and stops the
+ * events it recognises. That is exactly what happened to the merged search: its
+ * first chord was Ctrl+Shift+O, which no command in this app's registry wanted —
+ * and which Monaco owns as Go to Symbol in File. So the chord the title bar
+ * advertised opened the search in a terminal and the symbol list in an editor.
+ * Checking the registry for a conflict is not enough when half the window is
+ * somebody else's keymap.
+ *
+ * Both halves are asserted: the search opens in the editor too, and Go to Symbol
+ * is still Monaco's. Without the second, moving the chord to something Monaco also
+ * owned would pass.
+ */
+/*
+ * Waited for, not slept through. The palette renders a frame or two after the key,
+ * and a fixed wait read the window just before it appeared — reporting that
+ * nothing had opened while the focus was already inside the palette's own box.
+ */
+const opened = async () => {
+  const read = () =>
+    page.evaluate(() => {
+      const w = document.querySelector('.quick-input-widget')
+      return {
+        ember: document.querySelectorAll('.qp').length > 0,
+        monaco: w ? getComputedStyle(w).display !== 'none' : false
+      }
+    })
+  const deadline = Date.now() + 8000
+  let seen = await read()
+  while (!seen.ember && !seen.monaco && Date.now() < deadline) {
+    await sleep(200)
+    seen = await read()
+  }
+  return seen
+}
+
+await focusEditor()
+await page.keyboard.press('Control+Shift+A')
+const searchInEditor = await opened()
+check(
+  'the everything-search opens from inside the editor too',
+  searchInEditor.ember,
+  JSON.stringify(searchInEditor)
+)
+await page.keyboard.press('Escape')
+await sleep(600)
+
+await focusEditor()
+await page.keyboard.press('Control+Shift+O')
+const symbols = await opened()
+check(
+  'and Go to Symbol is still the editor’s own',
+  symbols.monaco && !symbols.ember,
+  JSON.stringify(symbols)
+)
+await page.keyboard.press('Escape')
+await sleep(500)
+
 /**
  * Dismiss whatever a shortcut opened. The sidebar is left as it is: each case
  * looks for a selector unique to its own view, so a view that is still showing

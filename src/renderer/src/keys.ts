@@ -360,11 +360,18 @@ export const COMMANDS: Command[] = [
      * `openPalette('global')` was reachable from exactly one mouse target, in an
      * app that is otherwise driven from the keyboard — and the registry already
      * binds Ctrl+P for files and Ctrl+Shift+P for commands, so the merged one was
-     * the only door with no key. Nothing wanted Ctrl+Shift+O.
+     * the only door with no key.
+     *
+     * Not Ctrl+Shift+O, which was the first choice and was wrong: nothing in this
+     * registry wanted it, but Monaco does — it is Go to Symbol in File, and inside
+     * an editor Monaco takes the keystroke first. So the chord the title bar
+     * advertised did one thing in a terminal and a different thing in an editor,
+     * which is worse than having no chord at all. Checking the registry for a
+     * conflict is not enough when half the window is somebody else's keymap.
      */
     id: 'palette.global',
     label: 'Search everything',
-    chord: 'Ctrl+Shift+O',
+    chord: 'Ctrl+Shift+A',
     // A block body, not an expression: this must never return false and hand the
     // keystroke on the way Ctrl+F does to Monaco's own find.
     run: ({ s }) => {

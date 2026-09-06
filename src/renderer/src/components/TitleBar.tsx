@@ -90,7 +90,7 @@ export function TitleBar(): React.JSX.Element {
         <button
           className="titlebar__searchbox"
           aria-label="Search sessions, files and commands"
-          aria-keyshortcuts="Control+Shift+O"
+          aria-keyshortcuts="Control+Shift+A"
           onClick={() => openPalette('global')}
         >
           <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
@@ -106,7 +106,7 @@ export function TitleBar(): React.JSX.Element {
             already recorded; nothing new is needed to notice.
           */}
           <span>Search everything</span>
-          {!knowsSearch && <kbd>Ctrl+Shift+O</kbd>}
+          {!knowsSearch && <kbd>Ctrl+Shift+A</kbd>}
         </button>
       </div>
 

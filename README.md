@@ -133,7 +133,7 @@ Grab `Ember-Setup-<version>.exe` from
 | Chord | Does |
 | --- | --- |
 | `Ctrl+Shift+I` | Terminal ↔ IDE |
-| `Ctrl+Shift+O` | Search everything — sessions, files and commands together |
+| `Ctrl+Shift+A` | Search everything — sessions, files and commands together |
 | `Ctrl+P` / `Ctrl+Shift+P` | Go to file / commands |
 | `Ctrl+Shift+T` | New session |
 | `Ctrl+Shift+N` | New window |

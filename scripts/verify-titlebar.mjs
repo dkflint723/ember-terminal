@@ -278,10 +278,10 @@ check(
   !searchLabel.text.includes('Search sessions, files, commands'),
   JSON.stringify(searchLabel)
 )
-check('and names the chord instead', searchLabel.cap === 'Ctrl+Shift+O', JSON.stringify(searchLabel))
+check('and names the chord instead', searchLabel.cap === 'Ctrl+Shift+A', JSON.stringify(searchLabel))
 check(
   'and says so to a screen reader as well',
-  searchLabel.shortcut === 'Control+Shift+O',
+  searchLabel.shortcut === 'Control+Shift+A',
   JSON.stringify(searchLabel)
 )
 
@@ -289,7 +289,7 @@ check(
  * And the chord opens it. A label naming a key that does nothing is worse than the
  * placeholder it replaced.
  */
-await page.keyboard.press('Control+Shift+O')
+await page.keyboard.press('Control+Shift+A')
 await sleep(900)
 check(
   'the chord opens the everything-search',
