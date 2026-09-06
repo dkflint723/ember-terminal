@@ -124,7 +124,10 @@ button {
   align-items: center;
   gap: 10px;
   height: 40px;
-  padding: 0 10px;
+  /* No inset on the right: the caption row reaches the window's edge, which is
+     what makes the top corner of a maximized window close it rather than start
+     dragging it. The gap on the left is the bar's own. */
+  padding: 0 0 0 10px;
   background: color-mix(in srgb, var(--bg-chrome) 90%, transparent);
   border-bottom: 1px solid var(--card-border);
   flex: 0 0 auto;
@@ -333,6 +336,15 @@ button {
 
 .titlebar__controls {
   display: flex;
+  /*
+   * The bar centres its children, and a caption row must not be centred.
+   *
+   * With no height of its own each button was the line box of an 11px glyph —
+   * about fifteen pixels inside a forty-pixel bar, the only controls in this
+   * window under the twenty-four the guidelines ask for, and a height that
+   * changed as the maximize glyph changed shape.
+   */
+  align-self: stretch;
   flex: 0 0 auto;
   -webkit-app-region: no-drag;
 }
@@ -759,7 +771,11 @@ button {
 .caption-btn {
   display: grid;
   place-items: center;
-  width: 34px;
+  /* Windows draws these forty-six wide and the full height of the bar, hard
+     against the right edge. Thirty-four by fifteen, inset ten pixels, was
+     neither — and the inset is what put a drag region in the corner people
+     throw the pointer at to close a window. */
+  width: 46px;
   color: var(--fg-dim);
   /* Stated, because `button { font: inherit }` would otherwise hand these the
      body's 13px and draw the window controls larger than the tabs beside them. */

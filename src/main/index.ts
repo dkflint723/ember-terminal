@@ -1274,11 +1274,34 @@ function registerIpc(): void {
       'v1.0',
       'powershell.exe'
     )
+    /*
+     * Not detached, and that is the whole of why this button did nothing.
+     *
+     * `Start-Process -Verb RunAs` raises the consent prompt through ShellExecuteEx,
+     * and a child created with DETACHED_PROCESS cannot raise it: no prompt appears,
+     * nothing starts, and PowerShell exits ZERO — so Ember reported success, saw no
+     * window, and then told the user their machine's elevation was stuck and to
+     * restart Windows. It was never the machine. Right-clicking the icon and
+     * choosing Run as administrator worked the whole time, which is what finally
+     * separated the two.
+     *
+     * Measured on the reporter's machine, one option at a time, watching for the
+     * elevated window to write its marker:
+     *
+     *   detached + hidden      exit 0   no window   <- what shipped
+     *   attached + hidden      exit 0   window
+     *   detached + not hidden  exit 0   no window
+     *
+     * So `windowsHide` is innocent and stays: nobody wants a console flashing up.
+     * `unref` stays too — it keeps this child off the event loop's books — and it
+     * needs no detachment to do that. The child exits within milliseconds anyway,
+     * and the elevated window is not its child: the service that elevates owns it,
+     * so it outlives both this process and PowerShell regardless.
+     */
     const child = spawn(powershell, ['-NoProfile', '-NonInteractive', '-Command', command], {
       windowsHide: true,
       // stderr kept: it is the only place the reason for a failure is written.
-      stdio: ['ignore', 'ignore', 'pipe'],
-      detached: true
+      stdio: ['ignore', 'ignore', 'pipe']
     })
     let why = ''
     child.stderr?.on('data', (chunk) => {
