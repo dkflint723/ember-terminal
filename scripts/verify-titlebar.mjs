@@ -218,6 +218,63 @@ check(
   JSON.stringify(named)
 )
 
+/*
+ * --- the window buttons are buttons ---------------------------------------------
+ *
+ * `.caption-btn` set a width and no height, and the row it sits in inherited the
+ * bar's `align-items: center` — so each button was the line box of an 11px glyph,
+ * about fifteen pixels tall inside a forty-pixel bar. They were the only controls
+ * in this window under the twenty-four pixels the guidelines ask for, and their
+ * height changed as the maximize glyph changed shape.
+ *
+ * And the bar carried ten pixels of padding on its right, so the very corner of a
+ * maximized window belonged to `.titlebar`, which is a drag region — the fling into
+ * the corner that closes every other Windows program started moving this one
+ * instead. The corner is the cheapest target on the screen and it was spent on drag.
+ */
+const caption = await page.evaluate(() => {
+  const btns = [...document.querySelectorAll('.caption-btn')]
+  if (btns.length === 0) return null
+  const last = btns[btns.length - 1].getBoundingClientRect()
+  return {
+    boxes: btns.map((b) => {
+      const r = b.getBoundingClientRect()
+      return { w: Math.round(r.width), h: Math.round(r.height) }
+    }),
+    rightGap: Math.round(window.innerWidth - last.right)
+  }
+})
+check('there are window buttons to measure', caption !== null, String(caption))
+if (caption) {
+  check(
+    'a window button is a target you can hit',
+    caption.boxes.every((b) => b.h >= 24 && b.w >= 24),
+    JSON.stringify(caption.boxes)
+  )
+  check(
+    'and the last one reaches the window edge',
+    caption.rightGap === 0,
+    JSON.stringify(caption.rightGap)
+  )
+}
+
+/*
+ * Read from the DOM rather than from a real pointer, which is necessary and not
+ * sufficient: a frameless maximized window on Windows can extend its client area
+ * past the monitor edge by the width of the resize border, so this proves the
+ * markup reaches the corner and not that the pixel is reachable by a mouse.
+ */
+await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].maximize())
+await sleep(900)
+const corner = await page.evaluate(() => {
+  const el = document.elementFromPoint(window.innerWidth - 1, 0)
+  if (!el) return 'nothing'
+  return el.closest('.caption-btn--close') ? 'close' : el.className || el.tagName
+})
+check('the top-right corner of a maximized window closes it', corner === 'close', String(corner))
+await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].unmaximize())
+await sleep(600)
+
 await app.close()
 profile.cleanup()
 for (const f of failures) console.log(`  - ${f}`)
