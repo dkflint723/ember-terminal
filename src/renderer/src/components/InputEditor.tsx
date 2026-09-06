@@ -174,6 +174,20 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
     return () => window.clearTimeout(handle)
   }, [value])
 
+  const ghostEnabled = useStore((s) => s.settings.ghostEnabled)
+  const debounceMs = useStore((s) => s.settings.ghostDebounceMs)
+  /*
+   * What the model is being asked to write, in the dialect of the pane's shell.
+   *
+   * A command line is not "plain text": told it is PowerShell, a coder model stops
+   * proposing bash. Read from the profile the way the completion service reads it.
+   */
+  const shellLanguage = useStore((s) => {
+    const profile = s.profiles.find((p) => p.id === pane.profileId)
+    if (profile?.integration === 'powershell') return 'powershell'
+    if (profile?.integration === 'bash') return 'shellscript'
+    return 'shellscript'
+  })
   // Suggest the most recent matching command from history as ghost text. Only for
   // a single line: the overlay mirrors the input's metrics to align the ghost, and
   // that alignment cannot be trusted once the text wraps.
@@ -187,6 +201,60 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
     }, 110)
     return () => window.clearTimeout(handle)
   }, [value, intent, pane.cwd])
+
+  /*
+   * And when history has nothing, the model.
+   *
+   * Inline suggestions were wired to the editor alone: `registerGhost` is called
+   * from the editor pane and nowhere else, so a coder model chosen in Settings did
+   * nothing at all for anybody typing a command — which is most of what this app
+   * is for. The settings section is called "Inline suggestions" and says nothing
+   * about being editor-only, so the promise was there and only half kept.
+   *
+   * Behind history rather than beside it. History is instant, free, and already
+   * right for the thing a person types most often — the command they typed last
+   * week — so the model is asked only where history has nothing to say. That also
+   * keeps the common case off the model entirely, which is what makes it bearable
+   * to run a thirty-billion-parameter model behind a keystroke.
+   *
+   * The answer is written into the same `suggestion` the history path feeds, so
+   * accepting, rendering and clearing all keep working unchanged: a suggestion is
+   * a whole line, and the grey part is whatever of it is not typed yet.
+   */
+  const ghostSeq = useRef(0)
+  useEffect(() => {
+    if (!ghostEnabled) return
+    // Only where history declined. A suggestion already on screen is a better one.
+    if (suggestion) return
+    if (intent !== 'shell' || value.includes('\n') || value.trim().length < 2) return
+
+    const id = ++ghostSeq.current
+    const handle = window.setTimeout(() => {
+      void window.ember
+        .ghostComplete(id, {
+          prefix: value,
+          // Nothing follows the caret on a command line, and saying so is what
+          // makes this fill-in-the-middle rather than open-ended generation.
+          suffix: '',
+          language: shellLanguage
+        })
+        .then((res) => {
+          // A reply the user has already typed past answers a different question.
+          if (id !== ghostSeq.current) return
+          if (!res.ok || !res.text.trim()) return
+          setSuggestion(value + res.text.replace(/\n[\s\S]*$/, ''))
+        })
+        .catch(() => {
+          // A suggestion that does not arrive is the ordinary case, not an event.
+        })
+    }, debounceMs)
+
+    return () => {
+      window.clearTimeout(handle)
+      // Tell main to stop paying for an answer nobody is waiting for any more.
+      window.ember.ghostCancel(id)
+    }
+  }, [value, intent, ghostEnabled, debounceMs, shellLanguage, suggestion])
 
   const submitShell = (): void => {
     const command = value

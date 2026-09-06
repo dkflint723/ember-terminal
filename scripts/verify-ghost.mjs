@@ -796,6 +796,117 @@ check(
   JSON.stringify(allowed)
 )
 
+/*
+ * --- and the terminal gets suggestions too --------------------------------------
+ *
+ * Inline suggestions were wired to the editor alone: `registerGhost` is called from
+ * the editor pane and nowhere else, so a coder model chosen in Settings did nothing
+ * for anybody typing a command — which is most of what this app is for. The grey
+ * text in the composer was history and only ever history, and the settings section
+ * is called "Inline suggestions" without saying it means one surface.
+ *
+ * Behind history rather than beside it: history is instant and free and already
+ * right for the command somebody typed last week, so the model is asked only where
+ * history has nothing. Both halves are checked, because a build that asked the
+ * model every time would satisfy the first check and be worse than what it replaced.
+ */
+seen.length = 0
+await page.evaluate(
+  (p) =>
+    window.ember.setSettings({
+      ghostEnabled: true,
+      ghostProvider: 'local',
+      ghostBaseUrl: `http://127.0.0.1:${p}/v1`,
+      ghostModel: 'fills-in:1b',
+      ghostDebounceMs: 120
+    }),
+  port
+)
+await sleep(900)
+
+await page.click('.composer__input')
+await page.keyboard.press('Control+A')
+await page.keyboard.press('Backspace')
+// Deliberately not a command this session has run, so history cannot answer it.
+await page.keyboard.type('zzq-never-typed-before ', { delay: 20 })
+
+let offered = ''
+for (let i = 0; i < 40 && offered === ''; i += 1) {
+  await sleep(200)
+  offered = await page.evaluate(
+    () => document.querySelector('.composer__ghost-rest')?.textContent ?? ''
+  )
+}
+check('the composer offers what the model suggested', offered.length > 0, JSON.stringify(offered))
+/*
+ * The completion endpoint specifically, not merely "some request". Settings changes
+ * make the service ask what the model can do, and `/api/tags` matching a looser
+ * test made this pass on a build that never asked for a suggestion at all.
+ */
+/*
+ * A request carrying the typed text, not merely a request.
+ *
+ * Two looser versions of this passed on a build that never asked for a suggestion:
+ * `/api/` matched the capability probe, and `/api/generate` matched the warm-up,
+ * which posts to the same endpoint with only a model name to load it. What only a
+ * suggestion has is the line the person typed.
+ */
+check(
+  'and it asked the local server for it',
+  seen.some((r) => typeof r.body?.prompt === 'string' && r.body.prompt.includes('zzq-never-typed-before')),
+  JSON.stringify(seen.map((r) => ({ url: r.url, prompt: r.body?.prompt })).slice(0, 6))
+)
+
+/*
+ * Accepting is the gesture that already existed. The model answer goes into the
+ * same suggestion the history path feeds, so there is one thing to accept and one
+ * way to accept it rather than two ghosts competing for the same grey.
+ */
+await page.keyboard.press('End')
+await sleep(400)
+const acceptedGhost = await page.evaluate(
+  () => document.querySelector('.composer__input')?.value ?? ''
+)
+check(
+  'and End takes it, the same way it takes a history suggestion',
+  acceptedGhost.length > 'zzq-never-typed-before '.length,
+  JSON.stringify(acceptedGhost)
+)
+
+/*
+ * And history still wins where it has an answer. Run a command, then retype its
+ * opening: the grey must be the rest of that command, and the model must not have
+ * been asked at all.
+ */
+await page.keyboard.press('Control+A')
+await page.keyboard.press('Backspace')
+await page.keyboard.type('echo remembered-line', { delay: 15 })
+await page.keyboard.press('Enter')
+await sleep(2500)
+seen.length = 0
+await page.click('.composer__input')
+await page.keyboard.type('echo remem', { delay: 25 })
+
+let fromHistory = ''
+for (let i = 0; i < 25 && fromHistory === ''; i += 1) {
+  await sleep(200)
+  fromHistory = await page.evaluate(
+    () => document.querySelector('.composer__ghost-rest')?.textContent ?? ''
+  )
+}
+check(
+  'a command already run is suggested from history',
+  fromHistory.startsWith('bered-line'),
+  JSON.stringify(fromHistory)
+)
+check(
+  'and the model is not asked when history has the answer',
+  seen.length === 0,
+  JSON.stringify(seen.map((r) => r.url).slice(0, 4))
+)
+await page.keyboard.press('Control+A')
+await page.keyboard.press('Backspace')
+
 await app.close()
 profile.cleanup()
 server.close()
