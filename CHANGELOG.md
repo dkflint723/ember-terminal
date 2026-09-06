@@ -5,6 +5,43 @@ newest entry sits on top.
 
 ## 0.3.26 — 2026-09-06
 
+### A long command keeps its own output
+
+- **Six thousand lines came back beginning at line two thousand.** The front
+  third was gone, with nothing to say so. Conpty redraws its viewport whenever a
+  command scrolls quickly — cursor home, then the rows it has already sent, each
+  closed with an erase-to-end-of-line — and Ember read that bare cursor-home as
+  the signature of a full repaint, restarting the block's capture there and
+  discarding everything before it. Every byte had arrived: the shell sent all six
+  thousand lines and the block threw a third of them away. Only an erase means the
+  screen was wiped, so only an erase restarts a capture now.
+- **And a redraw no longer takes a screenful out of the middle.** The offscreen
+  terminal a block is rendered in matched the live terminal's columns and kept its
+  own two hundred rows. Conpty addresses the screen absolutely, so moves written
+  for a fourteen-row screen landed fourteen rows down from the top of a two
+  hundred-row one: a redraw painted over output in the interior and the stream
+  carried on overwriting from there. Arriving before the screen had scrolled at
+  all, it took out everything so far. Rows follow the live terminal now, for the
+  same reason columns always have.
+- **A block no longer sends you to history for output history never had.** Very
+  long output can be cut twice — once when the capture itself hits its bound, and
+  again when the rendered block does — and the second line was written over the
+  first. So a command whose beginning was gone for good said "the full text is in
+  history (Ctrl+R)", which was the one place it was guaranteed not to be, history
+  being written from that same trimmed output. It says what was actually lost now.
+  Found by the fix above: the old repaint bug had been cutting these captures down
+  so small that the second bound was never reached, so the lie could not surface.
+- **The check meant to catch this had been passing on the bug since the day it was
+  written.** It asked whether the block began with "line 1" — a prefix of line
+  1000 through line 1999 — so any block that had lost its first thousand-odd lines
+  satisfied it, and most had. It reads the first two lines now, and a second check
+  walks all six thousand in order. Both were watched failing against the shipped
+  build before either fix was written. The suite also says when a command outran
+  its own deadline rather than reading a block that is still running and reporting
+  it as empty output.
+
+### Typing and chords
+
 - **Suggestions on the command line stopped writing essays.** Asked to complete
   `dism /online /`, the composer offered a paragraph explaining what DISM is. The
   request carried an empty suffix, on the reasoning that nothing follows the caret

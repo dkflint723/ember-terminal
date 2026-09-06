@@ -68,10 +68,24 @@ const run = async (command, timeoutMs = 60_000) => {
   await page.keyboard.type(command, { delay: 4 })
   await page.keyboard.press('Enter')
   const deadline = Date.now() + timeoutMs
+  let finished = false
   while (Date.now() < deadline) {
     await sleep(500)
-    if ((await page.locator('.block--running').count()) === 0) break
+    if ((await page.locator('.block--running').count()) === 0) {
+      finished = true
+      break
+    }
   }
+  /*
+   * Say when the wait ran out, rather than reading the block anyway.
+   *
+   * A block is filled at its end marker, so one still running has an empty body —
+   * and reading it here reported "no output" against every check downstream, which
+   * reads exactly like a capture that lost everything. It had lost nothing; the
+   * machine was busy and the command had not finished. A timeout is worth knowing
+   * about under its own name.
+   */
+  if (!finished) failures.push(`command never finished within ${timeoutMs}ms: ${command}`)
   await sleep(700)
   return page.evaluate(
     () => document.querySelectorAll('.block')[document.querySelectorAll('.block').length - 1]
@@ -166,10 +180,36 @@ check('and its end', long.includes('TAIL'), long.slice(-60))
 
 // --- more lines than the old scrollback --------------------------------------
 const many = await run('1..6000 | ForEach-Object { "line $_" }', 120_000)
-// textContent runs the rows together, so the first line is a prefix rather than a
-// line of its own.
-check('a long command keeps its first line', many.trimStart().startsWith('line 1'), many.slice(0, 80))
+/*
+ * Two lines, not one.
+ *
+ * textContent runs the rows together, so this reads the first line and the start
+ * of the second — and the second line is the half that tests anything. "line 1"
+ * on its own is a prefix of line 1000 through line 1999, so a block that had lost
+ * its first thousand lines satisfied this check whenever the survivor happened to
+ * land in that band. It usually did: the check passed on output that was a third
+ * gone, and failed only on the runs that lost the most.
+ */
+check(
+  'a long command keeps its first line',
+  many.trimStart().startsWith('line 1line 2'),
+  many.slice(0, 80)
+)
 check('and its last', many.includes('line 6000'), many.slice(-80))
+/*
+ * And every line between them, which is where a repaint does its damage: replayed
+ * into a terminal of the wrong height it overwrites a screenful somewhere in the
+ * interior and the stream carries on from there, taking out a few hundred lines
+ * while leaving both ends of the block perfectly intact.
+ */
+const seen = (many.match(/line (\d+)/g) ?? []).map((t) => Number(t.slice(5)))
+const firstGap = seen.findIndex((n, i) => n !== i + 1)
+check(
+  'and every line in between',
+  seen.length === 6000 && firstGap === -1,
+  `${seen.length} lines, first ${seen[0]}, last ${seen.at(-1)}` +
+    (firstGap === -1 ? '' : `, breaks at ${seen[firstGap]}`)
+)
 
 // --- output belongs to the block that produced it ------------------------------
 // A marker unique to this command: if a repaint dragged an earlier command's

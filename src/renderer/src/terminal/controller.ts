@@ -337,12 +337,18 @@ export class TerminalController {
    * terminal paints earlier commands' text over this block's real output. Blocks
    * ended up showing lines that belonged to something run minutes ago.
    *
-   * Home-and-erase is the giveaway: nothing a normal command prints moves the
-   * cursor to the top of the screen and clears it. Everything before it in this
-   * capture was overpainted on the real screen too, so the capture is restarted
-   * from that point, which is what the user actually saw.
+   * Home-and-erase is the giveaway, and the erase is the half that carries it.
+   * This pattern used to accept a bare cursor-home as well — and conpty sends one
+   * every time it redraws its viewport during a long scroll: home, then the rows
+   * it has already streamed, each closed with an erase-to-end-of-line. So any
+   * command long enough to scroll threw away everything before its last redraw.
+   * Six thousand lines came back beginning at line two thousand, having been sent
+   * in full.
+   *
+   * Nothing before an erase survived on the real screen, so restarting there is
+   * what the user actually saw. Nothing before a bare home was touched.
    */
-  private static readonly REPAINT = /\x1b\[(?:H|1;1H|2J|3J)/g
+  private static readonly REPAINT = /\x1b\[[23]J|\x1b\[(?:H|1;1H)\x1b\[[0-3]?J/g
 
   private appendCapture(chunk: string): void {
     if (chunk.length === 0) return
@@ -475,7 +481,20 @@ export class TerminalController {
     if (bytes.trim().length === 0) return ''
 
     this.renderTerm.reset()
-    this.renderTerm.resize(Math.max(this.term.cols, 20), this.renderTerm.rows)
+    /*
+     * The same shape as the screen these bytes were written for.
+     *
+     * Conpty addresses the screen absolutely: it repaints its viewport with a
+     * cursor-home and a run of lines, and it names the row to return to by number.
+     * Replaying that into a terminal of a different height puts every one of those
+     * moves somewhere else. This one matched the live terminal's columns and kept
+     * its own two hundred rows, so a fourteen-row repaint landed across fourteen
+     * rows in the middle of the output and the stream carried on overwriting from
+     * there — and when the repaint arrived before the screen had scrolled at all,
+     * it overwrote the whole of the output so far. Rows follow the live terminal
+     * now, for the same reason columns always did.
+     */
+    this.renderTerm.resize(Math.max(this.term.cols, 20), Math.max(this.term.rows, 2))
 
     await new Promise<void>((resolve) => this.renderTerm.write(bytes, resolve))
 
@@ -590,8 +609,22 @@ export class TerminalController {
        */
       let cut = output.indexOf('<div', from)
       if (cut < 0) cut = output.indexOf('<', from)
+      /*
+       * Only point at history when history actually has it.
+       *
+       * This cut is the second one a very long command can meet: the capture
+       * itself is bounded, and when that bound was reached the render already says
+       * so on the first row. History is written from this same output, so if the
+       * start was gone before it got here it is not in history either — and this
+       * line replaces that first row, so it would quietly upgrade "not kept" into
+       * "go and look it up". Two different losses, and only one of them is
+       * recoverable.
+       */
+      const lostAlready = output.startsWith('<div class="row"><span class="block__elided">')
       output =
-        '<div class="row">… earlier output trimmed — the full text is in history (Ctrl+R) …</div>' +
+        (lostAlready
+          ? '<div class="row"><span class="block__elided">… earlier output not kept</span></div>'
+          : '<div class="row">… earlier output trimmed — the full text is in history (Ctrl+R) …</div>') +
         (cut > 0 ? output.slice(cut) : output)
     }
 
