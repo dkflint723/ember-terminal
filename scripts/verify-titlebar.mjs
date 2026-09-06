@@ -219,6 +219,60 @@ check(
 )
 
 /*
+ * --- the bar stops saying what the palette is about to say ----------------------
+ *
+ * The label was, word for word, the placeholder of the input it opens — a sentence
+ * whose only reader is somebody who has not pressed it yet, replaced on screen by
+ * itself the instant they do. In an app whose whole hint system is built on
+ * retiring legends, that one was news for zero seconds.
+ *
+ * And the thing it could say that IS news, it could not: the everything-search had
+ * no chord at all. It was reachable from one mouse target in an app otherwise
+ * driven from the keyboard, while files and commands both had one.
+ */
+const searchLabel = await page.evaluate(() => {
+  const box = document.querySelector('.titlebar__searchbox')
+  return {
+    text: box?.textContent?.trim() ?? '',
+    shortcut: box?.getAttribute('aria-keyshortcuts') ?? null,
+    cap: box?.querySelector('kbd')?.textContent?.trim() ?? null
+  }
+})
+check(
+  'the bar does not repeat the palette placeholder',
+  !searchLabel.text.includes('Search sessions, files, commands'),
+  JSON.stringify(searchLabel)
+)
+check('and names the chord instead', searchLabel.cap === 'Ctrl+Shift+O', JSON.stringify(searchLabel))
+check(
+  'and says so to a screen reader as well',
+  searchLabel.shortcut === 'Control+Shift+O',
+  JSON.stringify(searchLabel)
+)
+
+/*
+ * And the chord opens it. A label naming a key that does nothing is worse than the
+ * placeholder it replaced.
+ */
+await page.keyboard.press('Control+Shift+O')
+await sleep(900)
+check(
+  'the chord opens the everything-search',
+  (await page.locator('.qp').count()) > 0,
+  `${await page.locator('.qp').count()} palettes open`
+)
+await page.keyboard.press('Escape')
+await sleep(500)
+/*
+ * And the cap retires, because it is a legend like every other in this app: the
+ * chord that has just been pressed no longer needs advertising.
+ */
+const capAfter = await page.evaluate(
+  () => document.querySelector('.titlebar__searchbox kbd')?.textContent ?? null
+)
+check('and the cap goes once the chord has been used', capAfter === null, String(capAfter))
+
+/*
  * --- a toggle says whether it is on, and keeps saying it under the pointer ------
  *
  * The panel toggle's whole pressed indicator was `color: var(--fg)` — the one

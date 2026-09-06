@@ -14,6 +14,7 @@ export function TitleBar(): React.JSX.Element {
   const sidebarOpen = useStore((s) => s.sidebarOpen)
   const panelOpen = useStore((s) => s.panelOpen)
   const openPalette = useStore((s) => s.openPalette)
+  const knowsSearch = useStore((s) => s.settings.learnedChords).includes('palette.global')
 
   const [maximized, setMaximized] = useState(false)
   useEffect(() => window.ember.onWindowState((s) => setMaximized(s.maximized)), [])
@@ -80,13 +81,23 @@ export function TitleBar(): React.JSX.Element {
         <button
           className="titlebar__searchbox"
           aria-label="Search sessions, files and commands"
+          aria-keyshortcuts="Control+Shift+O"
           onClick={() => openPalette('global')}
         >
           <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
             <circle cx="6.8" cy="6.8" r="4.2" fill="none" stroke="currentColor" strokeWidth="1.4" />
             <path d="M10 10l3.6 3.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
-          <span>Search sessions, files, commands…</span>
+          {/*
+            The label used to be, word for word, the placeholder of the input it
+            opens — a sentence whose only reader is somebody who has not pressed it
+            yet, replaced on screen by itself the instant they do. What the palette
+            cannot say is where its chord is, so that is what stands here, and it
+            goes the first time the chord is pressed. Every chord that runs is
+            already recorded; nothing new is needed to notice.
+          */}
+          <span>Search everything</span>
+          {!knowsSearch && <kbd>Ctrl+Shift+O</kbd>}
         </button>
       </div>
 

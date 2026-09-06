@@ -354,6 +354,24 @@ export const COMMANDS: Command[] = [
     run: ({ s }) => s.showSidebarView('search')
   },
   {
+    /*
+     * The everything-search had no chord at all.
+     *
+     * `openPalette('global')` was reachable from exactly one mouse target, in an
+     * app that is otherwise driven from the keyboard — and the registry already
+     * binds Ctrl+P for files and Ctrl+Shift+P for commands, so the merged one was
+     * the only door with no key. Nothing wanted Ctrl+Shift+O.
+     */
+    id: 'palette.global',
+    label: 'Search everything',
+    chord: 'Ctrl+Shift+O',
+    // A block body, not an expression: this must never return false and hand the
+    // keystroke on the way Ctrl+F does to Monaco's own find.
+    run: ({ s }) => {
+      s.openPalette('global')
+    }
+  },
+  {
     id: 'palette.files',
     label: 'Go to file',
     chord: 'Ctrl+P',

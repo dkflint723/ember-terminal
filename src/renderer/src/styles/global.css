@@ -818,6 +818,13 @@ button {
   text-overflow: ellipsis;
 }
 
+/* The chord sits at the far end of the door it opens, and takes the box's own size,
+   because a cap is a word in the sentence it stands in. */
+.titlebar__searchbox kbd {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
 
 .caption-btn {
   display: grid;
@@ -1586,12 +1593,10 @@ button {
   margin: 3px 0;
 }
 
+/* The welcome list's caps carry a fill, because there they are the subject of the
+   line rather than an aside in it. The size, the face and the corner are the cap's
+   own, stated once, above. */
 .pane__hello-list kbd {
-  font-family: var(--mono);
-  font-size: 10px;
-  padding: 1px 4px;
-  border: 1px solid var(--border-strong);
-  border-radius: 3px;
   background: color-mix(in srgb, var(--bg) 70%, transparent);
 }
 
@@ -2620,10 +2625,10 @@ button {
  * broke instead — leaving "ask" beside its keys and "Claude" stranded on the line
  * below, which reads as two hints rather than one.
  */
+/* This rule was always about the shape of the row rather than the mark in it, and
+   that is now all it says. */
 .composer__hint kbd {
   padding: 0 4px;
-  font-family: var(--mono);
-  font-size: 9.5px;
 }
 
 .composer__hint {
@@ -2651,7 +2656,17 @@ button {
    bevel is the one thing in this app that was pretending to be physical. */
 kbd {
   font-family: var(--ui);
-  font-size: 11px;
+  /*
+   * And it takes no size of its own.
+   *
+   * One mark was drawn four ways — 11px in the interface face here, 10px mono in
+   * the welcome list, 9.5px mono in the composer's legend (the file's only value
+   * under ten, and its only singleton), and a plain inherited 11px in an empty
+   * region — because every legend that wanted a cap picked one. A cap is a word in
+   * the sentence it stands in, so it is that sentence's size and there is nothing
+   * left to choose.
+   */
+  font-size: inherit;
   padding: 1px 4px;
   border: 1px solid var(--border-strong);
   border-radius: 5px;
@@ -3309,9 +3324,10 @@ label.field__check {
   flex: 0 0 auto;
 }
 
-.editor__actions .block__action {
-  font-size: 10.5px;
-}
+/* `.editor__actions .block__action { font-size: 10.5px }` stood here: three
+   lines and no comment, shrinking a button because it had moved into a different
+   bar. If a bar wants less height it should say so in its padding, which is where
+   that is what it means. */
 
 .editor__actions .editor__lang {
   /* Read by four suites and the IDE bridge; shown to people by the status chip.
@@ -3508,11 +3524,12 @@ label.field__check {
 
 /* Files speak mono like their contents; directories keep the UI face. The twisty
    is what tells them apart — only a directory has anything to unfold. */
+/* The face was the distinction and always was. The half pixel that rode along
+   with it bought about four per cent of width and paid the height it cost straight
+   back in a taller padding — which is how one list came to hold two sizes to end up
+   the same height. */
 .tree__row:has(.tree__twisty:empty) {
   font-family: var(--mono);
-  font-size: 11.5px;
-  padding-top: 5px;
-  padding-bottom: 5px;
 }
 
 .tree__row:hover {
