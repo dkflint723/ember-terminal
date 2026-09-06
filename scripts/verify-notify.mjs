@@ -46,6 +46,29 @@ await app.evaluate(({ Notification }) => {
 })
 const shown = () => app.evaluate(() => globalThis.__shown)
 
+/*
+ * The notifications raised so far, waited for rather than slept toward.
+ *
+ * A command finishing and its notification appearing are two events, and the
+ * second is raised by main after the first. A fixed wait between them is enough on
+ * an idle machine and not always enough in a full sweep — this suite failed the
+ * gate reporting one notification where two were expected, from a second one that
+ * was merely late.
+ *
+ * Only for the checks that expect something to arrive. Absence cannot be polled
+ * for, so the checks that assert nothing was raised keep their flat wait: there,
+ * waiting longer is the point rather than the cost.
+ */
+const shownAtLeast = async (n, ms = 15_000) => {
+  const deadline = Date.now() + ms
+  let seen = await shown()
+  while (seen.length < n && Date.now() < deadline) {
+    await sleep(250)
+    seen = await shown()
+  }
+  return seen
+}
+
 const supported = await page.evaluate(() => window.ember.notificationsSupported())
 check('the platform supports notifications', supported === true, String(supported))
 
@@ -121,8 +144,7 @@ check('a long command says nothing while focused', (await shown()).length === 0,
 
 // --- long, and the user is elsewhere: the case this exists for --------------
 await run('Start-Sleep -Seconds 3', { away: true })
-await sleep(1200)
-const raised = await shown()
+const raised = await shownAtLeast(1)
 check('a long command in the background notifies', raised.length === 1, JSON.stringify(raised))
 if (raised.length === 1) {
   check('it says how long it took', /Finished in \d/.test(raised[0].title), raised[0].title)
@@ -133,15 +155,18 @@ if (raised.length === 1) {
 // Not `exit 1`, which in PowerShell exits the shell itself rather than the
 // command — the pane would be dead for every check after this one.
 await run('Start-Sleep -Seconds 3; cmd-that-does-not-exist-xyz', { away: true })
-await sleep(1200)
-const all = await shown()
+const all = await shownAtLeast(2)
 check('a failing command notifies too', all.length === 2, `${all.length} shown`)
 if (all.length === 2) check('and says it failed', /^Failed after/.test(all[1].title), all[1].title)
 
 // --- zero turns it off -------------------------------------------------------
 await setThreshold(0)
 await run('Start-Sleep -Seconds 3', { away: true })
-await sleep(1200)
+/*
+ * Still a flat wait, and deliberately: this asserts that NOTHING new arrived, and
+ * the only way to be wrong about that is not to have waited long enough.
+ */
+await sleep(2500)
 check('zero disables it', (await shown()).length === 2, `${(await shown()).length} shown`)
 
 await foreground()
