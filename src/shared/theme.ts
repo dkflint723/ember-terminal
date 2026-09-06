@@ -379,12 +379,31 @@ export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
   const cardTop = dark ? mix(hover, card, 0.7) : mix('#ffffff', card, 0.9)
   const cardBottom = dark ? mix(bg, card, 0.55) : mix(hover, card, 0.65)
 
+  /*
+   * The ceiling: the ramp's first pixel, and the reason the brightest row in the
+   * window used to be row forty-one.
+   *
+   * The title bar sits outside `.workspace` on a flat ninety-per-cent chrome fill,
+   * and that fill composites DARKER than `grad-top` on every theme this app ships
+   * — 2.1x on Ember Dark, 2.4x on Tidewater, and on all three light themes too. So
+   * the ground's brightest row was the workspace's first, the forty pixels above it
+   * read as a lid, and the seam under them read as a slot of light. One light
+   * source, above, means the ground starts at pixel one.
+   *
+   * Between `grad-top` and `card-top`, which is what makes it free rather than
+   * hoped: both are already in `surfaces`, and contrast against a fixed foreground
+   * is monotonic in a surface's luminance — so a surface lying between two that are
+   * already measured can never be the one that binds `readable()`.
+   */
+  const gradCrown = mix(cardTop, gradTop, 0.55)
+
   const surfaces = [
     bg,
     chrome,
     elevated,
     hover,
     mix(fg, bg, dark ? 0.03 : 0.02),
+    gradCrown,
     gradTop,
     gradBottom,
     card,
@@ -438,6 +457,7 @@ export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
      * foreground, because mixing a dark foreground into a light base only makes
      * mud.
      */
+    'grad-crown': gradCrown,
     'grad-top': gradTop,
     'grad-bottom': gradBottom,
     card,

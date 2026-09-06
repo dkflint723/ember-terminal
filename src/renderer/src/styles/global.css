@@ -42,6 +42,7 @@
    * declaration invalid at computed-value time, so for the first frames the window
    * had no ground and the composer had no fill. The one thing the block is for.
    */
+  --grad-crown: #232323;
   --grad-top: #1d1d1d;
   --grad-bottom: #060606;
   --card: #252525;
@@ -128,8 +129,27 @@ button {
      what makes the top corner of a maximized window close it rather than start
      dragging it. The gap on the left is the bar's own. */
   padding: 0 0 0 10px;
-  background: color-mix(in srgb, var(--bg-chrome) 90%, transparent);
-  border-bottom: 1px solid var(--card-border);
+  /*
+   * The top of the one ground, not a lid on it.
+   *
+   * This used to be a flat chrome fill, and it composited darker than the ramp
+   * below it on all ten themes — so the brightest row in an Ember window was the
+   * workspace's first, these forty pixels read as a lid, and the seam under them
+   * read as a slot of light. The ramp starts here now and hands off at exactly the
+   * colour the first row below the seam is painted, so the two are continuous. The
+   * bar is chrome rather than an object, so it is not lit as a face: no rim, no
+   * cast edge, only the ground's own ceiling.
+   *
+   * The `border-bottom: 1px solid var(--card-border)` that stood here is gone. It
+   * had never rendered — the same selector 771 lines further down sets
+   * `var(--border)` and wins — so anyone editing this line to change the seam
+   * watched nothing happen. The duplicate is resolved toward the one that ships:
+   * `--card-border` is an ungated mix that would draw the seam at 1.19-1.39:1
+   * against the row beneath it, where `--border` is gated to 3:1 and draws it at
+   * 3.30-3.97. With the crown in place that seam is the only thing separating
+   * chrome from content, so it has to be the one you can see.
+   */
+  background: linear-gradient(180deg, var(--grad-crown) 0%, var(--grad-top) 100%);
   flex: 0 0 auto;
   /* Everything in the title bar drags the window except explicit controls. */
   -webkit-app-region: drag;

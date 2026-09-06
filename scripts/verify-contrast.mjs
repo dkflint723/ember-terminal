@@ -119,6 +119,7 @@ for (const name of fs.readdirSync(THEMES).filter((f) => f.endsWith('.json'))) {
     })
     return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2]
   }
+  const crown = lum(v['grad-crown'])
   const top = lum(v['grad-top'])
   const mid = lum(v.bg)
   const foot = lum(v['grad-bottom'])
@@ -126,6 +127,21 @@ for (const name of fs.readdirSync(THEMES).filter((f) => f.endsWith('.json'))) {
     `${theme.name}: the ground is lit from above`,
     top > mid && mid > foot,
     `top ${top.toFixed(4)} (${v['grad-top']}), base ${mid.toFixed(4)} (${v.bg}), foot ${foot.toFixed(4)} (${v['grad-bottom']})`
+  )
+  /*
+   * And it descends from the window's FIRST pixel, not from the workspace's.
+   *
+   * The title bar sits outside the workspace and used to carry a flat chrome fill,
+   * which composited darker than the ramp beneath it on all ten themes — so the
+   * brightest row in the window was row forty-one, those forty pixels read as a
+   * lid, and the seam under them read as a slot of light. The descent check above
+   * started below the bar, so the one band that inverted the ramp was the one band
+   * nothing measured.
+   */
+  check(
+    `${theme.name}: and it starts at the window's first pixel`,
+    crown > top,
+    `crown ${crown.toFixed(4)} (${v['grad-crown']}) vs top ${top.toFixed(4)} (${v['grad-top']})`
   )
 
   /*
