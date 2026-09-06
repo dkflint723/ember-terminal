@@ -130,30 +130,86 @@ export async function resolveProposal(
     pending.settle({ __content: [{ type: 'text', text: 'DIFF_REJECTED' }] })
   } else if (diff) {
     const target = diff.proposal?.targetPath ?? diff.filePath
-    const written = await window.ember.writeFile(target, diff.modified)
-    if (!written.ok) {
-      // Report the failure rather than claiming a save that did not happen — the
-      // CLI would otherwise carry on believing the file is on disk as proposed.
-      pending.settle({ success: false, message: written.error })
-      return
-    }
-    /*
-     * Tell any editor showing that file what just happened to it.
-     *
-     * Without this the file changed on disk while a tab went on holding the old
-     * text and still believing it matched — so the user's next save wrote the old
-     * text back and silently undid the change they had just accepted. Accepting a
-     * diff and then losing it to an ordinary Ctrl+S is about the worst outcome this
-     * integration could have.
-     */
-    await reconcileAcceptedDiff(target, diff.modified)
 
-    pending.settle({
-      __content: [
-        { type: 'text', text: 'FILE_SAVED' },
-        { type: 'text', text: diff.modified }
-      ]
-    })
+    /*
+     * What is on disk NOW, not what was on disk when the diff was opened.
+     *
+     * A proposal pane is a frozen snapshot: the left-hand side is read once when
+     * the diff opens, nothing watches the file afterwards, and the pane is
+     * deliberately read-only. The wait is unbounded — a local proposal settles
+     * nothing, so it can sit there while the user does anything at all — and the
+     * file stays writable by everything the whole time: their own Ctrl+S, a
+     * formatter, a `git checkout` in the terminal below, a second Claude session.
+     *
+     * Accepting then wrote the proposed text with no read-back, so whatever had
+     * arrived in the meantime was gone, and `reconcileAcceptedDiff` finished the
+     * job by pushing the same text over the open buffer — which held the newer
+     * content and looked unmodified, because it was saved. No dialog, no dirty
+     * marker, and the CLI told "FILE_SAVED".
+     *
+     * This is the rule `editor/synced.ts` already states for buffers — a model can
+     * be older than the file, and writing it back loses the newer version — applied
+     * to the one place that had no such guard in front of it.
+     */
+    const now = await window.ember.readFile(target)
+    const nowText = now.ok ? now.content : ''
+    if (nowText !== diff.original) {
+      /*
+       * Refused rather than merged. Ember cannot know which of the two is wanted,
+       * and the one thing it must not do is choose silently — so the CLI is told
+       * why in words it can act on by reading the file again and proposing against
+       * what is actually there, and the person who pressed the button is told too.
+       */
+      pending.settle({
+        success: false,
+        message:
+          `${target} changed on disk after this diff was opened, so it was not ` +
+          'overwritten. Read the file again and propose against its current contents.'
+      })
+      useStore
+        .getState()
+        .setNotice(
+          'That file changed on disk while the proposal was waiting, so it was not applied.',
+          'error'
+        )
+    } else {
+      const written = await window.ember.writeFile(target, diff.modified)
+      if (!written.ok) {
+        /*
+         * Report the failure rather than claiming a save that did not happen — the
+         * CLI would otherwise carry on believing the file is on disk as proposed.
+         *
+         * And say it where the person is, not only down the wire. They pressed
+         * Accept; the answer went to the model and nothing on screen said the file
+         * had not been written, so a read-only file, one locked by another process,
+         * or a missing parent directory looked exactly like success. For a proposal
+         * raised in the agent panel there is no wire at all — its `settle` is a
+         * no-op — so this notice was the only possible account of it.
+         */
+        pending.settle({ success: false, message: written.error })
+        useStore
+          .getState()
+          .setNotice(`That change could not be written — ${written.error}`, 'error')
+      } else {
+        /*
+         * Tell any editor showing that file what just happened to it.
+         *
+         * Without this the file changed on disk while a tab went on holding the old
+         * text and still believing it matched — so the user's next save wrote the old
+         * text back and silently undid the change they had just accepted. Accepting a
+         * diff and then losing it to an ordinary Ctrl+S is about the worst outcome this
+         * integration could have.
+         */
+        await reconcileAcceptedDiff(target, diff.modified)
+
+        pending.settle({
+          __content: [
+            { type: 'text', text: 'FILE_SAVED' },
+            { type: 'text', text: diff.modified }
+          ]
+        })
+      }
+    }
   }
 
   // The pane has served its purpose either way; leaving it would accumulate one

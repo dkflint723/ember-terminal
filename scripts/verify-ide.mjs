@@ -208,6 +208,84 @@ check('accept wrote the file', fs.readFileSync(target, 'utf8') === ACCEPTED)
 await sleep(800)
 check('proposal pane closed after a verdict', (await page.locator('.pane.diff').count()) === 0)
 
+/*
+ * --- an accept applied to a file that moved underneath it -----------------------
+ *
+ * A proposal pane is a frozen snapshot. The left-hand side is read once when the
+ * diff opens, nothing watches the file afterwards, the pane is read-only, and a
+ * local proposal settles nothing — so the wait is unbounded while the file stays
+ * writable by everything: the user's own Ctrl+S, a formatter, a `git checkout` in
+ * the terminal below, a second Claude session.
+ *
+ * Accepting then wrote the proposed text with no read-back, so whatever had arrived
+ * in the meantime was gone — and the reconcile that follows pushed the same text
+ * over the open buffer, which held the newer content and looked unmodified because
+ * it had been saved. No dialog, no dirty marker, and the CLI told "FILE_SAVED".
+ *
+ * The load-bearing assertion is the bytes on disk. MOVED is distinct from both the
+ * original and the proposal, so it cannot pass by accident, and any correct answer
+ * satisfies it.
+ */
+const MOVED = 'export function greet(name: string): string {\n  return "HELLO " + name\n}\n'
+const STALE = 'export function greet(name: string): string {\n  return `hey ${name}`\n}\n'
+fs.writeFileSync(target, ORIGINAL, 'utf8')
+
+const stale = client.start('openDiff', {
+  old_file_path: target,
+  new_file_path: target,
+  new_file_contents: STALE,
+  tab_name: '\u273b greet.ts (stale)'
+})
+await page.waitForSelector('.diff__accept', { timeout: 15_000 })
+await sleep(900)
+
+// The intervening edit, made while the proposal waits — which is the whole point.
+fs.writeFileSync(target, MOVED, 'utf8')
+await sleep(400)
+await page.locator('.diff__accept').first().click()
+const staleReply = await stale
+await sleep(1200)
+
+check(
+  'an accept does not discard an edit made while it waited',
+  fs.readFileSync(target, 'utf8') === MOVED,
+  JSON.stringify(fs.readFileSync(target, 'utf8')).slice(0, 100)
+)
+/*
+ * And the CLI is told why, in words it can act on: re-read and propose again. A
+ * refusal it cannot interpret leaves the model believing the edit landed.
+ */
+check(
+  'the CLI is told the file changed rather than that it was saved',
+  staleReply.result?.content?.[0]?.text !== 'FILE_SAVED' &&
+    /changed on disk/i.test(JSON.stringify(staleReply.result ?? staleReply)),
+  JSON.stringify(staleReply).slice(0, 200)
+)
+// And the person who pressed the button hears about it too.
+const staleNotice = await page.evaluate(
+  () => document.querySelector('.notice')?.textContent?.trim() ?? ''
+)
+check(
+  'and so is the person who pressed Accept',
+  /changed on disk/i.test(staleNotice),
+  JSON.stringify(staleNotice)
+)
+/*
+ * And the pane goes, rather than being left with dead buttons.
+ *
+ * The old failure branch returned early and skipped the close, so a proposal that
+ * could not be applied left a pane whose Accept and Reject were both inert — the
+ * map entry that resolves them had already been deleted — and whose close button is
+ * deliberately withheld while a proposal is pending. The only way out was a chord
+ * that closes the focused pane. Every outcome falls through to the close now.
+ */
+check(
+  'a refused proposal does not strand its pane',
+  (await page.locator('.pane.diff').count()) === 0,
+  `${await page.locator('.pane.diff').count()} diff panes left`
+)
+
+
 // --- the real CLI, opt-in ---------------------------------------------------
 // Off by default. It needs the Claude Code binary installed and signed in, and an
 // unauthenticated one starts a browser sign-in flow — not something a verification
