@@ -125,7 +125,23 @@ const onRequest = (req) => {
       }))
       bpByPath.set(source.replace(/\\/g, '/').toLowerCase(), asked)
       say(`bp-sent:${path.basename(source)}:${JSON.stringify(asked)}`)
-      respond(req, { breakpoints: asked.map((b) => ({ verified: true, line: b.line })) })
+      /*
+       * Optionally slow, so a test can act during the round trip.
+       *
+       * The startup handshake sends one setBreakpoints per file and awaits each of
+       * them, and the defect this seam exists for lives in that gap: a breakpoint
+       * added while an earlier file is still in flight. A real adapter takes long
+       * enough for a person to click a margin; this one answers instantly except
+       * for the one file a fixture names to be slow.
+       */
+      // Named, not switched: the environment is fixed when Ember launches, and a
+      // global delay would slow every other check in the suite. A file the fixture
+      // calls `slow-*` is the one that dawdles.
+      const slow = path.basename(source).startsWith('slow-') ? 1500 : 0
+      const answer = () =>
+        respond(req, { breakpoints: asked.map((b) => ({ verified: true, line: b.line })) })
+      if (slow > 0) setTimeout(answer, slow)
+      else answer()
       return
     }
     case 'setExceptionBreakpoints':

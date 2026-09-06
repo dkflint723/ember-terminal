@@ -39,6 +39,9 @@ const programFile = path.join(dir, 'app.fake')
 fs.writeFileSync(programFile, 'line one\nline two\nline three\nline four\n', 'utf8')
 fs.writeFileSync(path.join(dir, 'crash.fake'), 'a\nb\nc\nthrows-late here\n', 'utf8')
 fs.writeFileSync(path.join(dir, 'spin.fake'), 'hang-forever\n', 'utf8')
+// Named `slow-` so the fake adapter takes its time answering setBreakpoints for
+// it, which is the window the startup race below needs.
+fs.writeFileSync(path.join(dir, 'slow-first.fake'), 'w\nx\ny\nz\n', 'utf8')
 fs.mkdirSync(path.join(dir, '.vscode'))
 fs.writeFileSync(
   path.join(dir, '.vscode', 'launch.json'),
@@ -378,6 +381,81 @@ await sleep(800)
 await page.locator('.dbg-breakpoint').click({ force: true })
 await sleep(500)
 check('clicking the dot removes the breakpoint', (await page.locator('.dbg-breakpoint').count()) === 0)
+
+/*
+ * --- a breakpoint set while the debugger is still starting --------------------
+ *
+ * Startup sends one setBreakpoints per file and awaits each of them. The list for
+ * every file used to be captured before the first of those round trips, while the
+ * version the staleness guard compares was read per file, later — so a breakpoint
+ * added during an EARLIER file's flight bumped its file's version before the guard
+ * sampled it. The guard then compared a number with itself, passed, and the merge,
+ * which is a full replacement, wrote the pre-click list back over the store.
+ *
+ * The line vanished from the store, from the gutter that repaints off it, and from
+ * the adapter. The merge does not bump the version and the click's own debounce had
+ * already fired, so nothing resent it: gone for good, in the seconds when somebody
+ * is most likely to be setting one.
+ *
+ * The order is the whole fixture, and the first version of this check had it wrong.
+ * `app.fake` has held a breakpoint since early in this suite, so it is sent first
+ * and answers instantly — a click during ITS flight lands after it is already sent
+ * and clobbers nothing. The file that dawdles has to come between: the fake adapter
+ * takes its time over a file named `slow-`, and over nothing else, so every other
+ * check here runs at its old speed. Store order is insertion order, so the loop
+ * runs app.fake, then slow-first.fake, then crash.fake — and the click goes into
+ * crash.fake while slow-first.fake is still in the air.
+ */
+const openForRace = async (name) => {
+  await page.keyboard.press('Control+P')
+  await sleep(700)
+  await page.keyboard.type(name, { delay: 25 })
+  await page.waitForFunction(() => document.querySelectorAll('.qp__label').length > 0, {
+    timeout: 20_000
+  })
+  await sleep(400)
+  await page.keyboard.press('Enter')
+  await page.waitForSelector('.monaco-editor', { timeout: 20_000 })
+  await sleep(1200)
+}
+
+await openForRace('slow-first.fake')
+await page.click('.pane.editor .view-lines')
+await page.keyboard.press('Control+Home')
+await sleep(200)
+await page.keyboard.press('F9')
+await sleep(700)
+
+await openForRace('crash.fake')
+await page.click('.pane.editor .view-lines')
+await page.keyboard.press('Control+Home')
+await sleep(200)
+await page.keyboard.press('F9')
+await sleep(700)
+const beforeRace = await page.locator('.dbg-breakpoint').count()
+check('the race fixture starts with a breakpoint to lose', beforeRace >= 1, `${beforeRace}`)
+
+// Start a session, then click a margin while slow-first.fake is still in flight.
+await page.keyboard.press('F5')
+await sleep(700)
+await page.click('.pane.editor .view-lines')
+await page.keyboard.press('Control+Home')
+await page.keyboard.press('ArrowDown')
+await page.keyboard.press('ArrowDown')
+await sleep(150)
+await page.keyboard.press('F9')
+
+// Long enough for the slow file to answer and the loop to reach this one.
+await sleep(7000)
+const afterRace = await page.locator('.dbg-breakpoint').count()
+check(
+  'a breakpoint set while the debugger is starting is not erased by it',
+  afterRace === beforeRace + 1,
+  `${beforeRace} before, ${afterRace} after`
+)
+
+await page.keyboard.press('Shift+F5')
+await sleep(1500)
 
 /*
  * --- quitting lets go of the debuggee rather than killing the adapter over it ---

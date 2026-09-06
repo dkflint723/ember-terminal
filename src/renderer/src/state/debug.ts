@@ -162,9 +162,15 @@ const request = (
 
 /** Tell one session about every breakpoint and exception choice this window holds. */
 async function sendAllBreakpoints(sessionId: string): Promise<void> {
-  for (const file of Object.values(useDebugStore.getState().breakpoints)) {
-    await sendFileBreakpoints(sessionId, file)
-  }
+  /*
+   * Paths, not the breakpoint lists themselves.
+   *
+   * This loop awaits a full round trip per file, and a list taken before the first
+   * of them is a statement about a file the user may have clicked in since — a
+   * debugger takes a moment to come up, and the margin is right there.
+   */
+  const paths = Object.values(useDebugStore.getState().breakpoints).map((f) => f.path)
+  for (const path of paths) await sendFileBreakpoints(sessionId, path)
   await sendExceptionFilters(sessionId)
 }
 
@@ -179,12 +185,28 @@ const bumpVersion = (key: string): void => {
   breakpointVersions.set(key, (breakpointVersions.get(key) ?? 0) + 1)
 }
 
-async function sendFileBreakpoints(sessionId: string, file: FileBreakpoints): Promise<void> {
-  const key = fileKey(file.path)
+async function sendFileBreakpoints(sessionId: string, filePath: string): Promise<void> {
+  const key = fileKey(filePath)
+  /*
+   * The lines and the version they belong to are read together, in one turn.
+   *
+   * The guard below drops a reply if the version moved during the round trip, and
+   * that is only sound if the version was sampled at the same instant as the lines
+   * it vouches for. They used to come from different places: the caller captured
+   * the list, the callee read the version afterwards. A breakpoint added while an
+   * earlier file was still in flight therefore bumped the version BEFORE this line
+   * ran — so the guard compared a number with itself, passed, and the merge below,
+   * which is a full replacement, wrote the list from before the click back over the
+   * store. The line vanished from the store, from the gutter that repaints off it,
+   * and from the adapter. The merge does not bump the version and the click's own
+   * debounce had already fired, so nothing ever resent it. It was gone for good.
+   */
+  const held = useDebugStore.getState().breakpoints[key]
+  const sent = held?.lines ?? []
+  const path = held?.path ?? filePath
   const versionAtSend = breakpointVersions.get(key) ?? 0
-  const sent = file.lines
   const res = await request(sessionId, 'setBreakpoints', {
-    source: { path: file.path },
+    source: { path },
     breakpoints: sent.map((l) => ({
       line: l.line,
       ...(l.condition ? { condition: l.condition } : {}),
@@ -238,9 +260,8 @@ function scheduleResend(filePath: string): void {
     key,
     window.setTimeout(() => {
       resendTimers.delete(key)
-      const file = useDebugStore.getState().breakpoints[key] ?? { path: filePath, lines: [] }
       for (const sessionId of useDebugStore.getState().sessions) {
-        void sendFileBreakpoints(sessionId, file)
+        void sendFileBreakpoints(sessionId, filePath)
       }
     }, 250)
   )
