@@ -240,22 +240,22 @@ button {
   place-items: center;
   width: 26px;
   height: 24px;
+  /* Reserved rather than added when pressed, so the box does not jump the moment
+     it starts saying something. */
+  border: 1px solid transparent;
   border-radius: 6px;
   color: var(--fg-faint);
   background: none;
-  border: none;
   cursor: pointer;
 }
 
-.titlebar__split:hover:not(:disabled) {
+.titlebar__split:hover {
   background: var(--bg-hover);
   color: var(--fg);
 }
 
-.titlebar__split:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
+/* `.titlebar__split:disabled` stood here. Nothing has ever set `disabled` on that
+   button — the guard in `togglePanel` replaced it — so it styled nothing. */
 
 /*
  * The terminal/IDE switch.
@@ -729,7 +729,8 @@ button {
   width: 30px;
   height: 26px;
   flex: 0 0 auto;
-  border: none;
+  /* Reserved, as on the split toggle beside it. */
+  border: 1px solid transparent;
   border-radius: 6px;
   background: none;
   color: var(--fg-dim);
@@ -739,6 +740,36 @@ button {
 
 .titlebar__icon:hover {
   background: var(--bg-hover);
+}
+
+/*
+ * Pressed, in one vocabulary for every door in this bar.
+ *
+ * The panel toggle's whole indicator was `color: var(--fg)` — the one property its
+ * hover already sets — and hover outranks a bare modifier on specificity anyway, so
+ * open-and-hovered and closed-and-hovered computed identically in colour, in
+ * background and in border. The button said nothing at the exact moment you were
+ * deciding whether to press it. The slot toggle had no pressed rule at all: its
+ * entire state was a rect at 25% opacity inside the glyph, 1.4-1.7:1 against the
+ * bar, under this project's own 3:1 floor for a mark.
+ *
+ * `--info` rather than `--accent`, for the reason the mode switch already gives
+ * itself two hundred lines up: the accent is focus, the active edge, the rail's
+ * marker and one filled button, and a region toggle is none of those. It is also
+ * what the agent button beside these two has been saying "pressed" in all along.
+ */
+.titlebar__icon[aria-pressed='true'],
+.titlebar__split[aria-pressed='true'] {
+  color: var(--info);
+  border-color: color-mix(in srgb, var(--info) 40%, transparent);
+  background: color-mix(in srgb, var(--info) 8%, transparent);
+}
+
+/* And the state survives being pointed at, rather than being replaced by it. */
+.titlebar__icon[aria-pressed='true']:hover,
+.titlebar__split[aria-pressed='true']:hover {
+  color: var(--info);
+  background: color-mix(in srgb, var(--info) 16%, var(--bg-hover));
 }
 
 /*
@@ -1045,9 +1076,10 @@ button {
   align-self: center;
 }
 
-.titlebar__split--on {
-  color: var(--fg);
-}
+/* `.titlebar__split--on` stood here saying `color: var(--fg)` — the one property
+   its own hover already sets, so open-and-hovered and closed-and-hovered computed
+   identically. It was also a second source of truth beside the `aria-pressed` the
+   markup already carries correctly, which is what the rule below reads. */
 
 /*
  * The handle on a region's outer edge.

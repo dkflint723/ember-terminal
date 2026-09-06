@@ -219,6 +219,85 @@ check(
 )
 
 /*
+ * --- a toggle says whether it is on, and keeps saying it under the pointer ------
+ *
+ * The panel toggle's whole pressed indicator was `color: var(--fg)` — the one
+ * property its own hover already sets, and hover outranks a bare modifier on
+ * specificity besides — so open-and-hovered and closed-and-hovered computed
+ * identically in colour, background and border. It said nothing at the exact
+ * moment somebody was deciding whether to press it. The slot toggle had no pressed
+ * rule at all: its entire state was a rect at 25% opacity inside the glyph.
+ *
+ * Hovering is half the check. Comparing the two resting states alone would pass
+ * for a build whose pressed state is still erased the moment it is pointed at,
+ * which is what shipped.
+ */
+const toggleState = async (selector) => {
+  const read = () =>
+    page.evaluate((sel) => {
+      const el = document.querySelector(sel)
+      if (!el) return null
+      const c = getComputedStyle(el)
+      return {
+        pressed: el.getAttribute('aria-pressed'),
+        /*
+         * Kept apart from the attribute on purpose. The first version compared
+         * whole objects that included `pressed`, so the two states differed on the
+         * attribute rather than on anything drawn — and the check passed for a
+         * build with no pressed styling at all, which is exactly what shipped.
+         */
+        paint: [c.color, c.backgroundColor, c.borderTopColor].join(' | ')
+      }
+    }, selector)
+  /*
+   * The pointer goes away first. Clicking a toggle leaves the mouse on it, so a
+   * "resting" reading taken straight afterwards is a hovered one — which made the
+   * resting state report the hover fill and the check argue with itself.
+   */
+  await page.mouse.move(4, 400)
+  await sleep(250)
+  const rest = await read()
+  await page.locator(selector).hover()
+  await sleep(350)
+  const hovered = await read()
+  await page.mouse.move(4, 400)
+  await sleep(250)
+  return { rest, hovered }
+}
+
+const slotFirst = await toggleState('.titlebar__icon')
+await page.locator('.titlebar__icon').click()
+await sleep(700)
+const slotThen = await toggleState('.titlebar__icon')
+check(
+  'the slot toggle reports two different states',
+  slotFirst.rest?.pressed !== slotThen.rest?.pressed,
+  JSON.stringify({ a: slotFirst.rest?.pressed, b: slotThen.rest?.pressed })
+)
+/*
+ * The pressed one carries a fill. Comparing the two resting paints alone passed on
+ * a build with no pressed styling at all — something else about the two states
+ * differs by a hair — so this asks for the thing the fill actually is: a tint,
+ * where the unpressed state has none.
+ */
+const pressedPaint = slotFirst.rest?.pressed === 'true' ? slotFirst.rest : slotThen.rest
+const restingPaint = slotFirst.rest?.pressed === 'true' ? slotThen.rest : slotFirst.rest
+check(
+  'the pressed one is tinted and the other is not',
+  !/rgba\(0, 0, 0, 0\)/.test(pressedPaint?.paint.split(' | ')[1] ?? '') &&
+    /rgba\(0, 0, 0, 0\)/.test(restingPaint?.paint.split(' | ')[1] ?? ''),
+  JSON.stringify({ pressed: pressedPaint?.paint, resting: restingPaint?.paint })
+)
+check(
+  'and still looks different while the pointer is on it',
+  slotFirst.hovered?.paint !== slotThen.hovered?.paint,
+  JSON.stringify({ a: slotFirst.hovered?.paint, b: slotThen.hovered?.paint })
+)
+// Put the slot back the way it was found.
+await page.locator('.titlebar__icon').click()
+await sleep(600)
+
+/*
  * --- the window buttons are buttons ---------------------------------------------
  *
  * `.caption-btn` set a width and no height, and the row it sits in inherited the
