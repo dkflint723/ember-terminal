@@ -1531,9 +1531,11 @@ button {
   padding: 6px 12px;
   color: var(--fg-faint);
   font-family: var(--mono);
-  /* The same 13px the output it stands in for is set at — it sits where a block
-     body would, and half a pixel of difference only reads as a mistake. */
-  font-size: 13px;
+  /* The size the output it stands in for is set at, which is the setting minus a
+     point. The old note here claimed half a pixel of difference would read as a
+     mistake, and was a whole pixel out and fixed besides: at 19px it sat at 13 in
+     a pane whose output was 18. */
+  font-size: calc(var(--font-size, 13px) - 1px);
   line-height: 1.45;
   font-style: italic;
 }
@@ -1593,12 +1595,13 @@ button {
 
 /* An answer reads as prose, so it is set as prose: the UI face, a touch larger
    and looser than terminal output, held off the right edge like a paragraph. */
-.block--agent .block__body {
-  padding-right: 70px;
-  font-family: var(--ui);
-  font-size: 12.5px;
-  line-height: 1.6;
-}
+/*
+ * `.block--agent .block__body` was here and had never matched an element.
+ * `block--agent` is on AgentBlock's root and `block__body` is rendered only by
+ * BlockView, which is a command block — no element in the app carries both. The
+ * answer's prose is `.block__answer`, further down, which is where it has always
+ * actually been set.
+ */
 
 .block__status--agent {
   color: var(--info);
@@ -1612,10 +1615,12 @@ button {
 .block__prompt {
   flex: 1 1 auto;
   color: var(--fg);
-  /* Stated rather than inherited: it sits in the same row as .block__cmd, which is
-     mono, and the two must not drift into each other. */
+  /* Stated rather than inherited: this is the one block head in the list that is
+     not mono, and the face is what says so. (An older note claimed it shares a row
+     with `.block__cmd`. It does not — that is BlockView's head and this is
+     AgentBlock's, and no row in the app holds both.) */
   font-family: var(--ui);
-  font-size: 13px;
+  font-size: var(--font-size, 13px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1668,7 +1673,10 @@ button {
   padding: 2px 120px 0 34px;
   color: var(--fg-dim);
   font-family: var(--ui);
-  font-size: 13px;
+  /* A point over the output it sits among — prose, set a shade larger and looser.
+     That is what the body at the setting minus one and this at the setting have
+     always meant at 13px, and stopped meaning at every other value. */
+  font-size: var(--font-size, 13px);
   line-height: 1.6;
   user-select: text;
 }
@@ -2450,7 +2458,8 @@ button {
 .composer__sigil {
   color: var(--fg-faint);
   font-family: var(--mono);
-  font-size: 13px;
+  /* The size of the line it marks the start of. */
+  font-size: var(--font-size, 13px);
   line-height: 1.5;
   flex: 0 0 auto;
   user-select: none;
@@ -2517,7 +2526,15 @@ button {
   resize: none;
   color: var(--fg);
   font-family: var(--mono);
-  font-size: 13px;
+  /*
+   * The size the command will be echoed at.
+   *
+   * The setting reached xterm, Monaco and the block head that echoes the command,
+   * and stopped at the box the command is typed into — so somebody who set 19px
+   * typed at 13 and watched it come back at 18.5 one row above. At the default
+   * this is the 13px it has always been; the number was never the point.
+   */
+  font-size: var(--font-size, 13px);
   line-height: 1.5;
   max-height: 40vh;
   overflow-y: auto;
@@ -3162,7 +3179,10 @@ label.field__check {
   inset: 0;
   pointer-events: none;
   font-family: var(--mono);
-  font-size: 13px;
+  /* The same declaration as .composer__input, deliberately rather than by
+     accident: this is inset:0 directly over it, so any divergence walks the
+     suggestion out of line one character at a time. */
+  font-size: var(--font-size, 13px);
   line-height: 1.5;
   white-space: pre;
   overflow: hidden;

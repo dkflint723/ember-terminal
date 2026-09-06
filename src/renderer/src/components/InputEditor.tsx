@@ -134,13 +134,36 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
     }
   }, [pending, pane.id])
 
-  // Grow with content instead of scrolling a one-line box.
+  /*
+   * Grow with content instead of scrolling a one-line box.
+   *
+   * The size is an input to this, not just the text. The height is set imperatively
+   * from scrollHeight, and while the box was a fixed 13px it could never go stale;
+   * now that it follows the setting, changing the setting would leave an inline
+   * height measured against the old line box — and this box has overflow-y: auto,
+   * so it would clip until the next keystroke happened to remeasure it.
+   */
+  const composerFontSize = useStore((st) => st.settings.fontSize)
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${el.scrollHeight}px`
-  }, [value])
+    const measure = (): void => {
+      el.style.height = 'auto'
+      el.style.height = `${el.scrollHeight}px`
+    }
+    measure()
+    /*
+     * And again next frame, for the size changes.
+     *
+     * `--font-size` is written to the root by an effect in App, and React runs a
+     * child's effects before its parent's — so on the render that changes the
+     * setting this measures the box before the variable it depends on has been
+     * applied, and stores a height for the size that is going away. One frame later
+     * the variable is in place and the same measurement is right.
+     */
+    const again = requestAnimationFrame(measure)
+    return () => cancelAnimationFrame(again)
+  }, [value, composerFontSize])
 
   /*
    * Read the buffer on an idle, never on the keystroke.

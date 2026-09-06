@@ -797,6 +797,56 @@ check(
 )
 
 /*
+ * --- the box you type into is the size you set ----------------------------------
+ *
+ * `--font-size` is written once and was read in two declarations. The setting
+ * reached xterm, Monaco and the block head that echoes the command — and stopped
+ * at the box the command is typed into, so somebody who set 19px typed at 13 and
+ * watched it come back at 18.5 one row above.
+ *
+ * The clipping assertion is the second half of the fix rather than a flourish: the
+ * box sets its own height imperatively from scrollHeight, and while it was a fixed
+ * 13px that could never go stale. Following the setting means a size change leaves
+ * an inline height measured against the old line box, and the box has
+ * `overflow-y: auto` — it clips until the next keystroke remeasures it.
+ */
+await page.evaluate(() => window.ember.setSettings({ fontSize: 19 }))
+await page.waitForFunction(
+  () => getComputedStyle(document.documentElement).getPropertyValue('--font-size').trim() === '19px',
+  { timeout: 5000 }
+)
+await sleep(400)
+const typedAt = await page.evaluate(() => {
+  const input = document.querySelector('.composer__row .composer__input')
+  const ghost = document.querySelector('.composer__ghost')
+  const sigil = document.querySelector('.composer__row .composer__sigil')
+  if (!input || !ghost || !sigil) return null
+  const cs = getComputedStyle(input)
+  return {
+    input: cs.fontSize,
+    lead: cs.lineHeight,
+    ghost: getComputedStyle(ghost).fontSize,
+    ghostLead: getComputedStyle(ghost).lineHeight,
+    sigil: getComputedStyle(sigil).fontSize,
+    clipped: Math.round(input.scrollHeight - input.clientHeight)
+  }
+})
+check('the box you type into is the size you set', typedAt?.input === '19px', JSON.stringify(typedAt))
+check(
+  'the ghost drawn over it is the same size and leading',
+  typedAt !== null && typedAt.ghost === typedAt.input && typedAt.ghostLead === typedAt.lead,
+  JSON.stringify(typedAt)
+)
+check('and the mark at the start of the line', typedAt?.sigil === '19px', JSON.stringify(typedAt))
+check(
+  'and the box is not left at the height of the size before it',
+  typedAt !== null && typedAt.clipped <= 1,
+  JSON.stringify(typedAt)
+)
+await page.evaluate(() => window.ember.setSettings({ fontSize: 13 }))
+await sleep(400)
+
+/*
  * --- and the terminal gets suggestions too --------------------------------------
  *
  * Inline suggestions were wired to the editor alone: `registerGhost` is called from
