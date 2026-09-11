@@ -508,7 +508,8 @@ export function App(): React.JSX.Element {
         content: res.content,
         language: languageForPath(res.path),
         eol: res.eol,
-        stamp: res.stamp
+        stamp: res.stamp,
+        encoding: res.encoding
       })
     }
   }

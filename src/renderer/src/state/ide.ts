@@ -369,7 +369,8 @@ async function handle(call: IdeCall): Promise<unknown> {
         content: res.content,
         language: languageForPath(res.path),
         eol: res.eol,
-        stamp: res.stamp
+        stamp: res.stamp,
+        encoding: res.encoding
       })
       return { success: true, filePath: res.path }
     }

@@ -189,6 +189,7 @@ import { ThemeStore } from './themes.js'
 import { CompletionService } from './completion.js'
 import { HistoryStore } from './history.js'
 import { FileService, fileArgs, isStamp, pathArgs } from './files.js'
+import { isEncodingName } from '../shared/encoding.js'
 import { LspService } from './lsp.js'
 import { GitService } from './git.js'
 import { GhostService } from './ghost.js'
@@ -1673,7 +1674,8 @@ function registerIpc(): void {
   ipcMain.handle('file:write', (_e, filePath: string, content: string, opts?: FileWriteOptions) =>
     files.write(filePath, content, {
       expect: isStamp(opts?.expect) ? opts.expect : opts?.expect === null ? null : undefined,
-      force: opts?.force === true
+      force: opts?.force === true,
+      encoding: isEncodingName(opts?.encoding) ? opts.encoding : undefined
     })
   )
   ipcMain.handle('file:marks', (_e, paths: unknown) =>

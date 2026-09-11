@@ -34,7 +34,9 @@ const long = path.join(work, 'src', 'long.ts')
 fs.writeFileSync(long, `const pad = "${'x'.repeat(460)}" // needle\n`, 'utf8')
 
 // Not UTF-8. ripgrep matches in it happily, and rewriting it as UTF-8 to change one
-// line would destroy every other byte it could not decode.
+// line would destroy every other byte it could not decode — so it is read as what it
+// is, replaced in, and written back the same way. This file used to be skipped
+// outright, which was safe and meant it could not be replaced in at all.
 const latin1 = path.join(work, 'src', 'latin1.txt')
 fs.writeFileSync(latin1, Buffer.concat([Buffer.from('needle caf'), Buffer.from([0xe9, 0x0a])]))
 
@@ -126,10 +128,10 @@ check(
 )
 
 check(
-  'a file that is not UTF-8 is left exactly as it was',
+  'a file that is not UTF-8 is replaced in, and keeps its é as one byte',
   Buffer.compare(
     fs.readFileSync(latin1),
-    Buffer.concat([Buffer.from('needle caf'), Buffer.from([0xe9, 0x0a])])
+    Buffer.concat([Buffer.from('pin caf'), Buffer.from([0xe9, 0x0a])])
   ) === 0,
   fs.readFileSync(latin1).toString('hex')
 )

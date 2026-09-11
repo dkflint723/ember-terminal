@@ -2,6 +2,7 @@
 
 import type { ResolvedTheme, ThemeSummary } from './theme.js'
 import type { AiEffort, AiMode } from './models.js'
+import type { TextEncodingName } from './encoding.js'
 
 export interface ShellProfile {
   id: string
@@ -277,6 +278,8 @@ export interface FileReadOk {
   eol: 'lf' | 'crlf'
   /** The version that was read, so a later save can check it is still what is there. */
   stamp: FileStamp
+  /** How the bytes were read, so a save writes them back the same way. */
+  encoding: TextEncodingName
 }
 
 export type FileReadResult = FileReadOk | { ok: false; error: string }
@@ -303,6 +306,11 @@ export type FileMark = { mtimeMs: number; size: number } | 'missing' | 'unreadab
 export interface FileWriteOptions {
   expect?: FileStamp | null
   force?: boolean
+  /**
+   * The encoding to write in: the document's own, or UTF-8 when the person chose it.
+   * Left out, the file keeps the encoding it has on disk.
+   */
+  encoding?: TextEncodingName
 }
 
 /**
@@ -314,7 +322,14 @@ export interface FileWriteOptions {
  */
 export type FileSaveResult =
   | { ok: true; stamp: FileStamp }
-  | { ok: false; error: string; conflict?: 'changed' | 'deleted' }
+  | {
+      ok: false
+      error: string
+      conflict?: 'changed' | 'deleted'
+      /** A character the encoding could not store, which stopped the save. */
+      unrepresentable?: string
+      encoding?: TextEncodingName
+    }
 
 /**
  * One changed path. `status` is git's own single letter — M, A, D, R, C — plus `U`

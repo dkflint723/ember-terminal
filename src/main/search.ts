@@ -1,3 +1,4 @@
+import { decodeText, encodeText } from '../shared/encoding.js'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import type {
@@ -162,21 +163,23 @@ export class SearchService {
           if (event.type !== 'match') continue
 
           const data = event.data
+          const matched = lineOf(data.lines)
+          if (!matched) continue
           for (const submatch of data.submatches ?? []) {
             if (hits.length >= SearchService.MAX_HITS) {
               truncated = true
               this.cancel()
               return
             }
+            // ripgrep reports byte offsets into the line; the renderer needs
+            // character offsets to highlight, and they only differ outside ASCII.
+            const column = matched.offset(submatch.start)
             hits.push({
               path: data.path?.text ?? '',
               line: data.line_number ?? 0,
-              // ripgrep reports byte offsets into the line; the renderer needs
-              // character offsets to highlight, and they only differ outside ASCII.
-              column: charOffset(data.lines?.text ?? '', submatch.start),
-              length: charOffset(data.lines?.text ?? '', submatch.end) -
-                charOffset(data.lines?.text ?? '', submatch.start),
-              preview: (data.lines?.text ?? '').replace(/\r?\n$/, '').slice(0, 400)
+              column,
+              length: matched.offset(submatch.end) - column,
+              preview: matched.text.replace(/\r?\n$/, '').slice(0, 400)
             })
           }
         }
@@ -250,26 +253,34 @@ export function applyReplacement(request: ReplaceRequest): ReplaceOutcome {
   let stale = 0
 
   for (const [path, hits] of byFile) {
-    let text: string
+    /*
+     * Decoded as what it is, and written back the same way.
+     *
+     * Reading with 'utf8' silently turns every byte it cannot decode into a
+     * replacement character, and writing that back would destroy the rest of the
+     * file to change one line of it. So this used to decode strictly and leave any
+     * file that was not UTF-8 alone — safe, and it also meant a Windows-1252 or
+     * UTF-16 file could not be replaced in at all, while ripgrep went on finding
+     * the matches in it.
+     */
+    let decoded: ReturnType<typeof decodeText>
     try {
-      /*
-       * Decoded strictly, so a file that is not UTF-8 is left alone.
-       *
-       * Reading with 'utf8' silently turns every byte it cannot decode into a
-       * replacement character, and writing that back would destroy the rest of the
-       * file to change one line of it. ripgrep will happily match in a file with
-       * another encoding, so this is reachable rather than theoretical.
-       */
-      text = new TextDecoder('utf-8', { fatal: true }).decode(readFileSync(path))
+      decoded = decodeText(readFileSync(path))
     } catch {
       stale += hits.length
       continue
     }
+    if ('binary' in decoded) {
+      stale += hits.length
+      continue
+    }
+    const text = decoded.text
 
     // Split on the newline only: a `\r` stays on the end of the line it belongs to,
     // so rejoining cannot turn a CRLF file into an LF one.
     const lines = text.split('\n')
     let touched = false
+    let replacedHere = 0
 
     // Latest first. An edit changes the offsets after it on the same line, so
     // applying them in reverse leaves every other position still correct.
@@ -289,13 +300,22 @@ export function applyReplacement(request: ReplaceRequest): ReplaceOutcome {
 
       const insert = expander ? found.replace(expander, request.replacement) : request.replacement
       lines[hit.line - 1] = line.slice(0, hit.column) + insert + line.slice(hit.column + hit.length)
-      replaced += 1
+      replacedHere += 1
       touched = true
     }
 
     if (!touched) continue
+    // A replacement the file's encoding cannot hold is not written as something
+    // else: the file is left as it was, and counted with the matches that went out
+    // of date, which is the nearest thing this reports to "not done".
+    const encoded = encodeText(lines.join('\n'), decoded.encoding)
+    if ('unrepresentable' in encoded) {
+      stale += replacedHere
+      continue
+    }
     try {
-      writeFileSync(path, lines.join('\n'), 'utf8')
+      writeFileSync(path, encoded.bytes)
+      replaced += replacedHere
       files += 1
     } catch (err) {
       return {
@@ -349,11 +369,37 @@ function charOffset(line: string, byteOffset: number): number {
   return Buffer.from(line, 'utf8').subarray(0, byteOffset).toString('utf8').length
 }
 
+const windows1252 = new TextDecoder('windows-1252')
+
+/**
+ * A matched line as text, with the way from ripgrep's byte offsets to characters.
+ *
+ * ripgrep sends a line that is not UTF-8 as bytes rather than text, and in a file
+ * the editor can open that means Windows-1252: one byte, one character, so its
+ * offsets are characters already. Only the text used to be read, so such a line
+ * came out empty, every match in it at column 0 with no length — which, once
+ * those files could be replaced in, a replacement would have taken for an
+ * insertion at the start of the line.
+ */
+function lineOf(
+  lines: RgEvent['data']['lines']
+): { text: string; offset: (byte: number) => number } | null {
+  if (typeof lines?.text === 'string') {
+    const text = lines.text
+    return { text, offset: (byte) => charOffset(text, byte) }
+  }
+  if (typeof lines?.bytes === 'string') {
+    return { text: windows1252.decode(Buffer.from(lines.bytes, 'base64')), offset: (byte) => byte }
+  }
+  return null
+}
+
 interface RgEvent {
   type: string
   data: {
     path?: { text: string }
-    lines?: { text: string }
+    /** Text when the line is UTF-8, and its bytes in base64 when it is not. */
+    lines?: { text?: string; bytes?: string }
     line_number?: number
     submatches?: { start: number; end: number }[]
   }

@@ -168,6 +168,7 @@ async function pass(paths: string[] | undefined, thorough: boolean): Promise<voi
           savedContent: res.content,
           eol: res.eol,
           stamp: res.stamp,
+          encoding: res.encoding,
           dirty: text === undefined ? d.dirty : text !== res.content
         }))
       }
@@ -186,6 +187,7 @@ async function pass(paths: string[] | undefined, thorough: boolean): Promise<voi
         savedContent: res.content,
         eol: res.eol,
         stamp: res.stamp,
+        encoding: res.encoding,
         dirty: false,
         conflict: null
       })
@@ -205,6 +207,7 @@ async function pass(paths: string[] | undefined, thorough: boolean): Promise<voi
       savedContent: res.content,
       eol: res.eol,
       stamp: res.stamp,
+      encoding: res.encoding,
       dirty: true,
       conflict: 'changed'
     })

@@ -10,6 +10,7 @@ import type {
 } from '@shared/types'
 import { settleThread } from '@shared/thread'
 import { baseOf, noteBase } from '../editor/synced'
+import type { TextEncodingName } from '@shared/encoding'
 import { markAdopted } from '../terminal/controller'
 import { seedDebug, serializeDebug, useDebugStore } from './debug'
 import { type Block, type ConversationBlock, type EditorDocument, type LayoutNode, type Pane, type Tab, useStore, workspaceRoot } from './store'
@@ -291,12 +292,14 @@ async function buildEditorPane(
     let savedContent = ''
     let eol = doc.eol
     let stamp: FileStamp | null | undefined
+    let encoding: TextEncodingName | undefined
     if (doc.filePath) {
       const read = await window.ember.readFile(doc.filePath)
       if (!read.ok && doc.unsaved === undefined) continue
       savedContent = read.ok ? read.content : ''
       if (read.ok) eol = read.eol
       stamp = read.ok ? read.stamp : null
+      encoding = read.ok ? read.encoding : undefined
     }
     documents.push({
       filePath: doc.filePath,
@@ -305,7 +308,8 @@ async function buildEditorPane(
       language: doc.language || languageForPath(doc.filePath ?? ''),
       eol,
       dirty: doc.unsaved !== undefined && doc.unsaved !== savedContent,
-      stamp
+      stamp,
+      encoding
     })
     if (doc.unsaved !== undefined) {
       pendingUnsaved.set(doc.filePath ?? '', doc.unsaved)

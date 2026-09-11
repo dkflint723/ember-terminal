@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { decodeText as decodeBytes } from '../shared/encoding.js'
 import type {
   GitBlameLine,
   GitCommitResult,
@@ -594,10 +595,18 @@ function fixedRecords(stdout: string, fields: number): string[][] {
   return out
 }
 
-/** Git writes UTF-8; a NUL means the blob was never text to begin with. */
+/**
+ * A blob, or a working file, as text — and null when it is binary.
+ *
+ * Read the way the editor reads the file itself, rather than as UTF-8 whatever it
+ * is. Both sides of a comparison have to be decoded the same way or they differ
+ * wherever the encoding does: with the editor showing a Windows-1252 file as its
+ * own text and HEAD still coming back as replacement characters, every line with
+ * an é in it would be reported as a change that was never made.
+ */
 function decodeText(buffer: Buffer): string | null {
-  if (buffer.subarray(0, Math.min(buffer.length, 8192)).includes(0)) return null
-  return buffer.toString('utf8')
+  const decoded = decodeBytes(buffer)
+  return 'binary' in decoded ? null : decoded.text
 }
 
 /**

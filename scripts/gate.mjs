@@ -51,6 +51,7 @@ const ORDER = [
   'verify-follow',
   'verify-typing',
   'verify-keeps-work',
+  'verify-encoding',
   'verify-snippets',
   'verify-ai',
   'verify-lsp-root',

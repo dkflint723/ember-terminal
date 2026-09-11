@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { parkModel, unparkModel, whenAskingIfShown } from '../editor/models'
 import type { AgentTurn, FileSaveResult, FileStamp } from '@shared/types'
+import { ENCODING_LABELS, type TextEncodingName } from '@shared/encoding'
 import { DEFAULT_SETTINGS, type GitStatus, type Settings, type ShellProfile } from '@shared/types'
 import type { ResolvedTheme, ThemeSummary } from '@shared/theme'
 import { DEFAULT_THEME } from '../terminal/theme'
@@ -158,6 +159,8 @@ export interface EditorDocument {
   eol: 'lf' | 'crlf'
   /** Which version of the file `savedContent` is. Absent where it was never known. */
   stamp?: FileStamp | null
+  /** How the file was read, and so how it is written back. Absent means UTF-8. */
+  encoding?: TextEncodingName
   /**
    * Set when a save found the file changed or deleted since the buffer was based
    * on it, and cleared when the person decides which version wins.
@@ -580,9 +583,15 @@ interface Store {
   noteConflict(filePath: string, conflict: 'changed' | 'deleted' | null): void
   /**
    * Save one file's buffer, checked against the version it was based on — the one
-   * way every save writes. `force` is for a person who has seen the conflict.
+   * way every save writes — in the encoding it was read in. `force` is for a person
+   * who has seen the conflict, and `encoding` for one who has chosen UTF-8.
    */
-  writeDocument(filePath: string, opts?: { force?: boolean }): Promise<FileSaveResult>
+  writeDocument(
+    filePath: string,
+    opts?: { force?: boolean; encoding?: TextEncodingName }
+  ): Promise<FileSaveResult>
+  /** Write a file back as UTF-8 because the person asked to, and say so if it cannot be. */
+  saveAsUtf8(filePath: string): Promise<void>
   setActiveDocument(paneId: string, index: number): void
   /** Close a tab; closing the last one closes the pane with it. */
   closeDocument(tabId: string, paneId: string, index: number): void
@@ -608,6 +617,7 @@ interface Store {
       language: string
       eol: 'lf' | 'crlf'
       stamp: FileStamp
+      encoding: TextEncodingName
     }
   ): string | null
 
@@ -1313,7 +1323,8 @@ export const useStore = create<Store>((set, get) => ({
       savedContent: file.content,
       language: file.language,
       eol: file.eol,
-      stamp: file.stamp
+      stamp: file.stamp,
+      encoding: file.encoding
     }
 
     /**
@@ -1348,7 +1359,7 @@ export const useStore = create<Store>((set, get) => ({
         // does not: an edited buffer is still built on the version it was edited
         // from, and its next save is checked against that one.
         const documents = pane.documents.map((d, i) =>
-          i === index ? { ...d, savedContent: file.content, eol: file.eol, stamp: file.stamp } : d
+          i === index ? { ...d, savedContent: file.content, eol: file.eol, stamp: file.stamp, encoding: file.encoding } : d
         )
         set({
           panes: { ...panes, [pane.id]: { ...pane, documents, activeIndex: index } },
@@ -1705,21 +1716,47 @@ export const useStore = create<Store>((set, get) => ({
     // look at the disk in between does not take this save for somebody else's.
     beginWrite(filePath)
     try {
+      // In the document's own encoding, unless the person has just chosen UTF-8.
+      const doc = Object.values(get().panes)
+        .flatMap((p) => (p.kind === 'editor' ? p.documents : []))
+        .find((d) => samePath(d.filePath, filePath))
+      const encoding = opts.encoding ?? doc?.encoding
       const res = await window.ember.writeFile(
         filePath,
         content,
-        opts.force ? { force: true } : { expect: baseOf(filePath) }
+        opts.force ? { force: true, encoding } : { expect: baseOf(filePath), encoding }
       )
       if (!res.ok) {
         if (res.conflict) get().noteConflict(filePath, res.conflict)
+        /*
+         * A character the file's encoding cannot store stopped the save, and nothing
+         * was written. Asked rather than decided: a new encoding rewrites every
+         * accented byte in the file, and whatever else reads it may expect the old.
+         */
+        if (res.unrepresentable !== undefined && res.encoding) {
+          get().setNotice(
+            `${doc?.title ?? 'That file'} holds “${res.unrepresentable}”, which ${ENCODING_LABELS[res.encoding]} cannot store. Save it as UTF-8?`,
+            'error',
+            [{ label: 'Save as UTF-8', run: () => void get().saveAsUtf8(filePath) }]
+          )
+        }
         return res
       }
       // What was written, not what the buffer holds now, and the version that is.
       noteSynced(filePath, content, res.stamp)
       get().settleSaved(filePath, content, buffer.getValue() !== content, res.stamp)
+      if (opts.encoding) get().patchDocumentsAt(filePath, { encoding: opts.encoding })
       return res
     } finally {
       endWrite(filePath)
+    }
+  },
+
+  saveAsUtf8: async (filePath) => {
+    const res = await get().writeDocument(filePath, { encoding: 'utf8' })
+    // A conflict has its own bar across the editor; anything else is said here.
+    if (!res.ok && !res.conflict) {
+      get().setNotice(`That file could not be saved as UTF-8 — ${res.error}`, 'error')
     }
   },
 

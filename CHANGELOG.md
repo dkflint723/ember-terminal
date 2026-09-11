@@ -5,6 +5,33 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Files that are not UTF-8 open, and save as what they are
+
+- **A Windows-1252 file lost its accents the first time you saved it.** Ember read
+  every file as UTF-8, which turns any byte that is not UTF-8 into a replacement
+  character, and wrote UTF-8 back. An .ini or .csv holding "café" opened as "caf?",
+  looked unmodified, and saving one unrelated line wrote EF BF BD over the é for
+  good. Files are now read as what they are — UTF-8 with or without a byte-order
+  mark, UTF-16 in either byte order, and Windows-1252 for bytes that are not
+  UTF-8 — and written back the same way, mark and all: an edit to one line leaves
+  every other byte where it was.
+- **UTF-16 files were refused as binary.** A NUL byte meant binary, and every other
+  byte of UTF-16 Latin text is one — so the file `>` writes in Windows PowerShell
+  5.1 could not be opened at all. It opens now, and saves as UTF-16.
+- **A character the file's encoding cannot hold stops the save and asks.** Typing
+  東京 into a Windows-1252 file now says so — "legacy.ini holds “東”, which
+  Windows-1252 cannot store. Save it as UTF-8?" — and nothing is written until you
+  answer. The status bar names any encoding other than plain UTF-8, and offers the
+  same conversion.
+- **Replace in files left every file that was not UTF-8 alone,** while search went
+  on finding matches in it and showed the lines it found as empty. Those lines now
+  read as their text, and replacing in them keeps the file's encoding. Search itself
+  still matches bytes: "café" typed into the box does not find a Windows-1252 file's
+  café.
+- **A committed file with a byte-order mark was marked changed on its first line**,
+  every time, because the editor takes the mark off the text and the comparison with
+  HEAD did not. Both sides are read the same way now.
+
 ### The editor stops losing work four more ways
 
 - **Ctrl+S saved the file in the other editor.** It was bound for the whole

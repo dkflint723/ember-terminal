@@ -630,8 +630,9 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
       setSaving(false)
       if (!res.ok) {
         // A conflict is said by the bar across the editor, which stays until it is
-        // answered; this corner is for things that are over in a moment.
-        if (!res.conflict) setMessage(res.error)
+        // answered, and a character the encoding cannot hold by the notice that
+        // offers UTF-8; this corner is for things that are over in a moment.
+        if (!res.conflict && res.unrepresentable === undefined) setMessage(res.error)
         return
       }
       setMessage('saved')
@@ -651,7 +652,8 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     setSaving(true)
     // Nothing to check against: the dialog has already asked about replacing a file
     // that is there, and a yes to that is the answer a check would be asking for.
-    const res = await window.ember.writeFile(target, content)
+    // A new document is UTF-8, whatever the file it replaces was written in.
+    const res = await window.ember.writeFile(target, content, { encoding: 'utf8' })
     setSaving(false)
 
     if (!res.ok) {
@@ -683,6 +685,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
         dirty,
         title: target.split(/[\\/]/).pop(),
         stamp: res.stamp,
+        encoding: 'utf8',
         conflict: null
       },
       index
@@ -762,7 +765,14 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     // old copy, calls it an edit, and starts an auto-save for it.
     patchDocument(
       pane.id,
-      { savedContent: res.content, dirty: false, eol: res.eol, stamp: res.stamp, conflict: null },
+      {
+        savedContent: res.content,
+        dirty: false,
+        eol: res.eol,
+        stamp: res.stamp,
+        encoding: res.encoding,
+        conflict: null
+      },
       at
     )
     // A revert throws away the edit everywhere, not only in the pane it was asked

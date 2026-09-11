@@ -1,3 +1,4 @@
+import { ENCODING_LABELS, type TextEncodingName } from '@shared/encoding'
 import { isInside, pathKey, samePath, shortenPath } from '@shared/paths'
 import { activeDocument, paneIdsOf, useStore, type TerminalPaneState } from '../state/store'
 import { modelUri, monaco } from '../editor/monaco'
@@ -24,6 +25,24 @@ const LANGUAGE_NAMES: Record<string, string> = {
   yaml: 'YAML',
   csharp: 'C#',
   cpp: 'C++'
+}
+
+/**
+ * Offer to write a file back as UTF-8: the one change of encoding the editor makes,
+ * and only when asked. The save goes through the same checked write as any other,
+ * so a file that changed on disk in the meantime is still caught.
+ */
+function offerUtf8(filePath: string, title: string, encoding: TextEncodingName): void {
+  useStore.getState().setNotice(
+    `${title} is ${ENCODING_LABELS[encoding]}. Save it as UTF-8 instead?`,
+    'info',
+    [
+      {
+        label: 'Save as UTF-8',
+        run: () => void useStore.getState().saveAsUtf8(filePath)
+      }
+    ]
+  )
 }
 
 function languageName(id: string): string {
@@ -292,6 +311,21 @@ export function StatusBar(): React.JSX.Element | null {
           <span className="statusbar__label" data-status="language">
             {languageName(file.language)}
           </span>
+          {/*
+            The encoding, only when it is news. A plain UTF-8 file says nothing here,
+            as nearly every file is; one that is not says what it is — the reason its
+            é survives a save — and offers to become UTF-8.
+          */}
+          {file.encoding && file.encoding !== 'utf8' && file.filePath && (
+            <button
+              className="statusbar__item"
+              data-status="encoding"
+              title={`Saved as ${ENCODING_LABELS[file.encoding]}, the way it was read. Click to save it as UTF-8.`}
+              onClick={() => offerUtf8(file.filePath!, file.title, file.encoding!)}
+            >
+              {ENCODING_LABELS[file.encoding]}
+            </button>
+          )}
         </>
       )}
       <ClaudeStatus />

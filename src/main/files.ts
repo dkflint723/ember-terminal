@@ -14,18 +14,10 @@ import type {
   FileWriteOptions,
   FileWriteResult
 } from '../shared/types.js'
+import { decodeText, encodeText, ENCODING_LABELS, type TextEncodingName } from '../shared/encoding.js'
 
 /** Refuse to load something that is not a text file into a text editor. */
 const MAX_BYTES = 16 * 1024 * 1024
-
-/**
- * A NUL byte in the first few KB is the usual heuristic for binary content; opening
- * a binary in the editor would render garbage and risk corrupting it on save.
- */
-function looksBinary(buffer: Buffer): boolean {
-  const sample = buffer.subarray(0, Math.min(buffer.length, 8192))
-  return sample.includes(0)
-}
 
 /**
  * File paths passed on the command line, so `ember notes.md` and file associations
@@ -132,7 +124,15 @@ export class FileService {
       }
 
       const buffer = await readFile(filePath)
-      if (looksBinary(buffer)) return { ok: false, error: 'That looks like a binary file.' }
+      /*
+       * Read as what it is: UTF-8 with or without a mark, UTF-16 either way round,
+       * or Windows-1252 for bytes that are not UTF-8. It was all read as UTF-8 with
+       * replacement characters, so a Windows-1252 file lost every accented letter
+       * on its first save — and a NUL byte meant binary, so every UTF-16 file was
+       * refused. Only what is none of those is binary now.
+       */
+      const decoded = decodeText(buffer)
+      if ('binary' in decoded) return { ok: false, error: 'That looks like a binary file.' }
 
       /*
        * The byte-order mark is taken off here and put back on write.
@@ -147,11 +147,12 @@ export class FileService {
         ok: true,
         path: filePath,
         name: basename(filePath),
-        content: stripBom(buffer.toString('utf8')),
-        // Detected so a save can preserve the file's existing convention.
-        eol: buffer.includes('\r\n'.charCodeAt(0)) && /\r\n/.test(buffer.toString('utf8', 0, 4096))
-          ? 'crlf'
-          : 'lf',
+        content: decoded.text,
+        // Detected so a save can preserve the file's existing convention — from the
+        // text, since in UTF-16 a line ending is not the bytes of "\r\n".
+        eol: /\r\n/.test(decoded.text.slice(0, 4096)) ? 'crlf' : 'lf',
+        // And the encoding, so a save writes the file back the way it was.
+        encoding: decoded.encoding,
         stamp: stampOf(buffer, info.mtimeMs)
       }
     } catch (err) {
@@ -286,7 +287,24 @@ export class FileService {
        * one nobody meant to keep is a far smaller harm than silently deleting one
        * that other tools rely on to detect the encoding.
        */
-      const data = Buffer.from((await hadBom(filePath)) ? `${BOM}${stripBom(content)}` : content, 'utf8')
+      /*
+       * In the file's own encoding: the one the editor read it in, or — for a caller
+       * that does not say — the one the file on disk is in now, so the write Claude
+       * Code makes when a diff is accepted keeps it just as a save does. Text the
+       * encoding cannot hold is refused rather than written as something else; the
+       * editor then asks whether to save as UTF-8.
+       */
+      const encoding: TextEncodingName = opts.encoding ?? (await encodingOnDisk(filePath)) ?? 'utf8'
+      const encoded = encodeText(stripBom(content), encoding)
+      if ('unrepresentable' in encoded) {
+        return {
+          ok: false,
+          error: `${basename(filePath)} holds “${encoded.unrepresentable}”, which ${ENCODING_LABELS[encoding]} cannot store.`,
+          unrepresentable: encoded.unrepresentable,
+          encoding
+        }
+      }
+      const data = Buffer.from(encoded.bytes)
       // Saving a deleted file anyway can mean its folder went with it — a branch
       // switch removes both — and the person has already said to put it back.
       if (opts.force === true) await mkdir(dirname(filePath), { recursive: true })
@@ -368,20 +386,15 @@ function stripBom(text: string): string {
   return text.startsWith(BOM) ? text.slice(1) : text
 }
 
-/** Whether the file currently on disk starts with a byte-order mark. */
-async function hadBom(filePath: string): Promise<boolean> {
+/**
+ * The encoding the file on disk is in now, for a write that did not say; null for a
+ * file that is not there yet, or not text, which have no convention to keep.
+ */
+async function encodingOnDisk(filePath: string): Promise<TextEncodingName | null> {
   try {
-    const { open } = await import('node:fs/promises')
-    const handle = await open(filePath, 'r')
-    try {
-      const head = Buffer.alloc(3)
-      const { bytesRead } = await handle.read(head, 0, 3, 0)
-      return bytesRead === 3 && head[0] === 0xef && head[1] === 0xbb && head[2] === 0xbf
-    } finally {
-      await handle.close()
-    }
+    const decoded = decodeText(await readFile(filePath))
+    return 'encoding' in decoded ? decoded.encoding : null
   } catch {
-    // A file that is not there yet has no convention to keep.
-    return false
+    return null
   }
 }
