@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import type { IdeCall } from '@shared/types'
+import type { FileStamp, IdeCall } from '@shared/types'
 import { type DiffPaneState, type EditorDocument, useStore, workspaceRoot } from './store'
 import { noteSynced } from '../editor/synced'
 
@@ -173,8 +173,29 @@ export async function resolveProposal(
           'error'
         )
     } else {
-      const written = await window.ember.writeFile(target, diff.modified)
-      if (!written.ok) {
+      /*
+       * And checked again at the write, against the version just read: the read and
+       * the write are two round trips apart, and a save landing between them was
+       * the same loss in a smaller window. A file that was not there must still not
+       * be there.
+       */
+      const written = await window.ember.writeFile(target, diff.modified, {
+        expect: now.ok ? now.stamp : null
+      })
+      if (!written.ok && written.conflict) {
+        pending.settle({
+          success: false,
+          message:
+            `${target} changed on disk while this diff was being applied, so it was not ` +
+            'overwritten. Read the file again and propose against its current contents.'
+        })
+        useStore
+          .getState()
+          .setNotice(
+            'That file changed on disk while the proposal was waiting, so it was not applied.',
+            'error'
+          )
+      } else if (!written.ok) {
         /*
          * Report the failure rather than claiming a save that did not happen — the
          * CLI would otherwise carry on believing the file is on disk as proposed.
@@ -200,7 +221,7 @@ export async function resolveProposal(
          * diff and then losing it to an ordinary Ctrl+S is about the worst outcome this
          * integration could have.
          */
-        await reconcileAcceptedDiff(target, diff.modified)
+        await reconcileAcceptedDiff(target, diff.modified, written.stamp)
 
         pending.settle({
           __content: [
@@ -226,9 +247,14 @@ export async function resolveProposal(
  * A document whose buffer still matches what was on disk before is updated in
  * place, so the editor shows what was accepted. One with genuine unsaved edits of
  * the user's own keeps them — but is left marked unsaved against the new content,
- * so saving is a deliberate overwrite rather than a silent revert.
+ * and still based on the version before it, so its next save stops and asks
+ * rather than quietly reverting what was just accepted.
  */
-async function reconcileAcceptedDiff(filePath: string, written: string): Promise<void> {
+async function reconcileAcceptedDiff(
+  filePath: string,
+  written: string,
+  stamp: FileStamp
+): Promise<void> {
   const { modelUri, monaco } = await import('../editor/monaco')
   const state = useStore.getState()
   const key = (p: string): string => p.replace(/\\/g, '/').toLowerCase()
@@ -241,13 +267,13 @@ async function reconcileAcceptedDiff(filePath: string, written: string): Promise
 
       const model = monaco.editor.getModel(modelUri(doc.filePath))
       const untouched = !model || model.getValue() === doc.savedContent
-      state.patchDocument(pane.id, { savedContent: written, dirty: !untouched }, index)
+      state.patchDocument(pane.id, { savedContent: written, dirty: !untouched, stamp }, index)
       if (untouched && model) {
         if (model.getValue() !== written) model.setValue(written)
         // A buffer brought into line with what was accepted agrees with disk again,
         // and has to be recorded as such or closing and reopening the file would
         // read it as unsaved work and stop showing what Claude wrote.
-        noteSynced(doc.filePath, model.getValue())
+        noteSynced(doc.filePath, model.getValue(), stamp)
       }
     }
   }
@@ -306,24 +332,25 @@ async function handle(call: IdeCall): Promise<unknown> {
        * session that asked Ember to save reverted the file it was working on.
        * saveAllDocuments in the store already reads the model; this now matches.
        */
-      const { modelUri, monaco } = await import('../editor/monaco')
-      const content = monaco.editor.getModel(modelUri(doc.filePath))?.getValue()
-      if (content === undefined) {
-        return { success: false, message: 'That document has no editor buffer to save.' }
+      /*
+       * And checked against the disk like any other save.
+       *
+       * The session asking is often the thing that changed the file: an agent that
+       * edits a file on disk and then asks the editor to save its open copy would
+       * otherwise have its own edit reverted by the request. Refused, the editor
+       * shows the person the conflict, and the session is told in words it can act
+       * on — which, from a model's side, is to read the file again.
+       */
+      const res = await state.writeDocument(doc.filePath)
+      if (!res.ok && res.conflict) {
+        return {
+          success: false,
+          message:
+            `${doc.filePath} changed on disk since the editor's copy was opened, so that copy ` +
+            'was not saved over it. The editor is asking the user which version to keep.'
+        }
       }
-
-      const res = await window.ember.writeFile(doc.filePath, content)
       if (!res.ok) return { success: false, message: res.error }
-      noteSynced(doc.filePath, content)
-
-      // Dirtiness is derived by comparing against what is on disk, so the saved
-      // content has to move with it or the document stays reported as dirty.
-      const state = useStore.getState()
-      for (const pane of Object.values(state.panes)) {
-        if (pane.kind !== 'editor') continue
-        const index = pane.documents.findIndex((d) => d.filePath === doc.filePath)
-        if (index !== -1) state.patchDocument(pane.id, { savedContent: content, dirty: false }, index)
-      }
       return { success: true, filePath: doc.filePath }
     }
 
@@ -341,7 +368,8 @@ async function handle(call: IdeCall): Promise<unknown> {
         name: res.name,
         content: res.content,
         language: languageForPath(res.path),
-        eol: res.eol
+        eol: res.eol,
+        stamp: res.stamp
       })
       return { success: true, filePath: res.path }
     }

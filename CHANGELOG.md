@@ -5,6 +5,65 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A save never writes over a newer file, and open editors follow the disk
+
+- **Saving put the old text back over changes made elsewhere.** Nothing watched
+  the files an editor had open, and every save wrote without looking. Claude Code
+  in the next pane, a `git checkout` in the terminal below, Ember's own Pull or
+  branch switch, or a second window could change a file, and the next Ctrl+S — or
+  an auto-save a second later — wrote the old version back with one new keystroke
+  on top, and showed the tab as cleanly saved. That is the workflow Ember is built
+  around, which made it the worst place to lose work silently. Every save now
+  carries the version of the file its text was based on, and main checks, byte for
+  byte, that the file still holds that version before writing. When it does not,
+  nothing is written and a bar across the editor says the file changed on disk.
+  The bar offers **Compare** (the disk's version beside yours), **Overwrite** and
+  **Load from disk**, which Ctrl+Z undoes, as it now undoes Revert. A file deleted
+  underneath the editor gets **Save anyway** or **Close** instead of being quietly
+  put back. This covers every route that saves: Ctrl+S, auto-save, Save All, the
+  write when a Claude Code diff is accepted, and Claude Code asking Ember to save
+  an open file. That last one matters because the session is often what changed
+  the file: it used to have its own edit reverted and be told "saved", and now it
+  is told why nothing was written. A plain Ctrl+S over a buffer whose file had
+  changed underneath used to count as the decision to overwrite it; it asks now.
+- **Open editors follow the files they show.** Each open file is looked at every
+  two seconds while the window is visible, again when the window gets focus back,
+  and straight after Ember's own discard, stash, pull, branch switch and pull
+  request checkout.
+  - A buffer with no unsaved edits takes the new text as one undoable edit, so
+    what Claude Code writes appears where you are reading it, and the caret stays
+    put unless the change was under it.
+  - A buffer with edits is not touched, and the bar appears now rather than at the
+    next save.
+  - A deleted file's text is kept and marked as the only copy left.
+  - When the file comes back as it was, the bar goes again. That covers a stash
+    popped or a branch switched back.
+
+  This is done by polling rather than watching folders. On Windows, a watch on a
+  folder stops the folder above it from being renamed. That was measured with both
+  Node and PowerShell, and it would have broken renaming a project folder, or any
+  folder in Ember's own tree that holds an open file.
+- **Unsaved text carried over from the last session remembers what it was based
+  on**, so a file changed between one launch and the next is still caught when
+  that text is finally saved.
+- **Found on the way: undo then redo of a reload could garble the buffer.** Monaco
+  replays an edit at offsets counted in the line endings it was made in, but before
+  it puts those line endings back. So when a reload had also changed a file's line
+  endings, redo put the text a character early for every line above it. A
+  line-ending change is now an undo step of its own.
+- **Two new suites.** *save conflicts* checks every route that saves. *editors
+  follow the disk* checks every case above, including a branch switch through the
+  source control panel. Each was watched failing first:
+  - *save conflicts* failed on 0.3.26's save path, 11 checks across Ctrl+S,
+    auto-save, Save All and a deleted file. Its Claude Code check was added later
+    and was watched failing against a save path made to write without looking.
+  - *editors follow the disk* failed 12 checks on a build that only had the save
+    check.
+
+  Seeing it immediately after Ember's own git actions is a matter of speed only:
+  the two-second look gets there anyway. So no check isolates that part, and none
+  is claimed to.
+
 ### The composer is never cut off under a running command
 
 - **Its last row was clipped at the bottom of the window.** While a command runs,

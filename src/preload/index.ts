@@ -7,6 +7,7 @@ import type { GhostModel,
   DapEventPayload,
   GhostRequest,
   DebugStartRequest,
+  FileWriteOptions,
   HistoryQuery,
   IdeCall,
   LspEvent,
@@ -172,7 +173,9 @@ const api: EmberApi = {
   gitDiscard: (root: string, paths: string[], untracked: string[]) =>
     ipcRenderer.invoke('git:discard', root, paths, untracked),
   gitCommit: (root: string, message: string) => ipcRenderer.invoke('git:commit', root, message),
-  writeFile: (path: string, content: string) => ipcRenderer.invoke('file:write', path, content),
+  writeFile: (path: string, content: string, opts?: FileWriteOptions) =>
+    ipcRenderer.invoke('file:write', path, content, opts),
+  markFiles: (paths: string[]) => ipcRenderer.invoke('file:marks', paths),
   saveFileDialog: (defaultPath?: string) => ipcRenderer.invoke('file:saveDialog', defaultPath),
   complete: (req: CompletionRequest) => ipcRenderer.invoke('completion:request', req),
   recordHistory: (entry: HistoryRecord) => ipcRenderer.send('history:record', entry),

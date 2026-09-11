@@ -12,6 +12,7 @@ import { Palette } from './components/Palette'
 import { disposeController } from './terminal/controller'
 import { activateTheme, refreshThemeList } from './state/theming'
 import { refreshGitStatus, useGitStatusPolling } from './state/git'
+import { useDiskChecking } from './state/disk'
 import { useIdeBridge } from './state/ide'
 import { adoptTransfer, restore, unsavedWorkIsPreserved, useSessionAutosave } from './state/session'
 import { setRevealer } from './editor/navigate'
@@ -130,6 +131,8 @@ export function App(): React.JSX.Element {
   // Mounted here rather than in the source-control view: the explorer colours its
   // rows from the same status, and that has to work while the view is closed.
   useGitStatusPolling()
+  // Open editors follow their files when something else changes them.
+  useDiskChecking()
   // Answers Claude Code's tool calls, and keeps the published workspace root current.
   useIdeBridge()
   const isHomeDirectory = (dir: string): boolean =>
@@ -463,7 +466,8 @@ export function App(): React.JSX.Element {
         name: res.name,
         content: res.content,
         language: languageForPath(res.path),
-        eol: res.eol
+        eol: res.eol,
+        stamp: res.stamp
       })
     }
   }

@@ -9,7 +9,7 @@
 //
 // The distinction that has to hold is between a buffer the file moved on from and a
 // buffer the user edited. The first is brought up to date; the second is kept and
-// marked unsaved, so overwriting the newer file is at least a decision. Both are
+// marked unsaved, and saving it over the newer file stops and asks first. Both are
 // checked here, along with the case that only works because saving records the new
 // agreement, and every claim is confirmed against the bytes on disk rather than the
 // editor's own account of itself.
@@ -196,9 +196,27 @@ await page.screenshot({ path: path.join(SHOT_DIR, '81-reopen-kept-edits.png') })
 // the user opens it again to look at the new version. Revealing an already-open tab
 // threw away the text that had just been read for it, so the editor answered with
 // the version from before and the next save put that back.
+//
+// First the kept text is settled. A plain Ctrl+S used to be the decision, and wrote
+// it over the newer file on the strength of a dot in the tab; it stops and asks
+// now, and Overwrite is the answer that keeps the editor's version.
 await page.locator('.pane.editor .view-lines').first().click()
 await page.keyboard.press('Control+s')
 await sleep(1200)
+const asked = await page.evaluate(
+  () => document.querySelector('.editor__conflict')?.textContent?.replace(/\s+/g, ' ') ?? null
+)
+check('saving it over the newer file stops and asks', /changed on disk/i.test(asked ?? ''), String(asked))
+check(
+  'without writing anything',
+  read() === 'export const note = 5\n// changed underneath\n',
+  JSON.stringify(read())
+)
+if (asked !== null) {
+  await page.locator('.editor__conflict button', { hasText: 'Overwrite' }).click()
+  await sleep(1200)
+}
+check('and Overwrite writes the kept text', read().includes('work in progress'), JSON.stringify(read()))
 
 fs.writeFileSync(note, 'export const note = 6\n// while the tab was open\n', 'utf8')
 await open()

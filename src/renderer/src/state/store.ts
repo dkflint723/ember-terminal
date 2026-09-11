@@ -1,10 +1,10 @@
 import { create } from 'zustand'
 import { parkModel, unparkModel } from '../editor/models'
-import type { AgentTurn } from '@shared/types'
+import type { AgentTurn, FileSaveResult, FileStamp } from '@shared/types'
 import { DEFAULT_SETTINGS, type GitStatus, type Settings, type ShellProfile } from '@shared/types'
 import type { ResolvedTheme, ThemeSummary } from '@shared/theme'
 import { DEFAULT_THEME } from '../terminal/theme'
-import { lastSynced, noteSynced } from '../editor/synced'
+import { baseOf, beginWrite, endWrite, lastSynced, noteBase, noteSynced } from '../editor/synced'
 import { isInside, pathKey, samePath } from '@shared/paths'
 
 /**
@@ -156,6 +156,13 @@ export interface EditorDocument {
   savedContent: string
   language: string
   eol: 'lf' | 'crlf'
+  /** Which version of the file `savedContent` is. Absent where it was never known. */
+  stamp?: FileStamp | null
+  /**
+   * Set when a save found the file changed or deleted since the buffer was based
+   * on it, and cleared when the person decides which version wins.
+   */
+  conflict?: 'changed' | 'deleted' | null
 }
 
 export interface EditorPaneState extends BasePane {
@@ -553,7 +560,19 @@ interface Store {
   /** Patch one document in a pane, by default the one on screen. */
   patchDocument(paneId: string, patch: Partial<EditorDocument>, index?: number): void
   /** Record what a file now looks like on disk, in every pane showing that file. */
-  settleSaved(filePath: string, content: string, dirty: boolean): void
+  settleSaved(filePath: string, content: string, dirty: boolean, stamp: FileStamp | undefined): void
+  /** Patch every document showing this file, in every pane. */
+  patchDocumentsAt(
+    filePath: string,
+    patch: Partial<EditorDocument> | ((doc: EditorDocument) => Partial<EditorDocument>)
+  ): void
+  /** Mark, or clear, a save that stopped because the file moved on — in every pane on it. */
+  noteConflict(filePath: string, conflict: 'changed' | 'deleted' | null): void
+  /**
+   * Save one file's buffer, checked against the version it was based on — the one
+   * way every save writes. `force` is for a person who has seen the conflict.
+   */
+  writeDocument(filePath: string, opts?: { force?: boolean }): Promise<FileSaveResult>
   setActiveDocument(paneId: string, index: number): void
   /** Close a tab; closing the last one closes the pane with it. */
   closeDocument(tabId: string, paneId: string, index: number): void
@@ -572,7 +591,14 @@ interface Store {
   /** Replace the active pane of a tab with an editor showing this file. */
   openFileInSplit(
     tabId: string,
-    file: { path: string; name: string; content: string; language: string; eol: 'lf' | 'crlf' }
+    file: {
+      path: string
+      name: string
+      content: string
+      language: string
+      eol: 'lf' | 'crlf'
+      stamp: FileStamp
+    }
   ): string | null
 
   terminalPane(paneId: string): TerminalPaneState | null
@@ -1272,7 +1298,8 @@ export const useStore = create<Store>((set, get) => ({
       dirty: false,
       savedContent: file.content,
       language: file.language,
-      eol: file.eol
+      eol: file.eol,
+      stamp: file.stamp
     }
 
     /**
@@ -1303,8 +1330,11 @@ export const useStore = create<Store>((set, get) => ({
          * own: the editor pane reconciles its buffer against it, bringing an untouched
          * one up to date and marking an edited one unsaved against the new content.
          */
+        // The stamp moves with the text it describes. What the buffer is based on
+        // does not: an edited buffer is still built on the version it was edited
+        // from, and its next save is checked against that one.
         const documents = pane.documents.map((d, i) =>
-          i === index ? { ...d, savedContent: file.content, eol: file.eol } : d
+          i === index ? { ...d, savedContent: file.content, eol: file.eol, stamp: file.stamp } : d
         )
         set({
           panes: { ...panes, [pane.id]: { ...pane, documents, activeIndex: index } },
@@ -1394,58 +1424,14 @@ export const useStore = create<Store>((set, get) => ({
     }),
 
   /**
-   * Pull these files back off disk into the editors showing them.
-   *
-   * A document with unsaved edits is left exactly as it is: the user's own work is
-   * worth more than whatever changed underneath it, and overwriting it to reflect
-   * a replacement would destroy the thing they had not saved yet.
-   *
-   * The saved content is updated before the model, because dirtiness is derived by
-   * comparing the two — the other order would mark a freshly reloaded file dirty.
+   * Pull these files back off disk into the editors showing them — for a caller
+   * that has just changed them itself, so every one is read rather than trusted to
+   * look unchanged. What happens to each is checkDisk's business: a buffer with
+   * unsaved work of the user's own is never touched, only told.
    */
   reloadFromDisk: async (paths) => {
-    const wanted = new Set(paths.map(pathKey))
-    const { modelUri, monaco } = await import('../editor/monaco')
-
-    for (const pane of Object.values(get().panes)) {
-      if (pane.kind !== 'editor') continue
-      for (let index = 0; index < pane.documents.length; index++) {
-        const doc = pane.documents[index]
-        if (!doc.filePath || doc.dirty || !wanted.has(pathKey(doc.filePath))) continue
-
-        const res = await window.ember.readFile(doc.filePath)
-        if (!res.ok) continue
-        /*
-         * Re-found by path after the read, since a tab closed in the meantime would
-         * leave this index pointing at some other document — and re-read for
-         * dirtiness for the same reason. `doc` comes off a snapshot of the panes
-         * taken before the first await, and this loop makes one sequential IPC read
-         * per open document, so by the Nth document that reading of "clean" is N-1
-         * round trips old. Typing into a clean file while an earlier one was still
-         * being read had its buffer replaced by disk, its undo stack emptied by
-         * setValue and the result recorded as agreeing with disk: the user's work
-         * gone, with no unsaved marker and nothing to undo.
-         */
-        const current = get().editorPane(pane.id)
-        const at = current?.documents.findIndex((d) => samePath(d.filePath, doc.filePath)) ?? -1
-        if (!current || at === -1 || current.documents[at].dirty) continue
-        get().patchDocument(pane.id, { savedContent: res.content, eol: res.eol }, at)
-        const model = monaco.editor.getModel(modelUri(doc.filePath))
-        if (model && model.getValue() !== res.content) {
-          // The replacement can have brought different line endings with it, and the
-          // model's are what the next save writes back.
-          model.setEOL(
-            res.eol === 'crlf'
-              ? monaco.editor.EndOfLineSequence.CRLF
-              : monaco.editor.EndOfLineSequence.LF
-          )
-          model.setValue(res.content)
-        }
-        // Recorded so that closing this tab and opening it again still knows the
-        // buffer matches disk rather than treating it as unsaved work.
-        if (model) noteSynced(doc.filePath, model.getValue())
-      }
-    }
+    const { checkDisk } = await import('./disk')
+    await checkDisk(paths, { thorough: true })
   },
 
   /**
@@ -1494,8 +1480,11 @@ export const useStore = create<Store>((set, get) => ({
             } else {
               monaco.editor.createModel(text, languageForPath(next), modelUri(next))
             }
+            // A rename keeps the bytes, so the version the buffer is based on is
+            // the same version at its new name.
             const agreed = lastSynced(doc.filePath)
-            if (agreed !== undefined) noteSynced(next, agreed)
+            if (agreed !== undefined) noteSynced(next, agreed, baseOf(doc.filePath) ?? undefined)
+            else noteBase(next, baseOf(doc.filePath))
           }
         }
 
@@ -1519,7 +1508,8 @@ export const useStore = create<Store>((set, get) => ({
    * not necessarily decided to lose the edits — but it is marked unsaved, because
    * a tab that looks saved while nothing on disk backs it is the state where work
    * disappears without anyone being asked. Saving it afterwards recreates the file,
-   * which is a decision the unsaved marker makes visible first.
+   * which is a decision the conflict bar puts in front of the person, the same way
+   * it does for a file deleted by anything else.
    */
   notePathDeleted: (target) =>
     set((s) => {
@@ -1528,7 +1518,9 @@ export const useStore = create<Store>((set, get) => ({
       for (const pane of Object.values(s.panes)) {
         if (pane.kind !== 'editor') continue
         const documents = pane.documents.map((d) =>
-          d.filePath && isInside(target, d.filePath) && !d.dirty ? { ...d, dirty: true } : d
+          d.filePath && isInside(target, d.filePath) && (!d.dirty || d.conflict !== 'deleted')
+            ? { ...d, dirty: true, conflict: 'deleted' as const }
+            : d
         )
         if (documents.some((d, i) => d !== pane.documents[i])) {
           panes[pane.id] = { ...pane, documents }
@@ -1548,9 +1540,9 @@ export const useStore = create<Store>((set, get) => ({
    * Save All.
    */
   saveAllDocuments: async () => {
-    const { modelUri, monaco } = await import('../editor/monaco')
     let saved = 0
     const failures: string[] = []
+    const moved: string[] = []
     // One write per file, however many panes are showing it: they share a buffer,
     // so the second write would be the same bytes and the count would report one
     // file as two.
@@ -1564,28 +1556,12 @@ export const useStore = create<Store>((set, get) => ({
         if (written.has(pathKey(doc.filePath))) continue
         written.add(pathKey(doc.filePath))
 
-        const content = monaco.editor.getModel(modelUri(doc.filePath))?.getValue()
-        if (content === undefined) {
-          failures.push(doc.title)
-          continue
-        }
-        const res = await window.ember.writeFile(doc.filePath, content)
-        if (!res.ok) {
-          failures.push(doc.title)
-          continue
-        }
-        // Re-found by path rather than reused: the write is awaited, and a tab
-        // closed in the meantime would leave this index pointing at a different
-        // document, which would then be marked saved when it is not.
-        const current = get().editorPane(pane.id)
-        const at = current?.documents.findIndex((d) => d.filePath === doc.filePath) ?? -1
-        if (at !== -1) get().patchDocument(pane.id, { savedContent: content, dirty: false }, at)
-        // And in every other pane on this file, which this loop now skips.
-        get().settleSaved(doc.filePath, content, false)
-        // Recorded even when the tab has gone: the model outlives it, and this is
-        // what stops a later reopen mistaking a saved buffer for unsaved work.
-        noteSynced(doc.filePath, content)
-        saved += 1
+        // Settled by path, in every pane on the file, and recorded even when the
+        // tab has gone — writeDocument does all three, for every kind of save.
+        const res = await get().writeDocument(doc.filePath)
+        if (res.ok) saved += 1
+        else if (res.conflict) moved.push(doc.title)
+        else failures.push(doc.title)
       }
     }
     /*
@@ -1594,16 +1570,22 @@ export const useStore = create<Store>((set, get) => ({
      * The count was returned and both callers dropped it, so a Save All that wrote
      * nothing at all looked exactly like one that wrote everything — while the tabs
      * stayed dirty and the reason went nowhere. Naming the files matters because
-     * the usual cause is one of them: read-only, locked, or gone.
+     * the usual cause is one of them: read-only, locked, or gone. A file that
+     * changed on disk is said apart from those, because it is not a failure and
+     * wants a decision rather than a retry; its editor is holding the question.
      */
-    if (failures.length > 0) {
-      const names = failures.slice(0, 3).join(', ')
-      const rest = failures.length > 3 ? ` and ${failures.length - 3} more` : ''
-      get().setNotice(`Could not save ${names}${rest}.`, 'error')
-    } else if (saved > 0) {
-      get().setNotice(`Saved ${saved} ${saved === 1 ? 'file' : 'files'}.`)
+    const list = (names: string[]): string =>
+      names.slice(0, 3).join(', ') + (names.length > 3 ? ` and ${names.length - 3} more` : '')
+    const said: string[] = []
+    if (failures.length > 0) said.push(`Could not save ${list(failures)}.`)
+    if (moved.length > 0) {
+      said.push(
+        `${list(moved)} changed on disk, so ${moved.length === 1 ? 'it was' : 'they were'} not saved over.`
+      )
     }
-    return { saved, failed: failures.length }
+    if (said.length > 0) get().setNotice(said.join(' '), 'error')
+    else if (saved > 0) get().setNotice(`Saved ${saved} ${saved === 1 ? 'file' : 'files'}.`)
+    return { saved, failed: failures.length + moved.length }
   },
 
   patchDocument: (paneId, patch, index) =>
@@ -1630,7 +1612,7 @@ export const useStore = create<Store>((set, get) => ({
    * where saves are written: a keystroke can land while the file is being written,
    * and that text is genuinely ahead of disk.
    */
-  settleSaved: (filePath, content, dirty) =>
+  settleSaved: (filePath, content, dirty, stamp) =>
     set((s) => {
       const panes = { ...s.panes }
       let touched = false
@@ -1640,13 +1622,92 @@ export const useStore = create<Store>((set, get) => ({
         panes[pane.id] = {
           ...pane,
           documents: pane.documents.map((d) =>
-            samePath(d.filePath, filePath) ? { ...d, savedContent: content, dirty } : d
+            samePath(d.filePath, filePath)
+              ? { ...d, savedContent: content, dirty, stamp, conflict: null }
+              : d
           )
         }
         touched = true
       }
       return touched ? { panes } : s
     }),
+
+  patchDocumentsAt: (filePath, patch) =>
+    set((s) => {
+      const panes = { ...s.panes }
+      let touched = false
+      for (const pane of Object.values(s.panes)) {
+        if (pane.kind !== 'editor') continue
+        if (!pane.documents.some((d) => samePath(d.filePath, filePath))) continue
+        panes[pane.id] = {
+          ...pane,
+          documents: pane.documents.map((d) =>
+            samePath(d.filePath, filePath)
+              ? { ...d, ...(typeof patch === 'function' ? patch(d) : patch) }
+              : d
+          )
+        }
+        touched = true
+      }
+      return touched ? { panes } : s
+    }),
+
+  noteConflict: (filePath, conflict) =>
+    set((s) => {
+      const panes = { ...s.panes }
+      let touched = false
+      for (const pane of Object.values(s.panes)) {
+        if (pane.kind !== 'editor') continue
+        if (!pane.documents.some((d) => samePath(d.filePath, filePath) && (d.conflict ?? null) !== conflict)) {
+          continue
+        }
+        panes[pane.id] = {
+          ...pane,
+          documents: pane.documents.map((d) => (samePath(d.filePath, filePath) ? { ...d, conflict } : d))
+        }
+        touched = true
+      }
+      return touched ? { panes } : s
+    }),
+
+  /*
+   * Every save of an open file comes through here: Ctrl+S, auto-save, Save All,
+   * the conflict bar, and a Claude Code session asking Ember to save.
+   *
+   * Each of those used to write for itself, and none of them looked at the disk
+   * first, so the check could not live in any one of them — the one that forgot it
+   * would be the one that lost the file. The buffer is read off the model rather
+   * than the store, because the store holds what disk had and the edits live in
+   * Monaco; dirtiness afterwards is read off the buffer again, because a keystroke
+   * can land while the file is being written and that text is genuinely ahead.
+   */
+  writeDocument: async (filePath, opts = {}) => {
+    const { modelUri, monaco } = await import('../editor/monaco')
+    const buffer = monaco.editor.getModel(modelUri(filePath))
+    if (!buffer) return { ok: false, error: 'That document has no editor buffer to save.' }
+    const content = buffer.getValue()
+
+    // Marked as in flight until the record below says what the disk now holds, so a
+    // look at the disk in between does not take this save for somebody else's.
+    beginWrite(filePath)
+    try {
+      const res = await window.ember.writeFile(
+        filePath,
+        content,
+        opts.force ? { force: true } : { expect: baseOf(filePath) }
+      )
+      if (!res.ok) {
+        if (res.conflict) get().noteConflict(filePath, res.conflict)
+        return res
+      }
+      // What was written, not what the buffer holds now, and the version that is.
+      noteSynced(filePath, content, res.stamp)
+      get().settleSaved(filePath, content, buffer.getValue() !== content, res.stamp)
+      return res
+    } finally {
+      endWrite(filePath)
+    }
+  },
 
   setActiveDocument: (paneId, index) =>
     set((s) => {
@@ -1693,12 +1754,16 @@ export const useStore = create<Store>((set, get) => ({
     // active in the tab that actually contains it.
     for (const candidate of [tab, ...tabs.filter((t) => t.id !== tabId)]) {
       const here = new Set(paneIdsOf(candidate))
+      // A proposal is never reused for anything else, nor anything else for it: its
+      // accept writes whatever the right-hand side holds, so a comparison refreshed
+      // into a proposal's pane would put the wrong text one click from the disk.
       const existing = Object.values(panes).find(
         (p) =>
           p.kind === 'diff' &&
           here.has(p.id) &&
           p.filePath === diff.filePath &&
-          p.staged === diff.staged
+          p.staged === diff.staged &&
+          Boolean(p.proposal) === Boolean(diff.proposal)
       )
       if (!existing) continue
       set({

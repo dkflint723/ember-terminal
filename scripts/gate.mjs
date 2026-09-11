@@ -47,6 +47,8 @@ const ORDER = [
   'verify-replace',
   'verify-keys',
   'verify-save',
+  'verify-conflict',
+  'verify-follow',
   'verify-snippets',
   'verify-ai',
   'verify-lsp-root',

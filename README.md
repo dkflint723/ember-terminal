@@ -81,7 +81,9 @@ accept or reject rather than a block of text to copy by hand.
 - **IDE mode** — TypeScript, Python, Bash, YAML and PowerShell language servers in
   the box, and any other LSP server teachable in settings (rust-analyzer, gopls…);
   go-to-definition, snippets, auto-save, format-on-save with the project's own
-  prettier when it has one, split panes, search and replace.
+  prettier when it has one, split panes, search and replace. Open files follow the
+  disk while Claude Code or git changes them, and a save never writes over a newer
+  version it has not seen — it stops and asks which one to keep.
 - **Debugging** — breakpoints in the margin (`F9`, with conditions and logpoints),
   `F5` runs the active file or a `.vscode/launch.json` config, attach included;
   step, pause, restart; exception filters; variables, threads and the call stack,

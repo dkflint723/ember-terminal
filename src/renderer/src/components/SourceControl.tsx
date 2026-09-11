@@ -4,6 +4,7 @@ import { GitHistory } from './GitHistory'
 import type { GitFileChange } from '@shared/types'
 import { useStore, workspaceRoot } from '../state/store'
 import { refreshGitStatus, statusClass } from '../state/git'
+import { checkDisk } from '../state/disk'
 import { QuickPick, type QuickPickItem } from './QuickPick'
 
 /**
@@ -28,8 +29,6 @@ export function SourceControl(): React.JSX.Element {
   const tabs = useStore((s) => s.tabs)
   const activeTabId = useStore((s) => s.activeTabId)
   const openDiff = useStore((s) => s.openDiffInSplit)
-  const reloadFromDisk = useStore((s) => s.reloadFromDisk)
-  const notePathDeleted = useStore((s) => s.notePathDeleted)
 
   const gitError = useStore((s) => s.gitError)
   const message = useStore((s) => s.commitDraft)
@@ -52,6 +51,10 @@ export function SourceControl(): React.JSX.Element {
     if (!res.ok) setError(res.error ?? 'git failed.')
     await refreshGitStatus()
     if (res.ok) await refreshOpenDiffs()
+    // Discards and stashes rewrite the working tree under the open editors. Every
+    // open file is read rather than stat'ed: git can finish inside the same tick of
+    // the clock it read the file in, and this is not the moment to trust a time.
+    if (res.ok) await checkDisk(undefined, { thorough: true })
     setBusy(false)
     return res.ok
   }
@@ -127,22 +130,19 @@ export function SourceControl(): React.JSX.Element {
         : `Discard changes to ${full}? This cannot be undone.`
     )
     if (!ok) return
-    const done = await act(() =>
-      window.ember.gitDiscard(root, untracked ? [] : [change.path], untracked ? [change.path] : [])
-    )
-    if (!done) return
-
     /*
-     * Tell the editors, or the discard undoes itself.
+     * The editors are told by `act`, or the discard would undo itself.
      *
      * git rewrites the working tree, and a tab showing that file kept its old buffer,
      * kept believing it matched disk, and stayed unmarked — so the next Ctrl+S wrote
-     * the discarded changes straight back. This was the one thing in the app that
-     * changed a file without anything telling the editor. Reloading leaves a buffer
-     * with unsaved edits of the user's own alone, as it does everywhere else.
+     * the discarded changes straight back. `act` now looks at every open file after
+     * any git action: a clean tab takes the restored text, an edited one is told the
+     * file moved on, and a tab on a deleted untracked file keeps its text as the only
+     * copy, marked as such.
      */
-    if (untracked) notePathDeleted(full)
-    else await reloadFromDisk([full])
+    await act(() =>
+      window.ember.gitDiscard(root, untracked ? [] : [change.path], untracked ? [change.path] : [])
+    )
   }
 
   const commit = async (): Promise<void> => {
@@ -232,6 +232,9 @@ export function SourceControl(): React.JSX.Element {
     if (!res.ok) setError(res.error)
     else setNote(kind === 'push' ? 'Pushed.' : 'Pulled.')
     await refreshGitStatus()
+    // A pull that did anything changed files under the open editors — and one that
+    // failed half way through may have too, so it is looked at either way.
+    if (kind === 'pull') await checkDisk(undefined, { thorough: true })
     setSyncing(null)
   }
 
@@ -260,6 +263,8 @@ export function SourceControl(): React.JSX.Element {
     if (!res.ok) setError(res.error)
     else setNote(create ? `On new branch ${name}.` : `On ${name}.`)
     await refreshGitStatus()
+    // Another branch is other versions of the open files, and some of them gone.
+    if (res.ok && !create) await checkDisk(undefined, { thorough: true })
   }
 
   const ahead = status.ahead > 0 ? `↑${status.ahead}` : ''

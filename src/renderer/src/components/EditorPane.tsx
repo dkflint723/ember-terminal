@@ -9,6 +9,7 @@ import { attachInlineEdit } from '../editor/inline-edit'
 import { ensureSnippets } from '../editor/snippets'
 import { openAt } from '../editor/navigate'
 import { lastSynced, noteSynced } from '../editor/synced'
+import { replaceBuffer } from '../editor/reload'
 import { recordSelection } from '../state/ide'
 import { pendingUnsaved, setBufferReader } from '../state/session'
 import { isInside, samePath } from '@shared/paths'
@@ -207,7 +208,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
         // converted to CRLF would rewrite every line of it on the next Ctrl+S.
         existing.setEOL(eolOf(doc.eol))
         existing.setValue(doc.savedContent)
-        noteSynced(doc.filePath, existing.getValue())
+        noteSynced(doc.filePath, existing.getValue(), doc.stamp ?? undefined)
       }
       return existing
     }
@@ -221,8 +222,9 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     model.setEOL(eolOf(doc.eol))
     // Read back off the model rather than recorded as handed in: Monaco normalises
     // line endings, and what has to match later is the buffer's own text. Carried
-    // text is unsaved by definition, so it is recorded as agreeing with nothing.
-    if (carried === undefined) noteSynced(doc.filePath, model.getValue())
+    // text is unsaved by definition, so it is recorded as agreeing with nothing —
+    // its base was set when the session was put back.
+    if (carried === undefined) noteSynced(doc.filePath, model.getValue(), doc.stamp ?? undefined)
     return model
   }
 
@@ -406,7 +408,9 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
       const index = current.activeIndex
       const doc = current.documents[index]
       if (!doc) return
-      const dirty = editor.getValue() !== doc.savedContent
+      // A file that is gone from disk leaves the buffer as the only copy, which is
+      // unsaved whatever it matches.
+      const dirty = editor.getValue() !== doc.savedContent || doc.conflict === 'deleted'
       if (dirty !== doc.dirty) patchDocument(pane.id, { dirty }, index)
 
       // Auto-save, when it is switched on. Restarted on every edit so it saves
@@ -544,7 +548,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
      * editor showed that unsaved text with no unsaved marker, which is the one state
      * where someone reasonably believes their work is on disk when it is not.
      */
-    const dirty = model.getValue() !== document.savedContent
+    const dirty = model.getValue() !== document.savedContent || document.conflict === 'deleted'
     if (dirty !== document.dirty) patchDocument(pane.id, { dirty }, pane.activeIndex)
 
     const treeRoot = workspaceRoot(useStore.getState())
@@ -585,19 +589,36 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     if (from && useStore.getState().settings.formatOnSave) {
       await formatDocument(editor, from)
     }
-    // The buffer, held directly rather than through the editor: a tab switch during
-    // the write moves the editor to another model, and what is being saved is this
-    // document's text wherever it ends up on screen.
-    const buffer = editor.getModel()
-    const content = buffer?.getValue() ?? editor.getValue()
 
-    let target = from
-    if (!target) {
-      target = await window.ember.saveFileDialog()
-      if (!target) return
+    if (from) {
+      // Checked against the version the buffer is based on, and settled in every
+      // pane on the file — see writeDocument, which every save goes through.
+      setSaving(true)
+      const res = await useStore.getState().writeDocument(from)
+      setSaving(false)
+      if (!res.ok) {
+        // A conflict is said by the bar across the editor, which stays until it is
+        // answered; this corner is for things that are over in a moment.
+        if (!res.conflict) setMessage(res.error)
+        return
+      }
+      setMessage('saved')
+      window.setTimeout(() => setMessage(null), 1500)
+      return
     }
 
+    // A document with nowhere on disk yet. The buffer is held directly rather than
+    // through the editor: a tab switch during the dialog or the write moves the
+    // editor to another model, and what is being saved is this document's text
+    // wherever it ends up on screen.
+    const buffer = editor.getModel()
+    const content = buffer?.getValue() ?? editor.getValue()
+    const target = await window.ember.saveFileDialog()
+    if (!target) return
+
     setSaving(true)
+    // Nothing to check against: the dialog has already asked about replacing a file
+    // that is there, and a yes to that is the answer a check would be asking for.
     const res = await window.ember.writeFile(target, content)
     setSaving(false)
 
@@ -607,7 +628,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     }
     // What was written, not what the buffer holds now: typing during the write
     // leaves the two different, and the buffer is then genuinely ahead of disk.
-    noteSynced(target, content)
+    noteSynced(target, content, res.stamp)
 
     /*
      * Both the document and its dirtiness are settled after the write, not before.
@@ -617,27 +638,26 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
      * handler had already seen dirty as true and so patched nothing, and from then on
      * nothing knew those characters existed. Closing the tab did not ask, Save All
      * skipped it, and the session snapshot dropped it — the edit was gone at the next
-     * launch. The index is re-found for the same reason a save is not the only thing
-     * that can happen while a file is being written.
+     * launch.
      */
     const after = useStore.getState().editorPane(pane.id)
-    const at = from
-      ? (after?.documents.findIndex((d) => samePath(d.filePath, from)) ?? -1)
-      : index
-    if (!after || at === -1 || !after.documents[at]) return
+    if (!after || !after.documents[index]) return
+    const dirty = (buffer?.getValue() ?? content) !== content
     patchDocument(
       pane.id,
       {
         filePath: target,
         savedContent: content,
-        dirty: (buffer?.getValue() ?? content) !== content,
-        title: target.split(/[\\/]/).pop()
+        dirty,
+        title: target.split(/[\\/]/).pop(),
+        stamp: res.stamp,
+        conflict: null
       },
-      at
+      index
     )
     // And in any other pane showing the same file, which would otherwise go on
     // reporting unsaved changes for a file that now matches disk.
-    useStore.getState().settleSaved(target, content, (buffer?.getValue() ?? content) !== content)
+    useStore.getState().settleSaved(target, content, dirty, res.stamp)
     setMessage('saved')
     window.setTimeout(() => setMessage(null), 1500)
   }
@@ -655,26 +675,14 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
    */
   autoSaveFn.current = async (filePath: string) => {
     const current = useStore.getState().editorPane(pane.id)
-    const index = current?.documents.findIndex((d) => samePath(d.filePath, filePath)) ?? -1
-    if (!current || index === -1 || !current.documents[index].dirty) return
+    const doc = current?.documents.find((d) => samePath(d.filePath, filePath))
+    if (!doc?.dirty) return
+    // Already waiting on a decision about this file. Saving again would only ask the
+    // same question — and it is a question, so it is not auto-save's to answer.
+    if (doc.conflict) return
 
-    const buffer = monaco.editor.getModel(modelUri(filePath))
-    if (!buffer) return
-    const content = buffer.getValue()
-
-    const res = await window.ember.writeFile(filePath, content)
-    if (!res.ok) {
-      setMessage(res.error)
-      return
-    }
-    noteSynced(filePath, content)
-    // Re-found after the write, and dirtiness read off the buffer rather than
-    // assumed, for the reasons spelled out in save().
-    const after = useStore.getState().editorPane(pane.id)
-    const at = after?.documents.findIndex((d) => samePath(d.filePath, filePath)) ?? -1
-    if (!after || at === -1) return
-    patchDocument(pane.id, { savedContent: content, dirty: buffer.getValue() !== content }, at)
-    useStore.getState().settleSaved(filePath, content, buffer.getValue() !== content)
+    const res = await useStore.getState().writeDocument(filePath)
+    if (!res.ok && !res.conflict) setMessage(res.error)
   }
 
   /**
@@ -690,16 +698,14 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     closeDocument(tabId, pane.id, index)
   }
 
-  const revert = async (): Promise<void> => {
-    const path = document.filePath
-    if (!path) return
-    // Throwing away edits and the undo history with them, so it gets asked.
-    if (
-      document.dirty &&
-      !window.confirm(`Discard unsaved changes to ${document.title} and reload it from disk?`)
-    ) {
-      return
-    }
+  /**
+   * Put what is on disk into the buffer, in place of what the buffer held.
+   *
+   * As an edit rather than a new value, so Ctrl+Z brings the text back: this is
+   * also the answer to a conflict, where "the other version wins" is a decision
+   * made about text the person may want a line of a minute later.
+   */
+  const loadFromDisk = async (path: string): Promise<void> => {
     const res = await window.ember.readFile(path)
     if (!res.ok) {
       setMessage(res.error)
@@ -719,13 +725,69 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     const at = current?.documents.findIndex((d) => samePath(d.filePath, path)) ?? -1
     if (!current || at === -1) return
 
-    model?.setEOL(eolOf(res.eol))
-    model?.setValue(res.content)
-    patchDocument(pane.id, { savedContent: res.content, dirty: false, eol: res.eol }, at)
+    // The document's copy of the disk first, then the buffer: dirtiness is one
+    // compared with the other, and the other order sees the disk's text against the
+    // old copy, calls it an edit, and starts an auto-save for it.
+    patchDocument(
+      pane.id,
+      { savedContent: res.content, dirty: false, eol: res.eol, stamp: res.stamp, conflict: null },
+      at
+    )
     // A revert throws away the edit everywhere, not only in the pane it was asked
-    // from — the buffer they share has already gone back to what disk holds.
-    useStore.getState().settleSaved(path, res.content, false)
-    if (model) noteSynced(path, model.getValue())
+    // from — the buffer they share goes back to what disk holds.
+    useStore.getState().settleSaved(path, res.content, false, res.stamp)
+    if (model) {
+      replaceBuffer(model, res.content, res.eol)
+      noteSynced(path, model.getValue(), res.stamp)
+    }
+  }
+
+  const revert = async (): Promise<void> => {
+    const path = document.filePath
+    if (!path) return
+    // Throwing away edits, so it gets asked — even though Ctrl+Z can now undo it.
+    if (
+      document.dirty &&
+      !window.confirm(`Discard unsaved changes to ${document.title} and reload it from disk?`)
+    ) {
+      return
+    }
+    await loadFromDisk(path)
+  }
+
+  /** Save this buffer over whatever is on disk, having been shown that it differs. */
+  const keepMine = async (path: string): Promise<void> => {
+    setSaving(true)
+    const res = await useStore.getState().writeDocument(path, { force: true })
+    setSaving(false)
+    if (!res.ok) setMessage(res.error)
+  }
+
+  /**
+   * The disk's version beside this buffer's, for deciding between them.
+   *
+   * A snapshot of both, in the read-only diff pane: the choice the bar offers is
+   * between losing one version and losing the other, and neither should be made
+   * without seeing what it costs. Lines wanted from the other side can be copied
+   * out of it before Overwrite.
+   */
+  const compareWithDisk = async (path: string, title: string, language: string): Promise<void> => {
+    const res = await window.ember.readFile(path)
+    const mine = monaco.editor.getModel(modelUri(path))?.getValue()
+    if (!res.ok || mine === undefined) {
+      setMessage(res.ok ? 'nothing to compare' : res.error)
+      return
+    }
+    useStore.getState().openDiffInSplit(tabId, {
+      filePath: path,
+      title,
+      original: res.content,
+      modified: mine,
+      originalLabel: 'On disk',
+      modifiedLabel: 'Unsaved here',
+      language,
+      staged: false
+    })
   }
 
   return (
@@ -843,7 +905,101 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
           </span>
         ))}
       </div>
+      {document.conflict && document.filePath && (
+        <ConflictBar
+          conflict={document.conflict}
+          title={document.title}
+          onCompare={() =>
+            void compareWithDisk(document.filePath!, document.title, document.language)
+          }
+          onKeepMine={() => void keepMine(document.filePath!)}
+          onLoad={() => void loadFromDisk(document.filePath!)}
+          onClose={() => requestClose(pane.activeIndex)}
+          busy={saving}
+        />
+      )}
       <div className="editor__host" ref={host} />
+    </div>
+  )
+}
+
+/**
+ * A file that moved on under unsaved work, said across the editor it is about —
+ * found by a save that stopped, or by the look at the disk that got there first.
+ *
+ * Not the corner notice: this waits on a decision, and has to still be there when
+ * the person looks back from whatever changed the file. Both ways out lose
+ * something, so neither is dressed as the default, and the one that shows what
+ * each would cost comes first.
+ */
+function ConflictBar({
+  conflict,
+  title,
+  onCompare,
+  onKeepMine,
+  onLoad,
+  onClose,
+  busy
+}: {
+  conflict: 'changed' | 'deleted'
+  title: string
+  onCompare: () => void
+  onKeepMine: () => void
+  onLoad: () => void
+  onClose: () => void
+  busy: boolean
+}): React.JSX.Element {
+  return (
+    <div className="editor__conflict" role="alert">
+      {conflict === 'changed' ? (
+        <span className="editor__conflict-text">
+          <span className="editor__conflict-file">{title}</span> changed on disk since you
+          last opened or saved it. Your edits are still here, not saved over it.
+        </span>
+      ) : (
+        <span className="editor__conflict-text">
+          <span className="editor__conflict-file">{title}</span> was deleted on disk. The
+          text here is the only copy left.
+        </span>
+      )}
+      <span className="editor__conflict-actions">
+        {conflict === 'changed' ? (
+          <>
+            <button className="btn" onClick={onCompare} title="Show the version on disk beside yours">
+              Compare
+            </button>
+            <button
+              className="btn"
+              onClick={onKeepMine}
+              disabled={busy}
+              title="Save your text over the version on disk"
+            >
+              Overwrite
+            </button>
+            <button
+              className="btn"
+              onClick={onLoad}
+              title="Replace your text with the version on disk — Ctrl+Z brings yours back"
+            >
+              Load from disk
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              className="btn"
+              onClick={onKeepMine}
+              disabled={busy}
+              title="Put the file back on disk with your text"
+            >
+              Save anyway
+            </button>
+            <button className="btn" onClick={onClose} title="Close this tab">
+              Close
+            </button>
+          </>
+        )}
+      </span>
     </div>
   )
 }

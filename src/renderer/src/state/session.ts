@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import type {
+  FileStamp,
   PersistedBlock,
   SessionLayout,
   SessionPane,
@@ -8,6 +9,7 @@ import type {
   TerminalPaneTransfer
 } from '@shared/types'
 import { settleThread } from '@shared/thread'
+import { baseOf, noteBase } from '../editor/synced'
 import { markAdopted } from '../terminal/controller'
 import { seedDebug, serializeDebug, useDebugStore } from './debug'
 import { type Block, type ConversationBlock, type EditorDocument, type LayoutNode, type Pane, type Tab, useStore, workspaceRoot } from './store'
@@ -164,11 +166,17 @@ export function snapshot(): SessionSnapshot {
  * held in `pendingUnsaved` — unconsumed precisely because nobody opened the tab —
  * so it is passed along rather than invented.
  */
-function unsavedFor(doc: EditorDocument): { unsaved?: string } {
+function unsavedFor(doc: EditorDocument): { unsaved?: string; base?: FileStamp | null } {
   if (!doc.dirty) return {}
   const live = currentText(doc.filePath) ?? pendingUnsaved.get(doc.filePath ?? '')
-  if (live === undefined || live === doc.savedContent) return {}
-  return live.length <= MAX_UNSAVED_BYTES ? { unsaved: live } : {}
+  // Matching the last copy of a file that has since been deleted is not matching
+  // anything on disk: that text is the only copy left, and it is kept like an edit.
+  if (live === undefined || (live === doc.savedContent && doc.conflict !== 'deleted')) return {}
+  if (live.length > MAX_UNSAVED_BYTES) return {}
+  // With the version it was edited from, so a file that changes before the next
+  // launch is still caught when this text is finally saved.
+  const base = baseOf(doc.filePath)
+  return base === undefined ? { unsaved: live } : { unsaved: live, base }
 }
 
 /**
@@ -255,11 +263,13 @@ async function buildEditorPane(
   for (const doc of saved.documents) {
     let savedContent = ''
     let eol = doc.eol
+    let stamp: FileStamp | null | undefined
     if (doc.filePath) {
       const read = await window.ember.readFile(doc.filePath)
       if (!read.ok && doc.unsaved === undefined) continue
       savedContent = read.ok ? read.content : ''
       if (read.ok) eol = read.eol
+      stamp = read.ok ? read.stamp : null
     }
     documents.push({
       filePath: doc.filePath,
@@ -267,9 +277,19 @@ async function buildEditorPane(
       savedContent,
       language: doc.language || languageForPath(doc.filePath ?? ''),
       eol,
-      dirty: doc.unsaved !== undefined && doc.unsaved !== savedContent
+      dirty: doc.unsaved !== undefined && doc.unsaved !== savedContent,
+      stamp
     })
-    if (doc.unsaved !== undefined) pendingUnsaved.set(doc.filePath ?? '', doc.unsaved)
+    if (doc.unsaved !== undefined) {
+      pendingUnsaved.set(doc.filePath ?? '', doc.unsaved)
+      /*
+       * Carried text agrees with nothing on disk, but it is based on a version of the
+       * file: the one written down with it, so a change made between the two launches
+       * stops its save and asks. A session written before that was recorded falls
+       * back to the version there now, which still catches every change from here on.
+       */
+      noteBase(doc.filePath, doc.base !== undefined ? doc.base : stamp)
+    }
   }
   if (documents.length === 0) return null
 

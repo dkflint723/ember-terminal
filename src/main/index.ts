@@ -188,7 +188,7 @@ import { SettingsStore } from './settings.js'
 import { ThemeStore } from './themes.js'
 import { CompletionService } from './completion.js'
 import { HistoryStore } from './history.js'
-import { FileService, fileArgs, pathArgs } from './files.js'
+import { FileService, fileArgs, isStamp, pathArgs } from './files.js'
 import { LspService } from './lsp.js'
 import { GitService } from './git.js'
 import { GhostService } from './ghost.js'
@@ -212,6 +212,7 @@ import {
   type CompletionRequest,
   type DebugAdapter,
   type DebugStartRequest,
+  type FileWriteOptions,
   type HistoryQuery,
   type HistoryRecord,
   type PersistedBlock,
@@ -1647,8 +1648,14 @@ function registerIpc(): void {
   ipcMain.handle('git:checkout', (_e, root: string, name: string, create: boolean) =>
     create ? git.createBranch(root, name) : git.checkout(root, name)
   )
-  ipcMain.handle('file:write', (_e, filePath: string, content: string) =>
-    files.write(filePath, content)
+  ipcMain.handle('file:write', (_e, filePath: string, content: string, opts?: FileWriteOptions) =>
+    files.write(filePath, content, {
+      expect: isStamp(opts?.expect) ? opts.expect : opts?.expect === null ? null : undefined,
+      force: opts?.force === true
+    })
+  )
+  ipcMain.handle('file:marks', (_e, paths: unknown) =>
+    files.marks(Array.isArray(paths) ? paths.filter((p): p is string => typeof p === 'string') : [])
   )
   ipcMain.handle('file:saveDialog', (e, defaultPath?: string) => {
     const win = windowFromEvent(e) ?? mainWindow

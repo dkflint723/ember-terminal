@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { GitHubCheckState, GitHubIssue, GitHubOverview, GitHubPr } from '@shared/types'
 import { useStore, workspaceRoot } from '../state/store'
 import { refreshGitStatus } from '../state/git'
+import { checkDisk } from '../state/disk'
 
 /**
  * Pull requests and issues for whatever repository the workspace belongs to.
@@ -58,6 +59,8 @@ export function GitHubPanel(): React.JSX.Element {
     else setActionError(null)
     // The branch just changed, so the source-control view is now stale.
     await refreshGitStatus()
+    // And so are any open editors on files the branch has different versions of.
+    if (res.ok) await checkDisk(undefined, { thorough: true })
   }
 
   if (!treeRoot) return <div className="gh gh--empty">Open a folder to see GitHub.</div>

@@ -3427,6 +3427,44 @@ label.field__check {
 }
 
 /*
+ * A save that stopped because the file changed on disk.
+ *
+ * Under the breadcrumbs and over the text, pushing the text down rather than
+ * covering any of it. The accent edge says it is waiting on an answer; what
+ * happened is in the words, which is where anyone who cannot tell colours apart
+ * reads it too.
+ */
+.editor__conflict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.editor__conflict-text {
+  flex: 1 1 18em;
+  min-width: 0;
+}
+
+.editor__conflict-file {
+  font-family: var(--mono);
+}
+
+.editor__conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+/*
  * A line the language server has something to say about.
  *
  * The class is handed to Monaco as a decoration, so the element it lands on is one

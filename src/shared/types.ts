@@ -255,17 +255,66 @@ export type DirReadResult =
   | { ok: true; path: string; entries: DirEntry[] }
   | { ok: false; error: string }
 
+/**
+ * Which version of a file some text was read from, or written as.
+ *
+ * The hash is the identity: of the bytes on disk, byte-order mark and line endings
+ * included, and the only part a comparison trusts. The size is conclusive only when
+ * it differs. The time is a hint for skipping a read, never proof of anything —
+ * tools that restore a file can put its old time back.
+ */
+export interface FileStamp {
+  mtimeMs: number
+  size: number
+  hash: string
+}
+
 export interface FileReadOk {
   ok: true
   path: string
   name: string
   content: string
   eol: 'lf' | 'crlf'
+  /** The version that was read, so a later save can check it is still what is there. */
+  stamp: FileStamp
 }
 
 export type FileReadResult = FileReadOk | { ok: false; error: string }
 export type FileOpenResult = FileReadOk | { ok: false; error?: string; canceled?: boolean }
 export type FileWriteResult = { ok: true } | { ok: false; error: string }
+
+/**
+ * A file's size and time, read without its contents — enough to tell that it has
+ * certainly been touched, never that it certainly has not. `missing` is nothing
+ * there at all; `unreadable` is something there that could not be looked at, which
+ * is not the same thing and is never treated as a deletion.
+ */
+export type FileMark = { mtimeMs: number; size: number } | 'missing' | 'unreadable'
+
+/**
+ * What a save may assume about the file it writes.
+ *
+ * `expect` is the version the text was based on. The write goes ahead only while
+ * that is still what the file holds; `null` expects no file at all. Left out, the
+ * save does not look — which is right only where something else already asked,
+ * as the save dialog does before handing back a name that exists. `force` is a
+ * person who has been shown the conflict and chosen their own text.
+ */
+export interface FileWriteOptions {
+  expect?: FileStamp | null
+  force?: boolean
+}
+
+/**
+ * What a save of editor text did.
+ *
+ * A conflict is kept apart from an error because it is not a failure: nothing went
+ * wrong, the file moved on, and the answer is a question for the person rather
+ * than a message about the disk.
+ */
+export type FileSaveResult =
+  | { ok: true; stamp: FileStamp }
+  | { ok: false; error: string; conflict?: 'changed' | 'deleted' }
 
 /**
  * One changed path. `status` is git's own single letter — M, A, D, R, C — plus `U`
@@ -342,6 +391,11 @@ export interface SessionDocument {
   eol: 'lf' | 'crlf'
   /** Only present when the buffer differed from disk when the session was written. */
   unsaved?: string
+  /**
+   * The version of the file that unsaved text was based on, so a file changed
+   * between one launch and the next is still caught when the edits are saved.
+   */
+  base?: FileStamp | null
 }
 
 export type SessionPane =
@@ -1168,7 +1222,9 @@ export interface EmberApi {
   gitUnstage(root: string, paths: string[]): Promise<GitSimpleResult>
   gitDiscard(root: string, paths: string[], untracked: string[]): Promise<GitSimpleResult>
   gitCommit(root: string, message: string): Promise<GitCommitResult>
-  writeFile(path: string, content: string): Promise<FileWriteResult>
+  writeFile(path: string, content: string, opts?: FileWriteOptions): Promise<FileSaveResult>
+  /** Size and time for each path, in order, for noticing files that changed. */
+  markFiles(paths: string[]): Promise<FileMark[]>
   saveFileDialog(defaultPath?: string): Promise<string | null>
   complete(req: CompletionRequest): Promise<CompletionResult>
   recordHistory(entry: HistoryRecord): void

@@ -26,8 +26,21 @@
  * ends up with two models and a single record describing whichever moved last.
  */
 import { pathKey as key } from '@shared/paths'
+import type { FileStamp } from '@shared/types'
 
 const synced = new Map<string, string>()
+
+/*
+ * And which version of the file that was.
+ *
+ * The text says whether the buffer has been edited; this says what the edits sit
+ * on top of, which is what a save sends along to be checked against the disk — so
+ * a file that changed since is caught at the write, whoever changed it. Kept apart
+ * from the text because the two are not always known together: text carried over
+ * from the last session agrees with nothing on disk and is still based on a version
+ * of it.
+ */
+const bases = new Map<string, FileStamp | null>()
 
 /**
  * Record that a buffer and the file on disk agree.
@@ -36,9 +49,24 @@ const synced = new Map<string, string>()
  * Monaco normalises line endings, so what a later comparison sees is the model's
  * own text — except after a write, where what reached disk is the truth and the
  * buffer may already have moved on.
+ *
+ * The stamp is the version of the file that text is. It is asked for every time
+ * rather than kept from before, because a stamp left over from an earlier version
+ * would make the next save refuse over a change the buffer already has. Undefined
+ * says it is not known, and a save then writes without checking.
  */
-export function noteSynced(filePath: string | null, text: string): void {
-  if (filePath) synced.set(key(filePath), text)
+export function noteSynced(filePath: string | null, text: string, stamp: FileStamp | undefined): void {
+  if (!filePath) return
+  synced.set(key(filePath), text)
+  if (stamp === undefined) bases.delete(key(filePath))
+  else bases.set(key(filePath), stamp)
+}
+
+/** Record only what the buffer is based on, for text that does not match it. */
+export function noteBase(filePath: string | null, stamp: FileStamp | null | undefined): void {
+  if (!filePath) return
+  if (stamp === undefined) bases.delete(key(filePath))
+  else bases.set(key(filePath), stamp)
 }
 
 /** What the buffer last agreed with, or undefined if that was never recorded. */
@@ -46,7 +74,41 @@ export function lastSynced(filePath: string | null): string | undefined {
   return filePath ? synced.get(key(filePath)) : undefined
 }
 
+/**
+ * The version of the file the buffer's text is based on: what a save expects to
+ * find on disk. Undefined when that is not known.
+ */
+export function baseOf(filePath: string | null): FileStamp | null | undefined {
+  return filePath ? bases.get(key(filePath)) : undefined
+}
+
 /** A disposed model's record has nothing left to describe. */
 export function forgetSynced(filePath: string | null): void {
-  if (filePath) synced.delete(key(filePath))
+  if (!filePath) return
+  synced.delete(key(filePath))
+  bases.delete(key(filePath))
+}
+
+/*
+ * Saves in flight.
+ *
+ * A save changes the file before the record above can say so — the write lands,
+ * then its result comes back — and a look at the disk in between would see a new
+ * version the buffer is not based on yet, and call the editor's own save somebody
+ * else's change.
+ */
+const writing = new Map<string, number>()
+
+export function beginWrite(filePath: string): void {
+  writing.set(key(filePath), (writing.get(key(filePath)) ?? 0) + 1)
+}
+
+export function endWrite(filePath: string): void {
+  const left = (writing.get(key(filePath)) ?? 1) - 1
+  if (left > 0) writing.set(key(filePath), left)
+  else writing.delete(key(filePath))
+}
+
+export function isWriting(filePath: string): boolean {
+  return writing.has(key(filePath))
 }
