@@ -772,6 +772,39 @@ interface WindowSeed {
   maximized?: boolean
 }
 
+/**
+ * Put a window where it was, so that it reads back as exactly where it was.
+ *
+ * The window's rectangle is written down from getNormalBounds and handed back on
+ * the next launch, so the two have to agree, and at a fractional display scale
+ * they do not. Measured at 110 DPI (scale 1.1458): a frameless window built at
+ * 1000 by 660 reads back as 1008 by 667, and even setBounds reads back 2 larger
+ * each way, because every conversion to whole device pixels rounds each edge
+ * outwards. Either way, what was written down came back bigger and was written
+ * down bigger again: the window grew on every launch, by eight pixels at first and
+ * two after that, for good.
+ *
+ * So: set it, read what actually happened, and set it again offset by the error.
+ * One correction lands exactly on the rectangle asked for, which makes the save
+ * and the restore each other's inverse and the size stable from launch to launch.
+ */
+function placeExactly(
+  win: BrowserWindow,
+  want: { x: number; y: number; width: number; height: number }
+): void {
+  win.setBounds(want)
+  const got = win.getNormalBounds()
+  if (got.x === want.x && got.y === want.y && got.width === want.width && got.height === want.height) {
+    return
+  }
+  win.setBounds({
+    x: want.x + (want.x - got.x),
+    y: want.y + (want.y - got.y),
+    width: want.width + (want.width - got.width),
+    height: want.height + (want.height - got.height)
+  })
+}
+
 function createWindow(seed: WindowSeed = {}): number {
   const id = ++nextWindowId
   const primary = mainWindow === null
@@ -795,7 +828,25 @@ function createWindow(seed: WindowSeed = {}): number {
       : { width: 1180, height: 760 }
   }
 
-  if (seed.snapshot) parkedSnapshots.set(id, seed.snapshot)
+  if (seed.snapshot) {
+    parkedSnapshots.set(id, seed.snapshot)
+    /*
+     * Its panes are spoken for from this moment, not from when it reports.
+     *
+     * Main prunes saved blocks to the panes someone answers for: those with a
+     * live shell, and those each window has listed. A restored window lists its
+     * panes only after it has restored, and its shells start after that — so
+     * when two windows came back together, the first to finish pruned to its own
+     * list and deleted the other's blocks before the other had loaded them, and
+     * that window came back as an empty pane. The window's own report replaces
+     * this list when it arrives; until then, the snapshot it was handed is what
+     * it answers for.
+     */
+    keepSets.set(
+      id,
+      seed.snapshot.panes.map((p) => p.id)
+    )
+  }
   if (seed.transfer) parkedTransfers.set(id, seed.transfer)
 
   const win = new BrowserWindow({
@@ -831,6 +882,16 @@ function createWindow(seed: WindowSeed = {}): number {
       sandbox: true,
       spellcheck: false
     }
+  })
+
+  // Then placed exactly — see placeExactly for why the constructor's own sizing
+  // cannot be trusted with a rectangle that is going to be written down again.
+  const at = win.getNormalBounds()
+  placeExactly(win, {
+    x: opening.x ?? at.x,
+    y: opening.y ?? at.y,
+    width: opening.width,
+    height: opening.height
   })
 
   windows.set(id, win)
@@ -1176,11 +1237,22 @@ function registerIpc(): void {
   // Each window is served the snapshot parked for it at creation, and writes
   // its own entry back — stamped with where the window stands, so a restored
   // secondary opens where it was rather than wherever the cascade lands.
-  ipcMain.handle('session:load', (e) => {
+  /*
+   * A verification seam, off unless the variable is set: every window after the
+   * first to ask waits this long for its snapshot. Two windows restoring at once
+   * race to report which blocks they keep, and whether the race went wrong used to
+   * depend on which renderer happened to be slower; this makes one of them slower
+   * on purpose, so the suite that restores two windows can test the race every
+   * time instead of when it is lucky.
+   */
+  const loadDelayMs = Number(process.env.EMBER_SESSION_LOAD_DELAY_MS) || 0
+  let sessionLoads = 0
+  ipcMain.handle('session:load', async (e) => {
     const id = windowIdOf(e.sender)
     if (id === null) return null
     const parked = parkedSnapshots.get(id) ?? null
     parkedSnapshots.delete(id)
+    if (loadDelayMs > 0 && sessionLoads++ > 0) await new Promise((r) => setTimeout(r, loadDelayMs))
     return parked
   })
   ipcMain.handle('session:save', (e, snapshot: SessionSnapshot) => {

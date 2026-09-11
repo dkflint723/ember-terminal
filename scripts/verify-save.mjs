@@ -72,6 +72,13 @@ const setNumber = async (labelText, value) => {
 // --- off by default ----------------------------------------------------------
 await typeInEditor('// waiting')
 await sleep(4000)
+// The positive half first. "Nothing was written" is just as true when the typing
+// never reached the editor, so the edit has to be shown to exist before its absence
+// on disk means anything.
+check(
+  'the typing reached the editor',
+  (await page.locator('.pane.editor[data-dirty="true"]').count()) === 1
+)
 check(
   'nothing is written while auto save is off',
   read(one) === 'const one = 1\n',

@@ -16,7 +16,7 @@
 //
 // Run: node scripts/verify-update.mjs   (needs a packaged build: npm run package)
 import { _electron as electron } from 'playwright-core'
-import { newProfile } from './profile.mjs'
+import { newProfile, skip } from './profile.mjs'
 import * as crypto from 'node:crypto'
 import * as fs from 'node:fs'
 import * as http from 'node:http'
@@ -29,9 +29,17 @@ const EXE = path.join(UNPACKED, 'Ember.exe')
 const FEED_CONFIG = path.join(UNPACKED, 'resources', 'app-update.yml')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-if (!fs.existsSync(EXE) || !fs.existsSync(FEED_CONFIG)) {
-  console.log('update download: SKIP — no packaged build in release/win-unpacked')
-  process.exit(0)
+/*
+ * Only the packaged app is a precondition — not its feed config.
+ *
+ * This skipped unless resources/app-update.yml existed, and electron-builder writes
+ * that file only for installer targets. The gate builds with --dir, so the suite
+ * skipped on every gate run: it had been brought into the gate and was still
+ * testing nothing. The feed below is written by the suite anyway, pointing at its
+ * own local server; a build that had none gets one for the length of the run.
+ */
+if (!fs.existsSync(EXE)) {
+  skip('update download', 'no packaged build in release/win-unpacked')
 }
 
 const failures = []
@@ -87,7 +95,7 @@ const CACHE_NAME = 'ember-updater-selftest'
 const cache = path.join(os.homedir(), 'AppData', 'Local', CACHE_NAME)
 fs.rmSync(cache, { recursive: true, force: true })
 
-const originalFeed = fs.readFileSync(FEED_CONFIG, 'utf8')
+const originalFeed = fs.existsSync(FEED_CONFIG) ? fs.readFileSync(FEED_CONFIG, 'utf8') : null
 fs.writeFileSync(
   FEED_CONFIG,
   `provider: generic\nurl: http://127.0.0.1:${port}/\nupdaterCacheDirName: ${CACHE_NAME}\n`,
@@ -145,7 +153,9 @@ try {
 
   await app.close()
 } finally {
-  fs.writeFileSync(FEED_CONFIG, originalFeed, 'utf8')
+  // Put back what was there, or nothing if nothing was.
+  if (originalFeed === null) fs.rmSync(FEED_CONFIG, { force: true })
+  else fs.writeFileSync(FEED_CONFIG, originalFeed, 'utf8')
   server.close()
   profile.cleanup()
 }

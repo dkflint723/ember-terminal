@@ -409,7 +409,16 @@ const caption = await page.evaluate(() => {
       const r = b.getBoundingClientRect()
       return { w: Math.round(r.width), h: Math.round(r.height) }
     }),
-    rightGap: Math.round(window.innerWidth - last.right)
+    /*
+     * Against the viewport's real width, not innerWidth.
+     *
+     * innerWidth is a whole number and the layout is not: at a 110 DPI display
+     * (scale 1.1458) this window's viewport is 1182.545 CSS pixels wide, innerWidth
+     * says 1182, and the last button ends at 1182.545 — flush with the edge. The
+     * check rounded the -0.545 between them to -1 and failed a button that was
+     * exactly where it belonged. visualViewport.width carries the fraction.
+     */
+    rightGap: (window.visualViewport?.width ?? window.innerWidth) - last.right
   }
 })
 check('there are window buttons to measure', caption !== null, String(caption))
@@ -421,7 +430,7 @@ if (caption) {
   )
   check(
     'and the last one reaches the window edge',
-    caption.rightGap === 0,
+    Math.abs(caption.rightGap) < 0.5,
     JSON.stringify(caption.rightGap)
   )
 }

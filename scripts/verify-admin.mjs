@@ -12,6 +12,8 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
+import { watchPageErrors } from './harness.mjs'
+import { spawn } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -27,6 +29,8 @@ const check = (label, ok, detail) => {
   if (!ok) failures.push(`${label}${detail !== undefined ? ` — ${detail}` : ''}`)
 }
 
+// Every window of every launch below reports its uncaught page errors here.
+const pageErrors = []
 const launch = (extra = []) =>
   electron.launch({
     executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
@@ -34,7 +38,7 @@ const launch = (extra = []) =>
     cwd: APP_DIR,
     env,
     timeout: 60_000
-  })
+  }).then((app) => watchPageErrors(app, pageErrors))
 
 // --- the ordinary window ---------------------------------------------------------
 const ordinary = await launch()
@@ -130,29 +134,40 @@ check('the ordinary window survived', (await ordinaryPage.locator('.pane').count
  * there afterwards, which is the half that matters: a lock that turned away the
  * wrong process would satisfy a check that only counted windows.
  */
-let secondLived = true
-let secondSaid = 'it opened a window'
-try {
-  const second = await launch(['--admin-window'])
-  await sleep(4000)
-  secondLived = second.windows().length > 0
-  secondSaid = `${second.windows().length} windows`
-  try {
-    await second.close()
-  } catch {
-    // Already gone, which is the state this wanted.
-  }
-} catch (err) {
-  /*
-   * Quitting before a debugger can attach is the loudest possible pass: the
-   * process took the lock's answer and went, so Playwright never got a page.
-   * Distinguished from a real launch failure by the ordinary window below still
-   * being there and still being the elevated one.
-   */
-  secondLived = false
-  secondSaid = String(err).split('\n')[0]
-}
-check('a second elevated Ember does not open a second window', !secondLived, secondSaid)
+/*
+ * Spawned as a plain child process, not through Playwright.
+ *
+ * This used to launch through Playwright and score a thrown launch as the process
+ * "taking the lock's answer and going". But every failure to launch throws — a twin
+ * that crashed on start, or never started at all, passed just the same. A child
+ * process has an exit code, and the lock's answer is a specific one: app.quit()
+ * before any window, which is a quick, clean exit 0. Anything still running after
+ * fifteen seconds got past the lock.
+ */
+const second = await new Promise((resolve) => {
+  const child = spawn(
+    path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
+    [APP_DIR, profile.arg, '--admin-window'],
+    { cwd: APP_DIR, env, stdio: 'ignore', windowsHide: true }
+  )
+  const timer = setTimeout(() => {
+    child.kill()
+    resolve({ exited: false })
+  }, 15_000)
+  child.on('exit', (code) => {
+    clearTimeout(timer)
+    resolve({ exited: true, code })
+  })
+  child.on('error', (err) => {
+    clearTimeout(timer)
+    resolve({ exited: false, error: String(err) })
+  })
+})
+check(
+  'a second elevated Ember turns itself away cleanly',
+  second.exited && second.code === 0,
+  JSON.stringify(second)
+)
 check(
   'and the one already open is untouched',
   (await adminPage.evaluate(() => window.ember.isAdmin)) === true,
@@ -244,5 +259,7 @@ await ordinary.close()
 profile.cleanup()
 fs.rmSync(adminDir, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)
-console.log('admin window:', failures.length === 0 ? 'PASS' : 'FAIL')
-process.exit(failures.length === 0 ? 0 : 1)
+if (pageErrors.length > 0) console.log('page errors:', pageErrors.slice(0, 4).join(' | '))
+const passed = failures.length === 0 && pageErrors.length === 0
+console.log('admin window:', passed ? 'PASS' : 'FAIL')
+process.exit(passed ? 0 : 1)

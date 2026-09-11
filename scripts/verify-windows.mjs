@@ -27,14 +27,21 @@ delete env.ELECTRON_RUN_AS_NODE
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-move-'))
 const dirTail = path.basename(dir).toLowerCase()
 
-const launch = () =>
-  electron.launch({
+// Every window either app ever opens reports its page errors here.
+const pageErrors = []
+const launch = async (extraEnv = {}) => {
+  const launched = await electron.launch({
     executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
     args: [APP_DIR, profile.arg],
     cwd: APP_DIR,
-    env,
+    env: { ...env, ...extraEnv },
     timeout: 60_000
   })
+  const hook = (w) => w.on('pageerror', (e) => pageErrors.push(e.message))
+  for (const w of launched.windows()) hook(w)
+  launched.on('window', hook)
+  return launched
+}
 
 const failures = []
 const check = (label, ok, detail) => {
@@ -49,6 +56,24 @@ const run = async (page, command, settle = 2600) => {
 }
 const paneText = (page) =>
   page.evaluate(() => (document.querySelector('.pane__scroll')?.textContent ?? '').toLowerCase())
+/*
+ * The newest block's command and what it printed, read apart.
+ *
+ * The pane's whole text includes every block's command line, so checking it for a
+ * marker the command itself contains passes whether or not a shell ever ran it: both
+ * checks below looked for `alive-7` and `win-two-marker` in text that already held
+ * `$env:EMBER_WIN_PROOF='alive-7'` and `echo win-two-marker`. Only a block body
+ * holds what the shell answered.
+ */
+const lastOutput = (page) =>
+  page.evaluate(() => {
+    const blocks = [...document.querySelectorAll('.block')]
+    const last = blocks[blocks.length - 1]
+    return {
+      cmd: last?.querySelector('.block__cmd')?.textContent ?? null,
+      body: (last?.querySelector('.block__body')?.textContent ?? '').trim()
+    }
+  })
 const ready = async (page) => {
   await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
   await sleep(1500)
@@ -80,7 +105,12 @@ const two = bothOpen.find((w) => w !== one)
 await ready(two)
 
 await run(two, 'echo win-two-marker')
-check('the second window runs its own shell', (await paneText(two)).includes('win-two-marker'))
+const twoSaid = await lastOutput(two)
+check(
+  'the second window runs its own shell',
+  twoSaid.cmd === 'echo win-two-marker' && twoSaid.body === 'win-two-marker',
+  JSON.stringify(twoSaid)
+)
 check(
   'and its output never reaches the first',
   !(await paneText(one)).includes('win-two-marker'),
@@ -146,10 +176,13 @@ if (adopted) {
 
   // The proof no fresh shell could give: the variable set before the move.
   await run(adopted, 'echo $env:EMBER_WIN_PROOF', 3200)
+  // A respawned shell would print an empty line here: the variable only exists in
+  // the process that was running before the move.
+  const proof = await lastOutput(adopted)
   check(
     'and the shell is the same living process',
-    (await paneText(adopted)).includes('alive-7'),
-    (await paneText(adopted)).slice(-160)
+    proof.cmd === 'echo $env:EMBER_WIN_PROOF' && proof.body === 'alive-7',
+    JSON.stringify(proof)
   )
 
   /*
@@ -212,7 +245,19 @@ await app.close()
 await sleep(1500)
 
 // --- second life: every window comes back --------------------------------------
-app = await launch()
+/*
+ * With one window made to restore late, on purpose.
+ *
+ * Both windows come back at once and each reports which saved blocks it keeps.
+ * Main used to prune to the reports it had so far, so the window that finished
+ * first deleted the other's blocks before the other had loaded them, and that
+ * window came back as an empty pane. Whether it happened depended on which
+ * renderer was slower: the gate caught it once in a run at low priority, after the
+ * same check had passed in 0.3.26's gate. Holding the second window's snapshot
+ * back makes the losing order happen every time, so these two checks test the
+ * race instead of waiting for it.
+ */
+app = await launch({ EMBER_SESSION_LOAD_DELAY_MS: '4000' })
 const revived = await waitForWindows(app, 2, 40_000)
 for (const page of revived) await ready(page)
 const texts = await Promise.all(revived.map((p) => paneText(p)))
@@ -230,5 +275,7 @@ await app.close()
 profile.cleanup()
 fs.rmSync(dir, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)
-console.log('second window:', failures.length === 0 ? 'PASS' : 'FAIL')
-process.exit(failures.length === 0 ? 0 : 1)
+if (pageErrors.length > 0) console.log('page errors:', pageErrors.slice(0, 4).join(' | '))
+const passed = failures.length === 0 && pageErrors.length === 0
+console.log('second window:', passed ? 'PASS' : 'FAIL')
+process.exit(passed ? 0 : 1)

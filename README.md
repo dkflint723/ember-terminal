@@ -194,11 +194,23 @@ it is arithmetic over the theme files and needs no window.)
 npm run verify:all
 ```
 
-Every suite prints `PASS` or `FAIL` and exits nonzero on failure. Together they
-cover the terminal and its blocks, session restore, the editor, language servers,
-the debugger, git and GitHub, Claude, inline suggestions, search, the
-administrator window, per-session workspaces, themes and contrast, keyboard
-chords, accessibility, and the packaged build.
+That runs the type checker, the unit tests and a build, then hands the suites to
+`scripts/gate.mjs`, which runs them one at a time at below-normal priority — the
+machine stays usable while it grinds — and reports every failure at the end rather
+than stopping at the first. A suite fails when any check fails, when the page
+throws, or when the main process logs a fault while it runs. Every
+`verify-*.mjs` has to be listed in the gate or set aside with a written reason; a
+suite that is neither fails the gate before anything runs. Together they cover the
+terminal and its blocks, session restore, the editor, language servers, the
+debugger, git and GitHub, Claude, inline suggestions, search, the administrator
+window, per-session workspaces, themes and contrast, keyboard chords,
+accessibility, crash recovery, flow control, the updater, and the packaged build.
+
+To run part of it after a change:
+
+```bash
+npm run verify:gate -- --only output,live
+```
 
 The rule the project holds itself to is that **no check is believed until it has
 been watched to fail**. A check written against a bug that is already fixed proves

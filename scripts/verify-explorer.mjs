@@ -8,7 +8,7 @@
 // Run: node scripts/verify-explorer.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
-import { newProfile } from './profile.mjs'
+import { newProfile, skip } from './profile.mjs'
 import { execFileSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
@@ -21,8 +21,7 @@ fs.mkdirSync(SHOT_DIR, { recursive: true })
 const KEY = 'HKCU\\Software\\Classes\\Directory\\shell\\Ember'
 
 if (process.platform !== 'win32') {
-  console.log('explorer integration: SKIP — Windows only')
-  process.exit(0)
+  skip('explorer integration', 'Windows only')
 }
 
 const regQuery = (key) => {
@@ -42,8 +41,7 @@ const regQuery = (key) => {
 // Refuse to run if the entry already exists: this test registers and unregisters,
 // and it must not remove something the user set up themselves.
 if (regQuery(KEY)) {
-  console.log('explorer integration: SKIP — the menu entry already exists; not touching it')
-  process.exit(0)
+  skip('explorer integration', 'the menu entry already exists; not touching it')
 }
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-explorer-'))

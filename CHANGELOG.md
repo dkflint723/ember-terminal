@@ -3,6 +3,128 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
+## Unreleased
+
+### The composer is never cut off under a running command
+
+- **Its last row was clipped at the bottom of the window.** While a command runs,
+  its live view takes a share of the pane worked out from how much room the blocks
+  above it need. That share was measured against the blocks area — the pane minus
+  the composer — and then applied as a percentage of the whole pane. So the live
+  view always came out taller than meant, and in a pane with no blocks yet, where
+  it takes its largest share, it left the composer less room than it needs: the
+  pane clips what overflows it, and the row of key hints under the input was cut
+  in half. The share is now worked out in pixels and converted last, and if the
+  composer still cannot fit — a very short window — it is the live view that gives
+  way. The running block's own header, which the ceiling was always meant to keep
+  in view and which the oversized view had been covering, is back above it.
+
+### Caught by the rebuilt gate on its first run
+
+The rebuilt release gate (described below) failed three suites the first time it
+ran in full. Two were real bugs the old gate had been passing over; the third was
+a check that failed a correct layout.
+
+- **Restoring two windows could leave one of them empty.** Each restored window
+  loads its saved blocks and then tells main which panes it answers for, and main
+  prunes everything else. With two windows coming back at once, the one that
+  finished first pruned to its own list — before the other had loaded — and
+  deleted the other window's history, which came back as a blank pane. Whether it
+  happened depended on which renderer was slower; it passed in 0.3.26's gate and
+  failed in this one, run at lower priority. A window's panes are now spoken for
+  from the moment its saved session is handed to it. The suite that restores two
+  windows now holds one of them back on purpose, so it tests the race on every run
+  instead of when it is unlucky, and it was watched failing that way first.
+- **The window grew every time Ember started.** Its size is written down as
+  Windows reports it and handed back on the next launch, and at a fractional
+  display scale the two do not agree: measured at 110 DPI, a window built at 1000
+  by 660 reads back as 1008 by 667, and even an exact resize reads back two pixels
+  larger each way, because every conversion to whole device pixels rounds each
+  edge outwards. So each launch reopened the window a little bigger than it was
+  left, and wrote that down. It is now set, read back, and set again by the error,
+  which lands exactly on the size it was given — so the size that is saved is the
+  size that comes back. The suite that found it, *the window comes back where it
+  was left*, had been written and then never run in the gate.
+- **The title bar's corner check failed a button that was flush.** It compared the
+  last caption button's edge with `innerWidth`, which is a whole number; at 110 DPI
+  the page is 1182.545 pixels wide, the button ends at 1182.545, and the check
+  rounded the half pixel between them into a failure. It measures against the
+  viewport's real width now, and was watched catching a four-pixel gap.
+
+### A gate that can fail
+
+The release gate is what every other fix relies on to stay fixed, and an audit of
+0.3.26 found it could pass while the app was broken.
+
+- **Its first stage could not fail at all.** `verify.mjs` printed "tab completion:
+  FAIL" and four siblings and then exited 0 whatever it had seen, and it is the
+  suite that covers blocks, exit codes, splits, sessions, themes, completion,
+  secret masking, history and the Command Prompt fallback. Everything it used to
+  print for a human to read is now a check, and it exits nonzero when any fails.
+  Its first honest run caught a check of its own that was wrong: Cancel in
+  Settings was being compared against the theme at launch, when the suite had
+  deliberately changed theme before reopening the dialog — and with nothing
+  previewed in between, the check could not have failed anyway. It now previews a
+  theme, proves the preview took, and then asks Cancel to put back the one the
+  dialog opened with.
+- **Fifteen suites were never run.** Flow control, language-server crash
+  recovery, the updater, the Claude panel, the crash boundary and ten more had been
+  written, passed once, and dropped out of a fifty-link `&&` chain nobody could
+  check by eye. The gate is now `scripts/gate.mjs`, which holds the order in one
+  list and refuses to start if any `verify-*.mjs` is neither on it nor set aside
+  with a written reason — so a new suite cannot sit outside the gate by being
+  forgotten. It runs every suite even after one fails, reports them all together,
+  and runs at below-normal priority, which the Electron processes under it inherit:
+  the machine stays usable while it grinds.
+- **And one of those had been skipping anyway.** The updater's suite would only run
+  if the packaged build carried an update-feed file, which the builder writes for
+  installers and not for the unpacked build the gate makes — so it reported a skip,
+  which passes, on every run. It writes its own feed for the length of the run now,
+  and downloads, verifies and stages an update for real.
+- **Checks that passed whether or not the bug was there.** These were rewritten
+  and then watched failing against the bug each one guards, real or faithfully
+  simulated:
+  - *A moved session keeps its living shell* searched the pane's text for a marker
+    the command line itself contained. With the proof variable deleted — exactly
+    what a respawned shell looks like — the old check still said PASS. It reads the
+    block's output now, and failed. (*A second window runs its own shell* had the
+    same flaw and reads output through the same helper.)
+  - *A native command reports its own exit code* matched `/7/` against a line that
+    also holds the time of day. It reads the exit badge now, and caught an
+    integration that stopped reading native exit codes.
+  - *The flood's block is bounded* passed on an empty block, and its comment
+    described the capture bug fixed in 0.3.26 as intended behaviour. It now
+    requires thousands of rows and a note saying the rest was dropped; against the
+    old capture it saw five rows.
+  - *A second elevated Ember is turned away* counted any exception from launching
+    it as a pass. It now spawns the process and requires a clean exit within
+    fifteen seconds; given a profile whose lock was free, the twin stayed up and
+    the check failed.
+  - *Reload rebuilds the window from the session* was the literal `check(…, true)`.
+    It checks for real now, and fails: the reload screen promises to restore the
+    workspace, but main hands a window its saved session only once, so a reload
+    starts empty and leaves the old shells running unseen. That is carried as a
+    known bug rather than hidden — reported on every run, and turned into a
+    failure the moment it starts passing, so the fix cannot go unnoticed.
+- **Three more were tightened the same way but could not be seen failing here**,
+  and are recorded as such rather than claimed. The live-terminal suite's
+  *long output keeps its first line* asked `startsWith('line 1')`, the weakness
+  fixed in verify-output last release; the identical assertion there failed in two
+  of four runs against the old capture, but this suite's shorter command never
+  tripped the race in four. *Nothing is written while auto save is off* and *the
+  vanished workspace is not restored* passed just as well when the action never
+  happened; each now shows its positive half first, using assertions those suites
+  already exercise.
+- **A fault in the main process fails the suite that caused it.** Main survives an
+  uncaught exception on purpose — it logs it to `ember.log` and shows one dialog —
+  so a suite driving the window saw nothing wrong while the log filled, and the log
+  was deleted with each suite's throwaway profile. Every profile now audits its log
+  on the way out and fails the run if main reported anything but updater chatter.
+  Five suites in the gate that listened for no page errors now do, on every window
+  they open.
+- **A skipped suite fails when `EMBER_STRICT` is set**, so a run that is supposed
+  to prove everything cannot report itself green having skipped half of it.
+
 ## 0.3.26 — 2026-09-06
 
 ### A long command keeps its own output

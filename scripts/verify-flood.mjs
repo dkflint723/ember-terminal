@@ -57,10 +57,13 @@ for (;;) {
     engaged = Math.max(engaged, s.pausedCount)
     maxPending = Math.max(maxPending, s.pending)
   }
+  // The status mark is what says running. The header's text never contained the
+  // word, so reading it for 'running' called every block finished from the moment
+  // it existed, and only the count below was actually waiting for the flood.
   const done = await page.evaluate(() => {
-    const heads = [...document.querySelectorAll('.block__head')]
-    const last = heads[heads.length - 1]
-    return last ? !last.textContent?.includes('running') : false
+    const blocks = [...document.querySelectorAll('.block')]
+    const last = blocks[blocks.length - 1]
+    return !!last && !last.querySelector('.block__status--running')
   })
   const finished = await page.evaluate(
     () => [...document.querySelectorAll('.block__status--done, .block__status--failed')].length
@@ -82,19 +85,32 @@ const drained = Object.values(after).every((s) => s.pending === 0 && !s.paused)
 check('the window drains to nothing when the flood ends', drained, JSON.stringify(after))
 
 /*
- * The living copy of that output is bounded — the ceiling is the guarantee.
- * How SMALL it ends up is conpty's business: conpty repaints a screen rather
- * than scrolling one, so a flood's block legitimately keeps only the final
- * repaint, and three belts (conpty's own repainting, the terminal's scrollback,
- * LIVE_OUTPUT_CAP) each stand between the five megabytes and the store.
+ * The living copy is bounded, it is a real copy, and it says what it dropped.
+ *
+ * This comment used to say a flood's block "legitimately keeps only the final
+ * repaint". That was the capture bug talking: a bare cursor-home restarted the
+ * capture at every conpty redraw, so a block kept one screenful and never reached
+ * a cap — and the only check here asked for "under two million characters", which
+ * that screenful satisfied, and which an empty block would have satisfied too.
+ * Since 0.3.26 a block keeps the tail of its output up to the live cap and says it
+ * dropped the rest, so all three halves can be asked for.
  */
-const kept = await page.evaluate(() =>
-  [...document.querySelectorAll('.block__body')].reduce(
-    (n, b) => n + (b.textContent ?? '').length,
-    0
-  )
+const flood = await page.evaluate(() => {
+  const body = [...document.querySelectorAll('.block__body')].find((b) => b.textContent?.includes('flood-'))
+  return {
+    kept: body?.textContent?.length ?? 0,
+    rows: body ? body.querySelectorAll('.row').length : 0,
+    says: !!body?.textContent?.includes('earlier output')
+  }
+})
+check(
+  'the block keeps a bounded copy, not the whole flood',
+  flood.kept > 0 && flood.kept < 2_000_000,
+  JSON.stringify(flood)
 )
-check('the block keeps a bounded copy, not the whole flood', kept < 2_000_000, `${kept} chars kept`)
+// The live cap holds about 2,800 of these rows. One screenful is a few dozen.
+check('and a real copy of it — thousands of rows, not one screenful', flood.rows > 1000, JSON.stringify(flood))
+check('and it says it dropped the rest', flood.says, JSON.stringify(flood))
 
 // And the terminal is still a terminal.
 await page.click('.composer__input')

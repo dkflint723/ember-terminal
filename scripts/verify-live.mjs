@@ -122,6 +122,34 @@ check(
   strip !== null && strip.cursorBelowFoldPx !== null && strip.cursorBelowFoldPx <= 0,
   JSON.stringify(strip)
 )
+
+/*
+ * And the composer under the strip is whole.
+ *
+ * The strip's share was worked out against the blocks area — the pane minus the
+ * composer — and then applied as a percentage of the whole pane, which includes the
+ * composer. So it always came out taller than meant, and in a pane with no blocks,
+ * where it takes its ceiling, it left the running composer less room than it needs:
+ * the pane clips its overflow, and the composer's last row was cut off at the
+ * bottom. This is that pane — a fresh one, running its first command.
+ */
+const composerFit = await page.evaluate(() => {
+  const pane = document.querySelector('.pane')?.getBoundingClientRect()
+  const composer = document.querySelector('.composer')?.getBoundingClientRect()
+  const hint = document.querySelector('.composer .composer__hint')?.getBoundingClientRect()
+  return pane && composer
+    ? {
+        paneBottom: Math.round(pane.bottom),
+        composerBottom: Math.round(composer.bottom),
+        hintBottom: hint ? Math.round(hint.bottom) : null
+      }
+    : null
+})
+check(
+  'the composer under a running command is not cut off',
+  composerFit !== null && composerFit.composerBottom <= composerFit.paneBottom,
+  JSON.stringify(composerFit)
+)
 while ((await page.locator('.block--running').count()) > 0) await sleep(400)
 await sleep(600)
 
@@ -213,8 +241,28 @@ check('a line far longer than the box keeps its beginning', long.includes('HEAD'
 check('and its end', long.includes('TAIL'), long.slice(-50))
 
 const many = await run('1..2000 | ForEach-Object { "line $_" }', 120_000)
-check('output far deeper than the box keeps its first line', many.trimStart().startsWith('line 1'), many.slice(0, 60))
+/*
+ * Two lines and then all of them, the way verify-output reads its six thousand.
+ *
+ * This was `startsWith('line 1')`, which "line 1767" satisfies: a block that had
+ * lost its first thousand-odd lines passed, and in 0.3.25 most runs did lose them.
+ * textContent runs the rows together, so the second line is what makes the first
+ * one a test, and the full walk is what catches a hole in the middle.
+ */
+check(
+  'output far deeper than the box keeps its first line',
+  many.trimStart().startsWith('line 1line 2'),
+  many.slice(0, 60)
+)
 check('and its last', many.includes('line 2000'), many.slice(-60))
+const seen = (many.match(/line (\d+)/g) ?? []).map((t) => Number(t.slice(5)))
+const firstGap = seen.findIndex((n, i) => n !== i + 1)
+check(
+  'and every line in between',
+  seen.length === 2000 && firstGap === -1,
+  `${seen.length} lines, first ${seen[0]}, last ${seen.at(-1)}` +
+    (firstGap === -1 ? '' : `, breaks at ${seen[firstGap]}`)
+)
 
 // --- a command still submits once the strip has collapsed again ---------------
 const after = await run('Write-Output "AFTER-COLLAPSE"')

@@ -83,6 +83,19 @@ const state = () =>
 
 const opened = await state()
 log('opened →', JSON.stringify(opened))
+/*
+ * Seen once, in a full gate run and never alone: the file came up marked modified
+ * before anything was typed. Six runs by itself could not bring it back, so when it
+ * happens it has to explain itself — what the editor shows against what the file
+ * holds says whether the text changed or only the saved copy it is measured against.
+ */
+if (opened.dirty !== 'false') {
+  const shown = await page.evaluate(() =>
+    [...document.querySelectorAll('.view-line')].map((l) => l.textContent).join('\n')
+  )
+  log('dirty on open — the editor shows:', JSON.stringify(shown.replace(/\u00a0/g, ' ').slice(0, 400)))
+  log('dirty on open — the file holds:  ', JSON.stringify(fs.readFileSync(FILE, 'utf8').slice(0, 400)))
+}
 await page.screenshot({ path: path.join(SHOT_DIR, '14-editor.png') })
 
 await page.click('.view-lines')

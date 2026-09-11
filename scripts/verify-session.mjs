@@ -8,6 +8,8 @@
 // Run: node scripts/verify-session.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
+import { watchPageErrors } from './harness.mjs'
+import { auditProfileDir } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -38,6 +40,8 @@ const check = (label, ok, detail) => {
 }
 
 /** A separate userData keeps this off the real session file. */
+// Every window of every launch below reports its uncaught page errors here.
+const pageErrors = []
 const launch = (args) =>
   electron.launch({
     executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
@@ -45,7 +49,7 @@ const launch = (args) =>
     cwd: APP_DIR,
     env,
     timeout: 60_000
-  })
+  }).then((app) => watchPageErrors(app, pageErrors))
 
 const shape = (page) =>
   page.evaluate(() => ({
@@ -348,16 +352,22 @@ check(
   const rootLabel = await page.evaluate(
     () => document.querySelector('.tree__root')?.textContent ?? null
   )
+  // Read at all first: a label of null means the explorer never drew, and "not the
+  // vanished folder" was true of that too.
+  check('the explorer shows a root label', rootLabel !== null, String(rootLabel))
   check(
     'the missing workspace root is not restored',
-    rootLabel !== path.basename(vanished),
+    rootLabel !== null && rootLabel !== path.basename(vanished),
     rootLabel
   )
   await app.close()
   await sleep(600)
 }
 
+auditProfileDir(userData)
 fs.rmSync(work, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)
-console.log('session restore:', failures.length === 0 ? 'PASS' : 'FAIL')
-process.exit(failures.length === 0 ? 0 : 1)
+if (pageErrors.length > 0) console.log('page errors:', pageErrors.slice(0, 4).join(' | '))
+const passed = failures.length === 0 && pageErrors.length === 0
+console.log('session restore:', passed ? 'PASS' : 'FAIL')
+process.exit(passed ? 0 : 1)

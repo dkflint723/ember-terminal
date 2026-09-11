@@ -11,7 +11,7 @@
 // Run: node scripts/verify-claude-login.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
-import { newProfile } from './profile.mjs'
+import { newProfile, skip } from './profile.mjs'
 import { execFileSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -26,8 +26,7 @@ try {
   signedIn = false
 }
 if (!signedIn) {
-  console.log('claude login: SKIP — Claude Code is not installed or not signed in')
-  process.exit(0)
+  skip('claude login', 'Claude Code is not installed or not signed in')
 }
 
 const profile = newProfile('claude-login')

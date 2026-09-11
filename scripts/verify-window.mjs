@@ -10,6 +10,7 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
+import { watchPageErrors } from './harness.mjs'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
@@ -18,6 +19,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
 
+const pageErrors = []
 const launch = () =>
   electron.launch({
     executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
@@ -25,7 +27,7 @@ const launch = () =>
     cwd: APP_DIR,
     env,
     timeout: 60_000
-  })
+  }).then((app) => watchPageErrors(app, pageErrors))
 
 const failures = []
 const check = (label, ok, detail) => {
@@ -104,5 +106,7 @@ check('at the zoom it was left at', near(revived.zoom, 1.1, 0.011), String(reviv
 await app.close()
 profile.cleanup()
 for (const f of failures) console.log(`  - ${f}`)
-console.log('window memory:', failures.length === 0 ? 'PASS' : 'FAIL')
-process.exit(failures.length === 0 ? 0 : 1)
+if (pageErrors.length > 0) console.log('page errors:', pageErrors.slice(0, 4).join(' | '))
+const passed = failures.length === 0 && pageErrors.length === 0
+console.log('window memory:', passed ? 'PASS' : 'FAIL')
+process.exit(passed ? 0 : 1)

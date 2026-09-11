@@ -22,6 +22,8 @@
 // Run: node scripts/verify-blocks.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
+import { watchPageErrors } from './harness.mjs'
+import { auditProfileDir } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as http from 'node:http'
 import * as os from 'node:os'
@@ -82,6 +84,8 @@ const check = (label, ok, detail) => {
 }
 
 /** The same throwaway profile every time, so launch two sees launch one's database. */
+// Every window of every launch below reports its uncaught page errors here.
+const pageErrors = []
 const launch = (args = []) =>
   electron.launch({
     executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
@@ -89,7 +93,7 @@ const launch = (args = []) =>
     cwd: APP_DIR,
     env,
     timeout: 60_000
-  })
+  }).then((app) => watchPageErrors(app, pageErrors))
 
 const blocks = (page) =>
   page.evaluate(() =>
@@ -444,7 +448,10 @@ const timeline = (page) =>
 }
 
 server.close()
+auditProfileDir(userData)
 fs.rmSync(work, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)
-console.log('blocks across restarts:', failures.length === 0 ? 'PASS' : 'FAIL')
-process.exit(failures.length === 0 ? 0 : 1)
+if (pageErrors.length > 0) console.log('page errors:', pageErrors.slice(0, 4).join(' | '))
+const passed = failures.length === 0 && pageErrors.length === 0
+console.log('blocks across restarts:', passed ? 'PASS' : 'FAIL')
+process.exit(passed ? 0 : 1)

@@ -14,6 +14,21 @@ fs.mkdirSync(SHOT_DIR, { recursive: true })
 const log = (...a) => console.log(...a)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+/*
+ * This suite used to log and never decide.
+ *
+ * It printed "tab completion: FAIL" and four siblings, logged block and split counts
+ * for a human to read, and then exited 0 whatever it had seen — and it is the first
+ * stage of the gate, so everything it covers (blocks, exit codes, splits, sessions,
+ * themes, completion, secret masking, history, the cmd.exe fallback) could break
+ * without the gate noticing. Each observation is now a check against what a working
+ * build shows, and the run exits nonzero when any of them fails.
+ */
+const failures = []
+const check = (label, ok, detail) => {
+  if (!ok) failures.push(`${label}${detail !== undefined ? ` — ${detail}` : ''}`)
+}
+
 // ELECTRON_RUN_AS_NODE makes electron.exe behave as plain Node with no Electron
 // APIs at all, so it has to be stripped from the inherited environment.
 const env = { ...process.env }
@@ -36,7 +51,12 @@ page.on('console', (m) => {
     consoleErrors.push(`[${m.type()}] ${m.text()}`)
   }
 })
-page.on('pageerror', (e) => consoleErrors.push(`[pageerror] ${e.message}`))
+// Console warnings are noise worth reading; an uncaught page error is a failure.
+const pageErrors = []
+page.on('pageerror', (e) => {
+  pageErrors.push(e.message)
+  consoleErrors.push(`[pageerror] ${e.message}`)
+})
 
 log('window url:', page.url())
 await page.waitForSelector('.app', { timeout: 20_000 })
@@ -59,7 +79,7 @@ try {
   ready = false
 }
 log('shell integration ready:', ready)
-if (!ready) log('WARNING: no integration; block assertions below are meaningless')
+check('the shell reports integration', ready)
 
 await page.screenshot({ path: path.join(SHOT_DIR, '01-launch.png') })
 log('shot: 01-launch.png')
@@ -86,6 +106,16 @@ for (let i = 0; i < 60; i++) {
 
 log('--- blocks ---')
 for (const b of blocks) log(JSON.stringify(b))
+check(
+  'a command becomes a finished block holding its own output',
+  blocks.some(
+    (b) =>
+      b.cmd === 'echo ember-block-test' &&
+      b.cls.includes('block--done') &&
+      b.body.trim() === 'ember-block-test'
+  ),
+  JSON.stringify(blocks)
+)
 
 await page.screenshot({ path: path.join(SHOT_DIR, '02-after-command.png') })
 log('shot: 02-after-command.png')
@@ -107,11 +137,23 @@ const final = await page.evaluate(() =>
     cls: el.className.replace('block ', ''),
     cmd: el.querySelector('.block__cmd')?.textContent ?? '',
     meta: el.querySelector('.block__meta')?.textContent ?? '',
+    // The badge on its own: the meta line runs it into the clock and the duration
+    // ("exit 113:23:16131ms"), so a pattern over the line matches digits it never meant.
+    exit: el.querySelector('.block__exit')?.textContent ?? null,
     body: (el.querySelector('.block__body')?.textContent ?? '').slice(0, 160)
   }))
 )
 log('--- final blocks ---')
 for (const b of final) log(JSON.stringify(b))
+const failedBlock = final.find((b) => b.cmd === 'cmd-that-does-not-exist-xyz')
+check(
+  'a failing command marks its block failed',
+  !!failedBlock && failedBlock.cls.includes('block--failed'),
+  JSON.stringify(failedBlock)
+)
+// A command PowerShell cannot find is a cmdlet-style failure, which the integration
+// reports as 1 (integration.ps1, Prompt) — not whatever native code ran last.
+check('and gives it exit code 1', failedBlock?.exit === 'exit 1', String(failedBlock?.exit))
 
 const rawHtml = await page.evaluate(
   () => document.querySelector('.block__body > div')?.innerHTML?.slice(0, 700) ?? '(none)'
@@ -130,17 +172,23 @@ const afterSplit = await page.evaluate(() => ({
   dividers: document.querySelectorAll('.divider').length
 }))
 log('after Ctrl+Shift+D →', JSON.stringify(afterSplit))
+check(
+  'Ctrl+Shift+D splits the pane',
+  afterSplit.panes === 2 && afterSplit.dividers === 1,
+  JSON.stringify(afterSplit)
+)
 
 await page.keyboard.press('Control+Shift+KeyE')
 await sleep(1500)
-log(
-  'after Ctrl+Shift+E →',
-  JSON.stringify(
-    await page.evaluate(() => ({
-      panes: document.querySelectorAll('.pane').length,
-      dividers: document.querySelectorAll('.divider').length
-    }))
-  )
+const afterSecond = await page.evaluate(() => ({
+  panes: document.querySelectorAll('.pane').length,
+  dividers: document.querySelectorAll('.divider').length
+}))
+log('after Ctrl+Shift+E →', JSON.stringify(afterSecond))
+check(
+  'Ctrl+Shift+E splits again',
+  afterSecond.panes === 3 && afterSecond.dividers === 2,
+  JSON.stringify(afterSecond)
 )
 
 // Screenshot the splits while their tab is still the active one.
@@ -149,27 +197,36 @@ log('shot: 04-splits.png')
 
 await page.keyboard.press('Control+Shift+KeyT')
 await sleep(1500)
-log('tabs after Ctrl+Shift+T →', await page.evaluate(() => document.querySelectorAll('.sessions__card').length))
+const cards = await page.evaluate(() => document.querySelectorAll('.sessions__card').length)
+log('tabs after Ctrl+Shift+T →', cards)
+check('Ctrl+Shift+T opens a second session', cards === 2, String(cards))
 
 // Switching back must restore the split layout, not a fresh pane.
 await page.evaluate(() => document.querySelector('.sessions__card')?.dispatchEvent(
   new MouseEvent('mousedown', { bubbles: true })
 ))
 await sleep(1200)
-log(
-  'back on tab 1 →',
-  JSON.stringify(
-    await page.evaluate(() => ({
-      panes: document.querySelectorAll('.pane').length,
-      blocks: document.querySelectorAll('.block').length
-    }))
-  )
+const backOnOne = await page.evaluate(() => ({
+  panes: document.querySelectorAll('.pane').length,
+  blocks: document.querySelectorAll('.block').length
+}))
+log('back on tab 1 →', JSON.stringify(backOnOne))
+check(
+  'switching back restores the split layout and its blocks',
+  backOnOne.panes === 3 && backOnOne.blocks === 2,
+  JSON.stringify(backOnOne)
 )
 
-// Settings modal.
+// Settings modal. The theme as it stood on open is what Cancel must come back to.
+let tokensOnOpen = await page.evaluate(() => {
+  const cs = getComputedStyle(document.documentElement)
+  return { bg: cs.getPropertyValue('--bg').trim(), accent: cs.getPropertyValue('--accent').trim() }
+})
 await page.keyboard.press('Control+Comma')
 await sleep(800)
-log('settings modal open:', await page.evaluate(() => !!document.querySelector('.modal')))
+const modalOpen = await page.evaluate(() => !!document.querySelector('.modal'))
+log('settings modal open:', modalOpen)
+check('Ctrl+, opens Settings', modalOpen)
 await page.screenshot({ path: path.join(SHOT_DIR, '05-settings.png') })
 log('shot: 05-settings.png')
 
@@ -206,12 +263,24 @@ for (const id of [
   'paper'
 ]) {
   if (!themeIds.includes(id)) {
-    log(`theme ${id}: NOT FOUND`)
+    check(`theme ${id} is offered`, false, 'not in the picker')
     continue
   }
   await page.selectOption('.field select', id)
   await sleep(700)
-  log(`theme ${id} →`, JSON.stringify(await readTokens()))
+  const tokens = await readTokens()
+  log(`theme ${id} →`, JSON.stringify(tokens))
+  // Both halves: the document took the theme, and so did the terminal.
+  const hex = tokens.bg.replace('#', '')
+  const rgb =
+    hex.length === 6
+      ? `rgb(${parseInt(hex.slice(0, 2), 16)}, ${parseInt(hex.slice(2, 4), 16)}, ${parseInt(hex.slice(4, 6), 16)})`
+      : null
+  check(
+    `theme ${id} reaches the page and the terminal`,
+    tokens.type === (id.endsWith('light') || id === 'paper' ? 'light' : 'dark') && rgb === tokens.xtermBg,
+    JSON.stringify(tokens)
+  )
   await page.screenshot({ path: path.join(SHOT_DIR, `06-theme-${id}.png`) })
 }
 
@@ -231,11 +300,31 @@ if (themeIds.includes('redgreen-safe-light')) {
   log('shot: 07-light-applied.png (modal closed)')
   log('light theme live →', JSON.stringify(await readTokens()))
 
-  // Leave the saved setting back on the default for the next run.
+  // A fixed theme to reopen on. (This used to say it was putting back the default;
+  // the default has been tidewater for a while, and a throwaway profile needs no
+  // tidying anyway.) What matters is which theme the dialog opens with.
   await page.evaluate(() => window.ember.setSettings({ themeId: 'ember-dark' }))
+  await sleep(500)
+  tokensOnOpen = await readTokens()
   await page.keyboard.press('Control+Comma')
   await sleep(600)
+  // Preview something else, so Cancel has something to put back.
+  await page.selectOption('.field select', 'midnight')
+  await sleep(600)
 }
+
+/*
+ * The preview has to have changed something first. Without this, "Cancel puts the
+ * theme back" is just as true of a Cancel that did nothing after a preview that did
+ * nothing — which is what the reopened dialog amounted to before, with no theme
+ * picked between opening and cancelling.
+ */
+const previewed = await readTokens()
+check(
+  'previewing a theme in Settings applies it before saving',
+  previewed.bg !== tokensOnOpen.bg,
+  `${JSON.stringify(tokensOnOpen)} → ${JSON.stringify(previewed)}`
+)
 
 // Cancel must restore the theme that was active on open.
 await page.evaluate(() => {
@@ -245,7 +334,13 @@ await page.evaluate(() => {
   )
 })
 await sleep(900)
-log('after Cancel →', JSON.stringify(await readTokens()))
+const afterCancel = await readTokens()
+log('after Cancel →', JSON.stringify(afterCancel))
+check(
+  'Cancel puts back the theme that was active on open',
+  afterCancel.bg === tokensOnOpen.bg && afterCancel.accent === tokensOnOpen.accent,
+  `${JSON.stringify(tokensOnOpen)} → ${JSON.stringify(afterCancel)}`
+)
 
 // Tab completion. Tab used to fall through to the browser and move focus out of
 // the input, so the focus assertion matters as much as the candidates.
@@ -290,6 +385,7 @@ const completionOk =
   ambiguous.listCount > 1 &&
   completionCases.every((c) => c.focusedTag === 'TEXTAREA')
 log(completionOk ? 'tab completion: PASS' : 'tab completion: FAIL')
+check('tab completion', completionOk, JSON.stringify(completionCases))
 
 await page.click('.composer__input')
 await page.keyboard.press('Control+A')
@@ -315,11 +411,10 @@ await page.keyboard.press('Enter')
 await sleep(3000)
 
 log('secret prompt →', JSON.stringify(secretState))
-log(
+const secretOk =
   secretState.masked && secretState.passwordInput && !secretState.leakedToDom && !secretState.visible
-    ? 'secret masking: PASS'
-    : 'secret masking: FAIL'
-)
+log(secretOk ? 'secret masking: PASS' : 'secret masking: FAIL')
+check('secret masking', secretOk, JSON.stringify(secretState))
 
 // Inline history suggestion. The ghost overlay sits next to the textarea, and
 // inserting it conditionally once remounted the textarea and dropped focus — so
@@ -340,14 +435,13 @@ const ghostAccepted = await page.evaluate(() => ({
   focusedTag: document.activeElement?.tagName ?? null
 }))
 log('ghost suggestion →', JSON.stringify(ghostState), '→', JSON.stringify(ghostAccepted))
-log(
-  ghostState.ghost &&
-    ghostState.focusedTag === 'TEXTAREA' &&
-    ghostAccepted.value === 'echo ember-block-test' &&
-    ghostAccepted.focusedTag === 'TEXTAREA'
-    ? 'history suggestion: PASS'
-    : 'history suggestion: FAIL'
-)
+const ghostOk =
+  !!ghostState.ghost &&
+  ghostState.focusedTag === 'TEXTAREA' &&
+  ghostAccepted.value === 'echo ember-block-test' &&
+  ghostAccepted.focusedTag === 'TEXTAREA'
+log(ghostOk ? 'history suggestion: PASS' : 'history suggestion: FAIL')
+check('history suggestion', ghostOk, `${JSON.stringify(ghostState)} → ${JSON.stringify(ghostAccepted)}`)
 
 await page.click('.composer__input')
 await page.keyboard.press('Control+A')
@@ -391,16 +485,15 @@ const inserted = await page.evaluate(
   blocksBefore
 )
 log('history insert →', JSON.stringify(inserted))
-log(
+const historyOk =
   histOpen &&
-    byCommand.n > 0 &&
-    byOutput.n > 0 &&
-    inserted.closed &&
-    inserted.value.includes('ember-block-test') &&
-    inserted.didNotRun
-    ? 'history search: PASS'
-    : 'history search: FAIL'
-)
+  byCommand.n > 0 &&
+  byOutput.n > 0 &&
+  inserted.closed &&
+  inserted.value.includes('ember-block-test') &&
+  inserted.didNotRun
+log(historyOk ? 'history search: PASS' : 'history search: FAIL')
+check('history search', historyOk, JSON.stringify({ histOpen, byCommand, byOutput, inserted }))
 
 await page.click('.composer__input')
 await page.keyboard.press('Control+A')
@@ -411,6 +504,8 @@ await page.keyboard.press('Delete')
 const hasCmd = await page.evaluate(async () =>
   (await window.ember.listProfiles()).some((p) => p.id === 'cmd')
 )
+// cmd.exe ships with every Windows; its absence is a detection bug, not a reason to skip.
+check('Command Prompt is offered as a profile', hasCmd)
 if (hasCmd) {
   // A reload is a boot, and boot restores the last session — which would put the
   // PowerShell panes back and never open the cmd one this check is about. Clearing
@@ -438,6 +533,7 @@ if (hasCmd) {
     plain.fullPaneTerminal &&
     plain.strandedBlocks === 0
   log(ok ? 'cmd.exe fallback: PASS' : 'cmd.exe fallback: FAIL')
+  check('cmd.exe fallback', ok, JSON.stringify(plain))
 
   await page.evaluate(() =>
     window.ember.setSettings({ defaultProfileId: null, restoreSession: true })
@@ -450,3 +546,9 @@ log(consoleErrors.length === 0 ? '(none)' : consoleErrors.slice(0, 25).join('\n'
 await app.close()
 profile.cleanup()
 log('closed cleanly')
+
+for (const f of failures) log(`  - ${f}`)
+if (pageErrors.length > 0) log('page errors:', pageErrors.slice(0, 4).join(' | '))
+const passed = failures.length === 0 && pageErrors.length === 0
+log('core flow:', passed ? 'PASS' : 'FAIL')
+process.exit(passed ? 0 : 1)

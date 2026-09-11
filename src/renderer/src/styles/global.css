@@ -1160,7 +1160,14 @@ button {
 /* The list and the ruler beside it, sharing the pane's height. */
 .pane__body {
   display: flex;
-  flex: 1 1 auto;
+  /*
+   * A basis of zero: the blocks take whatever the live strip and the composer
+   * leave, rather than bidding for room with their whole content height. That is
+   * what lets the strip below give way when space runs out — with an automatic
+   * basis, shrinking would have been shared out in proportion to how much history
+   * the pane held, and the strip would have lost height to it for no reason.
+   */
+  flex: 1 1 0;
   min-height: 0;
 }
 
@@ -1846,7 +1853,14 @@ button {
 /* ---------- live terminal ---------- */
 
 .live {
-  flex: 0 0 auto;
+  /*
+   * Shrinkable, as a last resort. The strip's height is worked out ahead of time so
+   * a running command is not resized mid-capture, but if the composer still cannot
+   * fit under it — a very short pane, a composer taller than the one measured — it
+   * is the strip that gives way. The composer is where the user types; it is never
+   * the thing that gets cut off.
+   */
+  flex: 0 1 auto;
   min-height: 0;
   margin: 0 8px;
   overflow: hidden;

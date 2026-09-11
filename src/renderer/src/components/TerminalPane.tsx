@@ -31,8 +31,9 @@ function whenRan(blocks: Block[]): string {
 }
 
 /**
- * The least of the pane a running command's live view gets, whatever is above it.
- * A command that prints a great deal should not push its own history off screen.
+ * The least of the blocks area a running command's live view gets, whatever is in
+ * it. A command that prints a great deal should not push its own history off screen.
+ * A share of the blocks area — the pane minus the composer — not of the whole pane.
  */
 const STRIP_FLOOR = 42
 
@@ -184,8 +185,22 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
     }
 
     const free = region - content
-    const wanted = Math.round((free / region) * 100)
-    setStripPct(Math.min(STRIP_CEILING, Math.max(STRIP_FLOOR, wanted)))
+
+    /*
+     * In pixels first, and only then as a share of the pane.
+     *
+     * Everything above is measured against the blocks area. The strip's height,
+     * though, is a percentage of its containing block, which is the whole pane — and
+     * the pane holds the composer as well. Applying the blocks-area share straight
+     * to the pane made the strip taller than meant by that share of the composer,
+     * and at the ceiling, in a pane with no blocks yet, it left the running
+     * composer less room than it needs. The pane clips its overflow, so the
+     * composer's hint row was cut off at the bottom of the window.
+     */
+    const paneHeight = scroll.closest<HTMLElement>('.pane')?.clientHeight ?? 0
+    if (paneHeight <= 0) return
+    const px = Math.min((STRIP_CEILING / 100) * region, Math.max((STRIP_FLOOR / 100) * region, free))
+    setStripPct(Math.round((px / paneHeight) * 1000) / 10)
   }, [running, pane.blocks.length])
 
   /**

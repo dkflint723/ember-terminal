@@ -7,7 +7,7 @@
 // Run: node scripts/verify-vsix.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
-import { newProfile } from './profile.mjs'
+import { newProfile, skip as skipSuite } from './profile.mjs'
 import AdmZip from 'adm-zip'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
@@ -18,10 +18,7 @@ const profile = newProfile('vsix')
 const SHOT_DIR = process.env.SCREENSHOT_DIR || path.join(APP_DIR, '.shots')
 fs.mkdirSync(SHOT_DIR, { recursive: true })
 
-const skip = (why) => {
-  console.log(`vsix import: SKIP — ${why}`)
-  process.exit(0)
-}
+const skip = (why) => skipSuite('vsix import', why)
 
 /** Any installed extension that contributes themes will do. */
 const extensionsDir = path.join(os.homedir(), '.vscode', 'extensions')

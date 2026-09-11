@@ -7,6 +7,7 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
+import { watchPageErrors } from './harness.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -18,6 +19,8 @@ const APP_DIR = path.resolve(import.meta.dirname, '..')
  * tabs — the checks would then be looking at the wrong file.
  */
 const profiles = []
+// Uncaught page errors from every language's window.
+const pageErrors = []
 
 const CASES = {
   typescript: {
@@ -153,13 +156,16 @@ async function run(language) {
   // resolved out of the asar's unpacked sibling rather than the source tree. That
   // path has its own ways to fail, so it is exercised rather than assumed.
   const packaged = process.env.EMBER_EXE
-  const app = await electron.launch({
-    executablePath: packaged ?? path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
-    args: packaged ? [profile.arg, file] : [APP_DIR, profile.arg, file],
-    cwd: packaged ? path.dirname(packaged) : APP_DIR,
-    env,
-    timeout: 60_000
-  })
+  const app = watchPageErrors(
+    await electron.launch({
+      executablePath: packaged ?? path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
+      args: packaged ? [profile.arg, file] : [APP_DIR, profile.arg, file],
+      cwd: packaged ? path.dirname(packaged) : APP_DIR,
+      env,
+      timeout: 60_000
+    }),
+    pageErrors
+  )
 
   const page = await app.firstWindow()
   await placeTopRight(app)
@@ -336,5 +342,7 @@ for (const language of languages) {
 }
 
 profiles.forEach((p) => p.cleanup())
-console.log(failed === 0 ? 'multi-language lsp: PASS' : `multi-language lsp: FAIL (${failed})`)
-process.exit(failed === 0 ? 0 : 1)
+if (pageErrors.length > 0) console.log('page errors:', pageErrors.slice(0, 4).join(' | '))
+const passed = failed === 0 && pageErrors.length === 0
+console.log(passed ? 'multi-language lsp: PASS' : `multi-language lsp: FAIL (${failed} languages, ${pageErrors.length} page errors)`)
+process.exit(passed ? 0 : 1)

@@ -11,7 +11,7 @@
 // Run: node scripts/verify-packaged.mjs        (uses release/win-unpacked)
 //      EMBER_EXE=<path to Ember.exe> node scripts/verify-packaged.mjs
 import { _electron as electron } from 'playwright-core'
-import { newProfile } from './profile.mjs'
+import { newProfile, skip } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -20,8 +20,7 @@ const APP_DIR = path.resolve(import.meta.dirname, '..')
 const exe = process.env.EMBER_EXE ?? path.join(APP_DIR, 'release/win-unpacked/Ember.exe')
 
 if (!fs.existsSync(exe)) {
-  console.log('packaged build: SKIP — no packaged build (run `npm run package` first)')
-  process.exit(0)
+  skip('packaged build', 'no packaged build (run `npm run package` first)')
 }
 
 const profile = newProfile('packaged')

@@ -276,21 +276,23 @@ const statusOf = () =>
     const last = blocks[blocks.length - 1]
     return {
       status: last?.querySelector('.block__status')?.getAttribute('title') ?? null,
-      meta: last?.querySelector('.block__meta')?.textContent ?? last?.textContent?.slice(-40) ?? ''
+      meta: last?.querySelector('.block__meta')?.textContent ?? last?.textContent?.slice(-40) ?? '',
+      // The badge by itself. The meta line runs it into the clock and the duration
+      // ("exit 713:23:1652ms"), so any pattern over the line can match a digit from
+      // the time of day: `/7/` passed whenever the clock had a seven in it.
+      exit: last?.querySelector('.block__exit')?.textContent ?? null
     }
   })
 
 await run('cmd /c exit 7')
 const native = await statusOf()
-check('a native command reports its own exit code', /7/.test(native.meta), JSON.stringify(native))
+check('a native command reports its own exit code', native.exit === 'exit 7', JSON.stringify(native))
 
 await run('Get-Item C:\\definitely-not-here-xyz')
 const cmdlet = await statusOf()
-check(
-  'and a failing cmdlet does not inherit it',
-  !/\b7\b/.test(cmdlet.meta),
-  JSON.stringify(cmdlet)
-)
+// A cmdlet failure has no exit code of its own; the integration reports 1 for it
+// rather than the stale 7 still sitting in $LASTEXITCODE.
+check('and a failing cmdlet does not inherit it', cmdlet.exit === 'exit 1', JSON.stringify(cmdlet))
 
 /*
  * --- the grid's padding is not output -----------------------------------------
