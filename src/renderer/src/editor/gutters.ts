@@ -1,4 +1,5 @@
 import { monaco } from './monaco'
+import { diffLines, linesOf, type LineHunk } from './line-diff'
 
 /**
  * The change bars in the editor margin: what this buffer says that HEAD does
@@ -7,145 +8,25 @@ import { monaco } from './monaco'
  * for. Green is new, blue is changed, a red wedge is where lines used to be.
  * Alt+click on a mark puts that hunk back the way HEAD has it, as one undoable
  * edit.
+ *
+ * The diff itself is line-diff.ts, apart from Monaco so it can be tested without
+ * a window — which is how it was found to loop for ever on a deleted line.
  */
 
-export interface GutterHunk {
-  /** 1-based first line of the hunk in the buffer. */
-  start: number
-  /** How many buffer lines the hunk spans; 0 for a pure deletion marker. */
-  count: number
-  /** The lines HEAD holds where this hunk stands — what a revert restores. */
-  before: string[]
-  kind: 'added' | 'modified' | 'deleted'
-}
-
-/**
- * Line-level diff, Myers' O(ND) on line hashes. Small and honest: files a
- * gutter serves are thousands of lines, not millions, and the greedy middle
- * of the algorithm is all this needs — no snakes are stored, just enough
- * trace to walk the edit script back out.
- */
-function diffLines(a: string[], b: string[]): GutterHunk[] {
-  // Common prefix and suffix first: most edits touch a small middle.
-  let lo = 0
-  while (lo < a.length && lo < b.length && a[lo] === b[lo]) lo++
-  let hiA = a.length
-  let hiB = b.length
-  while (hiA > lo && hiB > lo && a[hiA - 1] === b[hiB - 1]) {
-    hiA--
-    hiB--
-  }
-  const midA = a.slice(lo, hiA)
-  const midB = b.slice(lo, hiB)
-
-  const n = midA.length
-  const m = midB.length
-  const max = n + m
-  if (max === 0) return []
-
-  // Myers, keeping each round's frontier so the path can be traced back.
-  const offset = max
-  const width = 2 * max + 1
-  let v = new Int32Array(width)
-  const trace: Int32Array[] = []
-  let found = -1
-  outer: for (let d = 0; d <= max; d++) {
-    const next = Int32Array.from(v)
-    for (let k = -d; k <= d; k += 2) {
-      let x: number
-      if (k === -d || (k !== d && v[offset + k - 1] < v[offset + k + 1])) {
-        x = v[offset + k + 1]
-      } else {
-        x = v[offset + k - 1] + 1
-      }
-      let y = x - k
-      while (x < n && y < m && midA[x] === midB[y]) {
-        x++
-        y++
-      }
-      next[offset + k] = x
-      if (x >= n && y >= m) {
-        trace.push(next)
-        found = d
-        break outer
-      }
-    }
-    trace.push(next)
-    v = next
-  }
-  if (found === -1) return []
-
-  // Walk back: collect, per position in b, whether each line is kept or new,
-  // and where deletions fall.
-  const opsB = new Uint8Array(m) // 1 = inserted
-  const delAfterB = new Uint32Array(m + 1) // deletions landing before b-index
-  let x = n
-  let y = m
-  for (let d = found; d > 0; d--) {
-    const prev = trace[d - 1]
-    const k = x - y
-    let prevK: number
-    if (k === -d || (k !== d && prev[offset + k - 1] < prev[offset + k + 1])) {
-      prevK = k + 1
-    } else {
-      prevK = k - 1
-    }
-    const prevX = prev[offset + prevK]
-    const prevY = prevX - prevK
-    // Slide back over the snake.
-    while (x > prevX && y > prevY) {
-      x--
-      y--
-    }
-    if (d > 0) {
-      if (x === prevX) {
-        // An insertion into b.
-        y--
-        opsB[y] = 1
-      } else {
-        // A deletion from a.
-        x--
-        delAfterB[y] += 1
-      }
-    }
-  }
-
-  // Fold runs of inserted/deleted lines into hunks, in buffer coordinates.
-  const hunks: GutterHunk[] = []
-  let i = 0
-  let aAt = 0 // index into midA of the next unconsumed HEAD line
-  while (i <= m) {
-    const deletions = delAfterB[i]
-    let inserted = 0
-    while (i + inserted < m && opsB[i + inserted] === 1) inserted++
-
-    if (deletions > 0 || inserted > 0) {
-      const before = midA.slice(aAt, aAt + deletions)
-      aAt += deletions
-      const startLine = lo + i + 1
-      if (inserted > 0) {
-        hunks.push({
-          start: startLine,
-          count: inserted,
-          before,
-          kind: deletions > 0 ? 'modified' : 'added'
-        })
-      } else {
-        hunks.push({ start: startLine, count: 0, before, kind: 'deleted' })
-      }
-      i += inserted
-      continue
-    }
-    aAt += 1
-    i += 1
-  }
-  return hunks
-}
+export type GutterHunk = LineHunk
 
 const HOVER = 'Changed against HEAD — Alt+click the mark to revert this hunk.'
 
-export function computeGutters(headText: string, bufferText: string): GutterHunk[] {
-  return diffLines(headText.split('\n'), bufferText.split('\n'))
+/**
+ * HEAD's text against the buffer's lines.
+ *
+ * Lines, not text: the buffer's text comes in the model's own line endings, and
+ * split on "\n" a CRLF buffer had a "\r" on every line HEAD's LF blob did not —
+ * so on a default Git for Windows checkout every line of an untouched file was
+ * marked as changed.
+ */
+export function computeGutters(headText: string, bufferLines: string[]): GutterHunk[] {
+  return diffLines(linesOf(headText), bufferLines)
 }
 
 /** Decorations for a set of hunks, ready for deltaDecorations. */

@@ -50,6 +50,7 @@ const ORDER = [
   'verify-conflict',
   'verify-follow',
   'verify-typing',
+  'verify-keeps-work',
   'verify-snippets',
   'verify-ai',
   'verify-lsp-root',

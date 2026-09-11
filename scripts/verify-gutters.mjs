@@ -30,6 +30,17 @@ const tracked = path.join(repo, 'tracked.ts')
 fs.writeFileSync(tracked, 'const one = 1\nconst two = 2\nconst three = 3\n', 'utf8')
 git('add', '-A')
 git('commit', '-qm', 'initial')
+// A working copy in CRLF of a blob committed as LF: what core.autocrlf, the Git for
+// Windows default, leaves in every checkout. Four hundred lines is enough to see
+// every line marked, and few enough that the old diff's trace stayed small.
+const CRLF = String.fromCharCode(13, 10)
+const LF = String.fromCharCode(10)
+const crlfLines = Array.from({ length: 400 }, (_, i) => `export const line${i} = ${i}`)
+const crlfFile = path.join(repo, 'crlf.ts')
+fs.writeFileSync(crlfFile, crlfLines.join(LF) + LF, 'utf8')
+git('add', 'crlf.ts')
+git('commit', '-qm', 'crlf')
+fs.writeFileSync(crlfFile, crlfLines.join(CRLF) + CRLF, 'utf8')
 const loose = path.join(repo, 'loose.ts')
 fs.writeFileSync(loose, 'export const untracked = true\n', 'utf8')
 
@@ -106,6 +117,46 @@ check(
   JSON.stringify(afterRevert)
 )
 
+/*
+ * --- a whole line deleted ---------------------------------------------------------
+ *
+ * The diff folded a pure deletion into a hunk and then found the same deletion again,
+ * for ever: deleting one whole line of a committed file froze the window 300 ms
+ * later, until it ran out of memory. The CRLF comparison hid it on Windows by never
+ * producing a pure deletion. Not run against a build without the fix, where it would
+ * have taken the window, and the machine's memory, with it.
+ */
+await page.click('.pane.editor .view-lines')
+await page.keyboard.press('Control+Home')
+await page.keyboard.press('ArrowDown')
+await page.keyboard.press('Home')
+await page.keyboard.press('Shift+ArrowDown')
+await page.keyboard.press('Delete')
+await sleep(1500)
+// Answering at all is the first half of the check.
+const deleted = await Promise.race([marks(), sleep(10_000).then(() => 'hung')])
+check('deleting a whole line leaves the window answering', deleted !== 'hung')
+check(
+  'and marks where the line was',
+  Array.isArray(deleted) && deleted.some((d) => d.cls === 'gutter-deleted' && d.line === 2),
+  JSON.stringify(deleted)
+)
+if (Array.isArray(deleted) && deleted.some((d) => d.cls === 'gutter-deleted')) {
+  // The mark is a zero-width element whose wedge is drawn by its ::before — 7px wide,
+  // from 4px above it — so a person clicks the wedge and the element takes the
+  // click. Clicked where the wedge is drawn, since there is no box to click.
+  const wedge = await page.locator('.gutter-deleted').first().boundingBox()
+  await page.keyboard.down('Alt')
+  if (wedge) await page.mouse.click(wedge.x + 3, wedge.y + 1)
+  await page.keyboard.up('Alt')
+  await sleep(800)
+  const restored = await page.evaluate(() => {
+    const model = window.monaco.editor.getModels().find((m) => m.uri.path.includes('tracked.ts'))
+    return model?.getLineContent(2) ?? ''
+  })
+  check('and Alt+click on that mark puts the line back', restored === 'const two = 2', restored)
+}
+
 // --- untracked files stay quiet -------------------------------------------------
 await page.keyboard.press('Control+p')
 await page.waitForSelector('.qp__box', { timeout: 8_000 })
@@ -121,6 +172,28 @@ const looseMarks = await page.evaluate(() => {
     .filter((d) => (d.options.linesDecorationsClassName ?? '').startsWith('gutter-')).length
 })
 check('an untracked file shows no marks', looseMarks === 0, String(looseMarks))
+
+// --- a CRLF working copy of an LF blob ------------------------------------------------
+// HEAD is the LF blob, the buffer holds CRLF, and nobody has touched a line. Compared
+// with the line endings still on, every line differed and the whole file was marked.
+await page.keyboard.press('Control+p')
+await page.waitForSelector('.qp__box', { timeout: 8_000 })
+await page.locator('.qp__box').fill('crlf')
+await sleep(600)
+await page.keyboard.press('Enter')
+await sleep(2500)
+const crlfState = await page.evaluate(() => {
+  const model = window.monaco.editor.getModels().find((m) => m.uri.path.includes('crlf.ts'))
+  if (!model) return null
+  return {
+    crlf: model.getEOL() === String.fromCharCode(13, 10),
+    marks: model
+      .getAllDecorations()
+      .filter((d) => (d.options.linesDecorationsClassName ?? '').startsWith('gutter-')).length
+  }
+})
+check('the CRLF file opens as CRLF', crlfState?.crlf === true, JSON.stringify(crlfState))
+check('and, untouched, shows no marks', crlfState?.marks === 0, JSON.stringify(crlfState))
 
 await app.close()
 profile.cleanup()

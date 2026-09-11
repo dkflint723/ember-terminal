@@ -14,7 +14,13 @@ import { activateTheme, refreshThemeList } from './state/theming'
 import { refreshGitStatus, useGitStatusPolling } from './state/git'
 import { useDiskChecking } from './state/disk'
 import { useIdeBridge } from './state/ide'
-import { adoptTransfer, restore, unsavedWorkIsPreserved, useSessionAutosave } from './state/session'
+import {
+  adoptTransfer,
+  restore,
+  unsavedIsKept,
+  unsavedWorkIsPreserved,
+  useSessionAutosave
+} from './state/session'
 import { setRevealer } from './editor/navigate'
 import { PanelBar } from './components/PanelBar'
 import { StatusBar } from './components/StatusBar'
@@ -109,17 +115,51 @@ export function App(): React.JSX.Element {
   // Kept current in main, which has to decide synchronously when the window is
   // closing and cannot wait on an answer from here.
   useEffect(() => {
+    /*
+     * Two numbers, not one: what is unsaved, and how much of it the session is
+     * keeping. It used to report nothing at all whenever restore was on, on the
+     * grounds that the work would come back — but main deletes a window's session
+     * when a window that is not the last one closes, and a buffer over the size
+     * the snapshot keeps was never in it. Main knows which close is which; this
+     * says what the session holds.
+     */
+    let warned = new Set<string>()
+    let sent = ''
     const report = (): void => {
       const s = useStore.getState()
-      let count = 0
+      const preserved = unsavedWorkIsPreserved()
+      let dirty = 0
+      let kept = 0
+      const tooBig = new Set<string>()
       for (const pane of Object.values(s.panes)) {
         if (pane.kind !== 'editor') continue
-        for (const doc of pane.documents) if (doc.dirty) count += 1
+        for (const doc of pane.documents) {
+          if (!doc.dirty) continue
+          dirty += 1
+          if (!preserved) continue
+          if (unsavedIsKept(doc)) kept += 1
+          else if (doc.filePath) tooBig.add(doc.filePath)
+        }
       }
-      // Only work that closing would actually lose. With session restore on and
-      // writing successfully, it comes back — warning about it would be a prompt
-      // for nothing several times a day.
-      window.ember.reportUnsaved(unsavedWorkIsPreserved() ? 0 : count)
+      // Sent only when it changes: this runs on every change to the store.
+      const counts = `${dirty}:${kept}`
+      if (counts !== sent) {
+        sent = counts
+        window.ember.reportUnsaved({ dirty, kept })
+      }
+      /*
+       * Said once per file, as it crosses the line. The set is replaced before the
+       * notice goes up, because raising a notice is itself a change to the store
+       * and brings this straight back round.
+       */
+      const fresh = [...tooBig].filter((filePath) => !warned.has(filePath))
+      warned = tooBig
+      for (const filePath of fresh) {
+        const name = filePath.split(/[\\/]/).pop() ?? filePath
+        useStore
+          .getState()
+          .setNotice(`${name} is too large to keep across restarts. Save it to keep your changes.`, 'error')
+      }
     }
     report()
     return useStore.subscribe(report)

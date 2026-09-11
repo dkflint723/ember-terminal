@@ -5,6 +5,64 @@ newest entry sits on top.
 
 ## Unreleased
 
+### The editor stops losing work four more ways
+
+- **Ctrl+S saved the file in the other editor.** It was bound for the whole
+  window rather than for its editor, and the editor created last answered it. With
+  two files side by side, Ctrl+S in the left one saved the right one, which had
+  nothing to save, and left the edit where it was. Save, Format Document and
+  Ctrl+K now belong to their own editor and go when it closes.
+- **Closing a window, or quitting, could drop unsaved work without asking.** The
+  question was skipped whenever session restore was on, on the grounds that the
+  work would come back. But closing a window that is not the last one deletes that
+  window's session, and a buffer over 4 MB is never written into one. Each window
+  now reports what is unsaved and how much of it its session is keeping, and Ember
+  asks whenever a close would lose something. A buffer that grows past 4 MB says
+  so as it does: "big.log is too large to keep across restarts. Save it to keep
+  your changes." A buffer with no file yet, which no session can keep, is asked
+  about too.
+- **Cancel on that question left Ember with dead terminals.** Quitting killed
+  every shell, closed the history and stopped Claude Code's bridge before any
+  window was asked about unsaved work. A quit cancelled at that question kept a
+  window whose shells no longer ran anything. On the build before this, with
+  restore off (where it did ask), a command typed after Cancel never ran. The
+  teardown now waits until every window has actually closed.
+- **A file opened under two spellings could lose its edit.** Closed files keep
+  their buffers in a lot of twenty so reopening one is instant. The lot was keyed
+  by how the path was spelled, but disposed by the file, and a language server
+  hands paths back lowercased with forward slashes while Explorer does not. So a
+  file closed under one spelling, then reopened and edited under the other, left a
+  stale entry. Twenty files later that entry disposed the live buffer: the tab
+  rebuilt itself from disk and the edit was gone. The lot is keyed by the file now,
+  and never disposes a buffer an open tab still shows.
+- **The change gutter marked every line of a CRLF file, and could freeze the
+  window.** HEAD comes back from git as the LF blob, while the buffer was compared
+  in its own CRLF line endings. So on a default Git for Windows checkout, every line
+  of an untouched file was marked as changed, by a diff whose memory grew with
+  edits times length: 68.7 MB for 1,500 lines, measured. Lines are compared without
+  their endings now, and the diff keeps only what it needs to walk back. Past 1,000
+  edits it marks the changed stretch as one.
+  - Found on the way, by a unit test's random edits: deleting one whole line from
+    a committed file sent the old diff into an endless loop. 300 ms after typing
+    stopped, the window froze until it ran out of memory. The CRLF comparison had
+    hidden it on Windows by never producing a pure deletion, so fixing that alone
+    would have made the freeze reachable on every checkout.
+- **How it is checked.**
+  - *keeping work* does each of these on purpose: Ctrl+S in split editors, a file
+    through the lot under two spellings, a second window and a 5 MB buffer at close,
+    and a terminal command after a cancelled quit. Main's close question is replaced
+    by one that writes it down and answers Cancel. On the build before this, Ctrl+S
+    saved the wrong file, the edit was gone after the lot turned over, neither close
+    asked anything, and the app quit without a word. The dead shell after Cancel was
+    shown separately on that build, with restore off.
+  - *line diff*, a unit test, checks the hunks by reverting them over 400 random
+    edits, checks the CRLF case, and checks the memory bound by counting the diff's
+    typed arrays. The old algorithm allocates 68.7 MB for 1,500 changed lines,
+    against a bound of 8 MB.
+  - *git gutters* gained a CRLF working copy and a whole-line deletion. The
+    deletion was not run against the old build, where it would have frozen the
+    window.
+
 ### Commands typed for you go only to a prompt, and values go in as data
 
 - **Five buttons typed into whatever had the terminal.** Claude's Run, a block's

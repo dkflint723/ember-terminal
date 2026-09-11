@@ -139,7 +139,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
       gutterIds.current = model.deltaDecorations(gutterIds.current, [])
       return
     }
-    gutterHunks.current = computeGutters(head, model.getValue())
+    gutterHunks.current = computeGutters(head, model.getLinesContent())
     gutterIds.current = model.deltaDecorations(
       gutterIds.current,
       gutterDecorations(gutterHunks.current)
@@ -231,7 +231,10 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
   // Lets the session snapshot read any document's live text, including tabs that
   // are not on screen — their models hold the edits whether they are shown or not.
   useEffect(() => {
-    setBufferReader((filePath) => monaco.editor.getModel(modelUri(filePath))?.getValue() ?? null)
+    setBufferReader(
+      (filePath) => monaco.editor.getModel(modelUri(filePath))?.getValue() ?? null,
+      (filePath) => monaco.editor.getModel(modelUri(filePath))?.getValueLength() ?? null
+    )
   }, [])
 
   // Created once per pane; the model is swapped underneath it as tabs change.
@@ -431,15 +434,33 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
       }
     })
 
-    // Ctrl+S is handled here rather than in the global handler so it reaches the
-    // focused editor and nothing else.
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void save())
+    /*
+     * Ctrl+S, for this editor and no other.
+     *
+     * It was addCommand, which Monaco files in the one keybinding service every
+     * editor shares, with nothing to say which editor it belongs to — so the last
+     * editor created answered for all of them. With two files side by side, Ctrl+S
+     * in the left one ran the right one's save, and the left file's edit stayed
+     * unsaved; closing the right pane left Ctrl+S calling an editor that no longer
+     * existed, and every return to the IDE registered another. An action is scoped
+     * to its editor, and is taken off again when the pane goes.
+     */
+    const saveAction = editor.addAction({
+      id: 'ember.save',
+      label: 'Save',
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+      run: () => void save()
+    })
 
     // Format Document, on the binding VS Code uses. Added explicitly rather than
     // relied on: the formatting itself comes from the language server, and the
-    // standalone editor does not ship every workbench binding.
-    editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF, () => {
-      void editor.getAction('editor.action.formatDocument')?.run()
+    // standalone editor does not ship every workbench binding. Scoped like Save,
+    // for the same reason.
+    const formatAction = editor.addAction({
+      id: 'ember.formatDocument',
+      label: 'Format Document',
+      keybindings: [monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF],
+      run: (ed) => void ed.getAction('editor.action.formatDocument')?.run()
     })
 
     /*
@@ -450,7 +471,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
      * all into any other — which is most of the times anyone presses it. Asking the
      * server directly gives back a path, which the app already knows how to open.
      */
-    editor.addAction({
+    const definitionAction = editor.addAction({
       id: 'ember.goToDefinition',
       label: 'Go to Definition',
       keybindings: [monaco.KeyCode.F12],
@@ -481,15 +502,26 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     // 'agent' rather than the toggle the same chord means in the composer: there
     // is no visible reading to disagree with from over here, so pressing it can
     // only mean "take me to Claude".
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK, () => {
-      const s = useStore.getState()
-      const tab = s.tabs.find((t) => t.id === s.activeTabId)
-      if (!tab) return
-      const target = Object.values(s.panes).find((p) => p.kind === 'terminal')?.id
-      if (target) s.requestAsk(target, 'agent')
+    const askAction = editor.addAction({
+      id: 'ember.askClaude',
+      label: 'Ask Claude',
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK],
+      run: () => {
+        const s = useStore.getState()
+        const tab = s.tabs.find((t) => t.id === s.activeTabId)
+        if (!tab) return
+        const target = Object.values(s.panes).find((p) => p.kind === 'terminal')?.id
+        if (target) s.requestAsk(target, 'agent')
+      }
     })
 
     return () => {
+      // The pane's own keys go with it, rather than staying bound to an editor
+      // that has been disposed.
+      saveAction.dispose()
+      formatAction.dispose()
+      definitionAction.dispose()
+      askAction.dispose()
       selectionSub.dispose()
       focusSub.dispose()
       modelSub.dispose()

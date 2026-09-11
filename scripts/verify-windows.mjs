@@ -96,6 +96,25 @@ await placeTopRight(app)
 await ready(one)
 
 await run(one, `cd "${dir}"`)
+/*
+ * Waited for, not assumed: the move packs the directory the pane has recorded, and
+ * the pane records it when the shell reports its next prompt. A fixed pause raced
+ * that report, and a run that lost the race moved a session still marked as
+ * standing in the home folder — which the adopted window then showed, correctly,
+ * as where the shell stood. The check below is about the move carrying the
+ * directory, so the directory has to have arrived before the move.
+ */
+{
+  let reported = false
+  for (let i = 0; i < 50 && !reported; i++) {
+    reported = await one.evaluate(
+      (tail) => (document.querySelector('[data-status="cwd"]')?.getAttribute('title') ?? '').toLowerCase().includes(tail),
+      dirTail
+    )
+    if (!reported) await sleep(200)
+  }
+  check('the shell reports where it went', reported)
+}
 await run(one, `$env:EMBER_WIN_PROOF='alive-7'`, 1800)
 await run(one, 'echo win-one-marker')
 

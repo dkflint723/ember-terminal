@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { parkModel, unparkModel } from '../editor/models'
+import { parkModel, unparkModel, whenAskingIfShown } from '../editor/models'
 import type { AgentTurn, FileSaveResult, FileStamp } from '@shared/types'
 import { DEFAULT_SETTINGS, type GitStatus, type Settings, type ShellProfile } from '@shared/types'
 import type { ResolvedTheme, ThemeSummary } from '@shared/theme'
@@ -1968,3 +1968,10 @@ export const useStore = create<Store>((set, get) => ({
     get().patchPane(paneId, { blocks: kept })
   }
 }))
+
+/*
+ * The model parking lot asks here before disposing anything: a model that some
+ * open document still shows is never the lot's to throw away, however the path
+ * was spelled when it was parked.
+ */
+whenAskingIfShown((filePath) => useStore.getState().documentIsOpen(filePath))

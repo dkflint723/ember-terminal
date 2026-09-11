@@ -188,9 +188,36 @@ function unsavedFor(doc: EditorDocument): { unsaved?: string; base?: FileStamp |
  * not on screen is saved too.
  */
 let readBuffer: ((filePath: string) => string | null) | null = null
+/** How long a buffer is, without copying its text out. */
+let readLength: ((filePath: string) => number | null) | null = null
 
-export function setBufferReader(fn: (filePath: string) => string | null): void {
+export function setBufferReader(
+  fn: (filePath: string) => string | null,
+  length?: (filePath: string) => number | null
+): void {
   readBuffer = fn
+  if (length) readLength = length
+}
+
+/**
+ * Whether this document's unsaved text goes into the session snapshot, and so
+ * comes back after a restart: not when it is over the size the snapshot keeps,
+ * and not for a document with no file, whose text the snapshot has no way to find.
+ *
+ * Measured by length rather than by reading the text, because this is asked on
+ * every change to the store, and copying a 4 MB buffer out each time would be
+ * what made typing slow.
+ */
+export function unsavedIsKept(doc: EditorDocument): boolean {
+  if (!doc.filePath) return false
+  let length: number | null = null
+  try {
+    length = readLength ? readLength(doc.filePath) : null
+  } catch {
+    length = null
+  }
+  length ??= pendingUnsaved.get(doc.filePath)?.length ?? 0
+  return length <= MAX_UNSAVED_BYTES
 }
 
 function currentText(filePath: string | null): string | null {

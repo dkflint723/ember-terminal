@@ -1277,7 +1277,11 @@ export interface EmberApi {
   /** Why stored settings could not be read, once, if they could not. */
   settingsLoadError(): Promise<string | null>
   /** Keep main's count current, so closing the window can ask before discarding. */
-  reportUnsaved(count: number): void
+  /**
+   * How much unsaved work this window holds, and how much of it its session
+   * snapshot is keeping — main decides from the two whether a close loses any.
+   */
+  reportUnsaved(counts: { dirty: number; kept: number }): void
   /** Scale the whole interface. Clamped in main to something usable. */
   setZoom(factor: number): void
   windowAction(action: 'minimize' | 'maximize' | 'close'): void

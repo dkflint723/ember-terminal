@@ -571,7 +571,25 @@ let mainWindow: BrowserWindow | null = null
  */
 const paneOwners = new Map<string, number>()
 /** Unsaved-document counts, per window — each close prompt asks about its own. */
-const unsavedCounts = new Map<number, number>()
+const unsavedCounts = new Map<number, { dirty: number; kept: number }>()
+
+/**
+ * How much of a window's unsaved work closing it now would lose.
+ *
+ * The renderer reports two numbers — what is unsaved, and how much of that its
+ * session snapshot is actually keeping — because only main knows which matters.
+ * The last window's session is kept, and so is every window's on the way out of
+ * a quit; any other window closing deletes its own, and then everything in it
+ * goes. It used to be one number, zeroed whenever restore was on, so a second
+ * window closed with unsaved work went without a word, and so did a buffer too
+ * big for the snapshot to hold.
+ */
+function unsavedLostOnClose(id: number): number {
+  const counts = unsavedCounts.get(id)
+  if (!counts) return 0
+  const sessionKept = quitting || windows.size <= 1
+  return sessionKept ? Math.max(0, counts.dirty - counts.kept) : counts.dirty
+}
 /** Session snapshots waiting for restored windows that have not booted yet. */
 const parkedSnapshots = new Map<number, SessionSnapshot>()
 /** Packed sessions waiting for the windows a move created. */
@@ -959,7 +977,7 @@ function createWindow(seed: WindowSeed = {}): number {
     // An install already asked about unsaved work and already spawned the
     // installer; asking again here could veto a quit that has to happen.
     if (installing) return
-    const unsaved = unsavedCounts.get(id) ?? 0
+    const unsaved = unsavedLostOnClose(id)
     if (unsaved === 0 || closingConfirmed) return
     event.preventDefault()
     const choice = dialog.showMessageBoxSync(win, {
@@ -973,6 +991,10 @@ function createWindow(seed: WindowSeed = {}): number {
     if (choice === 1) {
       closingConfirmed = true
       win.close()
+    } else {
+      // Kept open, so a quit that was on its way stops here and is no longer one:
+      // the next close of this window is the person closing it, not the app.
+      quitting = false
     }
   })
 
@@ -1809,7 +1831,12 @@ function registerIpc(): void {
          * against an app that is still open, which is the one outcome nothing
          * downstream can recover from.
          */
-        const unsaved = [...unsavedCounts.values()].reduce((a, b) => a + b, 0)
+        // Installing quits, and a quit keeps every window's session: what is lost
+        // is what no session holds.
+        const unsaved = [...unsavedCounts.values()].reduce(
+          (sum, counts) => sum + Math.max(0, counts.dirty - counts.kept),
+          0
+        )
         if (unsaved > 0) {
           const win = windowFromEvent(e) ?? mainWindow
           const choice = dialog.showMessageBoxSync(win ?? undefined!, {
@@ -1900,9 +1927,12 @@ function registerIpc(): void {
     const clamped = Math.min(Math.max(Number.isFinite(factor) ? factor : 1, 0.6), 2.5)
     windowFromEvent(e)?.webContents.setZoomFactor(clamped)
   })
-  ipcMain.on('window:unsaved', (e, count: number) => {
+  ipcMain.on('window:unsaved', (e, counts: unknown) => {
     const id = windowIdOf(e.sender)
-    if (id !== null) unsavedCounts.set(id, Math.max(0, count))
+    const reported = counts as { dirty?: unknown; kept?: unknown } | null
+    const dirty = Math.max(0, Number(reported?.dirty) || 0)
+    const kept = Math.min(dirty, Math.max(0, Number(reported?.kept) || 0))
+    if (id !== null) unsavedCounts.set(id, { dirty, kept })
   })
   ipcMain.handle('settings:encryption', () => settings.encryptionAvailable())
 
@@ -2088,8 +2118,19 @@ process.on('unhandledRejection', (reason) => {
       lettingGo = true
       e.preventDefault()
       setTimeout(() => app.quit(), 600)
-      return
     }
+  })
+
+  /*
+   * The teardown waits until every window has actually closed.
+   *
+   * It ran in before-quit, which comes first — before any window is asked about
+   * its unsaved work — so a quit cancelled at that question kept a window whose
+   * shells had been killed, whose history was closed, and whose Claude Code bridge
+   * had stopped answering. will-quit comes only once every window has gone, when
+   * there is nothing left to cancel, and after their last writes have landed.
+   */
+  app.on('will-quit', () => {
     dap?.dispose()
     ptys?.killAll()
     completion?.dispose()

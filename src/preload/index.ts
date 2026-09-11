@@ -237,7 +237,8 @@ const api: EmberApi = {
   noteLearnedChord: (chord: string): Promise<Settings> =>
     ipcRenderer.invoke('settings:noteChord', chord),
   settingsLoadError: (): Promise<string | null> => ipcRenderer.invoke('settings:loadError'),
-  reportUnsaved: (count: number) => ipcRenderer.send('window:unsaved', count),
+  reportUnsaved: (counts: { dirty: number; kept: number }) =>
+    ipcRenderer.send('window:unsaved', counts),
   setZoom: (factor: number) => ipcRenderer.send('window:zoom', factor),
   setSettings: (patch: Partial<Settings>) =>
     ipcRenderer.invoke('settings:set', patch),
