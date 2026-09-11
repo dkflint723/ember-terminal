@@ -11,6 +11,7 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "baseUrl": ".",
     "paths": {
       "@shared/*": ["src/shared/*"],

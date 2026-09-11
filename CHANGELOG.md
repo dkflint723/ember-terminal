@@ -5,6 +5,66 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Commands typed for you go only to a prompt, and values go in as data
+
+- **Five buttons typed into whatever had the terminal.** Claude's Run, a block's
+  Run again, a script, a history row's `git show` and the directory picker all sent
+  their text straight to the terminal whatever held it at the time. With
+  `ssh prod` open in the pane, Run on Claude's `rm -rf node_modules && npm ci` ran
+  it on the server; with python open it went into the REPL; at a password prompt it
+  was sent as the password. They now share one rule, the one the debugger's
+  launcher already had: a command is typed only at the shell's prompt. Otherwise
+  nothing is sent, and a notice says what has the terminal. It offers **Run in a
+  new terminal** beside it, where the command runs once the shell is ready. For a
+  program that reads lines, it also offers **Send to “python” anyway**, the one
+  deliberate way to type into a REPL. Claude's card now says where it would run,
+  "Runs in PowerShell · C:\proj". While the terminal is busy, it says with what, in
+  place of the Run button. A shell that never reports its prompt, like the Command
+  Prompt, cannot be vouched for either way, so there the second click is
+  **Send anyway**. Nothing is ever sent into a password prompt or a full-screen
+  program. A proposal in a terminal conversation is marked as run only once it
+  has been.
+- **A folder name could run code.** The directory picker moved the shell with
+  `cd "…"`, and inside double quotes PowerShell and bash both expand `$(…)`. So a
+  folder cloned as `a$(New-Item marker)b` ran New-Item the moment someone walked
+  into it; the new picker suite watched it happen. Paths, script names, test
+  files and the values for a saved command's blanks now go through one quoter per
+  shell. The picker types `Set-Location -LiteralPath '…'`, where `-LiteralPath`
+  also stops a folder called `[draft]` being read as a wildcard. The one quoter
+  that did use single quotes, which also built the command that raises the
+  administrator window, doubled only the ASCII quote. Measured on pwsh 7 and
+  Windows PowerShell 5.1, `'Bob’s Projects'` is a parse error: PowerShell closes
+  a string on ‘ ’ ‚ ‛ as well, so an ordinary name like O’Brien broke out of it.
+  All four are doubled now. The Command Prompt has no quoting that holds `%`, `!`
+  or `"`, so those are refused with a reason rather than guessed at. A script
+  called `say hi` runs as that one script instead of `say` with `hi`.
+- **A saved command's blanks go in by where they stand.** A blank standing as its
+  own word is quoted as one value. One wrapped in quotes in the saved command,
+  `"{{message}}"`, has those quotes replaced. One inside a longer quoted string,
+  `"fix: {{what}}"`, goes in as typed. In that last case it is refused if the
+  value would end or expand the string, because a value that breaks out of its
+  quotes is a value that runs.
+- **Escape in the directory picker cancels.** It used to be the move: closing the
+  picker anywhere but where it started sent the `cd`, so the gesture every other
+  picker means as "never mind" was the one that acted. Walking now ends at an
+  explicit **Move the shell here**, first in the list, so it is one more Enter.
+- **How it is checked.** Each of these was watched failing first:
+  - *typing into terminals* holds the terminal with a program that writes down
+    everything it is sent, then presses each button. On the build before this, the
+    program received what Run again, Claude's Run and a script sent it. A line
+    sent to the program on purpose must reach it as its input and open no block;
+    that check failed on the build before its own fix, which had given the line a
+    block no prompt would ever close. The history row's check was added after
+    the first run, once its selector was corrected, and was not itself seen
+    failing.
+  - *directory picker* was rewritten around the injection, the apostrophe and
+    Escape. On the build before this, Escape moved the shell, the hostile folder
+    created its marker, and the move was typed into a running program while a
+    notice said "Moved".
+  - *shell quoting* is a unit test that hands every value to the real pwsh,
+    Windows PowerShell, Git Bash and cmd and reads it back. On the old quoting it
+    failed to parse, and the old `cd` created the marker file.
+
 ### A save never writes over a newer file, and open editors follow the disk
 
 - **Saving put the old text back over changes made elsewhere.** Nothing watched

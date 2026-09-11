@@ -12,16 +12,17 @@
  * window. See scripts/test-elevate-command.mjs.
  */
 
-/**
- * A string as one PowerShell single-quoted literal.
+import { powerShellLiteral } from './quote.ts'
+
+/*
+ * One PowerShell single-quoted literal, from the one quoter every typed command uses.
  *
- * Doubling is how PowerShell escapes a quote inside one, and single quotes are used
- * rather than double so that `$`, backtick and the rest are inert — an argument is
- * data, and nothing in it should be read as a variable to expand.
+ * This file had its own, which doubled only the ASCII quote; PowerShell also closes
+ * a string on ‘ ’ ‚ ‛, so an executable under a Windows account named O’Brien broke
+ * out of the command that raises the administrator window. Re-exported so the
+ * elevation test still reads it from here.
  */
-export function powerShellLiteral(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`
-}
+export { powerShellLiteral }
 
 /**
  * A string as one argv token for the process that will be started.

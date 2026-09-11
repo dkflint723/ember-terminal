@@ -2,6 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { useStore, type Block, type TerminalPaneState } from '../state/store'
 import { useLearned } from '../composer/learned'
 import { getController } from '../terminal/controller'
+import { sendOrExplain } from '../terminal/typing'
 import { AgentBlock } from './AgentBlock'
 import { BlockView } from './BlockView'
 import { InputEditor } from './InputEditor'
@@ -324,9 +325,13 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
     }
   }, [])
 
-  const rerun = (command: string): void => {
-    if (command.trim().length > 0) controller.runCommand(command)
-  }
+  /*
+   * Only at the prompt. Run again used to type the command into whatever held the
+   * pty — the ssh session a block from before it opened, the REPL started since —
+   * and now says instead what has the terminal, and offers another one.
+   */
+  const rerun = (command: string): boolean =>
+    command.trim().length > 0 && sendOrExplain(pane.id, command)
 
   // Where the blocks sit, for the ruler down the right edge and for knowing which
   // head is pinned. Measured from the DOM, so it follows wrapping and collapsing
@@ -474,10 +479,12 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
                   stuck={b.id === geometry.stuckId}
                   onToggle={() => toggleBlock(pane.id, b.id)}
                   onRun={(command) => {
+                    // Marked as run only once it has been: a refusal leaves the
+                    // proposal standing, to be run when the terminal is free.
+                    if (!rerun(command)) return
                     patchConversation(pane.id, b.id, {
                       proposal: b.proposal ? { ...b.proposal, state: 'run' } : null
                     })
-                    rerun(command)
                   }}
                   onDismiss={() =>
                     patchConversation(pane.id, b.id, {

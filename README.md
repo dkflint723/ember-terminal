@@ -74,8 +74,10 @@ accept or reject rather than a block of text to copy by hand.
   that cannot: several recent "coder" models dropped the ability and kept the name.
 - **The agent** — a panel of its own (`Ctrl+Shift+B`) with threads that stream and
   remember per session, a Stop that means it, and proposals that open as
-  accept/reject diffs or runnable commands. Through your own API key or the Claude
-  Code CLI you are already signed in to.
+  accept/reject diffs or runnable commands — which run only at your shell's prompt,
+  never into an ssh session, a REPL or a password prompt that happens to have the
+  terminal. Through your own API key or the Claude Code CLI you are already signed
+  in to.
 - **Edit with Claude** — select code in the editor, press `Ctrl+I`, say what you
   want changed, and it is rewritten in place as one undoable edit.
 - **IDE mode** — TypeScript, Python, Bash, YAML and PowerShell language servers in

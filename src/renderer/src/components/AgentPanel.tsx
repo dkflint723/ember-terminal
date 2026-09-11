@@ -3,7 +3,14 @@ import { activeDocument, terminalPaneIdFor, useStore } from '../state/store'
 import type { AgentTurn, AiChatEvent } from '@shared/types'
 import { openLocalProposal } from '../state/ide'
 import { modelUri, monaco } from '../editor/monaco'
-import { existingController } from '../terminal/controller'
+import {
+  programOf,
+  runInNewTerminal,
+  sendOrExplain,
+  typeIntoTerminal,
+  useReadiness,
+  whyNot
+} from '../terminal/typing'
 
 /**
  * The conversation surface: Claude's side of the window.
@@ -426,6 +433,68 @@ function renderProse(text: string, keyBase: string): React.ReactNode[] {
   return out
 }
 
+/**
+ * A command Claude proposed, one press from running — in the session's terminal,
+ * and only while that terminal is at its prompt.
+ *
+ * "A click is consent", the old comment said, and it was: consent to running the
+ * command wherever the terminal happened to be — on the server `ssh prod` had
+ * opened, in the REPL started since, or as the answer to a password prompt. The
+ * card now says where it would run. When that terminal is busy it says with what,
+ * and offers a new terminal instead, or — for a program that reads lines — sending
+ * it there on purpose, naming the program.
+ */
+function RunCard({ command }: { command: string }): React.JSX.Element {
+  const paneId = useStore((s) => terminalPaneIdFor(s))
+  const cwd = useStore((s) => (paneId ? (s.terminalPane(paneId)?.cwd ?? null) : null))
+  const shell = useStore((s) => {
+    const pane = paneId ? s.terminalPane(paneId) : null
+    return s.profiles.find((p) => p.id === pane?.profileId)?.name ?? null
+  })
+  const ready = useReadiness(paneId)
+
+  return (
+    <div className="agent__card">
+      <div
+        className={`agent__card-where ${ready.ok ? '' : 'agent__card-where--busy'}`}
+        title={cwd ?? undefined}
+      >
+        {ready.ok ? `Runs in ${shell ?? 'the terminal'}${cwd ? ` · ${cwd}` : ''}` : `Not now: ${whyNot(ready)}.`}
+      </div>
+      <pre className="agent__code">{command}</pre>
+      <div className="agent__card-actions">
+        {ready.ok && (
+          <button className="btn" onClick={() => void sendOrExplain(paneId, command)}>
+            Run
+          </button>
+        )}
+        {!ready.ok && paneId && ready.reason !== 'gone' && ready.reason !== 'starting' && ready.reason !== 'plain' && (
+          <button className="btn" onClick={() => runInNewTerminal(paneId, command)}>
+            Run in a new terminal
+          </button>
+        )}
+        {!ready.ok && paneId && ready.reason === 'running' && (
+          <button
+            className="btn"
+            title="Type it into the running program, as if you had"
+            onClick={() => void typeIntoTerminal(paneId, command, { anyway: true })}
+          >
+            Send to {programOf(ready.program)}
+          </button>
+        )}
+        {!ready.ok && paneId && ready.reason === 'plain' && (
+          <button className="btn" onClick={() => void typeIntoTerminal(paneId, command, { anyway: true })}>
+            Run anyway
+          </button>
+        )}
+        <button className="btn" onClick={() => void navigator.clipboard.writeText(command)}>
+          Copy
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function TurnBody({ turn }: { turn: AgentTurn }): React.JSX.Element {
   return (
     <div className="agent__text">
@@ -437,27 +506,7 @@ function TurnBody({ turn }: { turn: AgentTurn }): React.JSX.Element {
               {seg.body}
             </pre>
           )
-        if (seg.kind === 'run')
-          return (
-            <div key={i} className="agent__card">
-              <pre className="agent__code">{seg.body}</pre>
-              <div className="agent__card-actions">
-                <button
-                  className="btn"
-                  onClick={() => {
-                    // A click is consent: this runs in the session's terminal.
-                    const pane = contextPane()
-                    if (pane) existingController(pane.id)?.runCommand(seg.body)
-                  }}
-                >
-                  Run
-                </button>
-                <button className="btn" onClick={() => void navigator.clipboard.writeText(seg.body)}>
-                  Copy
-                </button>
-              </div>
-            </div>
-          )
+        if (seg.kind === 'run') return <RunCard key={i} command={seg.body} />
         return (
           <div key={i} className="agent__card">
             <div className="agent__card-path">{seg.path}</div>

@@ -24,7 +24,8 @@ import { RegionDivider } from './components/RegionDivider'
 import { DirectoryPicker } from './components/DirectoryPicker'
 import { SessionList } from './components/SessionList'
 import { AgentPanel } from './components/AgentPanel'
-import { existingController } from './terminal/controller'
+import { sendOrExplain, shellOf } from './terminal/typing'
+import { changeDirectoryCommand } from '@shared/quote'
 
 export function App(): React.JSX.Element {
   const tabs = useStore((s) => s.tabs)
@@ -712,9 +713,29 @@ export function App(): React.JSX.Element {
              * that has a working directory — writing one into the pane would make
              * the label and the shell disagree the moment anything used it — and a
              * `cd` in the list is also the record that the move happened.
+             *
+             * With the path as data. This was `cd "${path}"`, and inside double
+             * quotes PowerShell and bash both expand `$(…)` — so a folder cloned as
+             * `$(iex (irm …))` ran its code the moment someone walked into it. And
+             * only at a prompt, like everything else typed on the person's behalf.
              */
             onChangeDirectory={(path) => {
-              if (dirPickerPaneId) existingController(dirPickerPaneId)?.runCommand(`cd "${path}"`)
+              const shell = shellOf(dirPickerPaneId)
+              if (!shell) {
+                setNotice('Ember does not know how this shell changes directory, so it was left where it is.', 'error')
+                return false
+              }
+              let command: string
+              try {
+                command = changeDirectoryCommand(shell, path)
+              } catch {
+                setNotice(
+                  `The Command Prompt cannot be told to go to ${path}: it has no way to quote % or ! in a path.`,
+                  'error'
+                )
+                return false
+              }
+              return sendOrExplain(dirPickerPaneId, command)
             }}
             onOpenFile={(p) => void openPaths([p])}
             onClose={() => setDirPicker(false)}
@@ -731,7 +752,19 @@ export function App(): React.JSX.Element {
           the session file, writing settings — rather than being discarded. */}
       {notice && (
         <div className={`notice notice--${notice.tone}`} role="status">
-          <span>{notice.text}</span>
+          <span className="notice__text">{notice.text}</span>
+          {notice.actions?.map((action) => (
+            <button
+              key={action.label}
+              className="btn notice__action"
+              onClick={() => {
+                setNotice(null)
+                action.run()
+              }}
+            >
+              {action.label}
+            </button>
+          ))}
           <button className="notice__close" aria-label="Dismiss" onClick={() => setNotice(null)}>
             ✕
           </button>

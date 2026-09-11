@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { GitLogEntry } from '@shared/types'
 import { terminalPaneIdFor, useStore } from '../state/store'
-import { existingController } from '../terminal/controller'
+import { sendOrExplain } from '../terminal/typing'
 import { ago } from '../util/relative-time'
 
 interface Props {
@@ -51,10 +51,11 @@ export function GitHistory({ root }: Props): React.JSX.Element | null {
 
   if (!root) return null
 
+  // Only at a prompt, like everything typed on the person's behalf. The hash is
+  // git's own and only ever hex; anything else is not a commit this list made.
   const show = (entry: GitLogEntry): void => {
-    const paneId = terminalPaneIdFor(useStore.getState())
-    if (!paneId) return
-    existingController(paneId)?.runCommand(`git show ${entry.short}`)
+    if (!/^[0-9a-f]+$/i.test(entry.short)) return
+    sendOrExplain(terminalPaneIdFor(useStore.getState()), `git show ${entry.short}`)
   }
 
   return (

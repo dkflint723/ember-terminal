@@ -219,9 +219,11 @@ check('Escape closes it', (await page.locator('.find__input').count()) === 0)
  *
  * The bar said where the shell was standing and offered nothing to do about it, so
  * getting four levels down meant typing the path or leaning on Tab. Clicking the
- * path opens the directory it names; picking a folder walks into it and closing on
- * one takes the shell there — as a real `cd`, because the shell owns the directory
- * and a label that disagreed with it would be worse than no label.
+ * path opens the directory it names; picking a folder walks into it, and "Move the
+ * shell here" — first in the list once the walking has gone anywhere — takes the
+ * shell there as a real command, because the shell owns the directory and a label
+ * that disagreed with it would be worse than no label. Closing used to be the move;
+ * it cancels now, and the directory picker's own suite holds that side of it.
  */
 // Somewhere known, so the entries below are this repository's rather than whatever
 // the home directory happens to hold.
@@ -246,12 +248,14 @@ const walked = await page.evaluate(
 )
 check('picking a folder walks into it', /scripts/.test(walked), walked)
 
-await page.keyboard.press('Escape')
+const offeredMove = await page.evaluate(() => document.querySelector('.qp__item')?.textContent ?? '')
+check('and offers the move first', /Move the shell here/.test(offeredMove), offeredMove)
+await page.keyboard.press('Enter')
 await sleep(2600)
 const moved = await page.evaluate(
   () => document.querySelector('[data-status="cwd"]')?.getAttribute('title') ?? ''
 )
-check('and closing there moves the shell', /scripts/.test(moved), moved.slice(0, 60))
+check('which takes the shell there', /scripts/.test(moved), moved.slice(0, 60))
 
 await app.close()
 profile.cleanup()

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { QuickPickItem } from './QuickPick'
 import { QuickPick } from './QuickPick'
 import { terminalPaneIdFor, useStore, workspaceRoot } from '../state/store'
-import { existingController } from '../terminal/controller'
+import { argumentIn, fillBlanksIn, sendOrExplain } from '../terminal/typing'
 
 /**
  * The scripts a project already declares, one press from running.
@@ -27,17 +27,17 @@ interface Script {
  * committed rather than assumed. Running `npm run build` in a pnpm workspace is a
  * good way to install a second, disagreeing node_modules.
  */
-const LOCKFILES: { file: string; run: (name: string) => string }[] = [
-  { file: 'pnpm-lock.yaml', run: (n) => `pnpm run ${n}` },
+const LOCKFILES: { file: string; run: string }[] = [
+  { file: 'pnpm-lock.yaml', run: 'pnpm run' },
   // `yarn run`, not the bare shorthand: bare `yarn <name>` only reaches a script
   // when the name is not one of yarn's own commands, and the builtin wins. A
   // project with a `version` script got yarn's release command — a version bump,
   // a commit and a tag — instead of the script it declared.
-  { file: 'yarn.lock', run: (n) => `yarn run ${n}` },
-  { file: 'bun.lockb', run: (n) => `bun run ${n}` },
+  { file: 'yarn.lock', run: 'yarn run' },
+  { file: 'bun.lockb', run: 'bun run' },
   // Bun 1.2 writes a text lockfile under a different name.
-  { file: 'bun.lock', run: (n) => `bun run ${n}` },
-  { file: 'package-lock.json', run: (n) => `npm run ${n}` }
+  { file: 'bun.lock', run: 'bun run' },
+  { file: 'package-lock.json', run: 'npm run' }
 ]
 
 /**
@@ -71,11 +71,12 @@ function holesIn(command: string): string[] {
   return found
 }
 
-function fill(command: string, values: Record<string, string>): string {
-  return command.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (whole, name: string) =>
-    name in values ? values[name] : whole
-  )
-}
+/*
+ * Filling a blank is fillBlanksIn's business: each value goes in quoted for the
+ * shell it is typed into, or as typed inside a string the command already quotes
+ * — and is refused where it would end that string. It used to go in raw, so a
+ * message with an apostrophe broke the command, and one with `$(…)` ran.
+ */
 
 export function ScriptRunner(): React.JSX.Element {
   const savedCommands = useStore((s) => s.settings.savedCommands)
@@ -87,7 +88,8 @@ export function ScriptRunner(): React.JSX.Element {
   } | null>(null)
   const treeRoot = useStore(workspaceRoot)
   const [scripts, setScripts] = useState<Script[]>([])
-  const [runner, setRunner] = useState<(name: string) => string>(() => (n: string) => `npm run ${n}`)
+  /** How this project's package manager runs a script: `npm run`, `pnpm run`… */
+  const [runner, setRunner] = useState('npm run')
   const [state, setState] = useState<'loading' | 'none' | 'ready'>('loading')
   /** Test files in this project, when it has a way to run them. */
   const [tests, setTests] = useState<string[]>([])
@@ -121,7 +123,7 @@ export function ScriptRunner(): React.JSX.Element {
       }))
 
       // The lockfile decides how they are invoked.
-      let run = (n: string): string => `npm run ${n}`
+      let run = 'npm run'
       for (const candidate of LOCKFILES) {
         /*
          * Asked whether the file is there, not for its contents. This used to read
@@ -141,7 +143,7 @@ export function ScriptRunner(): React.JSX.Element {
       }
 
       if (cancelled) return
-      setRunner(() => run)
+      setRunner(run)
       setScripts(found)
       setState(found.length > 0 ? 'ready' : 'none')
 
@@ -186,15 +188,30 @@ export function ScriptRunner(): React.JSX.Element {
    * A press runs it in the session's terminal, the same way a typed command runs:
    * as a block, in whatever directory that pane is standing in. Nothing is spawned
    * behind the user's back — the command appears in their scrollback, which is also
-   * where they will look for it when it fails.
+   * where they will look for it when it fails. And only at its prompt: a script
+   * pressed while ssh or a REPL held the terminal used to be typed into them.
    */
+  const paneId = (): string | null => terminalPaneIdFor(useStore.getState())
   const send = (command: string): void => {
-    const paneId = terminalPaneIdFor(useStore.getState())
-    if (!paneId) return
-    existingController(paneId)?.runCommand(command)
+    sendOrExplain(paneId(), command)
   }
 
-  const run = (name: string): void => send(runner(name))
+  /*
+   * The name, and a test's path, as one argument each in that terminal's shell.
+   * They came from a package.json and a file walk, and went in raw: a script called
+   * `say hi` ran `say` with `hi`, and a name with a `;` in it was two commands.
+   */
+  const withArgument = (prefix: string, value: string): void => {
+    const argument = argumentIn(paneId(), value)
+    if (argument === null) {
+      useStore
+        .getState()
+        .setNotice(`“${value}” cannot be passed to this shell as one argument, so nothing was sent.`, 'error')
+      return
+    }
+    send(`${prefix} ${argument}`)
+  }
+  const run = (name: string): void => withArgument(runner, name)
 
   /*
    * A saved command with holes is asked about before it runs, one at a time and
@@ -234,7 +251,7 @@ export function ScriptRunner(): React.JSX.Element {
             key={script.name}
             className="scripts__item"
             type="button"
-            title={`Run: ${runner(script.name)}`}
+            title={`Run: ${runner} ${script.name}`}
             onClick={() => run(script.name)}
           >
             <span className="scripts__play" aria-hidden="true">
@@ -295,8 +312,8 @@ export function ScriptRunner(): React.JSX.Element {
               key={file}
               className="scripts__item"
               type="button"
-              title={`Run: ${runner('test')} -- ${file}`}
-              onClick={() => send(`${runner('test')} -- ${file}`)}
+              title={`Run: ${runner} test -- ${file}`}
+              onClick={() => withArgument(`${runner} test --`, file)}
             >
               <span className="scripts__play" aria-hidden="true">
                 ▸
@@ -335,7 +352,17 @@ export function ScriptRunner(): React.JSX.Element {
             const rest = asking.holes.slice(1)
             if (rest.length === 0) {
               setAsking(null)
-              send(fill(asking.command, filled))
+              const result = fillBlanksIn(paneId(), asking.command, filled)
+              if ('refused' in result) {
+                useStore
+                  .getState()
+                  .setNotice(
+                    `The value for ${result.refused} would break out of the quotes around it in this command, so nothing was sent.`,
+                    'error'
+                  )
+                return
+              }
+              send(result.command)
               return
             }
             setAsking({ command: asking.command, holes: rest, filled })

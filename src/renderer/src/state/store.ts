@@ -178,6 +178,12 @@ export function activeDocument(pane: EditorPaneState): EditorDocument {
   return pane.documents[pane.activeIndex] ?? pane.documents[0]
 }
 
+/** A button on a notice: what can be done about what it says. */
+export interface NoticeAction {
+  label: string
+  run: () => void
+}
+
 /**
  * Where the caret is, in the editor that has focus.
  *
@@ -439,15 +445,19 @@ interface Store {
    * workspace that has quietly stopped being saved looks exactly like one that is
    * being saved.
    */
-  notice: { text: string; tone: 'info' | 'error' } | null
+  notice: { text: string; tone: 'info' | 'error'; actions?: NoticeAction[] } | null
 
   setProfiles(p: ShellProfile[]): void
   applySettings(s: Settings): void
   setThemes(list: ThemeSummary[]): void
   setTheme(theme: ResolvedTheme): void
   toggleSettings(open?: boolean): void
-  /** Say something once. Passing null clears it. */
-  setNotice(text: string | null, tone?: 'info' | 'error'): void
+  /**
+   * Say something once. Passing null clears it. Actions are the ways forward from
+   * what it says — "Run in a new terminal" after a command that was not sent — and
+   * pressing one also dismisses the notice.
+   */
+  setNotice(text: string | null, tone?: 'info' | 'error', actions?: NoticeAction[]): void
   toggleHistory(open?: boolean): void
   toggleSidebar(open?: boolean): void
   /** Show a view, opening the sidebar; picking the one already shown closes it. */
@@ -781,7 +791,11 @@ export const useStore = create<Store>((set, get) => ({
   setTheme: (theme) => set({ theme }),
   toggleSettings: (open) => set((s) => ({ settingsOpen: open ?? !s.settingsOpen })),
 
-  setNotice: (text, tone = 'info') => set({ notice: text === null ? null : { text, tone } }),
+  setNotice: (text, tone = 'info', actions) =>
+    set({
+      notice:
+        text === null ? null : { text, tone, ...(actions && actions.length > 0 ? { actions } : {}) }
+    }),
   toggleHistory: (open) => set((s) => ({ historyOpen: open ?? !s.historyOpen })),
   toggleSidebar: (open) => set((s) => ({ sidebarOpen: open ?? !s.sidebarOpen })),
 

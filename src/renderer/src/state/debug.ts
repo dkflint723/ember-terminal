@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import type { DapEventPayload, DebugAdapter, DebugStartRequest } from '@shared/types'
+import { changeDirectoryCommand, powerShellLiteral } from '@shared/quote'
 import { existingController } from '../terminal/controller'
+import { readinessOf } from '../terminal/typing'
 import { activeDocument, paneIdsOf, useStore, workspaceRoot } from './store'
 
 /**
@@ -809,15 +811,11 @@ function terminalPaneForDebuggee(): string | null {
    * a command still running, and a masked secret prompt. With no pane at a
    * prompt the callers fall back to console 'internalConsole', which is honest
    * about where the output goes.
+   *
+   * The rule was first written here, and now lives in terminal/typing.ts, where
+   * every other button that types into a terminal uses it too.
    */
-  return (
-    terminals.find((p) => {
-      if (p.integration !== 'ready' || p.exited) return false
-      if (p.mode !== 'blocks' || p.awaitingSecret) return false
-      const last = p.blocks.at(-1)
-      return !(last?.kind === 'command' && last.status === 'running')
-    })?.id ?? null
-  )
+  return terminals.find((p) => readinessOf(p.id).ok)?.id ?? null
 }
 
 export async function startDebugging(): Promise<void> {
@@ -1007,11 +1005,11 @@ export async function evaluateRepl(expression: string): Promise<void> {
 
 /* ---------- the debuggee's terminal ---------- */
 
-/** One value, said in PowerShell without being interpreted by it. Newlines
-    become spaces: the line is typed into a pty, and a linebreak inside a value
-    would end the command early no matter how well it is quoted. */
-const psQuote = (v: string): string =>
-  `'${v.replace(/[\r\n]/g, ' ').replace(/'/g, "''")}'`
+/** One value, said in PowerShell without being interpreted by it — by the shared
+    quoter, which also doubles the typographic single quotes PowerShell closes a
+    string on. Newlines become spaces: the line is typed into a pty, and a
+    linebreak inside a value would end the command early however it is quoted. */
+const psQuote = (v: string): string => powerShellLiteral(v.replace(/[\r\n]/g, ' '))
 
 /**
  * The adapter asked for its program to run in a real terminal. Build the line
@@ -1042,7 +1040,9 @@ function runDebuggeeInTerminal(body: {
     setKeys.push(key)
     parts.push(`$env:${key}=${psQuote(String(value))}`)
   }
-  if (body.cwd) parts.push(`cd ${psQuote(String(body.cwd))}`)
+  // -LiteralPath: a plain path is a wildcard pattern to Set-Location, and a program
+  // under a folder called `[draft]` would otherwise start somewhere else.
+  if (body.cwd) parts.push(changeDirectoryCommand('powershell', String(body.cwd).replace(/[\r\n]/g, ' ')))
   parts.push(`& ${args.map(psQuote).join(' ')}`)
   if (setKeys.length > 0) {
     // The debug environment is for the debuggee, not for the user's shell: a

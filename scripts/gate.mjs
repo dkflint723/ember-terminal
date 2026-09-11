@@ -49,6 +49,7 @@ const ORDER = [
   'verify-save',
   'verify-conflict',
   'verify-follow',
+  'verify-typing',
   'verify-snippets',
   'verify-ai',
   'verify-lsp-root',

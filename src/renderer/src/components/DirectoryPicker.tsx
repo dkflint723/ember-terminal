@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react'
 import type { DirEntry } from '@shared/types'
-import { useStore } from '../state/store'
 import { QuickPick, type QuickPickItem } from './QuickPick'
 
 interface Props {
   /** Where the browsing starts, and where a relative pick is resolved from. */
   cwd: string
-  /** Change the shell's directory. Sent as a command so the shell really moves. */
-  onChangeDirectory: (path: string) => void
+  /**
+   * Change the shell's directory. Sent as a command so the shell really moves;
+   * answers whether it was sent, which it is not when the terminal is busy.
+   */
+  onChangeDirectory: (path: string) => boolean
   onOpenFile: (path: string) => void
   onClose: () => void
 }
@@ -23,8 +25,13 @@ interface Props {
  *
  * Directories and files together, because "go there" and "open that" are the same
  * gesture from here and separating them would mean knowing which list a name is in
- * before looking for it. Picking a directory moves the shell; picking a file opens
+ * before looking for it. Enter on a directory walks into it, and the first line of
+ * any directory but the starting one moves the shell there; Enter on a file opens
  * it in an editor.
+ *
+ * Escape, or a click outside, leaves the shell where it was. It used to be the move
+ * — closing anywhere but the start sent the `cd` — so the gesture every picker in
+ * the app means as "never mind" was the one that acted.
  */
 export function DirectoryPicker({
   cwd,
@@ -35,8 +42,6 @@ export function DirectoryPicker({
   const [at, setAt] = useState(cwd)
   const [entries, setEntries] = useState<DirEntry[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const setNotice = useStore((s) => s.setNotice)
-
   useEffect(() => {
     let live = true
     setEntries(null)
@@ -72,6 +77,10 @@ export function DirectoryPicker({
   // can hold either, and a parent that only understands one silently has none.
   const parent = at.replace(/[\\/]+$/, '').replace(/[\\/][^\\/]*$/, '')
   const items: QuickPickItem[] = [
+    // First, once the walking has gone anywhere: so Enter, pressed again on
+    // arriving, is the move. Matched against nothing, it gives way as soon as a
+    // name is being typed.
+    ...(at !== cwd ? [{ id: `here:${at}`, label: 'Move the shell here', detail: at, haystack: '' }] : []),
     // Only when there is one: the root of a drive has no parent, and an entry that
     // goes nowhere is worse than no entry.
     ...(parent && parent !== at ? [{ id: `up:${parent}`, label: '..', detail: 'Parent directory' }] : []),
@@ -85,6 +94,12 @@ export function DirectoryPicker({
 
   return (
     <QuickPick
+      /*
+       * A fresh list for each directory. Kept across the walk, the words typed to
+       * find one level went on filtering the next, which is a different list, and
+       * the highlight stayed on a row number rather than on anything in it.
+       */
+      key={at}
       placeholder={`Search ${at}…`}
       items={items}
       empty={entries === null ? 'Reading…' : (error ?? 'Nothing here')}
@@ -95,20 +110,18 @@ export function DirectoryPicker({
           onOpenFile(path)
           return
         }
+        if (item.id.startsWith('here:')) {
+          // Closed either way: a move that could not be sent says why in a notice,
+          // with what to do instead, and the picker would only be in its way.
+          onChangeDirectory(path)
+          onClose()
+          return
+        }
         // Directories keep the picker open, so walking down is one gesture per
-        // level rather than a reopen each time. Enter on the one you want is the
-        // only thing that closes it.
+        // level rather than a reopen each time.
         setAt(path)
       }}
-      onClose={() => {
-        // Closing on a directory other than the one it opened in means the walking
-        // was the point: take the shell there.
-        if (at !== cwd) {
-          onChangeDirectory(at)
-          setNotice(`Moved to ${at}`, 'info')
-        }
-        onClose()
-      }}
+      onClose={onClose}
     />
   )
 }
