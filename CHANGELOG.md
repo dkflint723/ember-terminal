@@ -5,6 +5,31 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Reloading after a crash brings the workspace back
+
+- **The crash screen promised what it then threw away.** It said your workspace
+  was still saved and that reloading would rebuild the window from it. Reloading
+  actually got nothing: the saved workspace is handed to a window once, when it
+  opens, so the reloaded window started fresh — and a second later its autosave
+  wrote that empty workspace over the real one, unsaved buffers included. The
+  window now gets back what it last saved, so the sentence is true.
+- **And your shells came back too, twice.** A reload started new shells on top of
+  the old ones, which kept running where nothing could reach them; the old shell's
+  exit then arrived addressed to the pane that had just replaced it, marking a live
+  pane as dead. Panes now reclaim the shells they already had, and anything nobody
+  claims within ten seconds is closed rather than left running invisibly.
+- **A renderer that dies outright is handled at all.** Ember's window has no title
+  bar of its own, so a dead renderer left a blank rectangle with no buttons on it.
+  Ember now notices, puts the workspace back, reloads, and says so quietly:
+  "Restored 2 sessions after a crash."
+- **A window that stops responding asks** rather than leaving you to guess — Wait,
+  or Reload window — and says that your shells are still running either way.
+- **A window that never finishes painting is shown anyway** after eight seconds.
+  It used to stay invisible while holding the lock that keeps Ember to one
+  instance, so every later launch did nothing at all, with nothing on screen to
+  close.
+- Crash dumps are written locally, and never sent anywhere.
+
 ### Shell integration that output cannot forge, and a policy cannot switch off
 
 - **Anything that could print could move your pane.** Command blocks are cut at

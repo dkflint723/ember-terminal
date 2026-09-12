@@ -102,6 +102,7 @@ const api: EmberApi = {
   ptyAck: (paneId: string, parsed: number) => ipcRenderer.send('pty:ack', paneId, parsed),
   ptyFlowStats: () => ipcRenderer.invoke('pty:flowStats'),
   paneNonce: (paneId: string) => ipcRenderer.invoke('pty:nonce', paneId),
+  adoptPanes: (paneIds: string[]) => ipcRenderer.invoke('pty:adopt', paneIds),
   readFile: (path: string) => ipcRenderer.invoke('file:read', path),
   pathExists: (path: string): Promise<boolean> => ipcRenderer.invoke('file:exists', path),
   readDir: (path: string) => ipcRenderer.invoke('file:readDir', path),

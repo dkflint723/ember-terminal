@@ -1,26 +1,47 @@
-// The last thing between a render error and a blank window, proven to stand.
+// The last thing between a render error and a blank window, proven to stand —
+// and the reload that has to put the workspace back.
 //
 // React unmounts the whole tree when a render throws uncaught, so before the
 // boundary a single bad component left an empty black rectangle over live
-// shells. This detonates a deliberate render failure through the Detonator
-// seam and requires the boundary to say so, keep the message on screen, and
-// offer the reload that actually rebuilds the window.
+// shells. This detonates a deliberate render failure through the Detonator seam
+// and requires the boundary to say so, keep the message on screen, and offer a
+// reload that rebuilds the window.
+//
+// The reload used to be the lie in that sentence. Main handed each window its
+// saved snapshot once, at creation, and deleted it — so the reloaded renderer
+// asked for its workspace, got nothing, opened a fresh tab, and the next autosave
+// wrote that over the session file, unsaved buffers included. The shells it had
+// kept running where nothing could reach them. Both were carried here as known
+// bugs against RE-02 and PT-04; they are ordinary checks now.
 //
 // Run: node scripts/verify-boom.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
-const profile = newProfile('boom')
+/*
+ * One fault is expected here, because this suite causes it on purpose: the
+ * renderer is force-crashed below to prove main notices and puts the workspace
+ * back. Main writing that down is the evidence, not a failure — anything else in
+ * ember.log still fails the run.
+ */
+const profile = newProfile('boom', { expectFaults: [/renderer gone: crashed/] })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
 
+// A folder with a file in it, so there is an unsaved edit to lose: the workspace
+// the crash screen promises back is not only tabs and blocks.
+const work = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-boom-'))
+fs.writeFileSync(path.join(work, 'note.txt'), 'first line\n', 'utf8')
+
 const app = await electron.launch({
   executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
-  args: [APP_DIR, profile.arg],
+  args: [APP_DIR, profile.arg, work],
   cwd: APP_DIR,
   env,
   timeout: 60_000
@@ -40,23 +61,27 @@ const check = (label, ok, detail) => {
   if (!ok) failures.push(`${label}${detail !== undefined ? ` — ${detail}` : ''}`)
 }
 
-/*
- * A check for a bug that is known and not yet fixed.
+/**
+ * Put the session rail on screen, whatever mode the window is in.
  *
- * The honest alternative to `check(label, true)`, which is what the reload check
- * used to be: it runs the real assertion every time, reports the failure as known
- * rather than failing the gate, and turns into a failure the moment it passes — so a
- * fix cannot go unnoticed and the marker cannot outlive the bug it names.
+ * The rail belongs to terminal mode; an IDE window shows the file sidebar in that
+ * slot instead, so `.sessions__card` is not merely unselected there, it is not
+ * rendered. The chord that switches modes is a toggle, which is the trap: pressed
+ * unconditionally it takes a window that was already a terminal and makes it an
+ * IDE, and the count that follows reads zero sessions from a window that has two.
+ * That is exactly how this suite reported `0 session(s)` beside two live shells.
  */
-const known = []
-const knownBug = (label, ok, detail, finding) => {
-  if (ok) failures.push(`${label} — passes now, so ${finding} looks fixed: make this an ordinary check`)
-  else known.push(`${label} (${finding})${detail !== undefined ? ` — ${detail}` : ''}`)
+const showSessions = async () => {
+  if ((await page.locator('.sessions__card').count()) > 0) return
+  await page.locator('.pane').first().click()
+  await page.keyboard.press('Control+Shift+KeyI')
+  await page.waitForSelector('.sessions__card', { timeout: 10_000 }).catch(() => {})
+  await sleep(400)
 }
 
 // --- a workspace worth getting back -------------------------------------------------
-// A block in the first session and a second session beside it: what a reload that
-// really rebuilt the window from the saved workspace would have to bring back.
+// A block in the first session, an unsaved edit in an editor, and a second session
+// beside them: what a reload that really rebuilt the window would have to bring back.
 await page.click('.composer__input')
 await page.keyboard.type('echo boom-before-crash', { delay: 8 })
 await page.keyboard.press('Enter')
@@ -65,10 +90,36 @@ await page.waitForFunction(
   undefined,
   { timeout: 20_000 }
 )
+
+await page.keyboard.press('Control+p')
+await page.waitForSelector('.qp__box', { timeout: 10_000 })
+await page.locator('.qp__box').fill('note.txt')
+await sleep(700)
+await page.keyboard.press('Enter')
+await page.waitForSelector('.pane.editor .monaco-editor', { timeout: 20_000 })
+await sleep(1200)
+await page.locator('.pane.editor .view-lines').click()
+await page.keyboard.press('Control+End')
+await page.keyboard.type('edited-before-crash', { delay: 6 })
+await sleep(900)
+check(
+  'the edit is unsaved before the crash',
+  (await page.locator('.pane.editor[data-dirty="true"]').count()) === 1,
+  `${await page.locator('.pane.editor[data-dirty="true"]').count()} dirty`
+)
+
+// Out of the editor and back to a terminal window: focus is inside Monaco after
+// the edit above, and a keystroke aimed at a code editor is not aimed at the
+// window — which is how this step timed out the first time it ran.
+await showSessions()
 await page.keyboard.press('Control+Shift+KeyT')
-await page.waitForFunction(() => document.querySelectorAll('.sessions__card').length === 2, undefined, {
-  timeout: 10_000
-})
+const secondSession = await page
+  .waitForFunction(() => document.querySelectorAll('.sessions__card').length === 2, undefined, {
+    timeout: 10_000
+  })
+  .then(() => true)
+  .catch(() => false)
+check('a second session opens', secondSession, `${await page.locator('.sessions__card').count()} card(s)`)
 // Past the autosave's debounce, so the snapshot on disk holds both sessions.
 await sleep(2600)
 
@@ -92,40 +143,118 @@ check('while the broken tree is down', boom.appGone === true, String(boom.appGon
 // --- the way back ---------------------------------------------------------------
 await page.locator('.boom .btn', { hasText: 'Reload the window' }).click()
 await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
-await sleep(2000)
+await sleep(2500)
 check('and the boundary stands down', (await page.locator('.boom').count()) === 0)
 
 /*
- * What the reload brought back. The boundary's own copy promises "the workspace is
- * still saved — reloading rebuilds the window from it". It does not yet: main hands
- * each window its saved snapshot once, at creation, so the reloaded renderer asks
- * for it and gets nothing, starts a fresh tab, and the shells it had keep running
- * where nothing can reach them. Both are asserted for real and carried as known.
+ * What the reload brought back, which is what the boundary's own copy promises:
+ * "the workspace is still saved — reloading rebuilds the window from it".
  */
+// The rail on screen before anything is counted: a restored window comes back in
+// whichever mode it was saved in, and only one of them shows the sessions.
+await showSessions()
+await sleep(600)
+
+const sessionsBack = await page.locator('.sessions__card').count()
+check('reload brings back both sessions', sessionsBack === 2, `${sessionsBack} session(s)`)
+
+/*
+ * The first session, chosen rather than assumed.
+ *
+ * Only the session in front has its panes mounted, and the one in front after a
+ * restore is the one that was in front when the workspace was written down — the
+ * second, which was created last. Asking without choosing would read a session
+ * that legitimately holds neither the block nor the edit, and call that a failure
+ * of the restore.
+ */
+if (sessionsBack > 1) {
+  // Ctrl+Tab rather than a click on the card: the chord belongs to the window and
+  // works whether or not the rail is showing, and from the second session — which
+  // is the one a restore puts in front — one press lands on the first.
+  await page.keyboard.press('Control+Tab')
+  await sleep(2500)
+}
 const back = await page.evaluate(async () => {
   const stats = await window.ember.ptyFlowStats()
   return {
-    sessions: document.querySelectorAll('.sessions__card').length,
     marker: [...document.querySelectorAll('.block__body')].some((b) => b.textContent?.includes('boom-before-crash')),
     shells: Object.keys(stats).length
   }
 })
-knownBug('reload brings back both sessions', back.sessions === 2, `${back.sessions} session(s)`, 'RE-02')
-knownBug('and the first session’s blocks', back.marker, JSON.stringify(back), 'RE-02')
-// Each session here has one pane, so a window that adopted its shells owns exactly
-// one per session; anything more is a shell still running behind the reload.
-knownBug(
+check('and the first session’s blocks', back.marker, JSON.stringify(back))
+
+/*
+ * The editor is asked about in the other mode, because it only exists there.
+ *
+ * The editors region is rendered when the window is an IDE and not otherwise, and
+ * the blocks above are only on screen when it is a terminal — so the two halves of
+ * "the workspace came back" have to be asked in different modes. Counting dirty
+ * editors from terminal mode reports zero for a window whose edit is perfectly
+ * safe, which is exactly what this check did before it counted the panes as well.
+ */
+await page.keyboard.press('Control+Shift+KeyI')
+await page.waitForSelector('.region--editors', { timeout: 10_000 }).catch(() => {})
+await sleep(1200)
+const editors = await page.evaluate(() => ({
+  panes: document.querySelectorAll('.pane.editor').length,
+  dirty: document.querySelectorAll('.pane.editor[data-dirty="true"]').length
+}))
+check('the editor comes back with the workspace', editors.panes >= 1, JSON.stringify(editors))
+check('and the edit that was never saved is still unsaved', editors.dirty === 1, JSON.stringify(editors))
+// Each session here has one terminal pane, so a window that adopted its shells owns
+// exactly one per session; anything more is a shell still running behind the reload.
+check(
   'and no shell is left running behind it',
-  back.shells === back.sessions,
-  `${back.shells} shells for ${back.sessions} session(s)`,
-  'PT-04'
+  back.shells === sessionsBack,
+  `${back.shells} shells for ${sessionsBack} session(s)`
+)
+
+// --- and a renderer that dies without asking ------------------------------------------
+// The boundary only catches what React throws. A renderer killed outright leaves a
+// frameless window with nothing in it and no caption buttons, which is the case the
+// crash handler exists for: main puts the workspace back and reloads by itself.
+/*
+ * Asked of main and of the file on disk, not of the page — because the page is the
+ * thing that died.
+ *
+ * A handle to a crashed renderer cannot be used again, and the reload gives the
+ * window a new renderer that the old handle does not follow: every locator after
+ * this point answers "target crashed". Reaching for the DOM here hid that behind a
+ * caught exception and reported it as "0 of 2 sessions", which read like lost work
+ * and was nothing of the kind.
+ *
+ * What matters is checkable without the renderer. The window is still there, and
+ * the workspace it writes down a moment later is still the one it had — where the
+ * bug this guards would have written a single empty tab over it.
+ */
+await app.evaluate(({ BrowserWindow }) => {
+  BrowserWindow.getAllWindows()[0]?.webContents.forcefullyCrashRenderer()
+})
+await sleep(9000)
+
+const alive = await app.evaluate(({ BrowserWindow }) =>
+  BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed()).length
+)
+check('the window survives a killed renderer', alive >= 1, `${alive} window(s)`)
+
+let savedTabs = -1
+try {
+  const file = JSON.parse(fs.readFileSync(path.join(profile.dir, 'session.json'), 'utf8'))
+  savedTabs = file?.windows?.[0]?.snapshot?.tabs?.length ?? 0
+} catch {
+  savedTabs = -1
+}
+check(
+  'and the workspace it saves afterwards is still both sessions',
+  savedTabs === 2,
+  `${savedTabs} tab(s) in session.json`
 )
 
 await app.close()
 profile.cleanup()
-for (const k of known) console.log(`  ~ KNOWN BUG ${k}`)
+fs.rmSync(work, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)
 if (pageErrors.length > 0) console.log('page errors:', pageErrors.slice(0, 4).join(' | '))
 const passed = failures.length === 0 && pageErrors.length === 0
-console.log('crash boundary:', passed ? 'PASS' : 'FAIL', known.length ? `(${known.length} known bug${known.length === 1 ? '' : 's'})` : '')
+console.log('crash boundary:', passed ? 'PASS' : 'FAIL')
 process.exit(passed ? 0 : 1)

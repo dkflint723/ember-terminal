@@ -22,6 +22,14 @@ interface Session {
   pending: number
   /** Whether the pty's read side is currently held shut. */
   paused: boolean
+  /**
+   * The window that owned this went away — a reload, or a renderer that died.
+   *
+   * The shell is left running for a moment so the renderer coming up can claim it.
+   * Nothing else changes: output still flows to whoever owns the pane, which is
+   * how a moved session keeps its stream.
+   */
+  detached: boolean
   /** How many times the valve has closed — read by the flood verification. */
   pausedCount: number
 }
@@ -66,6 +74,41 @@ export class PtyManager {
     // Packaged builds put `resources/` next to the asar; dev runs from source.
     const base = app.isPackaged ? process.resourcesPath : app.getAppPath()
     return join(base, 'resources', ...parts)
+  }
+
+  /**
+   * The window that owned these has gone; hold their shells for whoever comes up.
+   *
+   * Called when a renderer navigates away or dies. Nothing is killed here: a
+   * reload takes a second or two, and killing a dev server because the window
+   * that was showing it blinked is exactly the behaviour this replaces.
+   */
+  detach(paneIds: string[]): void {
+    for (const id of paneIds) {
+      const session = this.sessions.get(id)
+      if (session) session.detached = true
+    }
+  }
+
+  /**
+   * A new renderer claiming panes it found in its own saved workspace. Answers
+   * with the ones that really are still running, which is what it may skip
+   * spawning for.
+   */
+  adopt(paneIds: string[]): string[] {
+    const taken: string[] = []
+    for (const id of paneIds) {
+      const session = this.sessions.get(id)
+      if (!session) continue
+      session.detached = false
+      taken.push(id)
+    }
+    return taken
+  }
+
+  /** Every pane still holding a shell nobody has claimed. */
+  orphans(): string[] {
+    return [...this.sessions.entries()].filter(([, s]) => s.detached).map(([id]) => id)
   }
 
   /** A shell's nonce, for the window that has to check its markers. */
@@ -116,7 +159,15 @@ export class PtyManager {
       useConpty: true
     })
 
-    const session: Session = { pty, profile, nonce, pending: 0, paused: false, pausedCount: 0 }
+    const session: Session = {
+      pty,
+      profile,
+      nonce,
+      pending: 0,
+      paused: false,
+      pausedCount: 0,
+      detached: false
+    }
     this.sessions.set(req.paneId, session)
 
     pty.onData((d) => {
@@ -129,6 +180,16 @@ export class PtyManager {
       this.onData(req.paneId, d)
     })
     pty.onExit(({ exitCode }) => {
+      /*
+       * Only if this is still the session for that pane.
+       *
+       * A shell killed to make way for another one exits a moment later, and its
+       * exit arrived addressed to the pane rather than to itself — so the pane that
+       * had just started a replacement was told its shell had died, and the live
+       * one was deleted from the map underneath it. The old shell's last word is
+       * not about the new shell.
+       */
+      if (this.sessions.get(req.paneId) !== session) return
       this.sessions.delete(req.paneId)
       this.onExit(req.paneId, exitCode)
     })

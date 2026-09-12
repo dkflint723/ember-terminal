@@ -106,7 +106,11 @@ export function snapshot(): SessionSnapshot {
         id: pane.id,
         profileId: pane.profileId,
         cwd: pane.cwd,
-        title: pane.title
+        title: pane.title,
+        // Carried for the same reason a moved session carries it: a pane that
+        // adopts a shell already running has missed that shell's one
+        // announcement, and nothing later would tell it.
+        integration: pane.integration
       })
     } else if (pane.kind === 'editor') {
       panes.push({
@@ -337,6 +341,28 @@ async function buildEditorPane(
 export async function restore(snapshotIn: SessionSnapshot | null): Promise<boolean> {
   if (!snapshotIn || snapshotIn.tabs.length === 0 || snapshotIn.panes.length === 0) return false
 
+  /*
+   * Shells that outlived the renderer are claimed before anything is built.
+   *
+   * A reload leaves main holding live ptys for these panes. Spawning over them
+   * gives the pane a second shell, points it at that one, and leaves the first
+   * running where nothing can reach it — and the dying shell's exit arrives
+   * addressed to a pane that has already moved on. Claimed here, the panes come
+   * up attached to the shells they had, the same way a session moved between
+   * windows does.
+   */
+  const adoptedPanes = new Set<string>()
+  try {
+    const wanted = snapshotIn.panes.filter((p) => p.kind === 'terminal').map((p) => p.id)
+    if (wanted.length > 0) {
+      const taken = await window.ember.adoptPanes(wanted)
+      for (const id of taken) adoptedPanes.add(id)
+      markAdopted(taken)
+    }
+  } catch {
+    // Nothing to adopt, or main could not say; the panes start their own shells.
+  }
+
   const panes: Record<string, Pane> = {}
   const { languageForPath } = await import('../editor/monaco')
 
@@ -390,7 +416,18 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
         cwd,
         blocks,
         mode: 'blocks',
-        integration: 'pending',
+        /*
+         * Pending, unless this pane just adopted the shell it had.
+         *
+         * A shell announces its integration once, as it starts. A pane that
+         * adopted a running one has missed that announcement — it happened before
+         * the reload — and nothing would say it again until the next prompt is
+         * drawn, so the pane sat waiting for news that had already been delivered.
+         * A pane that is about to start a fresh shell keeps `pending` and earns
+         * readiness the ordinary way, because claiming it here would be a guess
+         * about a shell that does not exist yet.
+         */
+        integration: adoptedPanes.has(saved.id) ? (saved.integration ?? 'pending') : 'pending',
         awaitingSecret: false,
         exited: false,
         exitCode: null

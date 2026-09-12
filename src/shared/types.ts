@@ -414,7 +414,23 @@ export interface SessionDocument {
 }
 
 export type SessionPane =
-  | { kind: 'terminal'; id: string; profileId: string; cwd: string; title: string }
+  | {
+      kind: 'terminal'
+      id: string
+      profileId: string
+      cwd: string
+      title: string
+      /**
+       * Whether this pane's shell was reporting command boundaries.
+       *
+       * Written down so a pane whose shell outlives the window — a reload, a
+       * renderer that died — comes back knowing it. The shell announces itself
+       * once, when it starts, and a pane that adopted a running one would
+       * otherwise wait for an announcement that has already happened. Optional,
+       * so a session written by an earlier build still loads.
+       */
+      integration?: 'pending' | 'ready' | 'absent'
+    }
   | { kind: 'editor'; id: string; activeIndex: number; documents: SessionDocument[] }
 
 export interface SessionSnapshot {
@@ -1273,6 +1289,11 @@ export interface EmberApi {
   spawn(req: SpawnRequest): Promise<{ ok: boolean; error?: string; nonce?: string }>
   /** This pane's shell nonce, for checking the markers it prints. */
   paneNonce(paneId: string): Promise<string | null>
+  /**
+   * Claim panes whose shells outlived the last renderer, and hear back which of
+   * them are really still running. Those are the ones not to spawn for.
+   */
+  adoptPanes(paneIds: string[]): Promise<string[]>
   write(paneId: string, data: string): void
   /** Tell main how much pty output the terminal has parsed, for flow control. */
   ptyAck(paneId: string, parsed: number): void

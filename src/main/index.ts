@@ -2,6 +2,7 @@ import {
   app,
   BrowserWindow,
   clipboard,
+  crashReporter,
   dialog,
   ipcMain,
   Menu,
@@ -918,7 +919,89 @@ function createWindow(seed: WindowSeed = {}): number {
   windows.set(id, win)
   if (primary) mainWindow = win
 
+  /*
+   * A window that never paints is worse than a window with nothing in it: it is
+   * invisible, it holds the single-instance lock, and every later launch does
+   * nothing at all. Shown anyway after a wait, so there is something to close.
+   */
+  const showAnyway = setTimeout(() => {
+    if (!win.isDestroyed() && !win.isVisible()) {
+      reportFault('window never painted', 'shown after 8s without ready-to-show')
+      win.show()
+    }
+  }, 8_000)
+
+  /*
+   * The renderer going away, by reload or by death, does not take its shells with
+   * it. They are held for a moment for the next renderer to claim; whatever is
+   * still unclaimed after that is killed rather than left running invisibly.
+   */
+  const detachPanes = (): void => {
+    const mine = [...paneOwners.entries()].filter(([, owner]) => owner === id).map(([pane]) => pane)
+    if (mine.length === 0) return
+    ptys.detach(mine)
+    setTimeout(() => {
+      const left = ptys.orphans().filter((pane) => mine.includes(pane))
+      for (const pane of left) {
+        reportFault('shell left behind by a reload', `pane ${pane} was not adopted in 10s`)
+        paneOwners.delete(pane)
+        ptys.kill(pane)
+      }
+    }, 10_000)
+  }
+
+  win.webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame) detachPanes()
+  })
+
+  /*
+   * A renderer that died rather than threw. The boundary cannot catch this — there
+   * is no React left to catch it with — so main puts the workspace back where the
+   * reloaded renderer will ask for it, and reloads.
+   */
+  win.webContents.on('render-process-gone', (_e, details) => {
+    reportFault('renderer gone', `${details.reason} (exit ${details.exitCode})`)
+    detachPanes()
+    const saved = session.entryFor(id)?.snapshot ?? null
+    if (saved) {
+      parkedSnapshots.set(id, saved)
+      const count = saved.tabs.length
+      win.webContents.once('did-finish-load', () => {
+        win.webContents.send('ui:notice', {
+          text: `Restored ${count} session${count === 1 ? '' : 's'} after a crash.`,
+          tone: 'info'
+        })
+      })
+    }
+    if (!win.isDestroyed()) win.reload()
+  })
+
+  win.webContents.on('did-fail-load', (_e, code, description, url, isMainFrame) => {
+    if (isMainFrame) reportFault('window failed to load', `${code} ${description} ${url}`)
+  })
+
+  /*
+   * Stopped responding is not the same as gone: the shells are fine, and the work
+   * may come back on its own. So it is asked rather than decided.
+   */
+  win.on('unresponsive', () => {
+    reportFault('window unresponsive', 'offered wait or reload')
+    const choice = dialog.showMessageBoxSync(win, {
+      type: 'warning',
+      buttons: ['Wait', 'Reload window'],
+      defaultId: 0,
+      cancelId: 0,
+      message: 'Ember’s window stopped responding.',
+      detail: 'Your shells are still running.'
+    })
+    if (choice === 1 && !win.isDestroyed()) {
+      detachPanes()
+      win.reload()
+    }
+  })
+
   win.on('ready-to-show', () => {
+    clearTimeout(showAnyway)
     // Before it is shown, so the first frame is already the right size.
     const zoom = settings.get().uiZoom
     if (Number.isFinite(zoom) && zoom !== 1) {
@@ -1184,6 +1267,17 @@ function registerIpc(): void {
    * able to tell its own shell's markers from a line of output.
    */
   ipcMain.handle('pty:nonce', (_e, paneId: string) => ptys.nonceFor(paneId))
+  /*
+   * Panes whose shells are still running, claimed by the window that has just come
+   * up holding their ids. What it gets back it does not spawn for.
+   */
+  ipcMain.handle('pty:adopt', (e, paneIds: unknown) => {
+    const ids = Array.isArray(paneIds) ? paneIds.filter((p): p is string => typeof p === 'string') : []
+    const taken = ptys.adopt(ids)
+    const windowId = windowIdOf(e.sender)
+    if (windowId !== null) for (const id of taken) paneOwners.set(id, windowId)
+    return taken
+  })
   ipcMain.on('pty:write', (_e, paneId: string, data: string) => ptys.write(paneId, data))
   ipcMain.on('pty:resize', (_e, paneId: string, cols: number, rows: number) =>
     ptys.resize(paneId, cols, rows)
@@ -1310,10 +1404,21 @@ function registerIpc(): void {
   ipcMain.handle('session:load', async (e) => {
     const id = windowIdOf(e.sender)
     if (id === null) return null
+    /*
+     * The parked snapshot, or failing that the last one this window saved.
+     *
+     * Parked snapshots are handed over once and deleted, which is right for a
+     * restore — a window should not keep rebuilding the same memory. It was wrong
+     * for everything else: a reload asked for its workspace, got null, opened a
+     * fresh tab, and the next autosave wrote that over the session file with the
+     * unsaved buffers still in it. The crash screen promised the opposite in
+     * writing. Main outlives the renderer, so the entry it last saved is still
+     * here to give back.
+     */
     const parked = parkedSnapshots.get(id) ?? null
     parkedSnapshots.delete(id)
     if (loadDelayMs > 0 && sessionLoads++ > 0) await new Promise((r) => setTimeout(r, loadDelayMs))
-    return parked
+    return parked ?? session.entryFor(id)?.snapshot ?? null
   })
   ipcMain.handle('session:save', (e, snapshot: SessionSnapshot) => {
     const id = windowIdOf(e.sender)
@@ -2068,6 +2173,23 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (reason) => {
   reportFault('unhandled rejection in main', reason)
 })
+
+  /*
+   * Dumps are written locally and never sent anywhere: there is no server to send
+   * them to, and a crash nobody can look at afterwards is one nobody can fix.
+   */
+  crashReporter.start({ uploadToServer: false })
+
+  /*
+   * A child process going is the app's news rather than any window's.
+   *
+   * The GPU process and the utility processes belong to the process tree, not to a
+   * window, and Electron says so by putting this event on `app` — asked of each
+   * window instead, one death would be reported as many, once per window open.
+   */
+  app.on('child-process-gone', (_e, details) => {
+    reportFault('child process gone', `${details.type}: ${details.reason}`)
+  })
 
   void app.whenReady().then(() => {
     settings = new SettingsStore()

@@ -78,6 +78,18 @@ export class SessionStore {
   }
 
   /**
+   * What this window last said about itself, for a renderer that came back.
+   *
+   * The file on disk has no window ids in it — it is a list, and order is the only
+   * identity it carries — so this is the in-memory map, which survives a renderer
+   * reload because main does. A crash or a reload can therefore be handed the same
+   * workspace the window had a moment before, rather than nothing.
+   */
+  entryFor(windowId: number): StoredWindow | null {
+    return this.entries.get(windowId) ?? null
+  }
+
+  /**
    * A window closed while others live chose not to come back. Called only then —
    * the last window's close is the app closing, and that one must be kept.
    */
