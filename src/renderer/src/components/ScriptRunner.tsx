@@ -3,6 +3,7 @@ import type { QuickPickItem } from './QuickPick'
 import { QuickPick } from './QuickPick'
 import { terminalPaneIdFor, useStore, workspaceRoot } from '../state/store'
 import { argumentIn, fillBlanksIn, sendOrExplain } from '../terminal/typing'
+import { explainRestricted, mayRunHere } from '../state/trust'
 
 /**
  * The scripts a project already declares, one press from running.
@@ -202,6 +203,18 @@ export function ScriptRunner(): React.JSX.Element {
    * `say hi` ran `say` with `hi`, and a name with a `;` in it was two commands.
    */
   const withArgument = (prefix: string, value: string): void => {
+    /*
+     * The project's own command lines, which is exactly what separates these from
+     * the saved commands below: `build` is whatever this project says build
+     * means, and it arrived with the repository rather than from the person
+     * pressing it. The saved ones are deliberately not gated — they belong to the
+     * person, they are shown whatever folder is open, and a folder's trust has
+     * nothing to say about a command someone wrote themselves.
+     */
+    if (!mayRunHere().trusted) {
+      explainRestricted(`“${prefix} ${value}” was not run.`)
+      return
+    }
     const argument = argumentIn(paneId(), value)
     if (argument === null) {
       useStore

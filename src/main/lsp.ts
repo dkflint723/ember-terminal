@@ -154,8 +154,10 @@ function powerShellEditorServices(base: string): { exe: string; args: string[] }
       '-NoLogo',
       '-NoProfile',
       '-NonInteractive',
+      // RemoteSigned, for the reason spelled out in completion.ts: Bypass ignores
+      // the Mark of the Web, and these are Ember's own bundled scripts.
       '-ExecutionPolicy',
-      'Bypass',
+      'RemoteSigned',
       '-File',
       script,
       '-HostName',

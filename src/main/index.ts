@@ -192,6 +192,7 @@ import { HistoryStore } from './history.js'
 import { FileService, fileArgs, isStamp, pathArgs } from './files.js'
 import { isEncodingName } from '../shared/encoding.js'
 import { hasSecret } from '../shared/secrets.js'
+import { isTrustedPath } from '../shared/trust.js'
 import { LspService } from './lsp.js'
 import { GitService } from './git.js'
 import { GhostService } from './ghost.js'
@@ -207,7 +208,7 @@ import { Notifier, focusWindow } from './notify.js'
 import { AiService } from './ai.js'
 import { ClaudeCliService } from './claude-cli.js'
 import { DapService, detectAdapters } from './dap.js'
-import { formatWithPrettier } from './prettier.js'
+import { formatWithPrettier, hasPrettier } from './prettier.js'
 import {
   DEFAULT_SETTINGS,
   type ShellProfile,
@@ -1651,8 +1652,35 @@ function registerIpc(): void {
     ...settings.get().debugAdapters
   ]
   ipcMain.handle('dap:adapters', () => adapters())
-  ipcMain.handle('format:prettier', (_e, filePath: string, content: string) =>
-    formatWithPrettier(filePath, content)
+  /*
+   * The workspace's prettier is the workspace's code: it is a program in that
+   * project, and it loads that project's prettier.config.js. Pressing Save is not
+   * a gesture anyone reads as "run this repository", so a folder nobody trusted
+   * does not get to.
+   *
+   * Decided here rather than in the renderer that asked. Main owns the settings,
+   * and a check living only on the calling side is one refactor away from not
+   * happening. The root the renderer passes only bounds the search — the answer
+   * to "may this run" is the file's own path against main's own trusted list, so
+   * a wrong root cannot widen anything.
+   */
+  ipcMain.handle(
+    'format:prettier',
+    (_e, filePath: string, content: string, root?: string | null) => {
+      const current = settings.get()
+      if (current.workspaceTrust !== false && !isTrustedPath(filePath, current.trustedFolders)) {
+        /*
+         * 'restricted' only where there was something to decline. A project with
+         * no prettier has stated no opinion, and warning about a formatter that
+         * was never going to run would be a notice on every save in every folder.
+         */
+        return {
+          ok: false,
+          error: hasPrettier(filePath, root ?? null) ? 'restricted' : 'absent'
+        }
+      }
+      return formatWithPrettier(filePath, content, root ?? null)
+    }
   )
   ipcMain.handle('dap:start', (e, req: DebugStartRequest) => {
     const adapter = adapters().find((a) => a.id === req?.adapterId)
@@ -2065,6 +2093,10 @@ function registerIpc(): void {
   // Redacted like the rest: this answer goes straight into applySettings too.
   ipcMain.handle('settings:noteChord', (_e, chord: string) =>
     forRenderer(settings.noteLearnedChord(chord))
+  )
+  // And this one, which the status bar and the palette both apply straight back.
+  ipcMain.handle('settings:noteTrust', (_e, folder: string, trusted: boolean) =>
+    forRenderer(settings.noteTrust(folder, trusted))
   )
   ipcMain.handle('settings:loadError', () => settings.takeLoadError())
   ipcMain.on('window:zoom', (e, factor: number) => {

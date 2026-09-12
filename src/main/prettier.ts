@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { isInside, samePath } from '../shared/paths.js'
 
 /**
  * Prettier, when the workspace has it.
@@ -27,9 +28,21 @@ interface PrettierInstall {
  */
 const found = new Map<string, PrettierInstall>()
 
-function findPrettier(filePath: string): PrettierInstall | null {
+/**
+ * The nearest prettier at or above the file, without leaving the project.
+ *
+ * The walk used to run thirty parents whatever was open, so a file in a shallow
+ * directory could find and run `C:\node_modules\prettier` — a copy belonging to
+ * nobody, outside the project, run over the project's files. It stops at the
+ * workspace root now, which also means the copy that runs is the one the trust
+ * decision was actually about.
+ */
+function findPrettier(filePath: string, root: string | null): PrettierInstall | null {
   const startDir = dirname(filePath)
-  const cached = found.get(startDir)
+  // Keyed by the bound as well as by the start: the same directory searched with
+  // and without a root can honestly have two different answers.
+  const cacheKey = `${root ?? ''}|${startDir}`
+  const cached = found.get(cacheKey)
   if (cached && existsSync(cached.entry)) return cached
 
   let dir = startDir
@@ -44,7 +57,7 @@ function findPrettier(filePath: string): PrettierInstall | null {
         if (typeof bin === 'string') {
           const install = { entry: resolve(dirname(pkgPath), bin), root: dir }
           if (existsSync(install.entry)) {
-            found.set(startDir, install)
+            found.set(cacheKey, install)
             return install
           }
         }
@@ -52,6 +65,8 @@ function findPrettier(filePath: string): PrettierInstall | null {
         // A broken package.json is a workspace problem; keep walking up.
       }
     }
+    // The project's edge. Above it is somebody else's node_modules.
+    if (root && samePath(dir, root)) break
     const parent = dirname(dir)
     if (parent === dir) break
     dir = parent
@@ -59,14 +74,37 @@ function findPrettier(filePath: string): PrettierInstall | null {
   return null
 }
 
+/**
+ * The root, but only if it really contains the file.
+ *
+ * A root that does not is ignored rather than obeyed: it would stop the walk at
+ * the first step and quietly turn every format into "this project has none".
+ */
+function boundFor(filePath: string, root: string | null): string | null {
+  return root && isInside(root, filePath) ? root : null
+}
+
+/**
+ * Whether there is one to run at all.
+ *
+ * Asked when trust has already said it may not run, so that the refusal can be
+ * said out loud where there was something to decline and stay quiet where there
+ * was not — a project with no prettier has stated no opinion, and warning about
+ * a formatter that was never going to run would be a notice on every save.
+ */
+export function hasPrettier(filePath: string, root: string | null): boolean {
+  return findPrettier(filePath, boundFor(filePath, root)) !== null
+}
+
 /** How long a format may take before the save stops waiting on it. */
 const FORMAT_TIMEOUT_MS = 10_000
 
 export function formatWithPrettier(
   filePath: string,
-  content: string
+  content: string,
+  root: string | null = null
 ): Promise<{ ok: boolean; content?: string; error?: string }> {
-  const install = findPrettier(filePath)
+  const install = findPrettier(filePath, boundFor(filePath, root))
   if (!install) return Promise.resolve({ ok: false, error: 'absent' })
 
   return new Promise((resolvePromise) => {

@@ -1,4 +1,6 @@
 import { monaco } from './monaco'
+import { useStore, workspaceRoot } from '../state/store'
+import { explainRestricted } from '../state/trust'
 
 /**
  * Formatting, in the order of who has standing to have an opinion: the
@@ -64,18 +66,44 @@ export async function formatDocument(
   if (!model) return
 
   if (filePath && PRETTIER_EXTS.has(extOf(filePath))) {
+    /*
+     * What the buffer held when the question was asked.
+     *
+     * The answer comes back a round trip later and describes *this* version of
+     * the document. Applying it over anything typed since overwrites those
+     * keystrokes with the formatter's copy of a file that no longer exists — and
+     * then saves that, because this runs as part of the save. An answer about
+     * the past is not an answer, so a stale one is dropped rather than applied.
+     */
+    const asked = model.getVersionId()
     try {
-      const res = await window.ember.formatWithPrettier(filePath, model.getValue())
+      const res = await window.ember.formatWithPrettier(
+        filePath,
+        model.getValue(),
+        workspaceRoot(useStore.getState())
+      )
       if (res.ok && typeof res.content === 'string') {
-        // The editor may have moved to another model during the round trip;
-        // the answer belongs to this one and is applied only if it still shows.
-        if (editor.getModel() === model) applyFormatted(editor, model, res.content)
+        // The editor may also have moved to another model during the round trip;
+        // the answer belongs to this one, and only while it still says what it said.
+        if (editor.getModel() === model && model.getVersionId() === asked) {
+          applyFormatted(editor, model, res.content)
+        }
         return
       }
-      // 'absent' is a workspace with no opinion; anything else was a real
-      // attempt that failed, and falling through to a second formatter with
-      // different taste would make saves nondeterministic.
-      if (res.error !== 'absent') return
+      if (res.error === 'restricted') {
+        /*
+         * There was a prettier and Ember declined to run it, because a project's
+         * prettier is the project's code. Said once, with the way to allow it
+         * attached — then the editor's own formatter answers below, since that
+         * one is Ember's code rather than the folder's.
+         */
+        explainRestricted('Ember did not format with this project’s prettier.')
+      } else if (res.error !== 'absent') {
+        // 'absent' is a workspace with no opinion; anything else was a real
+        // attempt that failed, and falling through to a second formatter with
+        // different taste would make saves nondeterministic.
+        return
+      }
     } catch {
       return
     }

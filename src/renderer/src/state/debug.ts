@@ -4,6 +4,8 @@ import { changeDirectoryCommand, powerShellLiteral } from '@shared/quote'
 import { existingController } from '../terminal/controller'
 import { readinessOf } from '../terminal/typing'
 import { activeDocument, paneIdsOf, useStore, workspaceRoot } from './store'
+import { mayRunIn } from '@shared/trust'
+import { explainRestricted } from './trust'
 
 /**
  * Debugging, from the renderer's side of the protocol.
@@ -852,6 +854,21 @@ export async function startDebugging(): Promise<void> {
   const choice = fresh.launchOptions.find((o) => o.id === fresh.launchChoice) ?? fresh.launchOptions[0]
   const workspace = workspaceRoot(app) ?? ''
   const file = activeEditorFile()
+
+  /*
+   * A launch configuration is somebody else's command line: .vscode/launch.json
+   * arrives with the repository, and F5 without one runs the file in front of
+   * you. Neither reads as "run this repository", so a folder nobody has trusted
+   * does not get to.
+   *
+   * Gated here rather than at each branch below, which is where a fourth kind of
+   * launch would quietly have missed it.
+   */
+  if (!mayRunIn(workspace || file, app.settings).trusted) {
+    explainRestricted('The debugger did not start.')
+    idleAgain()
+    return
+  }
 
   let adapterId: string | null = null
   let launch: Record<string, unknown> | null = null

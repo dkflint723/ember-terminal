@@ -81,6 +81,18 @@ await placeTopRight(app)
 await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
 await sleep(1500)
 
+/*
+ * Trusted, the way somebody trusts a project they opened on purpose.
+ *
+ * This suite is about which terminal a command reaches and when: it needs the
+ * fixture's scripts to really run, and the refusals it checks for are the typing
+ * rule's — "not sent, because a program holds that terminal". Workspace trust
+ * refuses earlier and for a different reason, so an untrusted fixture here would
+ * shadow the very rule this exists to prove and quietly pass for the wrong one.
+ */
+await page.evaluate((dir) => window.ember.setSettings({ trustedFolders: [dir] }), work)
+await sleep(400)
+
 const failures = []
 const check = (label, ok, detail) => {
   if (!ok) failures.push(`${label}${detail !== undefined ? ` — ${detail}` : ''}`)

@@ -935,6 +935,23 @@ export interface Settings {
    */
   integrationTypedFallback: boolean
   /**
+   * Folders whose own code may run: their prettier, their scripts, their launch
+   * configurations.
+   *
+   * Empty by default, and nothing is ever added without being asked for. Opening
+   * a repository is not agreeing to run it, and several ordinary gestures here
+   * did not know the difference — which is exactly why they were worth somebody
+   * else's while. Compared by containment, so trusting a project covers its tree.
+   */
+  trustedFolders: string[]
+  /**
+   * Ask about trust at all. On.
+   *
+   * Off is the way back for one release: it restores what this replaced, which is
+   * that every open folder may run its own code.
+   */
+  workspaceTrust: boolean
+  /**
    * Chord overrides by command id — only the differences from the defaults.
    * The registry of commands and their default chords lives in renderer code;
    * settings only remember what the user changed.
@@ -1064,6 +1081,8 @@ export const DEFAULT_SETTINGS: Settings = {
   languageServers: [],
   formatOnSave: false,
   integrationTypedFallback: false,
+  trustedFolders: [],
+  workspaceTrust: true,
   keybindings: {},
   uiZoom: 1,
   blockDensity: 'normal',
@@ -1139,12 +1158,18 @@ export interface EmberApi {
   listDebugAdapters(): Promise<DebugAdapter[]>
   /**
    * Format through the workspace's own prettier, resolved by walking up from
-   * the file. `{ok:false, error:'absent'}` when the workspace has none — the
-   * caller falls back to the editor's formatter rather than telling anyone.
+   * the file and no further than `root`. `{ok:false, error:'absent'}` when the
+   * workspace has none — the caller falls back to the editor's formatter rather
+   * than telling anyone — and `'restricted'` when there was one but the folder
+   * is not trusted, which is worth saying out loud.
+   *
+   * Trust is decided in main, against main's own settings. The root only bounds
+   * the search: a renderer that named the wrong one cannot widen what may run.
    */
   formatWithPrettier(
     filePath: string,
-    content: string
+    content: string,
+    root?: string | null
   ): Promise<{ ok: boolean; content?: string; error?: string }>
   /** Start a debug session; resolves once the adapter is up and launch is sent. */
   dapStart(req: DebugStartRequest): Promise<{ ok: boolean; sessionId?: string; error?: string }>
@@ -1187,6 +1212,14 @@ export interface EmberApi {
   revealPath(target: string): void
   lspStart(language: string, root?: string): Promise<{ ok: boolean; error?: string }>
   noteRecentFolder(folder: string): Promise<Settings>
+  /**
+   * Grant or withdraw a folder's permission to run its own code.
+   *
+   * Unioned in main for the reason the two neighbours here are: the settings
+   * cache is one object shared by every window, so a renderer that sent the
+   * whole list would send the copy it happened to be holding.
+   */
+  noteTrust(folder: string, trusted: boolean): Promise<Settings>
   /** Record that a composer chord has been used, so its hint retires. */
   noteLearnedChord(chord: string): Promise<Settings>
   /** Whether a saved API key would really be encrypted at rest. */

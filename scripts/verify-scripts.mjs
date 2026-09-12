@@ -117,7 +117,42 @@ check(
   items[0]?.title
 )
 
+/*
+ * --- a folder nobody trusted does not get to run its own commands ---------------
+ *
+ * A package script is a command line somebody else wrote, sitting in a file that
+ * arrived with the repository — `build` is whatever that project says build means.
+ * Listing them is reading; pressing one is running, and opening a folder is not
+ * agreeing to run it. The rows stay, because the view is still worth having in a
+ * folder you are only reading through, but the press is refused and says why.
+ */
+await page.evaluate(() => window.ember.setSettings({ trustedFolders: [] }))
+await sleep(400)
+const beforePress = await page.evaluate(
+  () => document.querySelectorAll('.block__cmd').length
+)
+await page.locator('.scripts__item', { hasText: 'build' }).first().click()
+await sleep(2500)
+const afterPress = await page.evaluate(() => ({
+  blocks: document.querySelectorAll('.block__cmd').length,
+  commands: [...document.querySelectorAll('.block__cmd')].map((e) => e.textContent ?? ''),
+  said: document.body.textContent ?? ''
+}))
+check(
+  'an untrusted folder does not run its own scripts',
+  afterPress.blocks === beforePress,
+  JSON.stringify(afterPress.commands.slice(-3))
+)
+// A refusal nobody can see is indistinguishable from a button that is broken.
+check(
+  'and says so rather than doing nothing at all',
+  /restricted/i.test(afterPress.said),
+  JSON.stringify(afterPress.said.slice(-160))
+)
+
 // --- and pressing one runs it where every other command runs ------------------
+await page.evaluate((dir) => window.ember.setSettings({ trustedFolders: [dir] }), work)
+await sleep(500)
 await page.locator('.scripts__item', { hasText: 'build' }).first().click()
 await sleep(3500)
 

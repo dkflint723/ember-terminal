@@ -1,5 +1,7 @@
 import { ENCODING_LABELS, type TextEncodingName } from '@shared/encoding'
 import { isInside, pathKey, samePath, shortenPath } from '@shared/paths'
+import { isTrustedPath } from '@shared/trust'
+import { setTrust } from '../state/trust'
 import { activeDocument, paneIdsOf, useStore, type TerminalPaneState } from '../state/store'
 import { modelUri, monaco } from '../editor/monaco'
 import { useProblems } from './ProblemsPanel'
@@ -109,6 +111,8 @@ export function StatusBar(): React.JSX.Element | null {
   const showSidebarView = useStore((s) => s.showSidebarView)
   const setNotice = useStore((s) => s.setNotice)
   const setDirPicker = useStore((s) => s.setDirPicker)
+  const trustedFolders = useStore((s) => s.settings.trustedFolders)
+  const workspaceTrust = useStore((s) => s.settings.workspaceTrust)
   const cursorAt = useStore((s) => s.cursorAt)
   const problems = useProblems()
 
@@ -152,6 +156,19 @@ export function StatusBar(): React.JSX.Element | null {
   const errors = problems.filter((p) => p.severity === 8).length
   const warnings = problems.filter((p) => p.severity === 4).length
   const shell = profiles.find((p) => p.id === terminal?.profileId)?.name ?? null
+
+  /*
+   * Restricted: this project may not run its own code.
+   *
+   * Worth a chip because it quietly changes what several ordinary gestures do —
+   * Save stops reaching for the project's prettier, a script does not run — and
+   * somebody who has not been told that will read it as the feature being broken
+   * rather than as a decision they have not made yet.
+   */
+  const restricted =
+    workspaceTrust !== false &&
+    !!tab.workspace &&
+    !isTrustedPath(tab.workspace, trustedFolders ?? [])
 
   const copyPath = (): void => {
     if (!cwd) return
@@ -198,6 +215,27 @@ export function StatusBar(): React.JSX.Element | null {
             <path d="M1.5 3.5h4.2l1.6 1.8h7.2v7.2h-13z" />
           </svg>
           {shortenPath(cwd, 42)}
+        </button>
+      )}
+      {restricted && (
+        <button
+          className="statusbar__item"
+          data-status="trust"
+          aria-label="This folder is restricted. Ember will not run code from it. Trust this folder"
+          title={
+            'Ember will not run this folder’s prettier, its scripts or its launch configurations.\nClick to trust it.'
+          }
+          onClick={() => {
+            const folder = tab.workspace
+            if (!folder) return
+            setNotice(
+              'Trusting this folder lets Ember run its prettier, its scripts and its launch configurations.',
+              'info',
+              [{ label: 'Trust this folder', run: () => void setTrust(folder, true) }]
+            )
+          }}
+        >
+          Restricted
         </button>
       )}
       {debugStatus !== 'idle' && (

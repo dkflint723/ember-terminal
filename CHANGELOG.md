@@ -5,6 +5,30 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Opening a repository is no longer agreeing to run it
+
+- **Formatting ran the repository's own code.** A project's prettier is a program
+  in that project, and it loads that project's `prettier.config.js` — so pressing
+  Save in a repository you had just cloned ran a JavaScript file somebody else
+  wrote, with your permissions. Ember now withholds that until you say otherwise.
+  An untrusted folder is still fully browsable and editable — it simply does not
+  get to run its formatter, its scripts or its launch configurations. Nothing is
+  asked on the way in: the refusal arrives at the moment something is actually
+  withheld, and carries **Trust this folder** beside it. The status bar reads
+  **Restricted** while that is so, and the command palette grants or withdraws it
+  at any time.
+- **And it looked outside your project for that program.** The search walked up
+  as many as thirty parent folders, so a file in a shallow directory could find
+  and run `C:\node_modules\prettier`. It stops at the workspace root now, trusted
+  or not.
+- **What you typed while the formatter was thinking was overwritten.** Formatting
+  goes out and comes back a moment later, and what came back was applied
+  regardless of what had been typed meanwhile — then saved. An answer about a
+  version of the file that no longer exists is now discarded rather than applied.
+- **Two helpers ran with PowerShell's execution policy set to `Bypass`**, which
+  ignores the Mark of the Web that Windows puts on downloaded files. They run
+  under `RemoteSigned` now, which is the policy that honours it.
+
 ### Reloading after a crash brings the workspace back
 
 - **The crash screen promised what it then threw away.** It said your workspace

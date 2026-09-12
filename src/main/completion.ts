@@ -50,8 +50,18 @@ class PowerShellCompleter {
           '-NoLogo',
           '-NoProfile',
           '-NonInteractive',
+          /*
+           * RemoteSigned rather than Bypass.
+           *
+           * Bypass ignores the Mark of the Web — the flag Windows puts on a file
+           * that came from somewhere else — so it will run a downloaded script
+           * without a word. This script is Ember's own and ships beside the app,
+           * which is precisely the case RemoteSigned allows. Nothing that needed
+           * Bypass was ever meant to run here; it was reached for as the setting
+           * that makes the error go away.
+           */
           '-ExecutionPolicy',
-          'Bypass',
+          'RemoteSigned',
           '-File',
           this.scriptPath()
         ],

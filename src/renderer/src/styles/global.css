@@ -2166,6 +2166,15 @@ button {
   font-family: var(--mono);
 }
 
+/* Restricted: this folder may not run its own code. Drawn in the same colour the
+   bar already gives a warning, rather than introducing a second vocabulary for
+   the same idea — and the word carries it either way, because the colour is
+   never the only thing saying so. */
+.statusbar__item[data-status='trust'] {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
 [data-mode='ide'] .statusbar {
   /* As it has always sat in the IDE — the user signed off on this one. */
   padding: 10px 16px 14px;

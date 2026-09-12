@@ -94,8 +94,16 @@ await sleep(1500)
 
 // Teach the adapter, as a user would.
 await page.evaluate(
-  ({ node, script }) =>
+  ({ node, script, root }) =>
     window.ember.setSettings({
+      /*
+       * Trusted, the way a person trusts a project they opened on purpose. A
+       * launch configuration is somebody else's command line, so F5 in an
+       * untrusted folder is refused — which is a promise verify-format and
+       * verify-scripts prove. Here it would only be in the way: this suite is
+       * about whether the debugger works, and it needs a folder that may run.
+       */
+      trustedFolders: [root],
       debugAdapters: [
         {
           id: 'fake',
@@ -107,7 +115,11 @@ await page.evaluate(
         }
       ]
     }),
-  { node: process.execPath, script: path.join(APP_DIR, 'scripts', 'dap-fake-adapter.mjs') }
+  {
+    node: process.execPath,
+    script: path.join(APP_DIR, 'scripts', 'dap-fake-adapter.mjs'),
+    root: dir
+  }
 )
 await sleep(400)
 

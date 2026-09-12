@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { modelLabel } from '@shared/models'
 import { activeDocument, useStore, workspaceRoot } from '../state/store'
+import { isTrustedPath } from '@shared/trust'
+import { setTrust } from '../state/trust'
 import { QuickPick, type QuickPickItem } from './QuickPick'
 
 interface Props {
@@ -296,6 +298,10 @@ function commands(): Command[] {
       ]
     : []
 
+  // Null with no folder open, and null when trust is switched off — both are
+  // cases where there is nothing for these two commands to be about.
+  const trustRoot = s.settings.workspaceTrust === false ? null : workspaceRoot(s)
+
   return [
     ...editorCommands,
     {
@@ -323,6 +329,28 @@ function commands(): Command[] {
           s.showSidebarView('explorer')
         }
       })),
+    /*
+     * Trust, as one command rather than two: a folder is trusted or it is not,
+     * and offering the half that does not apply would make the list longer and
+     * the state harder to read off it.
+     */
+    ...(trustRoot
+      ? [
+          isTrustedPath(trustRoot, s.settings.trustedFolders ?? [])
+            ? {
+                id: 'workspace.revokeTrust',
+                label: 'Workspace: Stop Running Code From This Folder',
+                hint: trustRoot,
+                run: () => void setTrust(trustRoot, false)
+              }
+            : {
+                id: 'workspace.trust',
+                label: 'Workspace: Trust The Code In This Folder',
+                hint: trustRoot,
+                run: () => void setTrust(trustRoot, true)
+              }
+        ]
+      : []),
     // The mode switch first, because it is the one command that changes what the
     // rest of this list is for, and the only way to find it without being told.
     {

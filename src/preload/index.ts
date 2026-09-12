@@ -51,8 +51,8 @@ const api: EmberApi = {
   sessionClear: () => ipcRenderer.send('session:clear'),
   newWindow: () => ipcRenderer.send('window:new'),
   listDebugAdapters: () => ipcRenderer.invoke('dap:adapters'),
-  formatWithPrettier: (filePath: string, content: string) =>
-    ipcRenderer.invoke('format:prettier', filePath, content),
+  formatWithPrettier: (filePath: string, content: string, root?: string | null) =>
+    ipcRenderer.invoke('format:prettier', filePath, content, root),
   dapStart: (req: DebugStartRequest) => ipcRenderer.invoke('dap:start', req),
   dapRequest: (sessionId: string, command: string, args?: unknown) =>
     ipcRenderer.invoke('dap:request', sessionId, command, args),
@@ -239,6 +239,8 @@ const api: EmberApi = {
     ipcRenderer.invoke('settings:noteFolder', folder),
   noteLearnedChord: (chord: string): Promise<Settings> =>
     ipcRenderer.invoke('settings:noteChord', chord),
+  noteTrust: (folder: string, trusted: boolean): Promise<Settings> =>
+    ipcRenderer.invoke('settings:noteTrust', folder, trusted),
   settingsLoadError: (): Promise<string | null> => ipcRenderer.invoke('settings:loadError'),
   reportUnsaved: (counts: { dirty: number; kept: number }) =>
     ipcRenderer.send('window:unsaved', counts),

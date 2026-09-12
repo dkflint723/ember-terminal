@@ -2,6 +2,7 @@ import { app, safeStorage } from 'electron'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { DEFAULT_SETTINGS, type Settings } from '../shared/types.js'
+import { withTrust, withoutTrust } from '../shared/trust.js'
 
 /** Marker so we can tell an encrypted key from a plaintext one on read. */
 const ENC_PREFIX = 'enc:v1:'
@@ -125,6 +126,28 @@ export class SettingsStore {
     const known = this.get().learnedChords
     if (!chord.trim() || known.includes(chord)) return this.get()
     return this.set({ learnedChords: [...known, chord] }).settings
+  }
+
+  /**
+   * Grant or withdraw a folder's permission to run its own code.
+   *
+   * Unioned here rather than in the renderer for the reason the two above are:
+   * the settings cache is one object shared by every window, so a renderer that
+   * sent the whole list would send the copy it happened to be holding, and two
+   * windows trusting two folders would each drop the other's.
+   *
+   * The subsumption rules live in shared/trust.ts, where they are tested without
+   * a disk: trusting a parent absorbs its children, and revoking a parent takes
+   * its children with it.
+   */
+  noteTrust(folder: string, trusted: boolean): Settings {
+    if (!folder.trim()) return this.get()
+    const held = this.get().trustedFolders
+    const next = trusted ? withTrust(held, folder) : withoutTrust(held, folder)
+    // Nothing changed — a folder already trusted, or a revocation of one that
+    // never was. Writing anyway would push a settings:changed at every window.
+    if (next.length === held.length && next.every((f, i) => f === held[i])) return this.get()
+    return this.set({ trustedFolders: next }).settings
   }
 
   /**
