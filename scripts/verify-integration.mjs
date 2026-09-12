@@ -228,6 +228,36 @@ if (!hasGitBash) {
   }
 }
 
+// --- and the way back, which is only a way back if it works ------------------------------------
+//
+// The old typed loading is kept for one release as the rollback for anyone whose
+// profile disagrees with the encoded kind. An untested rollback is not one, so it
+// is turned on here and the pane still has to arrive at integration — signed, as
+// it happens, since the nonce travels in the environment either way and only the
+// loading differs.
+await page.evaluate(() => window.ember.setSettings({ integrationTypedFallback: true }))
+await sleep(700)
+await page.click('.sessions__new')
+await sleep(500)
+const fallbackEntry = page.locator('.sessions__menu .titlebar__menu-item', { hasText: 'PowerShell' })
+if ((await fallbackEntry.count()) > 0) {
+  await fallbackEntry.first().click()
+  await sleep(2000)
+  let fallbackState = 'pending'
+  for (let i = 0; i < 40; i++) {
+    fallbackState = await page.evaluate(
+      () =>
+        document.querySelector('.pane[data-integration]')?.getAttribute('data-integration') ?? 'none'
+    )
+    if (fallbackState === 'ready') break
+    await sleep(500)
+  }
+  check('the typed fallback still reaches integration', fallbackState === 'ready', fallbackState)
+} else {
+  check('a PowerShell to fall back with is offered', false, 'no PowerShell entry in the menu')
+}
+await page.evaluate(() => window.ember.setSettings({ integrationTypedFallback: false }))
+
 await app.close()
 profile.cleanup()
 fs.rmSync(work, { recursive: true, force: true })
