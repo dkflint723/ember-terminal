@@ -5,6 +5,29 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Pasting into a terminal asks before it runs anything
+
+- **A paste went straight to the shell and ran on arrival.** The clipboard was
+  written to the terminal as if you had typed it, which skips bracketed paste
+  entirely — the markers that tell a shell "this is text, hold it until Enter"
+  never reached it. So three lines copied from a web page were three commands the
+  moment they landed, and the line that ran need not be the line you could see.
+  Pasted text now goes in as text, so a shell that will hold it does; and where
+  the shell will not hold it, Ember asks first, saying how many lines it is and
+  showing the one it would start with.
+- **An escape character in the clipboard was an instruction, not text.** Anything
+  that is neither tab nor newline is now removed before the paste goes in, and the
+  question says how many characters went. That includes the marker that ends a
+  bracketed paste, which is how pasted text talks its way out of being treated as
+  text.
+- **Plain Ctrl+V went around all of it.** It was answered inside the terminal
+  widget rather than by Ember, so only the shifted chord ever reached these rules.
+  Ctrl+V, Ctrl+Shift+V and right-click now go through the same path.
+- **Enter on a multi-line composer ran every line of it**, under a single block
+  named after the whole blob. Paste a page into the input and press Enter and it
+  asks first — worded for what it is about to do, since that text has been on
+  screen rather than arriving by surprise.
+
 ### Credentials stay out of what Ember writes down, and out of what it sends
 
 - **A key typed as a bare argument was stored in the clear.** `./deploy.sh sk-ant-…`

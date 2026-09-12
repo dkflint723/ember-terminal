@@ -5,6 +5,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebglAddon } from '@xterm/addon-webgl'
 import type { TerminalPalette } from '@shared/theme'
 import { looksLikeSecretPrompt, stripAnsi } from '@shared/secrets'
+import { cleanPaste, needsAsking, pasteQuestion, runQuestion } from '@shared/paste'
 import { renderBufferAsHtml, textFromHtml } from './serialize'
 import { useStore, type CommandBlock, type TerminalPaneState } from '../state/store'
 import { DEFAULT_THEME, toXtermTheme } from './theme'
@@ -704,8 +705,28 @@ export class TerminalController {
    * receives it exactly as it would receive typing.
    */
   async paste(): Promise<void> {
-    const text = await window.ember.clipboardRead()
-    if (text.length > 0) window.ember.write(this.paneId, text)
+    const raw = await window.ember.clipboardRead()
+    if (raw.length > 0) this.pasteText(raw)
+  }
+
+  /**
+   * One way in for pasted text, whichever gesture brought it.
+   *
+   * Through xterm rather than straight at the pty, which is what this used to do.
+   * Writing to the pty skips bracketed paste entirely — the shell never receives
+   * the markers that say "this is text, hold it until Enter" — so a clipboard with
+   * a newline in it ran on arrival even where the shell was perfectly willing to
+   * hold it, and the line that ran need not be the line that was visible.
+   *
+   * And the text is cleaned first, because an escape character in a clipboard is
+   * not text but an instruction — including `ESC [ 2 0 1 ~`, the marker that ends a
+   * bracketed paste, which is how pasted text talks its way out of being text.
+   */
+  private pasteText(raw: string): void {
+    const clean = cleanPaste(raw, this.term.modes.bracketedPasteMode)
+    if (clean.text.length === 0) return
+    if (needsAsking(clean) && !window.confirm(pasteQuestion(clean))) return
+    this.term.paste(clean.text)
   }
 
   private startShell(): void {
@@ -787,8 +808,27 @@ export class TerminalController {
       e.preventDefault()
       if (!this.copySelection()) void this.paste()
     }
+    /*
+     * And plain Ctrl+V, which never came through here at all.
+     *
+     * xterm answers a paste event on its own textarea and hands the text to
+     * onData, so the chord everyone actually presses went straight to the pty past
+     * every rule this class has about pasting — the shifted chord was the only one
+     * that did not. Caught in the capture phase, before xterm sees it, so both
+     * gestures end up in the same place.
+     */
+    const onPaste = (e: ClipboardEvent): void => {
+      e.preventDefault()
+      e.stopPropagation()
+      const raw = e.clipboardData?.getData('text') ?? ''
+      if (raw.length > 0) this.pasteText(raw)
+    }
     container.addEventListener('contextmenu', onContextMenu)
-    this.detachMenu = (): void => container.removeEventListener('contextmenu', onContextMenu)
+    container.addEventListener('paste', onPaste, true)
+    this.detachMenu = (): void => {
+      container.removeEventListener('contextmenu', onContextMenu)
+      container.removeEventListener('paste', onPaste, true)
+    }
 
     if (!this.spawned) {
       this.spawned = true
@@ -870,12 +910,26 @@ export class TerminalController {
       this.send('\r')
       return
     }
+
+    /*
+     * More than one line is more than one command, and it is asked about.
+     *
+     * Enter in the composer sends the whole buffer, newlines and all, and each of
+     * those newlines is an Enter of its own by the time the shell reads it: a page
+     * pasted into the composer ran top to bottom on one keystroke, under a single
+     * block named after the whole blob. The text is cleaned for the same reason a
+     * paste is — an escape character that reached the composer is still an
+     * instruction — and for an ordinary one-line command both are no change at all.
+     */
+    const clean = cleanPaste(trimmed, false)
+    if (needsAsking(clean) && !window.confirm(runQuestion(clean))) return
+
     // Without integration there is no `133;D` to close a block, so opening one
     // would leave it spinning forever. Just send the text.
     if (this.store().terminalPane(this.paneId)?.integration === 'ready') {
-      this.currentBlockId = this.store().beginBlock(this.paneId, trimmed)
+      this.currentBlockId = this.store().beginBlock(this.paneId, clean.text)
     }
-    this.send(`${trimmed}\r`)
+    this.send(`${clean.text}\r`)
   }
 
   /**

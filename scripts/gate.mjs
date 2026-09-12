@@ -53,6 +53,7 @@ const ORDER = [
   'verify-keeps-work',
   'verify-encoding',
   'verify-secrets',
+  'verify-paste',
   'verify-snippets',
   'verify-ai',
   'verify-lsp-root',
