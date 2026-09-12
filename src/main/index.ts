@@ -190,6 +190,7 @@ import { CompletionService } from './completion.js'
 import { HistoryStore } from './history.js'
 import { FileService, fileArgs, isStamp, pathArgs } from './files.js'
 import { isEncodingName } from '../shared/encoding.js'
+import { hasSecret } from '../shared/secrets.js'
 import { LspService } from './lsp.js'
 import { GitService } from './git.js'
 import { GhostService } from './ghost.js'
@@ -1208,8 +1209,20 @@ function registerIpc(): void {
    */
   ipcMain.handle(
     'edit:rewrite',
-    async (_e, selection: string, instruction: string, language: string) =>
-      ai.oneShot(
+    async (_e, selection: string, instruction: string, language: string) => {
+      /*
+       * Withheld, not redacted: what comes back replaces the selection, so a
+       * `[redacted]` in the answer would be written into the file over the very
+       * thing it stood for. Said out loud rather than silently skipped, because
+       * somebody is watching a box that says "Asking Claude…".
+       */
+      if (hasSecret(selection) || hasSecret(instruction)) {
+        return {
+          ok: false as const,
+          error: 'That selection carries what looks like a credential, so it was not sent.'
+        }
+      }
+      return ai.oneShot(
         [
           'You rewrite a fragment of code to match an instruction.',
           'Reply with the rewritten fragment and nothing else:',
@@ -1219,6 +1232,7 @@ function registerIpc(): void {
         [`Language: ${language}`, '', `Instruction: ${instruction}`, '', 'Fragment:', selection].join('\n'),
         2048
       )
+    }
   )
 
   ipcMain.handle('ghost:test', () => ghost.test())
@@ -1713,6 +1727,9 @@ function registerIpc(): void {
     history.keepOnlyBlocksFor([...union])
   })
   ipcMain.handle('history:search', (_e, query: HistoryQuery) => history.search(query))
+  ipcMain.handle('history:forget', (_e, id: unknown) => {
+    if (typeof id === 'number' && Number.isInteger(id)) history.forget(id)
+  })
   ipcMain.handle('history:suggest', (_e, prefix: string, cwd: string) =>
     history.suggest(prefix, cwd)
   )

@@ -5,6 +5,43 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Credentials stay out of what Ember writes down, and out of what it sends
+
+- **A key typed as a bare argument was stored in the clear.** `./deploy.sh sk-ant-…`
+  has no flag in front of it, so nothing recognised it, and the command line went
+  into a database that outlives the session — twice over, because the search index
+  keeps its own copy. Keys are now known by their own shape (Anthropic, OpenAI
+  including the newer `sk-proj-`, GitHub including fine-grained tokens, GitLab,
+  Slack, Google, AWS, Stripe, npm, Hugging Face, JWTs and private key blocks) as
+  well as by the labels that carry them — `$env:…=`, `export`/`set`/`setx`,
+  `x-api-key:`, and the `Password=` and `AccountKey=` of a connection string. A
+  command carrying one is not stored at all, and anything credential-shaped left
+  in a command that is stored is replaced with `[redacted]`.
+- **The file you were editing went to the model in full.** Asking Claude a
+  question with a .env open sent the whole buffer, keys and all — as it did the
+  terminal blocks you attached and the question itself. All three are scrubbed
+  now, before either door: the API and the Claude Code CLI.
+- **Suggestions and inline edits are withheld rather than scrubbed.** What comes
+  back from those is written into your file, so redacting would put `[redacted]`
+  where the key was. A caret sitting in a credential gets no suggestion, and a
+  selection carrying one is not sent to be rewritten — and says so.
+- **A proposed file that would write `[redacted]` over a real key is refused**,
+  unless the file already had that word in it.
+- **Command notifications** no longer carry credentials. A Windows toast is not
+  fleeting: it is kept in the Action Center, which is on disk.
+- **The agent thread is scrubbed before session.json is written**, which is where
+  a question typed with a key in it used to sit.
+- **Forget this command.** The patterns are a net, not a proof. Every row in the
+  history search now has a × — and Shift+Delete — that takes that command line out
+  of the searchable history and out of the blocks your panes restore, with the
+  bytes overwritten rather than left behind in the file.
+- **The history you already have is cleaned once.** The first launch after this
+  goes over the rows already in your database and takes the credentials out of
+  them, in small batches in the background so nothing stalls while it works.
+  Nothing is deleted: a command that carried a key keeps its line, with
+  `[redacted]` where the value was. Afterwards the file is compacted, so what was
+  taken out is not still sitting in it.
+
 ### Files that are not UTF-8 open, and save as what they are
 
 - **A Windows-1252 file lost its accents the first time you saved it.** Ember read

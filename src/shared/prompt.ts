@@ -17,6 +17,10 @@
  * without an Electron window or a model at the other end.
  */
 
+// The `.ts` extension on purpose: the unit tests run this file through Node's own
+// type stripping, which resolves a specifier as written and has no `.js` to find.
+import { redactSecrets } from './secrets.ts'
+
 /** Only the parts of a chat request that shape the system prompt. */
 export interface ChatContext {
   /** The shell the question was asked from, for the model to talk about. */
@@ -58,11 +62,25 @@ export function chatSystem(ctx: ChatContext): string {
    * The context goes last, because it is by far the longest part: a screen of
    * somebody's build output above the instructions would bury them.
    */
+  /*
+   * Both of them scrubbed on the way out.
+   *
+   * The file is the buffer as it stands — an .env under the caret is exactly the
+   * file someone asks a question about — and the attachments are whatever those
+   * commands printed, headers and all. Redacted rather than withheld, because the
+   * model only reads these: what it proposes comes back as a fenced block the
+   * person accepts, and the editor refuses one that gained a redaction the file
+   * never had.
+   */
   if (ctx.activeFile) {
-    sections.push(`The user is editing ${ctx.activeFile.path}:\n${ctx.activeFile.text}`)
+    sections.push(
+      `The user is editing ${ctx.activeFile.path}:\n${redactSecrets(ctx.activeFile.text)}`
+    )
   }
   for (const block of ctx.attached ?? []) {
-    if (block.trim().length > 0) sections.push(`Attached terminal output:\n${block}`)
+    if (block.trim().length > 0) {
+      sections.push(`Attached terminal output:\n${redactSecrets(block)}`)
+    }
   }
 
   return sections.join('\n\n')

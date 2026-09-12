@@ -3215,15 +3215,46 @@ label.field__check {
   overflow-y: auto;
 }
 
+/* The row is the hit area and the forget button sits at its end; the button
+   cannot live inside the other button, which is what the row used to be. */
+.hist__row {
+  display: flex;
+  align-items: center;
+}
+
 .hist__item {
   display: flex;
   align-items: center;
   gap: 9px;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   padding: 5px 12px;
   text-align: left;
 }
 
+/* Quiet until the row is under the pointer: forgetting is not what this panel is
+   for, and a column of crosses down the side would say that it is. */
+.hist__forget {
+  flex: 0 0 auto;
+  padding: 2px 10px;
+  color: transparent;
+  font-size: 13px;
+  line-height: 1;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.hist__row:hover .hist__forget,
+.hist__forget:focus-visible {
+  color: var(--fg-faint);
+}
+
+.hist__forget:hover {
+  color: var(--danger, var(--fg));
+}
+
+.hist__row:hover .hist__item,
 .hist__item:hover {
   background: var(--bg-hover);
 }

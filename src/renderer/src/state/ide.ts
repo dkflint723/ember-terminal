@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import type { FileStamp, IdeCall } from '@shared/types'
 import { type DiffPaneState, type EditorDocument, useStore, workspaceRoot } from './store'
 import { noteSynced } from '../editor/synced'
+import { inventsRedaction } from '@shared/secrets'
 
 /**
  * Answers Claude Code's tool calls.
@@ -179,9 +180,28 @@ export async function resolveProposal(
        * the same loss in a smaller window. A file that was not there must still not
        * be there.
        */
-      const written = await window.ember.writeFile(target, diff.modified, {
-        expect: now.ok ? now.stamp : null
-      })
+      /*
+       * A proposal that gained a redaction the file never had is not written.
+       *
+       * What the model was shown of this file had its credentials taken out, so a
+       * whole-file proposal can come back holding `[redacted]` where the key was,
+       * and accepting it would write that over the key — losing the one thing in
+       * the file that cannot be typed again from memory. It goes through the same
+       * failure path as any other refused write, so the CLI is told and the person
+       * sees it.
+       */
+      const written = inventsRedaction(diff.modified, now.ok ? now.content : '')
+        ? {
+            ok: false as const,
+            conflict: undefined,
+            error:
+              'it contains [redacted], which is what Ember puts in place of a credential ' +
+              'before showing a file to a model. Read the file again and propose against ' +
+              'what is actually in it.'
+          }
+        : await window.ember.writeFile(target, diff.modified, {
+            expect: now.ok ? now.stamp : null
+          })
       if (!written.ok && written.conflict) {
         pending.settle({
           success: false,

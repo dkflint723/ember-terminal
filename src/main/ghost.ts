@@ -6,6 +6,7 @@ import type {
   GhostTest,
   Settings
 } from '../shared/types.js'
+import { hasSecret } from '../shared/secrets.js'
 
 /**
  * The suggestion that appears ahead of the caret, from whoever the user chose.
@@ -174,6 +175,18 @@ export class GhostService {
   async complete(request: GhostRequest, signal: AbortSignal): Promise<GhostResult> {
     const s = this.settings()
     if (!s.ghostEnabled) return { ok: false, error: 'Suggestions are turned off.' }
+
+    /*
+     * Withheld rather than redacted, which is the rule wherever what comes back is
+     * written into the file. The text around the caret is sent so the model can
+     * continue it; sending `[redacted]` instead would have it continue that, and
+     * the suggestion accepted into the buffer would carry the word where the key
+     * was. So a caret sitting in a credential has no suggestion — which is what a
+     * caret with nothing worth suggesting looks like anyway.
+     */
+    if (hasSecret(request.prefix) || hasSecret(request.suffix)) {
+      return { ok: false, error: 'No suggestion here: this part of the file carries a credential.' }
+    }
 
     /*
      * A model that cannot fill in the middle cannot do this at all.

@@ -1244,6 +1244,8 @@ export interface EmberApi {
   complete(req: CompletionRequest): Promise<CompletionResult>
   recordHistory(entry: HistoryRecord): void
   searchHistory(query: HistoryQuery): Promise<HistoryEntry[]>
+  /** Forget one command for good, by the id its history row carries. */
+  forgetCommand(id: number): Promise<void>
   /** Keep a finished block, so its pane comes back holding it. */
   saveBlock(paneId: string, block: PersistedBlock): void
   /** The blocks belonging to these panes, oldest first. */

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Notification } from 'electron'
 import { join } from 'node:path'
 import type { CommandNotice } from '../shared/types.js'
+import { redactSecrets } from '../shared/secrets.js'
 
 /**
  * Desktop notifications for commands that finished while you were elsewhere.
@@ -33,9 +34,13 @@ export class Notifier {
 
     const notification = new Notification({
       title: notice.ok ? `Finished in ${took}` : `Failed after ${took}`,
-      // The command itself, which is the only thing that identifies which of
-      // several long-running things this was.
-      body: notice.command.length > 120 ? `${notice.command.slice(0, 117)}…` : notice.command,
+      /*
+       * The command itself, which is the only thing that identifies which of
+       * several long-running things this was — with any credential in it taken
+       * out. A toast is not a fleeting thing on Windows: it is kept in the Action
+       * Center, which is on disk and outlives the window that raised it.
+       */
+      body: shorten(redactSecrets(notice.command)),
       icon: join(
         app.isPackaged ? process.resourcesPath : app.getAppPath(),
         'resources',
@@ -48,6 +53,11 @@ export class Notifier {
     notification.on('click', () => this.focus())
     notification.show()
   }
+}
+
+/** A toast is one line, and the tail of a long command line says the least. */
+function shorten(command: string): string {
+  return command.length > 120 ? `${command.slice(0, 117)}…` : command
 }
 
 /** Bring the window back and put it in front, for a notification click. */

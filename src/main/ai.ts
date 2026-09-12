@@ -7,6 +7,7 @@ import type {
   AiUsage
 } from '../shared/types.js'
 import { chatSystem } from '../shared/prompt.js'
+import { redactSecrets } from '../shared/secrets.js'
 import type { SettingsStore } from './settings.js'
 import type { ClaudeCliService } from './claude-cli.js'
 
@@ -156,6 +157,17 @@ export class AiService {
    * sink, cancel and all, so the panel can be driven without a key or a network.
    */
   async chat(req: AiChatRequest, sink: (e: AiChatEvent) => void): Promise<void> {
+    /*
+     * Scrubbed here, before anything decides which door to use — the fake one
+     * included, so a check can watch what would have gone out rather than trusting
+     * that it would have. The thread is the part of a request the person typed
+     * themselves, and a key pasted into a question is still a key handed to
+     * somebody else's server.
+     */
+    req = {
+      ...req,
+      messages: req.messages.map((m) => ({ ...m, text: redactSecrets(m.text) }))
+    }
     if (process.env.EMBER_FAKE_AI) return this.fakeChat(req, sink)
 
     const apiKey = this.settings.resolveApiKey()

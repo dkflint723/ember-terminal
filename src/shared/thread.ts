@@ -1,4 +1,5 @@
 import type { AgentTurn } from './types.js'
+import { redactSecrets } from './secrets.ts'
 
 /**
  * No stream survives leaving the window it was routed to.
@@ -20,7 +21,16 @@ import type { AgentTurn } from './types.js'
  * in two, which is what a rule kept as a `.map()` in the middle of a packer does.
  */
 export function settleThread(thread: AgentTurn[]): AgentTurn[] {
-  return thread.map((turn) =>
-    turn.status === 'streaming' ? { ...turn, status: 'cancelled' as const } : turn
-  )
+  return thread.map((turn) => ({
+    ...turn,
+    status: turn.status === 'streaming' ? ('cancelled' as const) : turn.status,
+    /*
+     * And redacted, because this is the moment a thread leaves the window: into
+     * session.json, which sits in the profile directory for as long as the install
+     * does, or into another window. A question typed with a key in it, and an
+     * answer that quoted one back, were both written down exactly as they were.
+     */
+    text: redactSecrets(turn.text),
+    error: turn.error === undefined ? undefined : redactSecrets(turn.error)
+  }))
 }

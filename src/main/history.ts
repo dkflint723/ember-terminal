@@ -65,6 +65,30 @@ const MAX_ANSWER_CHARS = 16_000
 const MAX_ATTACHED = 12
 const MAX_ATTACHED_COMMAND_CHARS = 500
 
+/** Bumped only if a later pass has to go over rows this one has already seen. */
+const SCRUB_VERSION = 1
+/** Small enough that one batch of the largest rows is not a visible pause. */
+const SCRUB_BATCH = 50
+const SCRUB_START_MS = 2_000
+const SCRUB_GAP_MS = 60
+
+/**
+ * What the one-time pass rewrites, and how each column has to be handled.
+ *
+ * `plain` is text and can be redacted as it stands. `json` holds a serialised
+ * object, which cannot: redacting its text would eat the quote that closes the
+ * value being replaced.
+ */
+const SCRUB_TABLES = [
+  { table: 'commands', key: 'id', plain: ['command', 'output'], json: [] },
+  {
+    table: 'blocks',
+    key: 'seq',
+    plain: ['command', 'output', 'prompt', 'answer', 'error'],
+    json: ['proposal', 'attached']
+  }
+] as const
+
 /**
  * Cut long output on a row boundary.
  *
@@ -161,6 +185,36 @@ interface StoredBlockRow {
  * The rule is the one `record` follows: a credential typed on a command line is
  * dropped rather than stored, and one printed by a command is redacted.
  */
+/**
+ * A JSON column's credentials taken out without breaking the JSON.
+ *
+ * Redacting the text of a serialised object eats the quote that ends the value it
+ * replaces — `{"command":"--token abc"}` comes back unparseable — so this works on
+ * the fields and writes the object out again. Null when it does not read as JSON,
+ * which is not this pass's business to rewrite.
+ */
+function scrubJsonColumn(raw: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (Array.isArray(parsed)) return JSON.stringify(parsed.map((entry) => scrubStored(entry)))
+    if (parsed !== null && typeof parsed === 'object') return JSON.stringify(scrubStored(parsed))
+  } catch {
+    // Not JSON after all, and a column this cannot read is one it leaves alone.
+  }
+  return null
+}
+
+/** One stored object's command-shaped fields, redacted; the rest as it was. */
+function scrubStored(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value
+  const out: Record<string, unknown> = { ...(value as Record<string, unknown>) }
+  for (const field of ['command', 'note']) {
+    const text = out[field]
+    if (typeof text === 'string') out[field] = redactSecrets(text)
+  }
+  return out
+}
+
 function commandRow(block: PersistedCommandBlock): BlockRow | null {
   const command = block.command.trim()
   if (command.length === 0) return null
@@ -168,7 +222,9 @@ function commandRow(block: PersistedCommandBlock): BlockRow | null {
 
   return {
     kind: 'command',
-    command,
+    // Redacted for the reason `record` gives: the rule above drops a command that
+    // carries a credential, and this catches what is left in one that does not.
+    command: redactSecrets(command),
     output: redactSecrets(trimOutput(block.output)),
     status: block.status,
     exitCode: block.exitCode ?? null,
@@ -366,6 +422,8 @@ function toPersistedBlock(r: StoredBlockRow): PersistedBlock {
 export class HistoryStore {
   private db: DatabaseSync | null = null
   private broken = false
+  /** The pass over old rows, batch by batch, while nothing else needs the thread. */
+  private scrubTimer: ReturnType<typeof setTimeout> | null = null
 
   private open(): DatabaseSync | null {
     if (this.db || this.broken) return this.db
@@ -383,6 +441,10 @@ export class HistoryStore {
   private migrate(db: DatabaseSync): void {
     db.exec(`
       PRAGMA journal_mode = WAL;
+      -- A deleted row's bytes are overwritten rather than left behind in the page
+      -- for whatever reads the file next. "Forget this command" means little
+      -- without it, and the cost is paid only when something is deleted.
+      PRAGMA secure_delete = ON;
       CREATE TABLE IF NOT EXISTS commands (
         id          INTEGER PRIMARY KEY,
         command     TEXT    NOT NULL,
@@ -425,6 +487,118 @@ export class HistoryStore {
       CREATE INDEX IF NOT EXISTS idx_blocks_pane_time ON blocks(pane_id, started_at);
     `)
     this.addBlockColumns(db)
+    this.scrubOldRows(db)
+  }
+
+  /**
+   * The one-time pass over rows written before a credential was properly
+   * recognised, and there are installs holding twenty thousand of them.
+   *
+   * It redacts and deletes nothing: a command that carried a key stays, with
+   * `[redacted]` where the value was. `user_version` is this file's own marker —
+   * zero is a database that has never had the pass — and it is set only once every
+   * batch has been through, so a quit in the middle means the rest happens at the
+   * next launch. Redaction is idempotent, so a row caught twice comes out the same.
+   *
+   * In small batches off a timer rather than in one pass at startup. node:sqlite is
+   * synchronous and a single row may hold 100 kB of output; twenty thousand of them
+   * scrubbed in one go is a main process that stops answering, which from the
+   * outside is indistinguishable from a hang.
+   */
+  private scrubOldRows(db: DatabaseSync): void {
+    try {
+      const row = db.prepare('PRAGMA user_version').get() as { user_version?: number } | undefined
+      if (Number(row?.user_version ?? 0) >= SCRUB_VERSION) return
+    } catch {
+      return
+    }
+    this.scrubTimer = setTimeout(() => this.scrubBatch(db, 0, 0), SCRUB_START_MS)
+  }
+
+  /** One batch of one table, then the next, then the table after it. */
+  private scrubBatch(db: DatabaseSync, at: number, after: number): void {
+    const spec = SCRUB_TABLES[at]
+    if (!spec) {
+      this.finishScrub(db)
+      return
+    }
+    const columns = [...spec.plain, ...spec.json]
+    let rows: Record<string, unknown>[] = []
+    try {
+      rows = db
+        .prepare(
+          `SELECT ${spec.key}, ${columns.join(', ')} FROM ${spec.table}
+           WHERE ${spec.key} > ? ORDER BY ${spec.key} LIMIT ${SCRUB_BATCH}`
+        )
+        .all(after) as unknown as Record<string, unknown>[]
+    } catch {
+      // A table this build does not have, or a database that has gone away. The
+      // marker stays at zero and the next launch tries again.
+      return
+    }
+    if (rows.length === 0) {
+      this.scrubTimer = setTimeout(() => this.scrubBatch(db, at + 1, 0), SCRUB_GAP_MS)
+      return
+    }
+
+    let last = after
+    try {
+      db.exec('BEGIN')
+      for (const row of rows) {
+        last = Number(row[spec.key])
+        const sets: string[] = []
+        const values: string[] = []
+        for (const column of spec.plain) {
+          const before = row[column]
+          if (typeof before !== 'string' || before.length === 0) continue
+          const cleaned = redactSecrets(before)
+          if (cleaned === before) continue
+          sets.push(`${column} = ?`)
+          values.push(cleaned)
+        }
+        for (const column of spec.json) {
+          const before = row[column]
+          if (typeof before !== 'string' || before.length === 0) continue
+          const cleaned = scrubJsonColumn(before)
+          if (cleaned === null || cleaned === before) continue
+          sets.push(`${column} = ?`)
+          values.push(cleaned)
+        }
+        if (sets.length === 0) continue
+        db.prepare(`UPDATE ${spec.table} SET ${sets.join(', ')} WHERE ${spec.key} = ?`).run(
+          ...values,
+          last
+        )
+      }
+      db.exec('COMMIT')
+    } catch {
+      try {
+        db.exec('ROLLBACK')
+      } catch {
+        // Already rolled back, or the connection has gone.
+      }
+      return
+    }
+    this.scrubTimer = setTimeout(() => this.scrubBatch(db, at, last), SCRUB_GAP_MS)
+  }
+
+  private finishScrub(db: DatabaseSync): void {
+    try {
+      // Rebuilt rather than patched row by row: this is external-content FTS5, so
+      // its terms come from the table it mirrors, and that table has just changed.
+      db.exec("INSERT INTO commands_fts(commands_fts) VALUES('rebuild')")
+      db.exec(`PRAGMA user_version = ${SCRUB_VERSION}`)
+      /*
+       * And then the file itself. An update leaves the old cell behind until
+       * something reuses the page — secure_delete zeroes it, and the checkpoint and
+       * vacuum together mean what was redacted is not still sitting in the file in
+       * the clear, which is the whole point of the pass.
+       */
+      db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+      db.exec('VACUUM')
+    } catch {
+      // The marker stays at zero, and the next launch does the pass again.
+    }
   }
 
   /**
@@ -460,6 +634,18 @@ export class HistoryStore {
     if (!db) return
 
     /*
+     * And whatever is left is redacted anyway.
+     *
+     * The rule above drops a command that carries a credential outright. This
+     * catches the label-and-value shapes inside one that does not — a key quoted
+     * in a commit message, a connection string handed to something that is not a
+     * flag. The command column was stored exactly as typed until now, and the
+     * search index with it, so anything the drop rule did not recognise was kept
+     * in the clear in two places.
+     */
+    const stored = redactSecrets(command)
+
+    /*
      * The output is scrubbed as well as the command.
      *
      * A command line carrying a credential is dropped entirely, but plenty of
@@ -476,7 +662,7 @@ export class HistoryStore {
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
       const result = insert.run(
-        command,
+        stored,
         entry.cwd,
         entry.shell,
         entry.exitCode ?? null,
@@ -486,7 +672,7 @@ export class HistoryStore {
       )
       db.prepare('INSERT INTO commands_fts (rowid, command, output) VALUES (?, ?, ?)').run(
         result.lastInsertRowid,
-        command,
+        stored,
         output
       )
       // The index rows first, while the base rows still exist to be selected by.
@@ -558,6 +744,54 @@ export class HistoryStore {
       return db.prepare(sql).all(...params, limit) as unknown as HistoryEntry[]
     } catch {
       return []
+    }
+  }
+
+  /**
+   * Forget one command, because the person looking at it asked to.
+   *
+   * The patterns are a net, not a proof: something they do not recognise reaches
+   * the database, and until now the only way to take it out was to clear
+   * everything. The index row goes first, while the base row is still there for
+   * its terms to be computed from, and `secure_delete` keeps the bytes from
+   * sitting in the file afterwards.
+   */
+  forget(id: number): void {
+    const db = this.open()
+    if (!db) return
+    try {
+      const row = db.prepare('SELECT command FROM commands WHERE id = ?').get(id) as
+        | { command?: string }
+        | undefined
+      const command = typeof row?.command === 'string' ? row.command : null
+      if (command === null) return
+
+      /*
+       * By what was typed, not by which row was clicked, and in both tables.
+       *
+       * A command lives here twice: once in `commands`, which the search box reads,
+       * and once in `blocks`, which is what a pane puts back on screen at the next
+       * launch. Deleting only the first left the command line in the file and in
+       * the scrollback, which is not what anyone means by forgetting it. And the
+       * same line run three times is three rows: forgetting one of them and leaving
+       * its twins is the same failure in smaller print.
+       */
+      db.exec('BEGIN')
+      try {
+        // The index rows first, while the base rows are still there for their terms
+        // to be computed from.
+        db.prepare(
+          'DELETE FROM commands_fts WHERE rowid IN (SELECT id FROM commands WHERE command = ?)'
+        ).run(command)
+        db.prepare('DELETE FROM commands WHERE command = ?').run(command)
+        db.prepare('DELETE FROM blocks WHERE command = ?').run(command)
+        db.exec('COMMIT')
+      } catch (err) {
+        db.exec('ROLLBACK')
+        throw err
+      }
+    } catch {
+      // The rows stay, and the list the caller refreshes still shows them.
     }
   }
 
@@ -777,6 +1011,17 @@ export class HistoryStore {
   }
 
   close(): void {
+    /*
+     * The pass over old rows stops here.
+     *
+     * A batch is scheduled one tick ahead of the last, so at a quit there is nearly
+     * always one waiting: fired against a closed database it does nothing but throw
+     * into a catch, and until it fires it holds a timer open on the way out. What it
+     * has already done is committed, and the marker stays at zero until every batch
+     * is through, so the next launch carries on from where this one stopped.
+     */
+    if (this.scrubTimer) clearTimeout(this.scrubTimer)
+    this.scrubTimer = null
     try {
       this.db?.close()
     } catch {

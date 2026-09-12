@@ -89,6 +89,19 @@ export function HistorySearch(): React.JSX.Element | null {
     toggle(false)
   }
 
+  /**
+   * Take one command out of history for good.
+   *
+   * The patterns that keep credentials out of the database are a net rather than a
+   * proof, and until now a command that slipped through one of them could only be
+   * removed by clearing the lot. The row goes from the list as it goes from the
+   * file, so the answer to "is it gone" is on screen rather than at the next search.
+   */
+  const forget = async (id: number): Promise<void> => {
+    await window.ember.forgetCommand(id)
+    setEntries((rows) => rows.filter((r) => r.id !== id))
+  }
+
   const onKeyDown = (e: React.KeyboardEvent): void => {
     if (e.key === 'Escape') {
       e.preventDefault()
@@ -108,6 +121,13 @@ export function HistorySearch(): React.JSX.Element | null {
     if (e.key === 'Enter' && entries[index]) {
       e.preventDefault()
       insert(entries[index])
+      return
+    }
+    // Shift+Delete, which is what every shell and browser history uses for this,
+    // and which leaves Delete itself doing its ordinary job in the search box.
+    if (e.shiftKey && e.key === 'Delete' && entries[index]) {
+      e.preventDefault()
+      void forget(entries[index].id)
     }
   }
 
@@ -161,8 +181,8 @@ export function HistorySearch(): React.JSX.Element | null {
             </div>
           )}
           {entries.map((entry, i) => (
+            <div className="hist__row" key={entry.id}>
             <button
-              key={entry.id}
               className={`hist__item ${i === index ? 'hist__item--on' : ''}`}
               onMouseDown={(e) => {
                 e.preventDefault()
@@ -181,6 +201,20 @@ export function HistorySearch(): React.JSX.Element | null {
                 {shortPath(entry.cwd, window.ember.homeDir)} · {timeAgo(entry.startedAt)}
               </span>
             </button>
+            <button
+              className="hist__forget"
+              data-forget={entry.id}
+              title="Forget this command (Shift+Delete)"
+              aria-label={`Forget ${entry.command}`}
+              onMouseDown={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                void forget(entry.id)
+              }}
+            >
+              ×
+            </button>
+            </div>
           ))}
         </div>
 

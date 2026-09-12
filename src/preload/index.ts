@@ -180,6 +180,7 @@ const api: EmberApi = {
   complete: (req: CompletionRequest) => ipcRenderer.invoke('completion:request', req),
   recordHistory: (entry: HistoryRecord) => ipcRenderer.send('history:record', entry),
   searchHistory: (query: HistoryQuery) => ipcRenderer.invoke('history:search', query),
+  forgetCommand: (id: number) => ipcRenderer.invoke('history:forget', id),
   saveBlock: (paneId: string, block: PersistedBlock) =>
     ipcRenderer.send('blocks:save', paneId, block),
   loadBlocks: (paneIds: string[]) => ipcRenderer.invoke('blocks:load', paneIds),
