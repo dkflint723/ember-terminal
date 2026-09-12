@@ -54,6 +54,7 @@ const ORDER = [
   'verify-encoding',
   'verify-secrets',
   'verify-paste',
+  'verify-integration',
   'verify-snippets',
   'verify-ai',
   'verify-lsp-root',

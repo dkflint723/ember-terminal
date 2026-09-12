@@ -911,6 +911,14 @@ export interface Settings {
    */
   formatOnSave: boolean
   /**
+   * Load shell integration the old way: typed into the shell as a command.
+   *
+   * Off, and here only as the way back if the encoded loading turns out to
+   * disagree with somebody's profile. It costs what it always cost — the line
+   * lands in shell history, and a Restricted execution policy refuses it.
+   */
+  integrationTypedFallback: boolean
+  /**
    * Chord overrides by command id — only the differences from the defaults.
    * The registry of commands and their default chords lives in renderer code;
    * settings only remember what the user changed.
@@ -1039,6 +1047,7 @@ export const DEFAULT_SETTINGS: Settings = {
   debugAdapters: [],
   languageServers: [],
   formatOnSave: false,
+  integrationTypedFallback: false,
   keybindings: {},
   uiZoom: 1,
   blockDensity: 'normal',
@@ -1261,7 +1270,9 @@ export interface EmberApi {
   importThemeFrom(file: string): Promise<{ ok: boolean; id?: string; count?: number; error?: string }>
   importTheme(): Promise<{ ok: boolean; id?: string; error?: string }>
   openThemeFolder(): void
-  spawn(req: SpawnRequest): Promise<{ ok: boolean; error?: string }>
+  spawn(req: SpawnRequest): Promise<{ ok: boolean; error?: string; nonce?: string }>
+  /** This pane's shell nonce, for checking the markers it prints. */
+  paneNonce(paneId: string): Promise<string | null>
   write(paneId: string, data: string): void
   /** Tell main how much pty output the terminal has parsed, for flow control. */
   ptyAck(paneId: string, parsed: number): void

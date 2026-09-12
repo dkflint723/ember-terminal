@@ -1155,13 +1155,35 @@ function registerIpc(): void {
     try {
       // The spawner owns the pane's output until a move says otherwise.
       paneOwners.set(req.paneId, windowIdOf(e.sender) ?? 1)
-      ptys.spawn(req, profile)
-      return { ok: true }
+      /*
+       * A shell Ember has no script for, said out loud.
+       *
+       * zsh and fish were started as though they spoke bash, which they do not:
+       * the markers never came, every command opened a block that nothing would
+       * close, and the pane sat there spinning. Saying so is worth more than a
+       * feature that only appears to be there.
+       */
+      if (/[\\/](zsh|fish)(\.exe)?$/i.test(profile.path)) {
+        e.sender.send('ui:notice', {
+          text: `${profile.name} runs here, but Ember has no shell integration for it yet — so this pane has no command blocks.`,
+          tone: 'info'
+        })
+      }
+      ptys.spawn(req, profile, {
+        typedFallback: settings.get().integrationTypedFallback === true
+      })
+      return { ok: true, nonce: ptys.nonceFor(req.paneId) ?? undefined }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : 'Failed to start shell.' }
     }
   })
 
+  /*
+   * The nonce, asked for by pane rather than handed out once at spawn: a pane that
+   * moved here from another window never spawned anything, and it still has to be
+   * able to tell its own shell's markers from a line of output.
+   */
+  ipcMain.handle('pty:nonce', (_e, paneId: string) => ptys.nonceFor(paneId))
   ipcMain.on('pty:write', (_e, paneId: string, data: string) => ptys.write(paneId, data))
   ipcMain.on('pty:resize', (_e, paneId: string, cols: number, rows: number) =>
     ptys.resize(paneId, cols, rows)

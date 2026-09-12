@@ -5,6 +5,35 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Shell integration that output cannot forge, and a policy cannot switch off
+
+- **Anything that could print could move your pane.** Command blocks are cut at
+  markers the shell prints, and those markers were seven printable characters and
+  an escape — so reading a file, a build log, or a branch name could set the pane's
+  working directory, rename the command a block records, or open a block that
+  nothing would ever close. Each shell now starts with a secret only it and Ember
+  know, its markers carry it, and markers without it are ignored. A shell
+  integration you set up yourself still marks the pane as integrated, as before.
+- **A directory the shell reports has to be one this machine can see.** UNC paths
+  are refused on sight, before anything touches the network: that directory is
+  re-read every few seconds by the git status poll, so a single forged
+  `\\somewhere\share` was a stall on a timer, pointed at a host of somebody else's
+  choosing.
+- **On a machine whose execution policy is Restricted there were no blocks at
+  all.** Ember loaded its integration by typing `. 'integration.ps1'` into your
+  shell, and that is exactly what such a policy refuses. It is handed over as an
+  encoded command now — not a file, so no policy applies to it — and your own
+  profile still loads first.
+- **And that line is no longer in your shell history.** Because it was typed,
+  `Get-History` kept it, in every session, on every machine.
+- **Git Bash reports its directory in a form Windows can open**, through cygpath,
+  instead of the POSIX path that nothing on this side could read. What it records
+  as the command moved to a DEBUG trap, so a command run from a keybinding is
+  recorded as itself rather than as whatever was typed last.
+- **zsh and fish say so.** They were started as though they spoke bash, so every
+  command opened a block that never finished and the pane sat spinning. They open
+  an ordinary terminal now, and say that integration is not there yet.
+
 ### Pasting into a terminal asks before it runs anything
 
 - **A paste went straight to the shell and ran on arrival.** The clipboard was

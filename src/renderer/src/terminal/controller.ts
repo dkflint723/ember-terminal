@@ -6,6 +6,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import type { TerminalPalette } from '@shared/theme'
 import { looksLikeSecretPrompt, stripAnsi } from '@shared/secrets'
 import { cleanPaste, needsAsking, pasteQuestion, runQuestion } from '@shared/paste'
+import { looksLocalDir, parseEmberMarker } from '@shared/integration'
 import { renderBufferAsHtml, textFromHtml } from './serialize'
 import { useStore, type CommandBlock, type TerminalPaneState } from '../state/store'
 import { DEFAULT_THEME, toXtermTheme } from './theme'
@@ -131,6 +132,15 @@ export class TerminalController {
   private disposers: (() => void)[] = []
   private spawned = false
   private integrationTimer: number | null = null
+  /**
+   * What this pane's shell was started with, and whether it has ever proved it.
+   *
+   * Empty when the shell was loaded the old way — the typed fallback — where there
+   * is nothing to check against and the old rules stand. Once one signed marker
+   * has arrived, unsigned ones are somebody else talking.
+   */
+  private nonce = ''
+  private authenticated = false
   /** Rolling tail of recent output, used only for secret-prompt detection. */
   private tail = ''
   private palette: TerminalPalette
@@ -416,27 +426,22 @@ export class TerminalController {
     }, 6000)
   }
 
+  /**
+   * A semantic-prompt marker, from whoever emitted it.
+   *
+   * Any of them still proves a shell is reporting boundaries, which is what a
+   * user's own OSC 133 setup is for and why that keeps working. What changes once
+   * this pane has seen a signed marker is that these stop driving blocks: an
+   * unsigned `133;C` after that point is output talking, and output that can open
+   * and close blocks can put a command's name on another command's output.
+   */
   private handleSemanticPrompt(data: string): void {
     this.markIntegration('ready')
+    if (this.authenticated) return
     const [kind, ...rest] = data.split(';')
 
     if (kind === 'C') {
-      // Output begins. The splitter in `feedCapture` owns the buffer itself; this
-      // only handles the block's lifecycle.
-      this.sawAltScreen = false
-      // A new command starts with no pending prompt, stale or otherwise.
-      this.tail = ''
-      if (this.store().terminalPane(this.paneId)?.awaitingSecret) {
-        this.store().patchPane(this.paneId, { awaitingSecret: false })
-      }
-
-      // If the user typed straight into the terminal rather than the editor, the
-      // block has not been opened yet.
-      if (!this.currentBlockId) {
-        const command = this.pendingCommand ?? ''
-        this.currentBlockId = this.store().beginBlock(this.paneId, command)
-      }
-      this.pendingCommand = null
+      this.beginOutput()
       return
     }
 
@@ -449,31 +454,104 @@ export class TerminalController {
     // never shown, because the input editor replaces it.
   }
 
+  /**
+   * Output begins. The splitter in `feedCapture` owns the buffer itself; this only
+   * handles the block's lifecycle.
+   */
+  private beginOutput(): void {
+    this.sawAltScreen = false
+    // A new command starts with no pending prompt, stale or otherwise.
+    this.tail = ''
+    if (this.store().terminalPane(this.paneId)?.awaitingSecret) {
+      this.store().patchPane(this.paneId, { awaitingSecret: false })
+    }
+
+    // If the user typed straight into the terminal rather than the editor, the
+    // block has not been opened yet.
+    if (!this.currentBlockId) {
+      const command = this.pendingCommand ?? ''
+      this.currentBlockId = this.store().beginBlock(this.paneId, command)
+    }
+    this.pendingCommand = null
+  }
+
+  /**
+   * Ember's own markers, which are only Ember's if they carry this shell's nonce.
+   *
+   * With a nonce, nothing else is read at all. Without one — the typed fallback,
+   * or a shell that started before this window could ask — the old rules stand,
+   * because refusing everything there costs the blocks entirely and protects
+   * nobody.
+   */
   private handleEmberOsc(data: string): void {
+    if (this.nonce) {
+      const marker = parseEmberMarker(data, this.nonce)
+      if (!marker) return
+      this.authenticated = true
+      switch (marker.kind) {
+        case 'ready':
+          this.markIntegration('ready')
+          return
+        case 'output':
+          this.beginOutput()
+          return
+        case 'finished':
+          void this.finishBlock(marker.exitCode)
+          return
+        case 'cwd':
+          void this.adoptCwd(marker.path)
+          return
+        case 'command':
+          this.adoptCommand(marker.text)
+          return
+      }
+      return
+    }
+
     if (data === 'Ready') {
       this.markIntegration('ready')
       return
     }
-
     if (data.startsWith('P;Cwd=')) {
-      const cwd = unescapeOsc(data.slice('P;Cwd='.length))
-      this.store().patchPane(this.paneId, { cwd, title: cwd.split(/[\\/]/).pop() || cwd })
-      if (this.currentBlockId) {
-        this.store().patchBlock(this.paneId, this.currentBlockId, { cwd })
-      }
+      void this.adoptCwd(unescapeOsc(data.slice('P;Cwd='.length)))
       return
     }
-
     if (data.startsWith('E;')) {
-      // The shell reports the command line it is about to run. Trust it over our
-      // own copy, since the user may have edited it with readline.
-      const command = unescapeOsc(data.slice(2)).trim()
-      if (command.length === 0) return
-      if (this.currentBlockId) {
-        this.store().patchBlock(this.paneId, this.currentBlockId, { command })
-      } else {
-        this.pendingCommand = command
-      }
+      this.adoptCommand(unescapeOsc(data.slice(2)).trim())
+    }
+  }
+
+  /**
+   * Follow the shell into a directory, if it is one this side can look at.
+   *
+   * The shape is judged first and the filesystem second, because asking the
+   * filesystem is itself the harm: a UNC path is a blocking network round trip,
+   * and this directory is re-read by the git poll every few seconds — so one
+   * forged `\\\\somewhere\\share` is a stall that repeats, and a connection to a
+   * host of somebody else's choosing carrying this machine's credentials.
+   */
+  private async adoptCwd(path: string): Promise<void> {
+    if (!looksLocalDir(path)) return
+    if (!(await window.ember.directoryExists(path))) return
+    this.store().patchPane(this.paneId, {
+      cwd: path,
+      title: path.split(/[\\/]/).pop() || path
+    })
+    if (this.currentBlockId) {
+      this.store().patchBlock(this.paneId, this.currentBlockId, { cwd: path })
+    }
+  }
+
+  /**
+   * What the shell says it is about to run, which beats our own copy: the user may
+   * have edited the line in readline after Ember wrote it.
+   */
+  private adoptCommand(command: string): void {
+    if (command.length === 0) return
+    if (this.currentBlockId) {
+      this.store().patchBlock(this.paneId, this.currentBlockId, { command })
+    } else {
+      this.pendingCommand = command
     }
   }
 
@@ -731,6 +809,10 @@ export class TerminalController {
 
   private startShell(): void {
     const pane = this.store().terminalPane(this.paneId)
+    // A restart gets a new shell and so a new nonce; the old one stops meaning
+    // anything the moment the old shell does.
+    this.nonce = ''
+    this.authenticated = false
     void window.ember
       .spawn({
         paneId: this.paneId,
@@ -740,6 +822,7 @@ export class TerminalController {
         rows: this.term.rows
       })
       .then((res) => {
+        if (res.nonce) this.nonce = res.nonce
         if (!res.ok) {
           this.term.write(`
 
@@ -796,6 +879,19 @@ export class TerminalController {
     this.term.open(container)
     this.enableWebgl()
     this.refit()
+
+    /*
+     * And the nonce for a pane that never spawned anything here.
+     *
+     * A session dragged in from another window arrives with its shell already
+     * running, so the spawn result that carries the nonce belongs to a window that
+     * has let go of it. Asked for by pane instead, which covers both roads in.
+     */
+    if (!this.nonce) {
+      void window.ember.paneNonce(this.paneId).then((n) => {
+        if (typeof n === 'string' && n.length > 0) this.nonce = n
+      })
+    }
 
     /*
      * Right-click copies a selection, or pastes when there is none.

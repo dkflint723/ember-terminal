@@ -1,22 +1,33 @@
 # Ember shell integration for PowerShell.
 #
 # Emits OSC 133 "semantic prompt" sequences so the UI can slice the byte stream
-# into command blocks, plus OSC 7 for the working directory. This mirrors the
-# FinalTerm/iTerm2 convention that VS Code also implements:
+# into command blocks, plus Ember's own OSC 633 markers for the things 133 has no
+# room for: the working directory, the command line as the shell finally read it,
+# and the fact that integration is live.
 #
 #   OSC 133;A  prompt start
 #   OSC 133;B  prompt end / command input begins
-#   OSC 133;C  command output begins
-#   OSC 133;D;<exit>  command finished
+#   OSC 633;C;<nonce>          command output begins
+#   OSC 633;D;<exit>;<nonce>   command finished
+#   OSC 633;E;<cmdline>;<nonce>
+#   OSC 633;P;Cwd=<dir>;<nonce>
+#   OSC 633;Ready;<nonce>
 #
-# Ember additionally reads OSC 633;E;<cmdline> to learn the command text when the
-# user typed it into the shell directly rather than through Ember's editor.
+# Every Ember marker carries the nonce this shell was started with, because a
+# marker is only worth as much as the proof that the shell printed it: anything
+# that can print could otherwise move the pane to another directory or rename the
+# command a block records. `cat` of a file is enough. The nonce arrives in the
+# environment, which output cannot reach.
 
 if ($env:EMBER_INTEGRATION_LOADED -eq '1') { return }
 $env:EMBER_INTEGRATION_LOADED = '1'
 
 $Global:__EmberESC = [char]0x1b
 $Global:__EmberBEL = [char]0x07
+# Empty when Ember started this shell the old way; the marks below then go out
+# unsigned and the window falls back to believing them, which is what that
+# fallback costs.
+$Global:__EmberNonce = if ($env:EMBER_NONCE) { [string]$env:EMBER_NONCE } else { '' }
 
 <#
   Ask PowerShell to write its colours into the stream.
@@ -46,7 +57,8 @@ if ($null -ne $PSStyle) {
 function Global:__Ember-Escape([string]$value) {
   if ($null -eq $value) { return '' }
   # Backslash-escape the control characters that would otherwise terminate the
-  # OSC string, so arbitrary command text and paths survive the round trip.
+  # OSC string, so arbitrary command text and paths survive the round trip — and
+  # so the nonce is unambiguously the last `;` field, whatever is in the value.
   $value = $value.Replace('\', '\\')
   $value = $value.Replace("`n", '\x0a')
   $value = $value.Replace("`r", '\x0d')
@@ -54,6 +66,14 @@ function Global:__Ember-Escape([string]$value) {
   $value = $value.Replace("$([char]0x1b)", '\x1b')
   $value = $value.Replace("$([char]0x07)", '\x07')
   return $value
+}
+
+# One Ember marker, signed if this shell has a nonce to sign it with.
+function Global:__Ember-Mark([string]$body) {
+  if ($Global:__EmberNonce) {
+    return "$__EmberESC]633;$body;$Global:__EmberNonce$__EmberBEL"
+  }
+  return "$__EmberESC]633;$body$__EmberBEL"
 }
 
 $Global:__EmberOriginalPrompt = $function:Prompt
@@ -82,12 +102,13 @@ function Global:Prompt {
     $Global:__EmberFirstPrompt = $false
   } else {
     $out += "$__EmberESC]133;D;$lastExit$__EmberBEL"
+    $out += (__Ember-Mark "D;$lastExit")
   }
 
   $out += "$__EmberESC]133;A$__EmberBEL"
 
   $cwd = (Get-Location).Path
-  $out += "$__EmberESC]633;P;Cwd=$(__Ember-Escape $cwd)$__EmberBEL"
+  $out += (__Ember-Mark "P;Cwd=$(__Ember-Escape $cwd)")
 
   # Preserve whatever prompt the user already had (oh-my-posh, starship, etc).
   $inner = ''
@@ -99,16 +120,34 @@ function Global:Prompt {
 }
 
 # PSReadLine drives interactive line editing, including the Enter that Ember
-# synthesises when it writes a command into the pty. Hooking AcceptLine is how we
-# learn the final command text and mark the output boundary.
+# synthesises when it writes a command into the pty. Hooking Enter is how we learn
+# the final command text and mark the output boundary.
 if (Get-Module -ListAvailable -Name PSReadLine) {
   Import-Module PSReadLine -ErrorAction SilentlyContinue
 
-  function Global:__Ember-AcceptLine([string]$handler) {
+  <#
+    Whatever was on Enter before this, so it still happens.
+
+    Replacing the binding outright — which is what this did — quietly took away
+    whatever the user's own profile had put there: PSFzf, a validating handler, a
+    custom accept. Only a named PSReadLine function can be called back; a handler
+    bound as a script block is not readable from here, and for that one case
+    AcceptLine is the honest approximation, since it is what Enter means by
+    default.
+  #>
+  $Global:__EmberPrevEnter = 'AcceptLine'
+  try {
+    $bound = Get-PSReadLineKeyHandler -Bound | Where-Object { $_.Key -eq 'Enter' } | Select-Object -First 1
+    if ($bound -and $bound.Function) { $Global:__EmberPrevEnter = [string]$bound.Function }
+  } catch {
+    # An older PSReadLine without -Bound; the default stands.
+  }
+
+  function Global:__Ember-AcceptLine {
     $line = ''
     $cursor = 0
     [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
-    $Host.UI.Write("$__EmberESC]633;E;$(__Ember-Escape $line)$__EmberBEL")
+    $Host.UI.Write((__Ember-Mark "E;$(__Ember-Escape $line)"))
     <#
       Clear the console before the command runs, so a block can only contain what
       that command printed.
@@ -137,20 +176,18 @@ if (Get-Module -ListAvailable -Name PSReadLine) {
     #>
     $Host.UI.Write("$__EmberESC[H$__EmberESC[2J$__EmberESC[3J")
     $Host.UI.Write("$__EmberESC]133;C$__EmberBEL")
-    switch ($handler) {
-      'AcceptLine' { [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine() }
-      'ValidateAndAcceptLine' { [Microsoft.PowerShell.PSConsoleReadLine]::ValidateAndAcceptLine() }
-    }
+    $Host.UI.Write((__Ember-Mark 'C'))
+
+    $name = $Global:__EmberPrevEnter
+    $method = [Microsoft.PowerShell.PSConsoleReadLine].GetMethod($name, [type[]]@())
+    if ($method) { $method.Invoke($null, @()) }
+    else { [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine() }
   }
 
-  Set-PSReadLineKeyHandler -Chord Enter -ScriptBlock {
-    __Ember-AcceptLine 'AcceptLine'
-  }
-  Set-PSReadLineKeyHandler -Chord 'Ctrl+Enter' -ScriptBlock {
-    __Ember-AcceptLine 'AcceptLine'
-  }
+  Set-PSReadLineKeyHandler -Chord Enter -ScriptBlock { __Ember-AcceptLine }
+  Set-PSReadLineKeyHandler -Chord 'Ctrl+Enter' -ScriptBlock { __Ember-AcceptLine }
 }
 
 # Tell Ember the integration is live; the UI falls back to raw mode until it
 # sees this, so a shell without integration still works, just without blocks.
-$Host.UI.Write("$__EmberESC]633;Ready$__EmberBEL")
+$Host.UI.Write((__Ember-Mark 'Ready'))

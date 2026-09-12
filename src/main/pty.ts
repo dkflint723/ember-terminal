@@ -1,5 +1,7 @@
 import { spawn as ptySpawn, type IPty } from '@lydell/node-pty'
-import { existsSync, readFileSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { app } from 'electron'
 import type { ShellProfile, SpawnRequest } from '../shared/types.js'
@@ -7,6 +9,15 @@ import type { ShellProfile, SpawnRequest } from '../shared/types.js'
 interface Session {
   pty: IPty
   profile: ShellProfile
+  /**
+   * This shell's proof that a marker came from it.
+   *
+   * Sixteen random bytes, handed over in the environment and never written down
+   * anywhere else. The renderer asks for it by pane and refuses Ember's own
+   * markers that do not carry it, which is what stops a line of output moving the
+   * pane or renaming a block.
+   */
+  nonce: string
   /** Characters sent to the renderer and not yet acknowledged as parsed. */
   pending: number
   /** Whether the pty's read side is currently held shut. */
@@ -57,7 +68,12 @@ export class PtyManager {
     return join(base, 'resources', ...parts)
   }
 
-  spawn(req: SpawnRequest, profile: ShellProfile): void {
+  /** A shell's nonce, for the window that has to check its markers. */
+  nonceFor(paneId: string): string | null {
+    return this.sessions.get(paneId)?.nonce ?? null
+  }
+
+  spawn(req: SpawnRequest, profile: ShellProfile, opts: { typedFallback?: boolean } = {}): void {
     this.kill(req.paneId)
 
     const env: Record<string, string> = {}
@@ -73,6 +89,16 @@ export class PtyManager {
     Object.assign(env, this.extraEnv())
 
     /*
+     * The nonce goes in the environment, which is the one channel a shell has that
+     * its own output cannot reach. Anything already inside this process tree can
+     * read it, and that is fine: something running in the shell is past every
+     * boundary this could defend anyway. What it stops is the ordinary case — a
+     * file, a log, a README, a git branch name printed to the screen.
+     */
+    const nonce = randomBytes(16).toString('hex')
+    env.EMBER_NONCE = nonce
+
+    /*
      * A Windows path that is not there falls back to home: a typo'd "Start in"
      * or a since-deleted directory should open a shell, not a dead pane. Paths
      * that are not Windows-shaped (a WSL /home) pass through untouched — they
@@ -81,7 +107,8 @@ export class PtyManager {
     let cwd = req.cwd && req.cwd.length > 0 ? req.cwd : app.getPath('home')
     if (/^(?:[A-Za-z]:[\\/]|\\\\)/.test(cwd) && !existsSync(cwd)) cwd = app.getPath('home')
 
-    const pty = ptySpawn(profile.path, profile.args, {
+    const loading = this.loadingFor(profile, opts.typedFallback === true)
+    const pty = ptySpawn(profile.path, loading.args, {
       cols: Math.max(req.cols, 2),
       rows: Math.max(req.rows, 1),
       cwd,
@@ -89,7 +116,7 @@ export class PtyManager {
       useConpty: true
     })
 
-    const session: Session = { pty, profile, pending: 0, paused: false, pausedCount: 0 }
+    const session: Session = { pty, profile, nonce, pending: 0, paused: false, pausedCount: 0 }
     this.sessions.set(req.paneId, session)
 
     pty.onData((d) => {
@@ -106,7 +133,95 @@ export class PtyManager {
       this.onExit(req.paneId, exitCode)
     })
 
-    this.injectIntegration(pty, profile)
+    if (loading.typed) this.injectIntegration(pty, profile)
+  }
+
+  /**
+   * How this shell is given its integration, and what it is started with.
+   *
+   * Typing `. 'x.ps1'` into the shell — which is what this did — has three faults
+   * and they are all the same fault: it is input. A Restricted execution policy
+   * refuses to run the file, so the machines most likely to be managed were the
+   * ones with no blocks at all; the line lands in Get-History, where nobody put
+   * it; and it races the first prompt, so it arrives in the middle of whatever the
+   * profile was printing.
+   *
+   * An encoded command is none of those. It is not a file, so no policy applies to
+   * it; it is not input, so no history records it; and PowerShell runs it after
+   * the user's own profile, which is the order that was wanted all along.
+   */
+  private loadingFor(
+    profile: ShellProfile,
+    typedFallback: boolean
+  ): { args: string[]; typed: boolean } {
+    if (profile.integration === 'none') return { args: profile.args, typed: false }
+    // The way out, for one release: a shell that will not take the new loading can
+    // be put back on the old by a setting rather than by a new build.
+    if (typedFallback) return { args: profile.args, typed: true }
+
+    if (profile.integration === 'powershell') {
+      const encoded = this.encodedScript('integration.ps1')
+      if (encoded) return { args: [...profile.args, '-NoExit', '-EncodedCommand', encoded], typed: false }
+      return { args: profile.args, typed: true }
+    }
+
+    /*
+     * bash only where bash is what is being started. WSL's profile runs wsl.exe,
+     * whose arguments are its own and not the shell's — `--rcfile` handed to it is
+     * a distro name it cannot find — so that one keeps the old loading.
+     */
+    if (profile.integration === 'bash' && /bash(\.exe)?$/i.test(profile.path)) {
+      const rc = this.bashRcFile(profile)
+      if (rc) return { args: ['--rcfile', rc, '-i'], typed: false }
+    }
+    return { args: profile.args, typed: true }
+  }
+
+  /** The PowerShell script as an encoded command: UTF-16LE, base64, as the flag wants it. */
+  private encodedScript(name: string): string | null {
+    try {
+      const body = readFileSync(this.resourcePath('shell-integration', name), 'utf8')
+      return Buffer.from(body, 'utf16le').toString('base64')
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * An rcfile for bash that keeps everything the shell would have loaded anyway.
+   *
+   * `--rcfile` is ignored by a login shell, and Git Bash starts as one — so this
+   * takes over the whole chain rather than adding to it: the system profile, then
+   * the user's own files in the order bash reads them, then Ember's script. Doing
+   * less than that would silently cost a Git Bash user their PATH.
+   */
+  private bashRcFile(profile: ShellProfile): string | null {
+    try {
+      const script = this.resourcePath('shell-integration', 'integration.bash')
+      const posix = (p: string): string =>
+        p.replace(/^([A-Za-z]):/, (_m, d: string) => `/${d.toLowerCase()}`).replace(/\\/g, '/')
+      const login = profile.args.some((a) => a === '--login' || a === '-l')
+      const lines = [
+        '# Written by Ember for this shell only.',
+        'if [ -f /etc/profile ]; then . /etc/profile; fi'
+      ]
+      if (login) {
+        lines.push(
+          'if [ -f "$HOME/.bash_profile" ]; then . "$HOME/.bash_profile";',
+          'elif [ -f "$HOME/.bash_login" ]; then . "$HOME/.bash_login";',
+          'elif [ -f "$HOME/.profile" ]; then . "$HOME/.profile"; fi'
+        )
+      } else {
+        lines.push('if [ -f "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi')
+      }
+      lines.push(`. '${posix(script)}'`, '')
+      const dir = mkdtempSync(join(tmpdir(), 'ember-rc-'))
+      const file = join(dir, 'ember-bashrc')
+      writeFileSync(file, lines.join('\n'), 'utf8')
+      return posix(file)
+    } catch {
+      return null
+    }
   }
 
   /** The renderer has parsed this many more characters; maybe reopen the valve. */
@@ -133,6 +248,12 @@ export class PtyManager {
    * Source the integration script inside the freshly started shell. We write a
    * dot-source command rather than passing init flags so the user's own profile
    * still loads normally.
+   */
+  /**
+   * The old loading, kept as the way back for one release: the script typed into
+   * the shell as a command. Reached only by the fallback setting, or by a shell
+   * the new loading cannot be applied to — WSL, and anything whose script is
+   * missing from the install.
    */
   private injectIntegration(pty: IPty, profile: ShellProfile): void {
     if (profile.integration === 'none') return
