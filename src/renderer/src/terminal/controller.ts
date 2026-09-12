@@ -103,6 +103,7 @@ export class TerminalController {
   /** The same for width, and for the same reason: a pane with no size has one. */
   private lastVisibleCols = UNMEASURED_COLS
 
+
   /**
    * What the element this was last drawn into was given, so it can be taken back.
    *
@@ -118,10 +119,38 @@ export class TerminalController {
   /** Offscreen terminal used only to render captured output into HTML. */
   private renderTerm: Terminal
 
+  /**
+   * Renders run one at a time, because there is only one of those.
+   *
+   * Every render resets the offscreen terminal and then yields to it, so two
+   * overlapping renders share one screen: the second wipes the first mid-write
+   * and the first serializes whatever is left. Two commands finishing inside a
+   * single parse chunk already did this, and output arriving at an idle prompt
+   * made it ordinary rather than rare. The capture queue decides which bytes a
+   * block owns; this decides that it also gets its own screen to draw them on.
+   */
+  private renderQueue: Promise<void> = Promise.resolve()
+
   private capture = ''
   private capturing = false
   /** Set when output was dropped, so the block can say so rather than just lose it. */
   private captureTrimmed = false
+
+  /**
+   * Captures that have seen their end marker and are waiting to be claimed.
+   *
+   * The splitter runs synchronously inside write(); the block that owns those
+   * bytes does not come for them until xterm parses its way to the matching
+   * `133;D`, which happens later — in short slices, with as much as a megabyte
+   * outstanding. So a shell that returns its prompt promptly could emit `D(A)`,
+   * the prompt and `C(B)` while the parser was still working through A's output,
+   * and `C(B)` reset the single shared buffer: block A was handed B's bytes and
+   * block B came back empty.
+   *
+   * Queued instead, oldest first. A finished capture belongs to a block that has
+   * not claimed it yet, so nothing starting afterwards is allowed to touch it.
+   */
+  private done: { bytes: string; trimmed: boolean }[] = []
   /** Lines one block can keep. Generous: a build log is the normal case, not the extreme. */
   private static readonly RENDER_SCROLLBACK = 50_000
   /** Holds back a few bytes so a marker split across pty chunks is still found. */
@@ -327,6 +356,16 @@ export class TerminalController {
       const j = s.indexOf(END)
       if (j !== -1) {
         this.appendCapture(s.slice(0, j))
+        /*
+         * Handed over the moment the end marker is seen, rather than left in the
+         * buffer for whoever reads it next. From here these bytes belong to one
+         * block and nothing else can reach them — which is the whole point: the
+         * `133;C` below used to clear this buffer while a finished capture was
+         * still sitting in it.
+         */
+        this.done.push({ bytes: this.capture, trimmed: this.captureTrimmed })
+        this.capture = ''
+        this.captureTrimmed = false
         this.capturing = false
         s = s.slice(j + END.length)
         continue
@@ -376,7 +415,25 @@ export class TerminalController {
       ) {
         if (m.index >= this.capture.length - chunk.length) last = m.index
       }
-      if (last > 0) this.capture = this.capture.slice(last)
+      if (last > 0) {
+        /*
+         * Say so when a repaint took something readable.
+         *
+         * This drop is the right thing to do — nothing before an erase survived
+         * on the real screen either — but it was silent, so a block that lost
+         * the first half of its output to a conpty redraw came back looking
+         * complete and simply starting in the middle. The byte cap below has
+         * always set this flag; the older and more common loss never did.
+         *
+         * Only when there was something to read. A repaint that discards escape
+         * sequences and blank rows has taken nothing anybody could have seen,
+         * and a block that announces a loss it did not suffer teaches people to
+         * ignore the notice on the blocks that did.
+         */
+        const dropped = stripAnsi(this.capture.slice(0, last))
+        if (/\S/.test(dropped)) this.captureTrimmed = true
+        this.capture = this.capture.slice(last)
+      }
     }
 
     // Bound one command's output; a huge log would blow up the serialize pass.
@@ -556,7 +613,18 @@ export class TerminalController {
   }
 
   /** Feed captured bytes through the offscreen terminal and serialize the result. */
-  private async renderCapture(bytes: string, trimmed: boolean): Promise<string> {
+  private renderCapture(bytes: string, trimmed: boolean): Promise<string> {
+    const done = this.renderQueue.then(() => this.renderOne(bytes, trimmed))
+    // The chain has to survive a failure, or one bad render stops every later
+    // one and the pane stops producing blocks at all.
+    this.renderQueue = done.then(
+      () => undefined,
+      () => undefined
+    )
+    return done
+  }
+
+  private async renderOne(bytes: string, trimmed: boolean): Promise<string> {
     if (bytes.trim().length === 0) return ''
 
     this.renderTerm.reset()
@@ -651,21 +719,22 @@ export class TerminalController {
     const interactive = this.sawAltScreen
 
     /*
-     * Taken and cleared before the await rather than after it.
+     * The oldest capture that nobody has claimed, which is this block's.
      *
-     * renderCapture yields to the offscreen terminal, and a shell that returns its
-     * prompt promptly begins the next command's capture while this one is still
-     * rendering — `133;C` arrives, clears the buffer, and output starts arriving
-     * into it. Clearing afterwards emptied exactly that, so a quick command run
-     * straight after a heavy one lost whatever it had printed in the meantime. The
-     * trim flag travels with the bytes for the same reason: read after the await,
-     * the finished block claims a truncation that belongs to its successor.
+     * This used to read the one shared buffer, and the two ends of that exchange
+     * run at different times: the splitter fills it synchronously inside write(),
+     * while the block comes for it only when xterm has parsed its way here. Under
+     * a flood the parser falls thousands of lines behind, so the next command's
+     * `133;C` could arrive first and empty the buffer — the finished block then
+     * took whatever the new one had printed, and the new one finished with
+     * nothing. Taking it before the await narrowed that window; it did not close
+     * it, because the window opens before this line is reached at all.
+     *
+     * Empty when there is nothing queued, which is the honest answer for an
+     * interactive program that never produced a capture of its own.
      */
-    const bytes = this.capture
-    const trimmed = this.captureTrimmed
-    this.capture = ''
-    this.captureTrimmed = false
-    let output = interactive ? '' : await this.renderCapture(bytes, trimmed)
+    const claimed = this.done.shift() ?? { bytes: '', trimmed: false }
+    let output = interactive ? '' : await this.renderCapture(claimed.bytes, claimed.trimmed)
 
     /*
      * Bounded in memory the way it already is on disk. The history and session
@@ -699,11 +768,26 @@ export class TerminalController {
        * "go and look it up". Two different losses, and only one of them is
        * recoverable.
        */
+      /*
+       * And the note does not send anyone somewhere the text is not.
+       *
+       * This used to read "the full text is in history (Ctrl+R)", which is false
+       * twice over. History keeps a hundred thousand characters, against the
+       * half-megabyte kept here — and it keeps them from the *front*
+       * (history.ts: `entry.output.slice(0, MAX_OUTPUT_CHARS)`), while this cut
+       * keeps the end. So for a command long enough to meet this cap, the copy
+       * being pointed at is the one place that certainly does not hold what was
+       * just dropped: history has the beginning, which is the half still on
+       * screen above this line.
+       *
+       * Saying where something went is only worth doing while it is where you
+       * said. The beginning is what history has, so that is what it now offers.
+       */
       const lostAlready = output.startsWith('<div class="row"><span class="block__elided">')
       output =
         (lostAlready
           ? '<div class="row"><span class="block__elided">… earlier output not kept</span></div>'
-          : '<div class="row">… earlier output trimmed — the full text is in history (Ctrl+R) …</div>') +
+          : '<div class="row">… earlier output trimmed — history (Ctrl+R) kept this command’s first 100,000 characters …</div>') +
         (cut > 0 ? output.slice(cut) : output)
     }
 
@@ -849,6 +933,9 @@ export class TerminalController {
     this.capture = ''
     this.capturing = false
     this.captureTrimmed = false
+    // Including the finished ones nobody claimed: they belong to blocks of a
+    // shell that has gone, and no command in the new one will ever come for them.
+    this.done = []
     this.carry = ''
     this.currentBlockId = null
     this.pendingCommand = null
@@ -1097,6 +1184,17 @@ export class TerminalController {
       if (hasBox && measuredCols > 0) this.lastVisibleCols = Math.max(measuredCols, MIN_COLS)
       const cols = this.lastVisibleCols
       if (cols !== this.term.cols || rows !== this.term.rows) this.term.resize(cols, rows)
+      /*
+       * Sent on every fit, deliberately.
+       *
+       * Skipping it when the size has not changed looks like free economy and is
+       * not: a conpty resize is also a repaint, and the repaint is what redraws
+       * the prompt after the live view has been cleared. Secret-prompt detection
+       * depends on that redraw — `beginOutput` empties the rolling tail when the
+       * start marker is parsed, which for a prompt arriving in the same chunk
+       * discards it, and only the repaint delivers it a second time. Guarding
+       * this call left `Read-Host` unmasked and the typed secret in the DOM.
+       */
       window.ember.resize(this.paneId, cols, rows)
     } catch {
       // The pane can be measured before layout settles; the next resize wins.

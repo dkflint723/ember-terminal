@@ -5,6 +5,29 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A block shows its own output, and only its own
+
+- **Finished output was reachable by the command that came next.** Output is
+  sliced out of the raw byte stream as it arrives, but the block that owns it
+  does not come for it until the terminal has parsed its way to the end marker —
+  and under a flood the parser runs thousands of lines behind. Anything starting
+  in that gap cleared the buffer the previous command was still owed. Finished
+  output is now queued and claimed in order, where nothing that starts later can
+  reach it, and each render gets its own screen instead of sharing one that every
+  render resets. Said plainly: this was found by reading the code, and repeated
+  attempts to provoke it — including deliberately restoring the old behaviour —
+  never reproduced it. It is a guard against something the code allowed, not a
+  fix for something anyone watched happen.
+- **A trimmed block sent you somewhere the text was not.** It said the full text
+  was in history, when history keeps 100,000 characters of a block that may hold
+  half a megabyte — and keeps them from the *beginning*, while the block keeps
+  the end. So it pointed at the one copy that certainly did not have the part it
+  had just dropped. It now says what history actually holds.
+- **A conpty repaint could take the first half of a block silently.** The drop
+  was right — nothing before an erase survived on the real screen either — but
+  nothing said so, and the block came back looking complete and merely starting
+  in the middle.
+
 ### Opening a repository is no longer agreeing to run it
 
 - **Formatting ran the repository's own code.** A project's prettier is a program

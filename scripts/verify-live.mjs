@@ -180,6 +180,27 @@ await sleep(800)
 const height = Number.parseInt((await run('[Console]::WindowHeight')).trim(), 10)
 check('the shell gets a console with rows in it', height >= 4, String(height))
 
+/*
+ * What the pane actually holds at this point, named rather than guessed at.
+ *
+ * Every helper in this file reads "the last block" as the command it just ran,
+ * and so do ten other suites. If anything else can append a block, that
+ * assumption breaks quietly and every one of those reads returns somebody else's
+ * output — or nothing at all, since a folded block renders no body.
+ */
+const nearby = await page.evaluate(() =>
+  [...document.querySelectorAll('.block')].slice(-4).map((b) => ({
+    cmd: (b.querySelector('.block__cmd')?.textContent ?? '').slice(0, 44),
+    open: b.querySelector('.block__head')?.getAttribute('aria-expanded') ?? '?',
+    body: (b.querySelector('.block__body')?.textContent ?? '').slice(0, 40)
+  }))
+)
+check(
+  'the last block is the command that just ran',
+  /WindowHeight/.test(nearby.at(-1)?.cmd ?? ''),
+  JSON.stringify(nearby)
+)
+
 // --- and a pane with no box keeps the width it had ----------------------------
 // Height is held across the stretches when the live view has no size. Width was
 // not: a pane that cannot be measured proposes no dimensions at all, which fell
@@ -303,6 +324,200 @@ check(
   'coming back to a session many times does not exhaust the GPU contexts',
   !gl.some((t) => /too many|context lost|will be lost/i.test(t)),
   JSON.stringify(gl.slice(0, 3))
+)
+
+/*
+ * Sessions still share one terminal host, and that is not checked here yet.
+ *
+ * The leaf is rendered unkeyed, so React reuses one component instance — and one
+ * host element — as the session changes underneath it; xterm will not move a
+ * terminal it has already opened, so each visited session leaves its own
+ * `.xterm` behind in that host. Two of them were measured in one host here.
+ *
+ * Keying the leaf and re-parenting the element does fix the count, and also
+ * changes which renderer the terminal ends up using: with the element moved
+ * rather than opened, `.xterm-screen` came back transparent and the five theme
+ * checks in verify.mjs — which read the palette off that element — all failed.
+ * The fix needs to keep the renderer's state intact across the move, which is
+ * its own piece of work rather than a line in this one.
+ */
+
+/*
+ * --- output typed ahead lands in the block it belongs to ------------------------
+ *
+ * feedCapture runs synchronously in write(), before xterm parses the chunk, and a
+ * `133;C` empties the one shared capture buffer. The previous block does not read
+ * that buffer until xterm reaches its `133;D`, which happens later — up to a
+ * megabyte later. So when `D(A)`, the prompt and `C(B)` arrive together, block A
+ * can be handed B's bytes and block B can come back empty.
+ *
+ * Typing while a command runs is exactly how that sequence is produced: the line
+ * editor sends the text to the pty, the shell buffers it, and it runs the instant
+ * the prompt returns. This is the audit's own scenario, and the audit calls the
+ * race inferred — so this check is what decides whether it is real.
+ */
+/*
+ * Driven through the composer, which is the only door a person has.
+ *
+ * Writing the two commands straight at the pty would provoke the collision far
+ * more reliably — but the composer is what decides whether a block is opened at
+ * all, and a test that skips it would be exercising a path nobody can reach and
+ * calling the result a block. That is how a suite comes to pass while the thing
+ * it names stays broken.
+ *
+ * A race that happens sometimes is still caught by asking repeatedly, and ten
+ * rounds cost seconds. Each round is a pair whose outputs must not cross: the
+ * first sleeps, the second is typed into that sleep and runs the moment the
+ * prompt returns, which is when `D(A)`, the prompt and `C(B)` arrive together.
+ */
+const crossed = []
+/** Rounds where the second command never reached the shell intact. */
+const missed = []
+for (let round = 0; round < 6; round += 1) {
+  const a = `AAA-${round}`
+  const b = `BBB-${round}`
+  await page.click('.composer__input')
+  /*
+   * Flooding, not sleeping, because the gap this is aiming at is a parsing gap.
+   *
+   * feedCapture runs inside write(), synchronously, while xterm parses what it
+   * was given later — in short slices, with as much as a megabyte outstanding.
+   * The collision needs `C(B)` to reach the splitter while xterm has still not
+   * reached `D(A)`, and a command that sleeps quietly prints nothing, so xterm
+   * is never behind and that window is never open. Thousands of lines put it
+   * thousands of lines behind, which is the state the report describes.
+   *
+   * The marker is printed first so the block's own line is at the top whatever
+   * happens to the flood after it.
+   */
+  await page.keyboard.type(
+    `Write-Output "${a}"; 1..3000 | ForEach-Object { "noise $_" }`,
+    { delay: 2 }
+  )
+  await page.keyboard.press('Enter')
+  /*
+   * Typed into the flood, once the line editor has the keyboard.
+   *
+   * At 250ms this landed during the handover — starting a command moves focus
+   * into the panel that forwards keys to the running program, and the first
+   * keystroke was swallowed on the way, so `Write-Output` reached the shell as
+   * `rite-Output`. The flood runs for seconds, so waiting longer costs none of
+   * the parser lag this is aiming at.
+   */
+  await sleep(700)
+  await page.keyboard.type(`Write-Output "${b}"`, { delay: 2 })
+  await page.keyboard.press('Enter')
+  /*
+   * Waited for by name, rather than by nothing being in flight.
+   *
+   * With one command typed into another there is a moment between them when no
+   * block is running at all: the first has finished and the second has not yet
+   * opened its own. A poll landing in that gap called it settled before the
+   * second command existed, and the pair read out was the previous round's —
+   * so the check failed for a reason with nothing to do with what it is about.
+   */
+  for (let i = 0; i < 80; i += 1) {
+    const state = await page.evaluate((marker) => {
+      const all = [...document.querySelectorAll('.block')]
+      return {
+        running: document.querySelectorAll('.block--running').length,
+        lastCmd: all[all.length - 1]?.querySelector('.block__cmd')?.textContent ?? '',
+        marker
+      }
+    }, b)
+    if (state.running === 0 && state.lastCmd.includes(b)) break
+    await sleep(250)
+  }
+  await sleep(600)
+
+  const pair = await page.evaluate(
+    ({ a, b }) => {
+      const all = [...document.querySelectorAll('.block')]
+      const last2 = all.slice(-2)
+      const bodies = last2.map((el) => el.querySelector('.block__body')?.textContent ?? '')
+      const cmds = last2.map((el) => el.querySelector('.block__cmd')?.textContent ?? '')
+      return {
+        secondCmd: cmds[1] ?? '',
+        first: bodies[0] ?? '',
+        second: bodies[1] ?? '',
+        firstHasOwn: (bodies[0] ?? '').includes(a),
+        firstHasOther: (bodies[0] ?? '').includes(b),
+        secondHasOwn: (bodies[1] ?? '').includes(b),
+        secondHasOther: (bodies[1] ?? '').includes(a)
+      }
+    },
+    { a, b }
+  )
+  /*
+   * A round counts only when the provocation actually landed.
+   *
+   * The second command has to reach the shell as written, and it does not
+   * always: typing into a command that is already running goes through the line
+   * editor, and a keystroke lost on the way turned `Write-Output` into
+   * `rite-Output`, which came back as an unknown command. That is this suite
+   * failing to set the situation up — condemning the code for it would be
+   * reporting the test's own mistake as a defect in what it is testing.
+   */
+  if (!pair.secondCmd.includes(b)) {
+    missed.push({ round, cmd: pair.secondCmd.slice(0, 40) })
+    continue
+  }
+  if (!pair.firstHasOwn || pair.firstHasOther || !pair.secondHasOwn || pair.secondHasOther) {
+    crossed.push({ round, ...pair })
+  }
+}
+check(
+  'output never crosses between a command and the one typed ahead of it',
+  crossed.length === 0,
+  JSON.stringify({ crossed: crossed.slice(0, 2), missedRounds: missed.length })
+)
+/*
+ * And the check above was in a position to find anything.
+ *
+ * If every round fails to type ahead, the loop reports no crossings and proves
+ * nothing whatever — a green light for a situation that never happened. Said
+ * out loud rather than left to be inferred from a passing run.
+ */
+check(
+  'the type-ahead landed in at least one round',
+  missed.length < 6,
+  JSON.stringify(missed)
+)
+
+/*
+ * Output arriving while nothing is running is still lost, and is not checked here.
+ *
+ * Keeping it means putting it in a block, and a block for it can only go at the
+ * end of the list — which breaks the assumption the check above pins, and which
+ * every helper in this file and ten other suites rest on: that the last block is
+ * the command you just ran. An attempt at it left a folded block after nearly
+ * every command, and a folded block renders no body at all, so four checks here
+ * began reading the most recent output as an empty string while the commands
+ * themselves had worked perfectly.
+ *
+ * It needs somewhere to live that is not the end of the block list, which is a
+ * change worth making on its own rather than bolting onto this one.
+ */
+
+/*
+ * --- and a trimmed block does not promise what history cannot keep --------------
+ *
+ * The live copy is capped at 512 KB of rendered HTML, and history keeps 100,000
+ * characters of plain text. Past that the block says "the full text is in history
+ * (Ctrl+R)", which for an output this size is simply untrue: history holds a
+ * seventh of it. Saying where something went is only worth doing while it is
+ * where you said.
+ */
+const huge = await run('1..8000 | ForEach-Object { "x" * 90 }', 150_000)
+check('a very long command still produces a block', huge.length > 1000, String(huge.length))
+const promise = await page.evaluate(() => {
+  const all = document.querySelectorAll('.block')
+  return all[all.length - 1]?.querySelector('.block__body')?.textContent?.slice(0, 300) ?? ''
+})
+check(
+  'a trimmed block does not claim history holds the full text',
+  !/full text is in history/i.test(promise),
+  JSON.stringify(promise.slice(0, 140))
 )
 
 /*
