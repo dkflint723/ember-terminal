@@ -207,6 +207,48 @@ const text = await page.evaluate(
 )
 check('typing still works after Ctrl+K', text.includes('ZZ'), text.slice(0, 100))
 
+
+/*
+ * --- the legends say what the keys actually are ---------------------------
+ *
+ * Every hint, legend and tooltip used to carry a chord typed by hand, which goes
+ * wrong two ways. A chord that moves in keys.ts leaves its mentions behind — that
+ * is how "Ctrl B files" outlived Ctrl+B becoming the session list — and someone
+ * who rebinds a command is told the old key for as long as the string sits there.
+ *
+ * So this rebinds one and looks at what the window says afterwards. The mode
+ * switch is the one with the most mentions: the welcome card, the retiring hint
+ * line under an empty pane, and a palette row.
+ */
+const legends = async () =>
+  page.evaluate(() => ({
+    hints: [...document.querySelectorAll('.pane__hints span, .pane__hello-list li')]
+      .map((el) => (el.textContent ?? '').replace(/\s+/g, ' ').trim())
+      .join(' | '),
+  }))
+
+const legendsBefore = await legends()
+check(
+  'the hints start on the default chord',
+  legendsBefore.hints.includes('Ctrl Shift I'),
+  legendsBefore.hints.slice(0, 120)
+)
+
+// Rebound through the same settings path the Shortcuts page writes.
+await page.evaluate(async () => {
+  await window.ember.setSettings({
+    keybindings: { 'mode.toggle': 'Ctrl+Shift+Y' }
+  })
+})
+await sleep(1200)
+
+const legendsAfter = await legends()
+check(
+  'and follow the command when it is rebound',
+  legendsAfter.hints.includes('Ctrl Shift Y') && !legendsAfter.hints.includes('Ctrl Shift I'),
+  legendsAfter.hints.slice(0, 160)
+)
+
 await app.close()
 profile.cleanup()
 fs.rmSync(work, { recursive: true, force: true })

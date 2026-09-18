@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { chordFor } from '../keys'
 import { parkModel, unparkModel, whenAskingIfShown } from '../editor/models'
 import type { AgentTurn, FileSaveResult, FileStamp } from '@shared/types'
 import { ENCODING_LABELS, type TextEncodingName } from '@shared/encoding'
@@ -2075,3 +2076,14 @@ export const useStore = create<Store>((set, get) => ({
  * was spelled when it was parked.
  */
 whenAskingIfShown((filePath) => useStore.getState().documentIsOpen(filePath))
+
+/**
+ * The chord a command answers to, as a component should ask for it.
+ *
+ * Subscribed to the overrides rather than read once, so rebinding a command
+ * updates every legend showing it without anything having to know they exist.
+ */
+export function useChord(id: string): string {
+  const overrides = useStore((s) => s.settings.keybindings)
+  return chordFor(id, overrides ?? {})
+}

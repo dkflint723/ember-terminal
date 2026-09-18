@@ -4,6 +4,22 @@ import { activeDocument, useStore, workspaceRoot } from '../state/store'
 import { isTrustedPath } from '@shared/trust'
 import { setTrust } from '../state/trust'
 import { QuickPick, type QuickPickItem } from './QuickPick'
+import { chordFor } from '../keys'
+
+/**
+ * The chord a palette row should show, read from the binding it has now.
+ *
+ * These were typed by hand, which goes wrong two ways: someone who rebinds a
+ * command is told the old key for as long as the string sits there, and a chord
+ * that moves in keys.ts leaves every mention of it behind. A row whose action no
+ * command performs gets no hint at all, rather than a key that does something
+ * else — which is what "Ask Claude — Ctrl+Shift+B" was.
+ *
+ * Read at build time rather than subscribed to: the list is rebuilt every time
+ * the palette opens, so a rebind is in it the next time it is seen.
+ */
+const hintFor = (id: string): string | undefined =>
+  chordFor(id, useStore.getState().settings.keybindings ?? {}) || undefined
 
 interface Props {
   /** Opens a file and reveals a position; shared with search results. */
@@ -244,7 +260,7 @@ function commands(): Command[] {
         {
           id: 'editor.format',
           label: 'Format Document',
-          hint: 'Shift+Alt+F',
+          hint: hintFor('editor.format'),
           run: () => runEditorAction('editor.action.formatDocument')
         },
         {
@@ -377,16 +393,19 @@ function commands(): Command[] {
         s.togglePanel()
       }
     },
-    { id: 'view.explorer', label: 'View: Explorer', hint: 'Ctrl+B', run: () => s.showSidebarView('explorer') },
-    { id: 'view.search', label: 'View: Search', hint: 'Ctrl+Shift+F', run: () => s.showSidebarView('search') },
-    { id: 'view.scm', label: 'View: Source Control', hint: 'Ctrl+Shift+G', run: () => s.showSidebarView('scm') },
-    { id: 'view.github', label: 'View: GitHub', hint: 'Ctrl+Shift+H', run: () => s.showSidebarView('github') },
+    { id: 'view.explorer', label: 'View: Explorer', /* No hint: Ctrl+B belongs to the side slot — the session list in the terminal, and in the
+       * IDE an open/close of whichever view was last shown. Neither selects the
+       * Explorer, which is what this row does. */
+      hint: undefined, run: () => s.showSidebarView('explorer') },
+    { id: 'view.search', label: 'View: Search', hint: hintFor('view.search'), run: () => s.showSidebarView('search') },
+    { id: 'view.scm', label: 'View: Source Control', hint: hintFor('view.scm'), run: () => s.showSidebarView('scm') },
+    { id: 'view.github', label: 'View: GitHub', hint: hintFor('view.github'), run: () => s.showSidebarView('github') },
     // Ctrl+O worked but was reachable only by knowing about it. A command that
     // exists and cannot be found is close to one that does not exist.
     {
       id: 'file.open',
       label: 'File: Open File…',
-      hint: 'Ctrl+O',
+      hint: hintFor('file.open'),
       run: () => {
         void (async () => {
           const res = await window.ember.openFileDialog()
@@ -394,7 +413,7 @@ function commands(): Command[] {
         })()
       }
     },
-    { id: 'view.problems', label: 'View: Problems', hint: 'Ctrl+Shift+M', run: () => s.showSidebarView('problems') },
+    { id: 'view.problems', label: 'View: Problems', hint: hintFor('view.problems'), run: () => s.showSidebarView('problems') },
     { id: 'view.settings', label: 'Preferences: Settings', hint: 'Ctrl+,', run: () => s.toggleSettings(true) },
     {
       id: 'ai.picker',
@@ -459,7 +478,7 @@ function commands(): Command[] {
     {
       id: 'pane.close',
       label: 'Close Pane',
-      hint: 'Ctrl+Shift+W',
+      hint: hintFor('pane.close'),
       run: () => tab && s.closePane(tab.id, tab.activePaneId)
     },
     // 'agent' rather than the toggle Ctrl+K performs: a command whose label is a
@@ -471,7 +490,10 @@ function commands(): Command[] {
     {
       id: 'ai.ask',
       label: 'Ask Claude',
-      hint: 'Ctrl+Shift+B',
+      /* No hint: Ctrl+Shift+B opens the Claude panel, and closes it again when it is already
+       * open. This row pins the composer at Claude. The chord it named was left over
+       * from an earlier life of that binding. */
+      hint: undefined,
       run: () => {
         const target = Object.values(s.panes).find((p) => p.kind === 'terminal')?.id
         if (target) s.requestAsk(target, 'agent')

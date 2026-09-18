@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useStore, type Block, type TerminalPaneState } from '../state/store'
+import { useChord, useStore, type Block, type TerminalPaneState } from '../state/store'
 import { useLearned } from '../composer/learned'
 import { getController } from '../terminal/controller'
 import { sendOrExplain } from '../terminal/typing'
@@ -43,6 +43,28 @@ const STRIP_CEILING = 88
 
 /** A block's header, for the one about to exist, when there is none to measure. */
 const NEW_BLOCK_PX = 44
+
+/**
+ * A chord drawn as keys, from the binding it currently has.
+ *
+ * Every legend in this app used to be typed out, so a rebind left them all saying
+ * the old key and a chord that moved in keys.ts left its mentions behind. "Ctrl B
+ * files" outlived Ctrl+B becoming the session list by several releases.
+ */
+function Chord({ id }: { id: string }): React.JSX.Element | null {
+  const chord = useChord(id)
+  if (!chord) return null
+  const keys = chord.split('+')
+  return (
+    <>
+      {keys.map((key, i) => (
+        <Fragment key={`${key}-${i}`}>
+          <kbd>{key}</kbd>{' '}
+        </Fragment>
+      ))}
+    </>
+  )
+}
 
 export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Element {
   const termHost = useRef<HTMLDivElement>(null)
@@ -400,12 +422,13 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
                   re-run it, search it.
                 </li>
                 <li>
-                  The same window is an IDE: <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>I</kbd>{' '}
+                  The same window is an IDE: <Chord id="mode.toggle" />
                   flips between them, files and all.
                 </li>
                 <li>
-                  Claude lives here too — <kbd>Ctrl</kbd> <kbd>K</kbd> asks for a command,{' '}
-                  <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>B</kbd> opens the conversation.
+                  Claude lives here too — <Chord id="composer.pin" />
+                  asks for a command, <Chord id="agent.panel" />
+                  opens the conversation.
                 </li>
               </ul>
               <button className="btn pane__hello-done" onClick={() => void finishFirstRun()}>
@@ -435,28 +458,32 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
                       the wrong half of the sentence to read while already in one. */}
                   {!knows('mode.toggle') && (
                     <span>
-                      <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>I</kbd>{' '}
+                      <Chord id="mode.toggle" />
                       {mode === 'ide' ? 'back to the terminal' : 'turn into an IDE'}
                     </span>
                   )}
                   {!knows('composer.pin') && (
                     <span>
-                      <kbd>Ctrl</kbd> <kbd>K</kbd> ask Claude for a command
+                      <Chord id="composer.pin" /> ask Claude for a command
                     </span>
                   )}
                   {!knows('slot.toggle') && (
                     <span>
-                      <kbd>Ctrl</kbd> <kbd>B</kbd> files
+                      {/* Named for what the key does here. It said "files", which is
+                          the IDE's half of this chord: in the terminal it is the
+                          session list, and this hint only ever appears in a terminal
+                          pane. */}
+                      <Chord id="slot.toggle" /> sessions
                     </span>
                   )}
                   {!knows('palette.files') && (
                     <span>
-                      <kbd>Ctrl</kbd> <kbd>P</kbd> go to file
+                      <Chord id="palette.files" /> go to file
                     </span>
                   )}
                   {!knows('palette.commands') && (
                     <span>
-                      <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>P</kbd> all commands
+                      <Chord id="palette.commands" /> all commands
                     </span>
                   )}
                 </div>

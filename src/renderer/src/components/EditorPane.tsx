@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { activeDocument, type EditorPaneState, useStore, workspaceRoot } from '../state/store'
+import { useChord, activeDocument, type EditorPaneState, useStore, workspaceRoot } from '../state/store'
 import { modelUri, monaco } from '../editor/monaco'
 import { applyMonacoTheme, MONACO_THEME_ID } from '../editor/theme'
 import { ensureLanguageServer, findDefinition } from '../editor/lsp'
@@ -90,6 +90,36 @@ function eolOf(eol: 'crlf' | 'lf'): monaco.editor.EndOfLineSequence {
  * server still considers those documents open, and reopening a file should not
  * throw away what the user did to it.
  */
+/**
+ * A chord as Monaco wants it, or null when it is not one Monaco can express.
+ *
+ * The editor registers actions of its own, and they carried their keys as
+ * literals — so rebinding Ask Claude or Format Document in Settings moved the
+ * app-wide chord and left the editor answering the old one. Monaco swallows a
+ * key it has bound before the global handler sees it, which made the editor the
+ * one place a rebind silently did not take.
+ */
+function monacoChordOf(chord: string): number | null {
+  if (!chord) return null
+  const parts = chord.split('+').map((p) => p.trim())
+  const key = parts.pop() ?? ''
+  let mods = 0
+  for (const part of parts) {
+    const mod = part.toLowerCase()
+    if (mod === 'ctrl' || mod === 'cmd') mods |= monaco.KeyMod.CtrlCmd
+    else if (mod === 'shift') mods |= monaco.KeyMod.Shift
+    else if (mod === 'alt') mods |= monaco.KeyMod.Alt
+    else return null
+  }
+  const codes = monaco.KeyCode as unknown as Record<string, number>
+  const named = /^[a-z]$/i.test(key)
+    ? codes['Key' + key.toUpperCase()]
+    : /^[0-9]$/.test(key)
+      ? codes['Digit' + key]
+      : codes[key]
+  return typeof named === 'number' ? mods | named : null
+}
+
 export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.Element {
   const host = useRef<HTMLDivElement>(null)
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
@@ -238,6 +268,15 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
   }, [])
 
   // Created once per pane; the model is swapped underneath it as tabs change.
+  /*
+   * The chords these actions answer to, from the bindings rather than from
+   * memory. Monaco swallows a key it has bound before the app-wide handler sees
+   * it, so an editor action left on a literal is the one place where rebinding a
+   * command in Settings quietly does not take.
+   */
+  const askChord = useChord('composer.pin')
+  const formatChord = useChord('editor.format')
+
   useEffect(() => {
     if (!host.current || editorRef.current) return
     applyMonacoTheme(theme)
@@ -459,7 +498,11 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     const formatAction = editor.addAction({
       id: 'ember.formatDocument',
       label: 'Format Document',
-      keybindings: [monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF],
+      // The chord the command answers to, not the one this was written with.
+      keybindings: [
+        monacoChordOf(formatChord) ??
+          (monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF)
+      ],
       run: (ed) => void ed.getAction('editor.action.formatDocument')?.run()
     })
 
@@ -505,7 +548,8 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     const askAction = editor.addAction({
       id: 'ember.askClaude',
       label: 'Ask Claude',
-      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK],
+      // The chord the command answers to, not the one it was born with.
+      keybindings: [monacoChordOf(askChord) ?? (monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK)],
       run: () => {
         const s = useStore.getState()
         const tab = s.tabs.find((t) => t.id === s.activeTabId)
@@ -561,7 +605,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     }
     // Intentionally created once per pane.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pane.id])
+  }, [pane.id, askChord, formatChord])
 
   // Swap the model when the active tab changes. Guarded so an unrelated re-render
   // does not reset the editor and lose the cursor.
@@ -605,6 +649,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
   useEffect(() => {
     if (active) editorRef.current?.focus()
   }, [active])
+
 
   const save = async (): Promise<void> => {
     const editor = editorRef.current

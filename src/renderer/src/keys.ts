@@ -432,6 +432,26 @@ export interface ResolvedBindings {
   conflicts: { chord: string; labels: string[] }[]
 }
 
+/**
+ * The chord a command answers to right now, for anything that shows one.
+ *
+ * Every hint, tooltip, legend and aria-keyshortcuts in this app used to carry a
+ * chord typed by hand, which is two problems rather than one. A user who rebinds
+ * a command is told the old key for as long as the string sits there; and a chord
+ * that moves in this file leaves every mention of it behind, which is how "Ctrl+B
+ * for files" outlived Ctrl+B becoming the session list, and how the README came to
+ * show a chord that had been moved before the screenshot was taken.
+ *
+ * Reading the overrides here rather than taking them as an argument keeps the call
+ * sites to one short name. Components should prefer the hook below, which
+ * re-renders when a binding changes.
+ */
+export function chordFor(id: string, overrides: Record<string, string>): string {
+  const command = COMMANDS.find((c) => c.id === id)
+  if (!command) return ''
+  return overrides[id] ?? command.chord
+}
+
 export function resolveBindings(overrides: Record<string, string>): ResolvedBindings {
   const byChord = new Map<string, Command>()
   const byId = new Map<string, string>()

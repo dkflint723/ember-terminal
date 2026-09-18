@@ -5,6 +5,41 @@ newest entry sits on top.
 
 ## Unreleased
 
+### The keys the app names are the keys it answers to
+
+- **Hints taught chords that did something else.** Every legend, tooltip and palette
+  hint carried a key typed out by hand, so a chord that moved in the keymap left its
+  mentions behind and a rebinding in Settings was never reflected anywhere. An empty
+  pane offered `Ctrl B` for **files** — in a terminal pane that key shows the session
+  list, and has since it was moved. They are read from the binding now, so they say
+  what the key does today and follow it when you change it.
+- **Two rows named a key for something they do not do.** *Ask Claude* in the palette
+  advertised `Ctrl+Shift+B`, which opens the Claude panel — and closes it again when
+  it is already open — where the row itself points the composer at Claude. *View:
+  Explorer* advertised `Ctrl+B`, which is the side slot: the session list in the
+  terminal, and in the IDE an open or close of whichever view was last shown.
+  Neither selects the Explorer. Nothing in the app performs either row's action from
+  a key, so neither row claims one now. The rail said `Explorer (Ctrl+B)` for the
+  same reason and no longer does.
+- **The editor ignored rebinding, quietly.** Monaco answers a key it has bound
+  before the app-wide handler sees it, so *Ask Claude* and *Format Document* stayed
+  on `Ctrl+K` and `Alt+Shift+F` however they were rebound — the one place a change
+  in Settings did nothing and said nothing. Both read their binding now, and are
+  registered again when it moves.
+- **"Every chord is rebindable in Settings" was not true.** Five of the twenty-nine
+  in that table belong to a control rather than to a command — `Ctrl+Enter`, `Ctrl+↑`,
+  `Ctrl+I`, `Tab` and `Shift+Tab` — and are answered where they are pressed, so the
+  Shortcuts page cannot reach them. The sentence says which.
+- **The screenshots are still wrong, and this does not fix them.** `docs/ide.png`
+  shows the title bar's Search everything pill reading `Ctrl+Shift+O`, a chord that
+  was moved to `Ctrl+Shift+A` before that picture was taken. Retaking them means
+  driving the app into the right state and capturing it, which is its own piece of
+  work.
+- **How it is checked.** *shortcuts from the editor* reads the legends, rebinds the
+  mode switch to `Ctrl+Shift+Y` through the settings path the Shortcuts page uses,
+  and reads them again: the new chord has to be there and the old one gone. On the
+  build before this they still said `Ctrl Shift I`.
+
 ### The caret stops going somewhere you cannot see it
 
 - **Escape handed the keyboard to a terminal that was not on screen.** While a pane

@@ -166,7 +166,9 @@ Grab `Ember-Setup-<version>.exe` from
 | `Ctrl+=` `-` `0` | Zoom |
 | `Ctrl+,` | Settings |
 
-Every chord is rebindable in Settings. The hints the app shows you retire
+Most of these are rebindable in Settings. Five are not, because they belong to a
+control rather than to a command and are answered where they are pressed: `Ctrl+Enter`,
+`Ctrl+↑`, `Ctrl+I`, `Tab` and `Shift+Tab`. The hints the app shows you retire
 themselves once you have pressed the key they were teaching, so the legends thin
 out as you learn them.
 
