@@ -389,7 +389,7 @@ function commands(): Command[] {
     { id: 'view.settings', label: 'Preferences: Settings', hint: 'Ctrl+,', run: () => s.toggleSettings(true) },
     {
       id: 'ai.picker',
-      label: 'Claude: Model and Effort…',
+      label: 'Claude: Model…',
       hint: modelLabel(s.settings.aiModel),
       run: () => s.requestAiPicker()
     },

@@ -431,7 +431,7 @@ interface Store {
    */
   askRequest: { paneId: string; n: number; how: 'toggle' | 'agent' } | null
   /**
-   * Bumped to open the model-and-effort switcher from somewhere that is not the
+   * Bumped to open the model switcher from somewhere that is not the
    * chip itself — the palette, for anyone who reaches for that first. A counter
    * rather than a flag, for the same reason as the ask request: asking twice has
    * to register as twice.
@@ -528,7 +528,7 @@ interface Store {
   /** Whether the directory browser is open over the workspace. */
   dirPicker: boolean
   setDirPicker(open: boolean): void
-  /** Open the Claude model-and-effort switcher. */
+  /** Open the Claude model switcher. */
   requestAiPicker(): void
   openPalette(mode: 'files' | 'commands' | 'global'): void
   closePalette(): void

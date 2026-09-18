@@ -118,11 +118,10 @@ function Usage({
 }
 
 /**
- * Which Claude answers, how hard it thinks, and what is left of the limits.
+ * Which Claude answers, and what is left of the limits.
  *
- * The first two lived in the settings dialog — the model as a text box you had to
- * know the id to fill in, and the effort not at all, since it was a constant in
- * main. That is the wrong place for either: the choice is made *while* asking
+ * The model lived in the settings dialog, as a text box you had to know the id to
+ * fill in. That is the wrong place for it: the choice is made *while* asking
  * something, and it changes with the question. A slow, careful model is right for
  * "why is this failing" and wrong for the next `git status`.
  *

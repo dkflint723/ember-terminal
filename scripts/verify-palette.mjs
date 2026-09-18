@@ -114,6 +114,19 @@ check(
   commands.some((c) => c.label.includes('Source Control')),
   commands.map((c) => c.label).slice(0, 6).join(' | ')
 )
+/*
+ * And naming only things that still exist.
+ *
+ * The palette is a second door onto other features, which means it is a second
+ * place their names go stale — and one nobody looks at while removing the feature
+ * itself. This caught "Claude: Model and Effort…" still offering an effort picker
+ * that had been removed from the menu it opens, in the commit that removed it.
+ */
+check(
+  'and naming nothing that was taken out',
+  !commands.some((c) => /effort|bypass/i.test(c.label ?? '')),
+  JSON.stringify(commands.map((c) => c.label).filter((l) => /effort|bypass/i.test(l ?? '')))
+)
 
 // Running one has to actually do the thing.
 await page.locator('.qp__box').fill('source control')
