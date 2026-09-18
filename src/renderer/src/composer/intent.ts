@@ -542,7 +542,53 @@ const FUNCTION_WORDS = new Set([
   'not',
   'so',
   'then',
-  'than'
+  'than',
+
+  /*
+   * Prepositions, and the negated auxiliaries.
+   *
+   * This is where the sentences that open with a command name were getting out.
+   * "exit code 1 from npm test" and "webpack build fails after upgrading to node
+   * 22" have no determiner and no pronoun anywhere in them — the preposition is
+   * the only word saying they are prose rather than arguments. Same for the
+   * negatives: "make clean didn't actually clean anything" is a complaint, and
+   * only "didn't" says so.
+   *
+   * The shell keywords that are also English words — if, while, until, for, do,
+   * then, done — are deliberately not here. A bash loop is a command line
+   * whatever it reads like, and this list is consulted by the rule that decides
+   * whether a semicolon joined two clauses or two commands.
+   */
+  'from',
+  'after',
+  'before',
+  'with',
+  'without',
+  'into',
+  'since',
+  'during',
+  'between',
+  'but',
+  'didnt',
+  "didn't",
+  'isnt',
+  "isn't",
+  'arent',
+  "aren't",
+  'wasnt',
+  "wasn't",
+  'werent',
+  "weren't",
+  'havent',
+  "haven't",
+  'hasnt',
+  "hasn't",
+  'couldnt',
+  "couldn't",
+  'wouldnt',
+  "wouldn't",
+  'shouldnt',
+  "shouldn't"
 ])
 
 /**
@@ -611,6 +657,16 @@ const ENGLISH_HYPHEN = /^(?:re|un|non|pre|post|self|co|de|anti|multi|semi|over|u
 /** A switch or a flag, in either the PowerShell or the GNU spelling. */
 const FLAG = /^-{1,2}[a-z]/i
 
+/*
+ * A token that opens a quoted run, which is an argument whatever is inside it.
+ *
+ * A search pattern is the case that matters: rg "is not a function" src is five
+ * words of plain English sitting in argument position, and reading them as prose
+ * sent a ripgrep invocation to the model. An apostrophe inside a word is not an
+ * opening quote, so "didn't" is still a word.
+ */
+const OPENS_QUOTE = /^["']/
+
 /**
  * Arguments rather than words: paths, globs, variables, extensions, drives.
  *
@@ -651,7 +707,27 @@ export function classifyIntent(buffer: string): Intent {
      * and a function word, because this rule is overruling the strongest signal
      * there is. Short lines like `docker ps?` stay shell.
      */
-    return question && tokens.length >= 4 && hasEnglishWord(rest) ? 'agent' : 'shell'
+    if (question && tokens.length >= 4 && (hasEnglishWord(rest) || !carriesArguments(rest))) {
+      return 'agent'
+    }
+
+    /*
+     * And without a question mark, because most of these are not asked — they
+     * are said.
+     *
+     * "npm install is slow" is a sentence about a command, and reading it as one
+     * installed packages named "is" and "slow". "pip install breaks my venv"
+     * pulled two more off PyPI, which is somebody else's typosquat waiting to
+     * happen. "exit code 1 from npm test" is the worst of the three: PowerShell's
+     * exit takes an expression, so it evaluated the rest and closed the shell.
+     * None of them has a question mark anywhere in it.
+     *
+     * What separates them from command lines is what they do not have. A command
+     * line that runs to four words has a flag, a path, a glob, a variable or an
+     * extension somewhere in it; prose has a function word and none of those.
+     */
+    if (readsAsProse(rest)) return 'agent'
+    return 'shell'
   }
 
   // An interrogative opener closed by a question mark is a question whatever
@@ -678,7 +754,21 @@ export function classifyIntent(buffer: string): Intent {
 
   if (question) return 'agent'
   if (QUESTION_OPENERS.has(first)) return 'agent'
-  if (REQUEST_OPENERS.has(first) && tokens.length > 1) return 'agent'
+  /*
+   * A request opener only opens a request when what follows reads like one.
+   *
+   * "build", "deploy" and "setup" are asked for in English and typed as
+   * commands, and what follows settles which: "build --release", "setup /quiet"
+   * and "deploy staging" are a project's own scripts being run, and all three
+   * went to the model. "deploy the app to staging" is a request and still is.
+   */
+  if (
+    REQUEST_OPENERS.has(first) &&
+    tokens.length > 1 &&
+    (hasEnglishWord(rest) || (!carriesArguments(rest) && tokens.length >= 4))
+  ) {
+    return 'agent'
+  }
   // Plenty of sentences open with neither: "the build is broken", "this keeps
   // failing", "it says permission denied". A determiner or pronoun in front of
   // more words is English with nothing else it could be — no command starts with
@@ -696,9 +786,9 @@ export function classifyIntent(buffer: string): Intent {
    * happens to know. A project's own script or a binary these lists have never
    * heard of is exactly the case that protects.
    */
-  const hasArguments = rest.some((t) => ARGUMENT_LIKE.test(t))
-  if (tokens.length > 6 && !hasArguments) return 'agent'
-  if (tokens.length > 2 && !hasArguments && hasEnglishWord(rest)) return 'agent'
+  const hasArgs = carriesArguments(rest)
+  if (tokens.length > 6 && !hasArgs) return 'agent'
+  if (tokens.length > 2 && !hasArgs && hasEnglishWord(rest)) return 'agent'
 
   // Unrecognised and short: almost always a command being typed, and shell is
   // the cheaper thing to be wrong about.
@@ -808,6 +898,26 @@ function isEnglishWord(token: string, followed: boolean): boolean {
   const word = wordOf(token)
   if (FUNCTION_WORDS.has(word)) return true
   return followed && QUANTIFIERS.has(word)
+}
+
+/**
+ * Whether anything after the head is the kind of token only a command line has:
+ * a flag, a path, a glob, a variable, a bare extension, a drive letter.
+ */
+function carriesArguments(rest: string[]): boolean {
+  return rest.some((token) => ARGUMENT_LIKE.test(token) || OPENS_QUOTE.test(token))
+}
+
+/**
+ * Whether what follows a command name is prose about it rather than arguments to
+ * it.
+ *
+ * Three words is the floor because two can still be a command's own arguments —
+ * "kill port 3000" is as likely to be typed as a command as said as a request,
+ * and where it is genuinely both the shell keeps it.
+ */
+function readsAsProse(rest: string[]): boolean {
+  return rest.length >= 3 && !carriesArguments(rest) && hasEnglishWord(rest)
 }
 
 /** Whether the tokens after the command name read as a sentence. */

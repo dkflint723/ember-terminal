@@ -5,6 +5,42 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A sentence about a command stops being a command
+
+- **"npm install is slow" installed two packages.** The composer reads what you
+  type and decides whether it is a command or a question, and a line starting with
+  a command name was a command however it went on — unless it ended in a question
+  mark, was at least four words, and had a determiner in it. Almost nothing people
+  actually type clears all three. So `npm install is slow` installed packages named
+  `is` and `slow`; `pip install breaks my venv` pulled two more off PyPI, which is
+  somebody else's typosquat waiting to happen; and `exit code 1 from npm test` was
+  the worst of them, because PowerShell's `exit` takes an expression — it evaluated
+  the rest of the sentence and closed the shell. `rm the old logs` deleted files
+  named the, old and logs. A line that runs to three or more words with a function
+  word in it and nothing a command line has — no flag, no path, no glob, no
+  variable, no extension — now goes to Claude, question mark or not.
+- **And the same rule the other way.** `build --release`, `deploy staging` and
+  `setup /quiet` are a project's own scripts, and all three went to the model
+  because they open with words people also ask in English. What follows settles it
+  now: a flag or a switch means the shell, and so does a bare second word.
+- **The vocabulary was missing the words that carry those sentences.** No
+  prepositions and no negated auxiliaries, so "webpack build fails after upgrading
+  to node 22" and "make clean didn't actually clean anything" had nothing in them
+  that said prose. The shell keywords that are also English — if, while, until,
+  for, do, then — are deliberately still absent: a bash loop is a command line
+  whatever it reads like.
+- **A quoted string is an argument, whatever it says.** `rg "is not a function" src`
+  is five words of plain English in argument position, and the rule above would
+  have sent a ripgrep invocation to the model.
+- **How it is checked.** *intent*, a new table of 124 lines somebody could
+  plausibly type, each with the destination it should have. 107 are settled. The
+  other 17 are written down as gaps and asserted to still be wrong, so that fixing
+  one fails the table and says to move it: prose that carries a flag or a path,
+  prose with no function word in it at all, and bare-word command lines long enough
+  to trip the length rule. Two of those gaps — "kill port 3000" and "restart nginx"
+  — are in the audit's own list, and its own prescription does not reach them
+  either. On the build before this, 25 of the settled lines went the wrong way.
+
 ### Rename works, and has never worked before
 
 - **F2 did nothing at all in TypeScript and JavaScript.** A rename comes back from
