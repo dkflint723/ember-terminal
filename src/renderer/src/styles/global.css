@@ -1970,6 +1970,21 @@ button {
   display: none;
 }
 
+/* Output that belongs to no command: the live view is revealed rather than a
+   block invented for it, and this says why it is suddenly there. */
+.pane__loose {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 16px 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background-color: var(--card-bottom);
+  color: var(--fg-dim, var(--fg));
+  font-size: 12px;
+}
+
 .live--idle {
   height: 0;
   margin: 0;

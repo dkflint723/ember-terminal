@@ -159,6 +159,15 @@ export interface TerminalPaneState extends BasePane {
   cleared?: Block[]
   /** Which blocks Clear took off, so a restore knows what not to bring back. */
   clearedIds?: string[]
+  /**
+   * Something was printed here while no command was running.
+   *
+   * Output is cut into blocks between a command's markers, and the live view is
+   * zero pixels tall while the pane is idle — so anything written outside a
+   * command had nowhere to appear at all. This is what turns the live view back
+   * on until it has been seen.
+   */
+  looseOutput?: boolean
 }
 
 /** One open file. Several share a pane, switched between by the tab strip. */

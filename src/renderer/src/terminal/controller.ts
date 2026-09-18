@@ -131,6 +131,28 @@ export class TerminalController {
 
   private capture = ''
   private capturing = false
+
+  /**
+   * Where the loose-output scan believes it is.
+   *
+   * Kept apart from `capturing`, which feedCapture maintains, and from the
+   * parser's own idea of the prompt: this walk happens before the terminal has
+   * parsed anything, so it has to carry its own place in the stream.
+   */
+  private looseCapturing = false
+  private looseInPrompt = false
+
+  /**
+   * Something was sent to the shell and has not been echoed back yet.
+   *
+   * This is what separates a background job from the command you just ran. Both
+   * arrive in the same stretch of the stream — after the prompt has finished
+   * drawing and before the next command's output begins — and the only thing that
+   * tells them apart is that one of them is an answer to something Ember wrote.
+   * Cleared by the marker that says the command has started, which is the end of
+   * the echo either way.
+   */
+  private awaitingEcho = false
   /** Set when output was dropped, so the block can say so rather than just lose it. */
   private captureTrimmed = false
 
@@ -272,11 +294,17 @@ export class TerminalController {
 
   private registerHandlers(): void {
     // Keystrokes always reach the shell, so Ctrl-C works whichever mode we're in.
-    this.disposers.push(this.term.onData((d) => window.ember.write(this.paneId, d)).dispose)
+    this.disposers.push(
+      this.term.onData((d) => {
+        this.awaitingEcho = true
+        window.ember.write(this.paneId, d)
+      }).dispose
+    )
     this.disposers.push(
       this.term.onBinary((d) => {
         const buf = new Uint8Array(d.length)
         for (let i = 0; i < d.length; i++) buf[i] = d.charCodeAt(i) & 0xff
+        this.awaitingEcho = true
         window.ember.write(this.paneId, String.fromCharCode(...buf))
       }).dispose
     )
@@ -398,6 +426,19 @@ export class TerminalController {
    */
   private static readonly REPAINT = /\x1b\[[23]J|\x1b\[(?:H|1;1H)\x1b\[[0-3]?J/g
 
+  /**
+   * A repaint, as conpty actually writes one here.
+   *
+   * REPAINT above is used with exec in a loop and carries its lastIndex around, so
+   * this is a separate, non-global copy — and a wider one. Conpty does not erase
+   * the display and redraw; it hides the cursor, goes home, and then erases and
+   * rewrites line by line, so the shape to look for is [?25l[H rather than
+   * an erase-display. Reading only the narrow form meant every resize replayed the
+   * prompt past this check and read as output from nowhere.
+   */
+  private static readonly LOOSE_REPAINT =
+    /\x1b\[\?25l\x1b\[H|\x1b\[[23]J|\x1b\[(?:H|1;1H)\x1b\[[0-3]?[JK]/
+
   private appendCapture(chunk: string): void {
     if (chunk.length === 0) return
     this.capture += chunk
@@ -505,8 +546,73 @@ export class TerminalController {
       void this.finishBlock(Number.isNaN(exitCode) ? 0 : exitCode)
       return
     }
-    // A (prompt start) and B (input start) need no handling: the prompt itself is
-    // never shown, because the input editor replaces it.
+    /*
+     * A and B are the prompt's own boundaries.
+     *
+     * The prompt is never drawn — the input editor stands where it would be — but
+     * knowing when it is being written is what separates it from output that has
+     * no command to belong to. Between A and B the shell is drawing its prompt;
+     * after B and before the next C, anything that arrives came from somewhere
+     * else.
+     */
+    // A and B are read by the loose-output scan instead, which walks the bytes
+    // before the parser reaches them.
+  }
+
+  /**
+   * Output that belongs to no command, noticed rather than swallowed.
+   *
+   * Blocks are cut between a command's start and end markers, and the live view is
+   * zero pixels tall while nothing is running — so a background job's writing, a
+   * server started with -NoNewWindow, or anything a profile prints after the
+   * prompt went to a terminal nobody could see.
+   *
+   * The reading has to be per stretch of bytes rather than per chunk, which is
+   * what the first version of this got wrong. A prompt arrives as one write
+   * holding the previous command's end marker, the prompt-start marker, the
+   * prompt itself and the prompt-end marker; asked afterwards, the terminal is
+   * idle and not in a prompt and the chunk plainly has text in it, so every
+   * ordinary prompt read as output from nowhere. So this walks the chunk, keeps
+   * its own idea of where it is, and only collects what falls outside both a
+   * command and a prompt.
+   *
+   * Two other things it refuses. A conpty repaint replays the screen — prompt and
+   * all — whenever the pty is resized, and carries the erase and home sequences
+   * that say so. And a stretch with no printable text in it is most of what a
+   * terminal says to itself.
+   */
+  private noteLooseOutput(data: string): void {
+    const MARKS = /\x1b\]133;([ABCD])[^\x07\x1b]*(?:\x07|\x1b\\)?/g
+    let idleText = ''
+    let at = 0
+    let mark: RegExpExecArray | null = MARKS.exec(data)
+    const collect = (upTo: number): void => {
+      if (this.looseCapturing || this.looseInPrompt || this.awaitingEcho) return
+      idleText += data.slice(at, upTo)
+    }
+    while (mark) {
+      collect(mark.index)
+      const kind = mark[1]
+      if (kind === 'A') {
+        this.looseInPrompt = true
+        // A fresh prompt means whatever was sent has been dealt with.
+        this.awaitingEcho = false
+      } else if (kind === 'B') this.looseInPrompt = false
+      else if (kind === 'C') {
+        this.looseCapturing = true
+        this.awaitingEcho = false
+      } else if (kind === 'D') this.looseCapturing = false
+      at = mark.index + mark[0].length
+      mark = MARKS.exec(data)
+    }
+    collect(data.length)
+
+    if (idleText.length === 0) return
+    if (TerminalController.LOOSE_REPAINT.test(idleText)) return
+    if (stripAnsi(idleText).trim().length === 0) return
+    const pane = this.store().terminalPane(this.paneId)
+    if (!pane || pane.looseOutput) return
+    this.store().patchPane(this.paneId, { looseOutput: true })
   }
 
   /**
@@ -515,6 +621,11 @@ export class TerminalController {
    */
   private beginOutput(): void {
     this.sawAltScreen = false
+    // Whatever arrived outside a command belongs to the last quiet stretch, and
+    // this is the end of it.
+    if (this.store().terminalPane(this.paneId)?.looseOutput) {
+      this.store().patchPane(this.paneId, { looseOutput: false })
+    }
     // A new command starts with no pending prompt, stale or otherwise.
     this.tail = ''
     if (this.store().terminalPane(this.paneId)?.awaitingSecret) {
@@ -1114,6 +1225,10 @@ export class TerminalController {
     // Order matters: the capture must be sliced before xterm parses the markers
     // and fires finishBlock.
     this.feedCapture(data)
+    // Before the parser, deliberately: this walk keeps its own place in the
+    // stream, and wants the bytes as they arrive rather than the state they leave
+    // behind.
+    this.noteLooseOutput(data)
     // The callback is xterm saying "parsed" — the acknowledgement that lets
     // main reopen the pty once the renderer has genuinely kept up, rather than
     // merely received. Without it a flooding command queues here unboundedly.
@@ -1144,12 +1259,14 @@ export class TerminalController {
    * list, or a log.
    */
   sendSecret(value: string): void {
+    this.awaitingEcho = true
     window.ember.write(this.paneId, `${value}\r`)
     this.tail = ''
     this.store().patchPane(this.paneId, { awaitingSecret: false })
   }
 
   send(data: string): void {
+    this.awaitingEcho = true
     window.ember.write(this.paneId, data)
   }
 

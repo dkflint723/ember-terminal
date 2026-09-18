@@ -72,6 +72,7 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
   const scroller = useRef<HTMLDivElement>(null)
   const toggleBlock = useStore((s) => s.toggleBlock)
   const patchConversation = useStore((s) => s.patchConversation)
+  const patchPane = useStore((s) => s.patchPane)
   const fontFamily = useStore((s) => s.settings.fontFamily)
   const fontSize = useStore((s) => s.settings.fontSize)
   const palette = useStore((s) => s.theme.terminal)
@@ -122,6 +123,16 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
   // has no blocks to show. Both present as an ordinary terminal.
   const plain = pane.integration === 'absent'
   const raw = pane.mode === 'raw' || plain
+  /*
+   * Output with no command to belong to gets the strip, not a block.
+   *
+   * A block was the first idea and it does not fit: blocks can only be appended,
+   * every helper in the suites reads the last one as the command that just ran,
+   * and a quiet block after each command left four checks reading an empty string
+   * where they expected output. The live terminal already holds these bytes — it
+   * is only zero pixels tall — so what is needed is to stop hiding it.
+   */
+  const loose = !raw && (pane.looseOutput ?? false)
 
   /*
    * Blocks when the terminal is the app; one continuous stream when it is a panel.
@@ -548,10 +559,23 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
         box changes. Full pane for full-screen programs, a strip while a command
         is running, collapsed to nothing when idle.
       */}
+      {loose && !running && (
+        <div className="pane__loose">
+          <span>Something was printed here outside any command.</span>
+          <button
+            className="btn"
+            onClick={() => patchPane(pane.id, { looseOutput: false })}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       <div
         ref={liveWrap}
-        className={`live ${raw ? 'live--raw' : running ? '' : 'live--idle'}`}
-        style={raw ? undefined : running ? { height: `${stripPct}%` } : undefined}
+        className={`live ${raw ? 'live--raw' : running || loose ? '' : 'live--idle'}`}
+        style={
+          raw ? undefined : running || loose ? { height: `${stripPct}%` } : undefined
+        }
       >
         <div ref={termHost} style={{ width: '100%', height: '100%' }} />
       </div>

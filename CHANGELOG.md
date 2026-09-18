@@ -5,6 +5,45 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Output with nowhere to go now has somewhere
+
+- **Anything printed outside a command was invisible.** Output becomes a block by
+  being cut between the markers a command prints around itself, and the live
+  terminal is zero pixels tall while nothing is running. So a background job
+  finishing, a server started with `-NoNewWindow`, or a profile that prints after
+  the prompt wrote into a terminal nobody could see. Nothing was lost — there was
+  simply nowhere it appeared. When something arrives with no command to belong to,
+  the live view is revealed with a line saying why, and a Dismiss that puts the
+  pane back as it was.
+- **It is shown rather than filed.** The first attempt at this made a block for it,
+  which does not work: blocks can only be appended, and every helper in the suites
+  reads the last one as the command that just ran — a quiet block after each
+  command had four checks reading an empty string where they expected output. The
+  bytes are already in the live terminal. What was needed was to stop hiding it.
+- **The difficult half was not noticing, it was not crying wolf.** Three things
+  arrive in exactly the same stretch of the stream and are none of them this, and
+  each one was found by watching what the app actually did rather than by reasoning
+  about it:
+  - The prompt, which comes as a single write holding the last command's end
+    marker, the prompt-start marker, the prompt itself and the prompt-end marker.
+    Asked after the terminal had parsed all of that, the pane was idle and the
+    chunk plainly had text in it, so every ordinary prompt read as output from
+    nowhere. The reading is per stretch of bytes now, with its own place in the
+    stream, rather than per chunk.
+  - The echo of the command you just typed, which lands in the same place a
+    background write does. What separates them is that one of them is an answer to
+    something Ember sent.
+  - The repaint conpty writes whenever the pty is resized, which replays the
+    prompt. The check for one was looking for an erase-display; conpty hides the
+    cursor, goes home and erases line by line instead, so every resize was reading
+    as text from nowhere.
+- **How it is checked.** *live terminal* starts a child that shares the console and
+  writes to it three seconds after its parent has finished, and asserts the pane
+  stays quiet until it speaks, shows it when it does, and goes quiet again on
+  Dismiss — with the ordinary command before it asserted quiet too, because a
+  notice that appeared after every command would be worse than the silence it
+  replaced.
+
 ### Saying only what is true
 
 - **Settings described the opposite of what restore does.** It said "Command output

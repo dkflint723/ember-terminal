@@ -688,6 +688,79 @@ await page.keyboard.press('Control+C')
 await sleep(1200)
 fs.rmSync(menuDir, { recursive: true, force: true })
 
+// --- output with no command to belong to -------------------------------------
+//
+// Blocks are cut between a command’s markers, and the live view is zero pixels
+// tall while nothing is running — so anything printed outside a command went to a
+// terminal nobody could see: a background job, a server started with
+// -NoNewWindow, a profile printing after the prompt. Nothing was lost; there was
+// simply nowhere it appeared.
+//
+// The hard half is not noticing the output, it is not crying wolf. Three things
+// arrive in the same stretch of the stream and are not this: the prompt itself,
+// the echo of the command you just typed, and the repaint conpty writes whenever
+// the pty is resized — which replays the prompt, so it reads exactly like text
+// from nowhere. All three are checked here, because a notice that appears after
+// every command would be worse than the silence it replaced.
+// Nothing of the section above still running: a pane with a command in it shows
+// the strip for that reason, which is not the reason under test here.
+const quietBy = Date.now() + 15_000
+while (Date.now() < quietBy && (await page.locator('.block--running').count()) > 0) {
+  await page.keyboard.press('Control+C')
+  await sleep(500)
+}
+await sleep(800)
+
+const liveState = () =>
+  page.evaluate(() => {
+    const live = document.querySelector('.live')
+    return {
+      idle: live?.classList.contains('live--idle') ?? null,
+      px: live ? Math.round(live.getBoundingClientRect().height) : 0,
+      notice: (document.querySelector('.pane__loose')?.textContent ?? '').slice(0, 48)
+    }
+  })
+
+const quiet = await liveState()
+check(
+  'an ordinary command leaves the pane quiet afterwards',
+  quiet.idle === true && quiet.notice === '',
+  JSON.stringify(quiet)
+)
+
+// A child that shares this console and writes to it after its parent has gone.
+await run(
+  "Start-Process -NoNewWindow powershell -ArgumentList '-NoProfile','-Command','Start-Sleep 3; Write-Host LATE-FROM-BACKGROUND'"
+)
+const beforeItSpeaks = await liveState()
+check(
+  'and starting a background writer does not by itself say anything',
+  beforeItSpeaks.idle === true && beforeItSpeaks.notice === '',
+  JSON.stringify(beforeItSpeaks)
+)
+
+const spokeBy = Date.now() + 25_000
+let spoke = await liveState()
+while (Date.now() < spokeBy && spoke.idle !== false) {
+  await sleep(400)
+  spoke = await liveState()
+}
+check(
+  'what it prints afterwards is shown rather than swallowed',
+  spoke.idle === false && spoke.px > 0 && /outside any command/.test(spoke.notice),
+  JSON.stringify(spoke)
+)
+
+await page.locator('.pane__loose .btn').click()
+await sleep(800)
+const dismissed = await liveState()
+check(
+  'and Dismiss puts the pane back the way it was',
+  dismissed.idle === true && dismissed.notice === '',
+  JSON.stringify(dismissed)
+)
+
+
 // --- one live terminal per pane, and that pane's own --------------------------
 //
 // xterm builds its element the first time open() is called and every call after
