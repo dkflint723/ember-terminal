@@ -226,6 +226,7 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
 
   useLayoutEffect(() => {
     if (termHost.current) controller.attach(termHost.current)
+    return () => controller.detach()
   }, [controller])
 
   // One observer covers pane resize, window resize, and mode changes.
@@ -348,6 +349,9 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
       // Reflects shell-integration state for styling and for the verify harness,
       // which must not have to infer readiness from UI label text.
       data-integration={pane.integration}
+      // And which pane this is, so a pane's own live terminal can be held against
+      // it rather than counted among every other pane's.
+      data-pane={pane.id}
     >
       {!raw && findOpen && (
         <FindBar
@@ -521,7 +525,13 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
         <div ref={termHost} style={{ width: '100%', height: '100%' }} />
       </div>
 
-      {!raw && <InputEditor pane={pane} controller={controller} />}
+      {/*
+        Keyed, like the pane itself: what is typed here is a line about to run in
+        this shell, and the state holding it is the component's own. Rendered
+        unkeyed, React handed the next session the same component — with the
+        previous session's draft still in it, one Enter away from running there.
+      */}
+      {!raw && <InputEditor key={pane.id} pane={pane} controller={controller} />}
 
       {/*
         Say why the block UI is missing, so a plain pane reads as a deliberate

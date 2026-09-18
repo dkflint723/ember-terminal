@@ -42,8 +42,19 @@ export function SplitView({ tabId, region, node, path, activePaneId }: Props): R
         />
       )
     }
+    /*
+     * Keyed by the pane, because a leaf is not a position.
+     *
+     * A session with one pane renders its leaf here rather than in the keyed list
+     * below, so switching sessions gave React the same element type in the same
+     * place: it kept the mounted TerminalPane and changed its prop. The host div
+     * survived with it, and every session visited added its terminal to that one
+     * div. Keyed, a different pane is a different component, and the one going away
+     * is unmounted — which is what hands its terminal back.
+     */
     return (
       <TerminalPane
+        key={pane.id}
         pane={pane}
         active={pane.id === activePaneId}
         onFocus={() => setActivePane(tabId, pane.id)}

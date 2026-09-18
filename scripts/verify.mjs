@@ -241,6 +241,7 @@ const themeIds = await page.evaluate(() =>
 )
 log('theme options:', JSON.stringify(themeIds.slice(0, 12)))
 
+const themeReadings = []
 const readTokens = () =>
   page.evaluate(() => {
     const cs = getComputedStyle(document.documentElement)
@@ -249,9 +250,23 @@ const readTokens = () =>
       bg: cs.getPropertyValue('--bg').trim(),
       fg: cs.getPropertyValue('--fg').trim(),
       accent: cs.getPropertyValue('--accent').trim(),
-      // Proves the palette reached xterm, not just the CSS.
-      xtermBg: getComputedStyle(document.querySelector('.xterm-screen') ?? document.body)
-        .backgroundColor
+      /*
+       * What the terminal is holding, read back out of xterm's own options by the
+       * controller and written onto its element.
+       *
+       * This used to read the computed background of the first .xterm-screen, or —
+       * behind a `??` — of document.body. Both readings were wrong, and together
+       * they could not fail. The screen element carries the background only while
+       * the DOM renderer is drawing it; the GPU renderer paints it into a canvas
+       * and leaves the element transparent, so the reading was really asking which
+       * renderer was running. And when the window had no terminal in it at all —
+       * which it did here, every time, because panes were leaving their terminals
+       * behind — it fell through to the body, whose background is the very token
+       * being compared. A check that reads --bg and compares it to --bg passes in
+       * an empty window.
+       */
+      termBg: document.querySelector('.live .xterm')?.getAttribute('data-term-bg') ?? null,
+      terminals: document.querySelectorAll('.live .xterm').length
     }
   })
 
@@ -270,15 +285,15 @@ for (const id of [
   await sleep(700)
   const tokens = await readTokens()
   log(`theme ${id} →`, JSON.stringify(tokens))
-  // Both halves: the document took the theme, and so did the terminal.
-  const hex = tokens.bg.replace('#', '')
-  const rgb =
-    hex.length === 6
-      ? `rgb(${parseInt(hex.slice(0, 2), 16)}, ${parseInt(hex.slice(2, 4), 16)}, ${parseInt(hex.slice(4, 6), 16)})`
-      : null
+  themeReadings.push({ id, ...tokens })
+  // Three halves, now that the third is askable: the document took the theme, a
+  // terminal is there to have taken it, and the one there is holding it.
   check(
     `theme ${id} reaches the page and the terminal`,
-    tokens.type === (id.endsWith('light') || id === 'paper' ? 'light' : 'dark') && rgb === tokens.xtermBg,
+    tokens.type === (id.endsWith('light') || id === 'paper' ? 'light' : 'dark') &&
+      tokens.terminals > 0 &&
+      typeof tokens.termBg === 'string' &&
+      tokens.termBg.toLowerCase() === tokens.bg.toLowerCase(),
     JSON.stringify(tokens)
   )
   await page.screenshot({ path: path.join(SHOT_DIR, `06-theme-${id}.png`) })

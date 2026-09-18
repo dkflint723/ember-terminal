@@ -5,6 +5,70 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A session's terminal is its own, and stays with it
+
+- **A second session showed you the first one's screen.** A session with a single
+  pane was drawn in a place React fills by position rather than by name, so
+  switching sessions kept the pane already mounted and handed it the next session's
+  shell. The element xterm draws into is built once and never moves — `open()`
+  returns having done nothing when it is called again — so every session visited
+  added its terminal to the first one's box, under the screen that was already
+  there. What you saw was a shell with nothing to do with the pane it was in, while
+  the keys went to the one underneath it. Measured on the build before this: three
+  terminals in one pane after ordinary use, four after a session switch. A pane is
+  keyed by the pane now, and a terminal is carried into whatever box its pane is
+  given.
+- **And splitting a pane left the one you split from blank.** Both halves get a new
+  box, and a terminal that was already open did not follow. Blocks kept arriving,
+  because they are cut from the bytes rather than read off the screen, so the pane
+  looked fine until something needed the screen: a full-screen program — vim, htop,
+  anything that takes the alternate screen — was handed the whole pane and drew
+  into nothing. Measured: a 676-pixel box with no terminal in it, taking every
+  keystroke.
+- **What you had half-typed followed you into the other session.** One composer
+  served them all, so `git push --force` typed in one repository and left there was
+  sitting in the next session's line, one Enter from running in that one instead.
+  Each pane's composer is its own now, and what it holds is kept for that pane:
+  switching away and back finds the line where you left it. Kept in memory only —
+  a line being typed is exactly where a password appears, and the session file is
+  written to disk.
+- **The terminal changed renderer halfway through a session.** The GPU renderer was
+  dropped and loaded again on every attach, which cost nothing while a pane
+  attached once and never again. Panes are things that unmount now, and coming back
+  to one asked that question a second time in front of a box with a size in it,
+  where the answer is different — so the terminal moved onto the GPU mid-session,
+  and left a graphics context behind on every visit. It is chosen once, when the
+  terminal is opened, and kept.
+- **A theme check that could not fail.** The suite proved the palette had reached
+  the terminal by reading the background of the first `.xterm-screen` in the window,
+  or — behind a `??` — of `document.body`. Both readings were wrong. The screen
+  element carries a background only while the DOM renderer is drawing; the GPU one
+  paints it into a canvas and leaves the element transparent, so the reading really
+  asked which renderer was running. And this window had no `.xterm-screen` in it at
+  all, for the reason above, so every reading came from the body — whose background
+  is the same token the check compares it to. A check that reads `--bg` and compares
+  it to `--bg` passes in an empty window. It now reads what xterm itself is holding,
+  and fails when there is no terminal there to ask.
+- **A password prompt could go unmasked, and the password into the composer with
+  it.** A no-echo prompt is found by reading the tail of what the shell has
+  printed, and `beginOutput` empties that tail at a command's start marker —
+  right for output that has not arrived yet, and wrong for output that arrived in
+  the same conpty chunk as the marker, which was read for a prompt and then thrown
+  away by the very bytes that carried it. What rescued it was the repaint from the
+  next pty resize, delivering the prompt a second time. That is a race, and with
+  panes no longer leaving their terminals behind it was losing about one run in
+  three: the composer stayed an ordinary composer and `Read-Host` took the
+  password into it in the clear, where the DOM had it. The tail is read after the
+  terminal has parsed the same bytes now, so it holds what it was always meant to
+  hold — what has been printed since the marker.
+- **How it is checked.** *live terminal* counts the terminals in each pane after a
+  new session, a switch back and a split, asks each pane whether the one it holds
+  is its own, and runs a full-screen program in the pane that was split away from.
+  On the build before this, all five of those failed: three terminals in one pane,
+  then four; the first session's line still in the second session's composer; and
+  after a split, `{"panes":2,"perPane":[0,1]}` — one pane with none, which then
+  took a full-screen program into an empty box.
+
 ### A block shows its own output, and only its own
 
 - **Finished output was reachable by the command that came next.** Output is

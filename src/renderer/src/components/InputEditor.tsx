@@ -14,6 +14,28 @@ import {
 import { sendToAgent } from './AgentPanel'
 import { refreshGitForCwd } from '../state/git'
 
+/**
+ * A line typed in a pane and not sent yet, kept for as long as that pane exists.
+ *
+ * The composer belongs to its pane now, which means it is unmounted with it — so
+ * what was half-typed in one session would be thrown away on the way to another.
+ * Before that it was worse: one composer served every session in turn and carried
+ * the draft along, so a `git push --force` typed in one repository was sitting in
+ * the next one's composer, an Enter away from running there.
+ *
+ * Held in memory and nowhere else. A command line being typed is exactly where a
+ * password appears, and session.json is a file on disk.
+ */
+const drafts = new Map<
+  string,
+  { value: string; override: Intent | null; attachments: AttachedBlock[] }
+>()
+
+/** Called when a pane goes away for good, so its draft does not outlive it. */
+export function forgetDraft(paneId: string): void {
+  drafts.delete(paneId)
+}
+
 interface Props {
   pane: TerminalPaneState
   controller: TerminalController
@@ -27,7 +49,7 @@ interface Props {
  */
 
 export function InputEditor({ pane, controller }: Props): React.JSX.Element {
-  const [value, setValue] = useState('')
+  const [value, setValue] = useState(() => drafts.get(pane.id)?.value ?? '')
 
   /*
    * What Enter will do, and which of the two decided it.
@@ -40,7 +62,9 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
    * them is speaking, so a reading that was guessed never passes for a decision.
    */
   const [detected, setDetected] = useState<Intent>('shell')
-  const [override, setOverride] = useState<Intent | null>(null)
+  const [override, setOverride] = useState<Intent | null>(
+    () => drafts.get(pane.id)?.override ?? null
+  )
   /**
    * What the label says. Only the label: every key that acts on the buffer reads it
    * again for itself, because `detected` is deliberately a moment behind and a key
@@ -64,10 +88,29 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
    * its output is read at send time from wherever it actually lives, so a chip
    * cannot go stale against the block it names.
    */
-  const [attachments, setAttachments] = useState<AttachedBlock[]>([])
+  const [attachments, setAttachments] = useState<AttachedBlock[]>(
+    () => drafts.get(pane.id)?.attachments ?? []
+  )
 
   const [history, setHistory] = useState<string[]>([])
   const [historyIdx, setHistoryIdx] = useState<number | null>(null)
+
+  /*
+   * The draft this pane would leave behind, kept current for the one moment it is
+   * read: the unmount. Written then rather than on every keystroke, because nothing
+   * looks at it until the composer is gone; an empty line is forgotten rather than
+   * stored as one.
+   */
+  const draft = useRef({ value, override, attachments })
+  draft.current = { value, override, attachments }
+  useEffect(
+    () => () => {
+      const d = draft.current
+      if (d.value.length > 0 || d.attachments.length > 0) drafts.set(pane.id, d)
+      else drafts.delete(pane.id)
+    },
+    [pane.id]
+  )
 
   /*
    * The repository this pane is standing in is read here and reported elsewhere.

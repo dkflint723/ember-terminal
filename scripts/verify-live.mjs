@@ -309,6 +309,31 @@ page.on('console', (m) => {
   if (/webgl|context/i.test(t)) gl.push(t)
 })
 
+/*
+ * Getting back to the pane that was typed in, by looking rather than by counting.
+ *
+ * Two ways that read as the obvious one are both wrong here. Ctrl+Tab walks the
+ * session list, and by this point in the run the window holds more than two
+ * sessions, so one press lands on a third. And the index of the active card,
+ * taken before the new session is made, does not survive the making of it — the
+ * list is not in the order it was. Either way the pane reached was one that had
+ * never been typed into, and its empty composer read as a draft that had been
+ * lost: the check was wrong, not the app. So: click sessions until the pane that
+ * was typed in is the active one, and say so when it is never reached.
+ */
+const goToPane = async (wanted, tries = 8) => {
+  const cards = await page.locator('.sessions__card').count()
+  for (let i = 0; i < Math.min(cards, tries); i++) {
+    await page.locator('.sessions__card').nth(i).click()
+    await sleep(1300)
+    const now = await page.evaluate(
+      () => document.querySelector('.pane--active')?.getAttribute('data-pane')?.slice(0, 8) ?? null
+    )
+    if (now === wanted) return true
+  }
+  return false
+}
+
 await page.keyboard.press('Control+Shift+T')
 await sleep(3000)
 for (let i = 0; i < 18; i += 1) {
@@ -662,6 +687,162 @@ await page.evaluate(() => {
 await page.keyboard.press('Control+C')
 await sleep(1200)
 fs.rmSync(menuDir, { recursive: true, force: true })
+
+// --- one live terminal per pane, and that pane's own --------------------------
+//
+// xterm builds its element the first time open() is called and every call after
+// that returns having done nothing, so a terminal stays in the host it first saw.
+// A session with one pane rendered its leaf unkeyed, which meant React kept the
+// mounted pane across a session switch and handed it the next session's props: the
+// same host div, now holding two terminals, the older one drawn over the newer.
+// Splitting was the other half — both leaves move into the keyed list, so the
+// original pane got a new host its terminal never followed it into, and a
+// full-screen program ran in an empty box with the keystrokes going somewhere
+// nobody could see.
+//
+// Measured on the build before the fix: a second session put two .xterm in the one
+// pane and carried the first session's draft into it, and a split left the original
+// pane with none at all — `{"panes":2,"perPane":[0,1]}` — then gave a full-screen
+// program a 676px box with nothing in it.
+const terminalsPerPane = () =>
+  page.evaluate(() => ({
+    panes: [...document.querySelectorAll('.pane:not(.editor)')].map((p) => {
+      const own = p.getAttribute('data-pane')
+      const terms = [...p.querySelectorAll('.live .xterm')]
+      return {
+        count: terms.length,
+        mine: terms.length > 0 && terms.every((t) => t.getAttribute('data-pane') === own),
+        screenPx: Math.round(p.querySelector('.xterm-screen')?.getBoundingClientRect().height ?? 0)
+      }
+    }),
+    loose: document.querySelectorAll('.live .xterm').length,
+    draft: document.querySelector('.pane--active .composer__input')?.value ?? null,
+    // Which pane was asked, so a failure names it rather than leaving it to be guessed.
+    activePane: document.querySelector('.pane--active')?.getAttribute('data-pane')?.slice(0, 8) ?? null,
+    composers: document.querySelectorAll('.composer__input').length,
+    raw: document.querySelectorAll('.live--raw').length,
+    running: document.querySelectorAll('.block--running').length
+  }))
+
+/*
+ * Nothing from the section above is still running, because a pane with a program in
+ * it gives what is typed to the program rather than to the composer — and every
+ * check below is about the composer.
+ *
+ * Bounded, and it says so when it gives up. Waiting without an end turns one
+ * program that ignored a Ctrl+C into a suite that never finishes: the menu above
+ * outlived its interrupt once, and the run sat there until it was killed by hand
+ * with nothing printed.
+ */
+const settleBlocks = async (ms = 15_000) => {
+  const deadline = Date.now() + ms
+  while (Date.now() < deadline && (await page.locator('.block--running').count()) > 0) {
+    await page.keyboard.press('Control+C')
+    await sleep(500)
+  }
+  await sleep(700)
+  return (await page.locator('.block--running').count()) === 0
+}
+check('the pane is back at a prompt before any of this is typed', await settleBlocks())
+
+// A line typed and left there, because it is the other thing that used to travel.
+await page.fill('.pane--active .composer__input', '')
+await page.click('.pane--active .composer__input')
+await page.keyboard.type('echo DRAFT-BELONGS-TO-A', { delay: 4 })
+await sleep(400)
+const alone = await terminalsPerPane()
+check(
+  'a line typed into a composer is in that composer',
+  alone.draft === 'echo DRAFT-BELONGS-TO-A',
+  JSON.stringify({ draft: alone.draft, pane: alone.activePane, composers: alone.composers })
+)
+check(
+  'a session draws one terminal, its own',
+  alone.panes.length === 1 && alone.panes[0].count === 1 && alone.panes[0].mine,
+  JSON.stringify(alone)
+)
+
+await page.keyboard.press('Control+Shift+T')
+await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
+await sleep(1800)
+const second = await terminalsPerPane()
+check(
+  'and so does the next session, rather than showing the first one as well',
+  second.panes.length === 1 && second.panes[0].count === 1 && second.panes[0].mine,
+  JSON.stringify(second)
+)
+check('with nothing left over anywhere else', second.loose === 1, JSON.stringify(second))
+check(
+  'whose composer is empty, not still holding what was typed next door',
+  second.draft === '',
+  JSON.stringify(second.draft)
+)
+
+const arrived = await goToPane(alone.activePane)
+await sleep(900)
+const returned = await terminalsPerPane()
+check(
+  'the pane that was typed in can be got back to',
+  arrived && returned.activePane === alone.activePane,
+  JSON.stringify({ wanted: alone.activePane, got: returned.activePane })
+)
+check(
+  'the session switched back to has its terminal again',
+  returned.panes.length === 1 && returned.panes[0].count === 1 && returned.panes[0].mine,
+  JSON.stringify(back)
+)
+check(
+  'and the line it was left in the middle of typing',
+  returned.draft === 'echo DRAFT-BELONGS-TO-A',
+  JSON.stringify({ draft: returned.draft, pane: returned.activePane, composers: returned.composers })
+)
+
+await page.keyboard.press('Control+Shift+D')
+await sleep(2500)
+const split = await terminalsPerPane()
+check(
+  'a split gives each pane a terminal, and each pane its own',
+  split.panes.length === 2 && split.panes.every((p) => p.count === 1 && p.mine),
+  JSON.stringify(split)
+)
+
+/*
+ * And the pane that was split away from can still be drawn on.
+ *
+ * The count above is satisfied by an element; this asks the harder question, which
+ * is whether the thing on screen is the terminal the program is writing to. A
+ * full-screen program takes the whole pane, so a pane whose terminal was left
+ * behind shows a tall empty box — which is what this did before the fix.
+ */
+const older = page.locator('.pane:not(.editor)').first()
+await older.locator('.composer__input').fill('')
+await older.locator('.composer__input').click()
+await page.keyboard.type(
+  '$e=[char]27; Write-Host "$e[?1049h"; Write-Host "SPLIT-ALT"; Start-Sleep -Seconds 5; Write-Host "$e[?1049l"',
+  { delay: 4 }
+)
+await page.keyboard.press('Enter')
+await sleep(2600)
+const rawSplit = await page.evaluate(() => {
+  const p = document.querySelector('.pane:not(.editor)')
+  const live = p?.querySelector('.live')
+  const screen = p?.querySelector('.live .xterm-screen')
+  return {
+    raw: live?.classList.contains('live--raw') ?? false,
+    count: p?.querySelectorAll('.live .xterm').length ?? -1,
+    mine: p?.querySelector('.live .xterm')?.getAttribute('data-pane') === p?.getAttribute('data-pane'),
+    boxPx: live ? Math.round(live.getBoundingClientRect().height) : 0,
+    screenPx: screen ? Math.round(screen.getBoundingClientRect().height) : 0
+  }
+})
+check(
+  'a full-screen program in that pane is drawn in it',
+  rawSplit.raw && rawSplit.count === 1 && rawSplit.mine && rawSplit.screenPx > 0,
+  JSON.stringify(rawSplit)
+)
+await settleBlocks(20_000)
+
+
 
 await app.close()
 profile.cleanup()

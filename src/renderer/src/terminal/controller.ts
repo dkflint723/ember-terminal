@@ -109,11 +109,9 @@ export class TerminalController {
    *
    * A controller is cached by pane id and outlives any element: only the active
    * session renders, so switching away unmounts the pane and switching back
-   * attaches again. Each attach used to load another WebGL addon onto the same
-   * terminal and leave the previous one loaded, and a browser hands out a fixed
-   * number of GL contexts before it starts refusing them.
+   * attaches again, and the listeners bound to the old element have to come off it
+   * rather than accumulate one set per visit.
    */
-  private webgl: WebglAddon | null = null
   private detachMenu: (() => void) | null = null
 
   /** Offscreen terminal used only to render captured output into HTML. */
@@ -960,11 +958,44 @@ export class TerminalController {
     // necessarily a first attach.
     this.detachMenu?.()
     this.detachMenu = null
-    this.webgl?.dispose()
-    this.webgl = null
 
-    this.term.open(container)
-    this.enableWebgl()
+    /*
+     * open() builds the terminal's element once and, ever after, returns having
+     * done nothing: xterm keeps the parent it was first given. A pane that unmounts
+     * and comes back is handed a new host element, so the terminal has to be
+     * carried over by hand. Without that, switching sessions left every terminal in
+     * the host it first saw — two of them stacked in the pane being looked at, the
+     * older one over the newer — and splitting a pane left the original with no
+     * terminal at all, so a full-screen program ran in an empty box.
+     */
+    const drawn = this.term.element
+    if (drawn) {
+      if (drawn.parentElement !== container) container.appendChild(drawn)
+    } else {
+      this.term.open(container)
+      /*
+       * And the renderer is chosen here, once, because this is the only moment it
+       * can be chosen the same way twice.
+       *
+       * It used to be dropped and loaded again on every attach. That was invisible
+       * while a pane attached once and never again: the box a pane is given while
+       * it sits idle is `height: 0`, a canvas of that size fails, and xterm falls
+       * back to the DOM renderer for the life of the terminal. Attaching again —
+       * which panes now do, having become things that unmount — asks the same
+       * question in front of a box with a size in it, gets the other answer, and
+       * moves the terminal onto the GPU halfway through a session. Nothing about a
+       * pane being shown again is a reason to change how it is drawn, and the
+       * change is not cosmetic: with the palette painted into a canvas rather than
+       * onto the screen element, five theme checks in verify.mjs stopped being able
+       * to see it, and a Read-Host prompt went unmasked with the typed secret in
+       * the DOM.
+       */
+      this.enableWebgl()
+    }
+    // Whose screen this is, for the verify harness — which otherwise has to count
+    // elements and hope — and for anyone reading the DOM to ask the same question.
+    this.term.element?.setAttribute('data-pane', this.paneId)
+    this.markPalette()
     this.refit()
 
     /*
@@ -1029,6 +1060,26 @@ export class TerminalController {
   }
 
   /**
+   * Give the host element back, and keep the terminal.
+   *
+   * A pane unmounts whenever its session is switched away from, or its layout
+   * changes, and the element it drew into goes with it. Nothing used to come off
+   * that element, so the terminal either stayed inside a div that had been thrown
+   * away, or — where React handed the same div to the next session — sat over that
+   * session's own terminal. What is kept is the terminal itself: the scrollback is
+   * in it, and the shell behind it is still running.
+   */
+  detach(): void {
+    this.detachMenu?.()
+    this.detachMenu = null
+    // The renderer stays loaded. A canvas keeps its context when it is moved, and
+    // one context per pane is what a pane already costs; dropping it here would
+    // mean choosing a renderer again on the way back in, which is the thing that
+    // must not happen twice.
+    this.term.element?.remove()
+  }
+
+  /**
    * Watch the tail of the output for a prompt asking for a secret. A rolling
    * window rather than the current chunk, because a prompt can be split across
    * pty reads.
@@ -1053,7 +1104,6 @@ export class TerminalController {
       const webgl = new WebglAddon()
       webgl.onContextLoss(() => webgl.dispose())
       this.term.loadAddon(webgl)
-      this.webgl = webgl
     } catch {
       // No GPU path available; the DOM renderer is still correct, just slower.
     }
@@ -1064,11 +1114,28 @@ export class TerminalController {
     // Order matters: the capture must be sliced before xterm parses the markers
     // and fires finishBlock.
     this.feedCapture(data)
-    this.detectSecretPrompt(data)
     // The callback is xterm saying "parsed" — the acknowledgement that lets
     // main reopen the pty once the renderer has genuinely kept up, rather than
     // merely received. Without it a flooding command queues here unboundedly.
-    this.term.write(data, () => window.ember.ptyAck(this.paneId, data.length))
+    this.term.write(data, () => {
+      /*
+       * Read for a no-echo prompt only after the parser has been through the same
+       * bytes, because the parser is what throws the reading away.
+       *
+       * `beginOutput` empties the rolling tail at a start marker and puts
+       * `awaitingSecret` back to false — right, for output that has not arrived
+       * yet. Reading first meant a prompt that shared a conpty chunk with that
+       * marker was detected and then immediately undetected by the same bytes,
+       * and the only thing that saved it was the repaint from the next pty
+       * resize delivering the prompt a second time. That is a race, and it was
+       * losing about one run in three: the composer stayed an ordinary composer
+       * and the password was typed into it in the clear. Reading afterwards, the
+       * tail holds what the terminal has parsed since the marker, which is what
+       * it was always meant to hold.
+       */
+      this.detectSecretPrompt(data)
+      window.ember.ptyAck(this.paneId, data.length)
+    })
   }
 
   /**
@@ -1214,6 +1281,23 @@ export class TerminalController {
     // The offscreen terminal must match, or already-captured blocks would be
     // serialized with the previous theme's colours.
     this.renderTerm.options.theme = theme
+    this.markPalette()
+  }
+
+  /**
+   * The background xterm is holding, written where it can be read.
+   *
+   * Read back out of `term.options` rather than from the palette this was handed,
+   * so it says what the terminal took rather than what it was offered. It is on the
+   * element because the alternative is unreadable: the screen element carries the
+   * background only while the DOM renderer is drawing, and is transparent whenever
+   * the GPU one is — so a harness reading the screen's computed background is
+   * really asking which renderer is running, and got told the palette was missing
+   * by a terminal that had it.
+   */
+  private markPalette(): void {
+    const bg = this.term.options.theme?.background
+    if (typeof bg === 'string') this.term.element?.setAttribute('data-term-bg', bg)
   }
 
   focus(): void {

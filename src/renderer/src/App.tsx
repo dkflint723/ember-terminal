@@ -10,6 +10,7 @@ import { ActivityBar } from './components/ActivityBar'
 import { Sidebar } from './components/Sidebar'
 import { Palette } from './components/Palette'
 import { disposeController } from './terminal/controller'
+import { forgetDraft } from './components/InputEditor'
 import { activateTheme, refreshThemeList } from './state/theming'
 import { refreshGitStatus, useGitStatusPolling } from './state/git'
 import { useDiskChecking } from './state/disk'
@@ -468,7 +469,12 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     const live = new Set(Object.keys(panes))
     return () => {
-      for (const id of live) if (!useStore.getState().panes[id]) disposeController(id)
+      for (const id of live) {
+        if (useStore.getState().panes[id]) continue
+        disposeController(id)
+        // And the draft its composer left behind, which nothing can reach now.
+        forgetDraft(id)
+      }
     }
   }, [panes])
 
