@@ -522,7 +522,20 @@ export class LspService {
       // client's own initialize carries. The workspace in this copy is kept
       // current by setRoot, so a replay after a crash lands on the folder that
       // is open now rather than the one that was open at the first start.
-      this.initRequests.set(language, outgoing as Record<string, unknown>)
+      /*
+       * Stored canonical, because this copy is written to the wire by a path that
+       * does not canonicalise.
+       *
+       * restart() replays it verbatim, and setRoot keeps it current by writing
+       * pathToFileURL(root).href into it — which preserves the drive's case and
+       * leaves the colon unencoded. So a server that had been re-rooted at
+       * file:///d:/... on a clean start came back after a crash rooted at
+       * file:///D:/git_projects/Terminal, while every didOpen on the same
+       * connection still said file:///d:/git_projects/terminal. A server keyed by
+       * string finds nothing under the other spelling, which is the silent way
+       * this fails.
+       */
+      this.initRequests.set(language, normalizeUris(outgoing) as Record<string, unknown>)
     }
 
     // A message sent while the server is being brought back would reach a
@@ -891,7 +904,12 @@ export class LspService {
     const result = this.clientResult(language, request.method, request.params)
     if (result === undefined) return false
 
-    this.write(language, { jsonrpc: '2.0', id: request.id, result })
+    // Through the canonicaliser like everything else on this wire. The
+    // workspace/workspaceFolders answer is built from pathToFileURL, so without
+    // this a server that asks which folders are open — pyright and
+    // typescript-language-server both do, on every start — is told a spelling no
+    // document it is ever sent will match. No crash required for that one.
+    this.write(language, normalizeUris({ jsonrpc: '2.0', id: request.id, result }))
     return true
   }
 

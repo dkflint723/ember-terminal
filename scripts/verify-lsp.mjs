@@ -226,6 +226,13 @@ async function run(language) {
     }
   }
 
+  const ui = await page.evaluate(() => ({
+    language: document.querySelector('.editor__lang')?.textContent ?? null,
+    // A marker reaches the user as a squiggle, so that is what gets asserted.
+    errorSquiggles: document.querySelectorAll('.squiggly-error').length,
+    hoverText: document.querySelector('.monaco-hover')?.textContent ?? ''
+  }))
+
   /*
    * F2, by the road a person takes to it.
    *
@@ -238,16 +245,39 @@ async function run(language) {
     const word = page
       .locator('.view-line span[class*="mtk"]', { hasText: spec.rename.word })
       .first()
-    await word.dblclick()
-    await sleep(400)
-    await page.keyboard.press('F2')
-    await sleep(1200)
+    // Guarded like the hover above it: a selector that matches nothing should
+    // report that, not throw and take the rest of the language's run with it.
+    const found = (await word.count()) > 0
+    if (found) {
+      await word.dblclick()
+      await sleep(400)
+      await page.keyboard.press('F2')
+    }
+    /*
+     * Waited for, not slept through.
+     *
+     * Both halves of this are a server round-trip — prepareRename opens the box,
+     * and the rename itself fills the map — and this file has twice deleted a
+     * fixed sleep that was standing in for one. The deadline is long because a
+     * loaded machine is the case that breaks these, and the wait ends the moment
+     * the thing arrives.
+     */
     const box = page.locator('.rename-box input, .monaco-editor input.rename-input').first()
-    const opened = (await box.count()) > 0
+    const boxBy = Date.now() + 20_000
+    while (found && Date.now() < boxBy && (await box.count()) === 0) await sleep(200)
+    const opened = found && (await box.count()) > 0
     if (opened) {
       await box.fill(spec.rename.to)
       await page.keyboard.press('Enter')
-      await sleep(3000)
+      const editBy = Date.now() + 25_000
+      while (Date.now() < editBy) {
+        const text = await page.evaluate(() =>
+          [...document.querySelectorAll('.view-line')].map((l) => l.textContent ?? '').join(' ')
+        )
+        if (text.includes(spec.rename.to)) break
+        await sleep(250)
+      }
+      await sleep(400)
     }
     rename = {
       opened,
@@ -256,13 +286,6 @@ async function run(language) {
       )
     }
   }
-
-  const ui = await page.evaluate(() => ({
-    language: document.querySelector('.editor__lang')?.textContent ?? null,
-    // A marker reaches the user as a squiggle, so that is what gets asserted.
-    errorSquiggles: document.querySelectorAll('.squiggly-error').length,
-    hoverText: document.querySelector('.monaco-hover')?.textContent ?? ''
-  }))
 
   await app.close()
 
@@ -295,6 +318,16 @@ function check(language, { spec, ui, lines, rename }) {
    * rename already stood down, there was nothing left to cover for it.
    */
   if (spec.rename) {
+    /*
+     * The edits came from the server, not from Monaco's own bundled rename.
+     *
+     * Without this the check says only that the text changed, which a working
+     * bundled provider would also satisfy — and the bundled one is supposed to
+     * be stood down while a language server is running. The request on the wire
+     * is what distinguishes "rename works" from "something renamed it".
+     */
+    const asked = sent.some((m) => m?.method === 'textDocument/rename')
+    if (!asked) failures.push('no textDocument/rename reached the server')
     if (!rename?.opened) failures.push('F2 did not open a rename box')
     else {
       const hits = rename.text.split(spec.rename.to).length - 1
@@ -334,6 +367,10 @@ function check(language, { spec, ui, lines, rename }) {
     if (Array.isArray(v)) return v.forEach(collect)
     if (typeof v !== 'object' || v === null) return
     for (const [k, item] of Object.entries(v)) {
+      // A URI that is the key, which is how a rename names the file it edits.
+      // Reading only values under a key called "uri" left this blind to exactly
+      // the spelling that made F2 do nothing.
+      if (k.startsWith('file://') && k.includes(spec.file)) uris.add(k)
       if (k === 'uri' && typeof item === 'string' && item.includes(spec.file)) uris.add(item)
       else collect(item)
     }

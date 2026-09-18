@@ -56,6 +56,16 @@ newest entry sits on top.
   left to cover for it. Keys that are file URIs are canonicalised now, the same way
   values always were. A diagnostic report's `relatedDocuments` is keyed the
   same way, and is covered by the same rule.
+- **A symbol mentioned in a file you do not have open still cannot be renamed.**
+  The server answers with the edits for every file in the project that mentions it,
+  and the editor turns each into a buffer before applying any of them. A file with
+  no buffer throws partway through that loop, and the rename is abandoned whole —
+  including the edits to the file you were looking at. So what is fixed here is
+  renaming what is in front of you: a local symbol, or one whose every mention is
+  open. Renaming an exported symbol across a project needs the editor to load the
+  files it is about to change, which is a larger piece of work and is not this one.
+  It fails the way it always did, which is silently: the message goes to the
+  console.
 - **How it is checked.** *multi-language lsp* renames a symbol used twice in an open
   TypeScript file, by pressing F2 the way a person would, and asserts the new name
   reached both mentions and the old one is gone. On the build before this it reached
