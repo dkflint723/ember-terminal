@@ -12,10 +12,20 @@ import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
 import * as http from 'node:http'
+import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 const profile = newProfile('ai')
+/*
+ * Seeded as a machine that once chose Bypass would be, because the interesting
+ * question is what happens to that choice now that there is nothing to honour it.
+ */
+fs.writeFileSync(
+  path.join(profile.dir, 'settings.json'),
+  JSON.stringify({ aiMode: 'bypass', aiEffort: 'max' }),
+  'utf8'
+)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 const received = []
@@ -150,6 +160,58 @@ const errorText = await page.evaluate(
 )
 check('an auth failure says what happened', errorText.includes('API key'), errorText)
 check('and nothing keeps streaming', (await page.locator('.agent__cursor').count()) === 0)
+
+// --- the chip offers no mode, because there is no longer one to offer ----------
+//
+// Auto and Bypass were implemented once — an answer ran on arrival unless the model
+// had flagged its own proposal as hard to undo — and the panel move deleted the
+// running, the flag and the effort field while leaving the menu. So for several
+// releases the app asked how much rope to hand a model and then did the same thing
+// whichever was picked: Manual read as a safeguard that was not doing anything, and
+// Bypass read as a danger that was not real. What is asserted here is an absence.
+await page.click('.statusbar__claude')
+await sleep(700)
+const menu = await page.evaluate(() => {
+  const m = document.querySelector('.claude__menu')
+  if (!m) return null
+  return {
+    headings: [...m.querySelectorAll('.claude__heading')].map((h) => h.textContent?.trim() ?? ''),
+    items: [...m.querySelectorAll('.claude__name')].map((n) => n.textContent?.trim() ?? ''),
+    chip: document.querySelector('.statusbar__claude')?.textContent?.trim() ?? ''
+  }
+})
+check('the Claude chip opens its menu', menu !== null)
+check(
+  'which has no Mode section',
+  !!menu && !menu.headings.some((h) => /^Mode/.test(h)),
+  JSON.stringify(menu?.headings)
+)
+check(
+  'and no effort picker, which reached no request',
+  !!menu && !menu.headings.some((h) => /^Effort/.test(h)),
+  JSON.stringify(menu?.headings)
+)
+check(
+  'and nothing in it that offers to run commands on their own',
+  !!menu && !menu.items.some((i) => /^(Manual|Auto|Bypass)$/i.test(i)),
+  JSON.stringify(menu?.items)
+)
+check(
+  'and the chip says the model and nothing about a mode',
+  !!menu && !/manual|auto|bypass/i.test(menu.chip),
+  menu?.chip
+)
+
+// Picking a model writes the settings file, which is where a carried-over mode
+// would reappear: the merge keeps whatever the file holds unless something drops it.
+await page.locator('.claude__item').first().click()
+await sleep(1400)
+const saved = JSON.parse(fs.readFileSync(path.join(profile.dir, 'settings.json'), 'utf8'))
+check(
+  'and a mode stored by an older build is dropped rather than written back',
+  saved.aiMode === undefined && saved.aiEffort === undefined,
+  JSON.stringify({ aiMode: saved.aiMode, aiEffort: saved.aiEffort })
+)
 
 await app.close()
 server.close()

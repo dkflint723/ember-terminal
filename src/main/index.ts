@@ -119,8 +119,6 @@ const SHARED_SETTINGS = [
   'ghostModel',
   'ghostDebounceMs',
   'aiModel',
-  'aiEffort',
-  'aiMode',
   'formatOnSave',
   'notifyAfterSeconds',
   'autoSaveAfterSeconds'

@@ -1,15 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AiCredential, AiLimit, AiUsage } from '@shared/types'
-import {
-  AI_EFFORTS,
-  AI_MODELS,
-  AI_MODES,
-  modeChoice,
-  modelLabel,
-  supportsEffort,
-  type AiEffort,
-  type AiMode
-} from '@shared/models'
+import { AI_MODELS, modelLabel } from '@shared/models'
 import { useStore } from '../state/store'
 
 /** "4 minutes ago", for a reading whose whole meaning depends on how old it is. */
@@ -152,10 +143,6 @@ export function ClaudeStatus(): React.JSX.Element {
   const first = useRef<HTMLButtonElement>(null)
 
   const model = settings.aiModel
-  const effort = settings.aiEffort
-  const effortAllowed = supportsEffort(model)
-  const mode = settings.aiMode
-  const modeInfo = modeChoice(mode)
 
   // The palette's way in, on the same counter pattern the Ask Claude request uses:
   // a number rather than a boolean, so asking twice registers as twice.
@@ -216,11 +203,7 @@ export function ClaudeStatus(): React.JSX.Element {
    * picked, and a Save button between the two would make the quick change slower
    * than the settings dialog it replaces.
    */
-  const choose = async (patch: {
-    aiModel?: string
-    aiEffort?: AiEffort
-    aiMode?: AiMode
-  }): Promise<void> => {
+  const choose = async (patch: { aiModel?: string }): Promise<void> => {
     setBusy(true)
     try {
       const res = await window.ember.setSettings(patch)
@@ -238,23 +221,19 @@ export function ClaudeStatus(): React.JSX.Element {
         className={`statusbar__item statusbar__claude ${open ? 'statusbar__claude--open' : ''}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`Claude: ${modelLabel(model)}${effortAllowed ? `, ${effort} effort` : ''}, ${modeInfo.label.toLowerCase()} mode — ${modeInfo.note} Change mode, model, effort, or see limits`}
-        title={`Claude mode, model, effort and limits — ${modeInfo.note}`}
+        aria-label={`Claude: ${modelLabel(model)} — change the model, or see limits`}
+        title="Claude model and limits"
         onClick={() => setOpen((o) => !o)}
       >
+        {/* The model, and nothing beside it. What used to sit here was the mode,
+            stated on the grounds that what an agent may do unattended should not be
+            a fact you have to go looking for. It is not stated any more because
+            there is no longer anything for it to say: nothing runs unattended. */}
         ✦ {modelLabel(model)}
-        {effortAllowed && <span className="statusbar__sub">· {effort}</span>}
-        {/* Always stated, including the careful one. What the agent is allowed to do
-            on its own is not the kind of fact that should only appear once it has
-            become surprising — and in the one mode that can run something
-            irreversible unattended, it is coloured like the risk it is. */}
-        <span className={`statusbar__sub ${modeInfo.risky ? 'statusbar__sub--risky' : ''}`}>
-          · {modeInfo.label.toLowerCase()}
-        </span>
       </button>
 
       {open && (
-        <div className="claude__menu" role="menu" aria-label="Claude model and effort">
+        <div className="claude__menu" role="menu" aria-label="Claude model and limits">
           {/*
             First, because it is the one thing here that is read rather than
             chosen — someone opening this to see what is left should not have to
@@ -273,28 +252,6 @@ export function ClaudeStatus(): React.JSX.Element {
           </div>
           <Usage usage={usage} credential={credential} error={usageError} />
 
-          {/*
-            Above the model and the effort because it is the only thing in this
-            menu that changes what the app *does* rather than how well it answers —
-            and the only one worth finding in a hurry.
-          */}
-          <div className="claude__heading claude__heading--rule">Mode</div>
-          {AI_MODES.map((m) => (
-            <button
-              key={m.mode}
-              className={`claude__item ${m.mode === mode ? 'claude__item--on' : ''} ${
-                m.risky ? 'claude__item--risky' : ''
-              }`}
-              role="menuitemradio"
-              aria-checked={m.mode === mode}
-              disabled={busy}
-              onClick={() => void choose({ aiMode: m.mode })}
-            >
-              <span className="claude__name">{m.label}</span>
-              <span className="claude__note">{m.note}</span>
-            </button>
-          ))}
-
           <div className="claude__heading claude__heading--rule">Model</div>
           {AI_MODELS.map((m, i) => (
             <button
@@ -311,23 +268,6 @@ export function ClaudeStatus(): React.JSX.Element {
             </button>
           ))}
 
-          <div className="claude__heading">
-            Effort
-            {!effortAllowed && <span className="claude__note"> — not taken by this model</span>}
-          </div>
-          {AI_EFFORTS.map((e) => (
-            <button
-              key={e.level}
-              className={`claude__item ${e.level === effort ? 'claude__item--on' : ''}`}
-              role="menuitemradio"
-              aria-checked={e.level === effort}
-              disabled={busy || !effortAllowed}
-              onClick={() => void choose({ aiEffort: e.level })}
-            >
-              <span className="claude__name">{e.level}</span>
-              <span className="claude__note">{e.note}</span>
-            </button>
-          ))}
 
           {/* A model typed into settings that is not on the list still runs; this is
               where it becomes visible, since the chip can only show its id. */}

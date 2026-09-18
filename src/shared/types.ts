@@ -1,7 +1,6 @@
 /** Types shared across main, preload, and renderer. */
 
 import type { ResolvedTheme, ThemeSummary } from './theme.js'
-import type { AiEffort, AiMode } from './models.js'
 import type { TextEncodingName } from './encoding.js'
 
 export interface ShellProfile {
@@ -896,22 +895,6 @@ export interface Settings {
    */
   anthropicApiKey: string | null
   aiModel: string
-  /**
-   * How hard Claude thinks before answering. Low by default because the request
-   * this app makes most often is one command line, where the wait is the thing
-   * being felt — the switcher beside the prompt is there to raise it for the
-   * questions that deserve it.
-   */
-  aiEffort: AiEffort
-  /**
-   * How much the agent may do without being asked.
-   *
-   * Manual by default, and deliberately so: this is a terminal, the proposal is a
-   * real command line, and the difference between the three settings is whether a
-   * sentence written by a model reaches a shell without anyone reading it first.
-   * Someone who wants that can say so; nobody should get it by not choosing.
-   */
-  aiMode: AiMode
   /** Shells the user added by hand, served alongside the detected ones. */
   customProfiles: CustomProfile[]
   /** Commands the user keeps, listed beside a project's own scripts. */
@@ -1069,8 +1052,6 @@ export const DEFAULT_SETTINGS: Settings = {
   themeId: 'tidewater',
   anthropicApiKey: null,
   aiModel: 'claude-opus-5',
-  aiEffort: 'low',
-  aiMode: 'manual',
   restoreSession: true,
   notifyAfterSeconds: 10,
   autoSaveAfterSeconds: 0,

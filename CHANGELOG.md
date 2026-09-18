@@ -5,6 +5,36 @@ newest entry sits on top.
 
 ## Unreleased
 
+### The Claude chip stops offering to run commands on its own
+
+- **Three modes were offered and one of them was true.** The menu beside the prompt
+  read Manual — "every command waits for you to press Run" — then Auto, "runs on
+  arrival, unless it looks hard to undo", then Bypass, "runs everything, including
+  what it warned about". The code that did any of that was deleted when Claude moved
+  into its own panel, along with the flag it leaned on, and the menu stayed. So for
+  several releases Ember asked how much rope to hand a model and then did the same
+  thing whichever was chosen: Manual read as a safeguard that was not doing
+  anything, and Bypass read as a danger that was not real. Safe by accident is not
+  safe, and the sharper end of it is the day somebody restores the setting with no
+  signal left to lean on. The section is gone. Nothing runs without a press, and
+  nothing offers to.
+- **The effort picker reached no request either.** It went in the same deletion and
+  stayed on screen the same way — greying itself out for the one model that refuses
+  a setting it was no longer sending. It is gone, and so is the flag on each model
+  that recorded whether it takes one.
+- **A mode stored by an older build is dropped rather than carried.** Settings are
+  merged over the defaults and the merge keeps whatever the file holds, so `bypass`
+  would have sat in it and been written back on every save, naming a behaviour this
+  app does not have. It is deleted on the way in.
+- **The chip reads `✦ Opus 5`,** to the eye and to a screen reader, rather than
+  naming a mode that no longer decides anything.
+- **How it is checked.** *chat wire* opens the chip and asserts an absence: no Mode
+  section, no effort picker, nothing in the menu offering to run commands on its
+  own, and a `bypass` stored by an older build gone from the settings file after the
+  next save. On the build before this, the menu listed `Manual`, `Auto` and `Bypass`
+  beside the five effort levels, the chip read `✦ Opus 5· max· bypass`, and the
+  stored keys were still in `settings.json` after a save.
+
 ### A session's terminal is its own, and stays with it
 
 - **A second session showed you the first one's screen.** A session with a single

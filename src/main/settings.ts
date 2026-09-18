@@ -43,6 +43,16 @@ export class SettingsStore {
       stored = {}
     }
 
+    /*
+     * Settings that were offered once and are not offered now.
+     *
+     * A spread keeps whatever the file holds, including keys nothing reads any
+     * more, and the next save writes them back — so a machine that once chose
+     * Bypass would carry that word in its settings file for good, describing a
+     * behaviour this app no longer has. They are dropped on the way in.
+     */
+    for (const gone of ['aiMode', 'aiEffort']) delete (stored as Record<string, unknown>)[gone]
+
     const merged: Settings = { ...DEFAULT_SETTINGS, ...stored }
     merged.anthropicApiKey = this.decryptKey(merged.anthropicApiKey)
     // The second key gets the same treatment as the first. A provider key sitting
