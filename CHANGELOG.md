@@ -36,8 +36,13 @@ newest entry sits on top.
   same clothes as the rest of this file.
 - **`engines`** records what the tests actually need — Node 22.18, where running a
   `.ts` file without a flag became ordinary rather than experimental.
-- **The screenshots are still stale, and this does not fix them.** `docs/ide.png`
-  shows a chord that had already moved when the picture was taken.
+- **The screenshots were stale twice over, and are retaken.** The title bar's pill
+  showed `Ctrl+Shift+O` for a chord that had already moved to `Ctrl+Shift+A` when
+  the picture was taken, and the Claude chip still advertised the mode and effort
+  controls that came out earlier in this release. Both pictures are now taken by
+  `npm run shots`, which opens a clean profile on this repository and runs the same
+  four commands they have always shown — because the reason they went stale is that
+  retaking them was something somebody had to remember to do.
 
 ### The debugger that ships is the one that was tested
 

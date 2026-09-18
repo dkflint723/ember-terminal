@@ -29,6 +29,7 @@
     "verify:github": "electron-vite build && node scripts/verify-github.mjs",
     "verify:explorer": "electron-vite build && node scripts/verify-explorer.mjs",
     "icon": "node scripts/build-icon.mjs",
+    "shots": "electron-vite build && node scripts/shot-docs.mjs",
     "verify:session": "electron-vite build && node scripts/verify-session.mjs",
     "verify:notify": "electron-vite build && node scripts/verify-notify.mjs",
     "verify:settings": "electron-vite build && node scripts/verify-settings.mjs",
