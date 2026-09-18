@@ -429,6 +429,23 @@ export type SessionPane =
        * so a session written by an earlier build still loads.
        */
       integration?: 'pending' | 'ready' | 'absent'
+      /**
+       * The blocks Clear took off this pane, by id.
+       *
+       * A pane's blocks are restored from the history database rather than from
+       * this file, so a Clear that only took them off the screen would undo itself
+       * at the next launch. Nothing is deleted: these are still in the database,
+       * still findable in history search, and still there for Erase to remove for
+       * good — they are only not put back on screen.
+       *
+       * By id rather than by a timestamp, because a block's timestamp is not its
+       * write order: a conversation is persisted with the time it happened, which
+       * can be earlier than blocks already on screen, and a mark that said "hide
+       * everything older than this" would swallow it. Pruned on every restore to
+       * the ids the database still holds, so it cannot outgrow the 120 blocks a
+       * pane keeps. Optional, so a session written by an earlier build still loads.
+       */
+      clearedIds?: string[]
     }
   | { kind: 'editor'; id: string; activeIndex: number; documents: SessionDocument[] }
 

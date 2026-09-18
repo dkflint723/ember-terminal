@@ -146,6 +146,18 @@ export interface TerminalPaneState extends BasePane {
   awaitingSecret: boolean
   exited: boolean
   exitCode: number | null
+  /**
+   * Blocks taken off the screen by Clear, kept so that Undo can put them back.
+   *
+   * Clear used to delete them from the history database as well, which is a
+   * reasonable reading of the word and a terrible reading of the key: Ctrl+L in
+   * every other terminal means tidy the screen, people press it without looking,
+   * and there was no way back. Nothing is deleted now — these are still in the
+   * database, and still in this list until the pane goes away.
+   */
+  cleared?: Block[]
+  /** Which blocks Clear took off, so a restore knows what not to bring back. */
+  clearedIds?: string[]
 }
 
 /** One open file. Several share a pane, switched between by the tab strip. */
@@ -632,7 +644,15 @@ interface Store {
   toggleBlock(paneId: string, blockId: string): void
   /** Open or fold one block, stated rather than toggled — safe to repeat. */
   setBlockCollapsed(paneId: string, blockId: string, collapsed: boolean): void
+  /**
+   * Take the finished blocks off the screen. Nothing is deleted: they go into the
+   * pane's `cleared` list, and the notice that says so offers them back.
+   */
   clearBlocks(paneId: string): void
+  /** Put back what the last Clear took off this pane. */
+  restoreCleared(paneId: string): void
+  /** Forget this pane's history, on disk as well as on screen. Asks first. */
+  eraseBlocks(paneId: string): void
 }
 
 const uid = (): string => crypto.randomUUID()
@@ -1984,10 +2004,16 @@ export const useStore = create<Store>((set, get) => ({
     else get().patchBlock(paneId, blockId, { collapsed })
   },
 
-  // Forgotten on disk as well as on screen. A Clear that left them to come back at
-  // the next launch would be a strange kind of clear.
+  /*
+   * Off the screen, and nowhere else.
+   *
+   * This deleted the pane's blocks from the history database too, which is what
+   * the word clear can fairly mean — but not what the key means. Ctrl+L is a
+   * reflex in bash and PowerShell, it means tidy this up, and people press it
+   * without deciding anything. There was no Undo. So it hides now, and says how
+   * many it hid and how to get them back; erasing is its own command, and asks.
+   */
   clearBlocks: (paneId) => {
-    window.ember.clearBlocks(paneId)
     /*
      * A command still running is not history, and tidying it away costs two things.
      *
@@ -1999,10 +2025,47 @@ export const useStore = create<Store>((set, get) => ({
      * prompt back in the ordinary composer, typed in the clear and bound for the
      * history database.
      */
-    const kept = (get().terminalPane(paneId)?.blocks ?? []).filter(
-      (b) => b.kind === 'command' && b.status === 'running'
-    )
-    get().patchPane(paneId, { blocks: kept })
+    const all = get().terminalPane(paneId)?.blocks ?? []
+    const kept = all.filter((b) => b.kind === 'command' && b.status === 'running')
+    const hidden = all.filter((b) => !kept.includes(b))
+    if (hidden.length === 0) return
+
+    const pane = get().terminalPane(paneId)
+    get().patchPane(paneId, {
+      blocks: kept,
+      cleared: [...(pane?.cleared ?? []), ...hidden],
+      // Named one by one rather than by a cutoff: what is being hidden is exactly
+      // these blocks, and nothing that arrives later is any of them.
+      clearedIds: [...(pane?.clearedIds ?? []), ...hidden.map((b) => b.id)]
+    })
+    const n = hidden.length
+    get().setNotice(`Cleared ${n} ${n === 1 ? 'block' : 'blocks'}.`, 'info', [
+      { label: 'Undo', run: () => get().restoreCleared(paneId) }
+    ])
+  },
+
+  restoreCleared: (paneId) => {
+    const pane = get().terminalPane(paneId)
+    const cleared = pane?.cleared ?? []
+    if (cleared.length === 0) return
+    // In front of whatever is there: what was cleared ran before it. The mark goes
+    // with them, or the next launch would hide what was just put back.
+    const back = new Set(cleared.map((b) => b.id))
+    get().patchPane(paneId, {
+      blocks: [...cleared, ...(pane?.blocks ?? [])],
+      cleared: [],
+      clearedIds: (pane?.clearedIds ?? []).filter((id) => !back.has(id))
+    })
+  },
+
+  eraseBlocks: (paneId) => {
+    window.ember.clearBlocks(paneId)
+    const all = get().terminalPane(paneId)?.blocks ?? []
+    // A running command's block is where its output will be written, and while it
+    // is in the list the composer knows to hand the keyboard to the program.
+    const kept = all.filter((b) => b.kind === 'command' && b.status === 'running')
+    // No list needed once the rows are gone: there is nothing left to come back.
+    get().patchPane(paneId, { blocks: kept, cleared: [], clearedIds: [] })
   }
 }))
 

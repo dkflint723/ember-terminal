@@ -5,6 +5,33 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Clear tidies the screen instead of deleting your history
+
+- **Ctrl+L deleted the pane's blocks from the database.** In bash and in PowerShell
+  that key means tidy this up; people press it without deciding anything, and here
+  it took every finished command in the pane out of the history for good, with
+  nothing to undo it. It takes them off the screen now and says so — "Cleared 4
+  blocks", with an Undo beside it that puts every one back. Nothing is deleted:
+  they are still in the database, still findable in history search.
+- **And what was cleared stays cleared.** A pane's blocks come back from the
+  database rather than from the session file, so hiding them only on screen would
+  have undone itself at the next launch. The pane writes down which blocks were
+  cleared, by id, and does not put those back.
+- **By id rather than by a cutoff, which is not the same thing.** A conversation is
+  written with the time it happened, which can be earlier than blocks already on
+  screen — so "hide everything older than this" hid a block that arrived after the
+  clear. The list of ids is pruned on every restore to what the database still
+  holds, so it cannot outgrow the 120 blocks a pane keeps.
+- **Erasing is its own command, and asks.** *Terminal: Erase This Pane's History…*
+  in the palette says how many blocks it is about to remove and that it cannot be
+  undone. That is the thing Ctrl+L used to do by accident.
+- **How it is checked.** *blocks across restarts* now clears a pane, reads the
+  notice, takes up the Undo and counts every block back, then clears again and
+  relaunches twice — because the first version of this shipped a mark that was
+  honoured on restore but not carried onto the pane it rebuilt, so the save after
+  it dropped the mark and everything came back one launch later. The suite already
+  relaunched three times, which is why it was caught.
+
 ### A sentence about a command stops being a command
 
 - **"npm install is slow" installed two packages.** The composer reads what you

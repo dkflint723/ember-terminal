@@ -110,7 +110,11 @@ export function snapshot(): SessionSnapshot {
         // Carried for the same reason a moved session carries it: a pane that
         // adopts a shell already running has missed that shell's one
         // announcement, and nothing later would tell it.
-        integration: pane.integration
+        integration: pane.integration,
+        // And what Clear took off it, because the blocks come back from the
+        // database rather than from here: without this a Clear would undo itself
+        // at the next launch.
+        clearedIds: pane.clearedIds
       })
     } else if (pane.kind === 'editor') {
       panes.push({
@@ -403,13 +407,31 @@ export async function restore(snapshotIn: SessionSnapshot | null): Promise<boole
   for (const saved of snapshotIn.panes) {
     if (saved.kind === 'terminal') {
       const cwd = (await stillThere(saved.cwd)) ? saved.cwd : window.ember.homeDir
-      const blocks = (savedBlocks[saved.id] ?? []).map(restoredBlock)
+      /*
+       * What was cleared stays cleared, without having been deleted.
+       *
+       * These come from the history database, which still holds everything this
+       * pane ever ran — Clear takes blocks off the screen and writes down when,
+       * and this is the other half of that: the ones from before the mark are not
+       * put back. They are still in history search, and Erase is still the command
+       * that removes them for good.
+       */
+      const clearedIds = new Set(saved.clearedIds ?? [])
+      const fromDisk = (savedBlocks[saved.id] ?? []).map(restoredBlock)
+      const blocks = fromDisk.filter((block) => !clearedIds.has(block.id))
+      // Pruned to what the database still holds: a pane keeps 120 blocks, and the
+      // ids of ones it has already dropped are a list that would only grow.
+      const stillCleared = fromDisk.filter((block) => clearedIds.has(block.id)).map((b) => b.id)
       for (const block of blocks) {
         if (block.kind === 'conversation') noteConversationWritten(block)
       }
       panes[saved.id] = {
         id: saved.id,
         kind: 'terminal',
+        // Carried forward, not just honoured: the pane this builds is what the next
+        // snapshot is written from, so dropping the list here would put everything
+        // back one launch later.
+        clearedIds: stillCleared,
         profileId: saved.profileId,
         // The title follows the directory, so a fallback must not keep the old name.
         title: cwd === saved.cwd ? saved.title : cwd.split(/[\\/]/).filter(Boolean).pop() || 'Shell',

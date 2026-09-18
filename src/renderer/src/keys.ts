@@ -195,8 +195,7 @@ export const COMMANDS: Command[] = [
     }
   },
   {
-    // Blocks outlive the app now, so there has to be a way to say "not any
-    // more" that does not mean deleting a database by hand.
+    // Takes the finished blocks off the screen and says how to get them back.
     id: 'terminal.clear',
     label: 'Clear the terminal',
     chord: 'Ctrl+Shift+K',

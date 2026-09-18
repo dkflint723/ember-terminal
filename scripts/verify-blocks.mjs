@@ -314,11 +314,44 @@ const timeline = (page) =>
   )
   check('and the boundary says which side is which', nowMark === 1, `${nowMark} marks`)
 
-  // --- clearing means clearing ----------------------------------------------
+  /*
+   * --- clearing means clearing the screen -----------------------------------
+   *
+   * It used to mean deleting the pane's rows from the history database, which is
+   * one fair reading of the word and the wrong reading of the key: Ctrl+L is a
+   * reflex, people press it to tidy up, and nothing brought the blocks back. So
+   * what is checked here is both halves — the pane empties, the notice says how
+   * many went and offers them back, and Undo is taken up on that offer.
+   */
   await page.click('.pane__scroll')
+  const beforeClear = (await blocks(page)).length
   await page.keyboard.press('Control+Shift+K')
   await sleep(1200)
   check('Ctrl+Shift+K empties the pane', (await blocks(page)).length === 0, JSON.stringify(await blocks(page)))
+  const cleared = await page.evaluate(
+    () => document.querySelector('.notice, .notice__text')?.textContent ?? ''
+  )
+  check(
+    'and says how many it took',
+    /Cleared [0-9]+ blocks?/.test(cleared),
+    JSON.stringify(cleared.slice(0, 60))
+  )
+  const undo = page.locator('.notice button', { hasText: 'Undo' }).first()
+  check('and offers them back', (await undo.count()) === 1, cleared.slice(0, 60))
+  if ((await undo.count()) === 1) {
+    await undo.click()
+    await sleep(1000)
+    check(
+      'which puts every one of them back',
+      (await blocks(page)).length === beforeClear,
+      `${(await blocks(page)).length} of ${beforeClear}`
+    )
+  }
+
+  // Cleared again, for the relaunch below: what a clear hides has to stay hidden.
+  await page.keyboard.press('Control+Shift+K')
+  await sleep(1200)
+  check('and clears again', (await blocks(page)).length === 0, JSON.stringify(await blocks(page)))
 
   await sleep(2500)
   await app.close()

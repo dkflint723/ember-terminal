@@ -302,6 +302,15 @@ function commands(): Command[] {
   // cases where there is nothing for these two commands to be about.
   const trustRoot = s.settings.workspaceTrust === false ? null : workspaceRoot(s)
 
+  /** The terminal pane a terminal command should act on: this one, or any. */
+  const terminalHere = (): string | undefined => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId)
+    const here = tab ? s.panes[tab.activePaneId] : undefined
+    return here?.kind === 'terminal'
+      ? here.id
+      : Object.values(s.panes).find((pane) => pane.kind === 'terminal')?.id
+  }
+
   return [
     ...editorCommands,
     {
@@ -405,13 +414,24 @@ function commands(): Command[] {
       label: 'Terminal: Clear Blocks',
       hint: 'Ctrl+Shift+K',
       run: () => {
-        const tab = s.tabs.find((t) => t.id === s.activeTabId)
-        const here = tab ? s.panes[tab.activePaneId] : undefined
-        const target =
-          here?.kind === 'terminal'
-            ? here.id
-            : Object.values(s.panes).find((p) => p.kind === 'terminal')?.id
+        const target = terminalHere()
         if (target) s.clearBlocks(target)
+      }
+    },
+    {
+      // Named for what it does to the database, beside the one that does not.
+      id: 'terminal.eraseHistory',
+      label: "Terminal: Erase This Pane's History…",
+      run: () => {
+        const target = terminalHere()
+        if (!target) return
+        const pane = s.terminalPane(target)
+        const count = (pane?.blocks.length ?? 0) + (pane?.cleared?.length ?? 0)
+        const what = count === 1 ? 'block' : 'blocks'
+        if (!window.confirm(`Erase ${count} ${what} from this pane's history? This cannot be undone.`)) {
+          return
+        }
+        s.eraseBlocks(target)
       }
     },
     {
