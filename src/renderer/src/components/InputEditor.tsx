@@ -725,7 +725,31 @@ ${c.output}`
         setAttachments([])
         return
       }
-      controller.focus()
+      /*
+       * Where Escape goes when there is nothing to look at.
+       *
+       * It used to hand focus to the terminal unconditionally, and while the pane
+       * is idle that terminal is height 0 and opacity 0 with its focus ring
+       * removed. So a PowerShell user pressing Escape to clear the line — a
+       * PSReadLine habit — lost the caret into a control that is not on screen,
+       * kept typing into it invisibly, and Enter ran whatever that was.
+       *
+       * Idle, Escape now does what the habit expects: clears the line. A second
+       * press, with nothing left to clear, steps out of the composer altogether.
+       * While a command is running the strip is on screen and the old behaviour is
+       * the right one — that is the way back to a program that is asking for
+       * something.
+       */
+      if (running) {
+        controller.focus()
+        return
+      }
+      if (value.length > 0) {
+        setValue('')
+        setOverride(null)
+        return
+      }
+      ref.current?.blur()
       return
     }
 

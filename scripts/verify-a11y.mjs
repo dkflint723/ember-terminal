@@ -67,6 +67,61 @@ check(
   JSON.stringify(action)
 )
 
+/*
+ * --- the keyboard never lands somewhere there is nothing to see -------------
+ *
+ * xterm reads input through a textarea that carries tabIndex 0 and has its focus
+ * ring removed, and it sits just before the composer. While the pane is idle the
+ * whole live view is height 0 and opacity 0, so Shift+Tab out of the composer put
+ * the caret in a control that was not on screen: typing went to the shell,
+ * invisibly, and Enter ran it. Escape did the same thing on purpose — it called
+ * focus() on that terminal — which is the press a PowerShell user makes to clear
+ * a line.
+ */
+const where = () =>
+  page.evaluate(() => {
+    const el = document.activeElement
+    if (!el) return 'none'
+    const cls = typeof el.className === 'string' ? el.className : ''
+    return el.tagName.toLowerCase() + (cls ? '.' + cls.trim().split(/[ ]+/).join('.') : '')
+  })
+
+await page.click('.composer__input')
+await page.keyboard.type('a half-written line', { delay: 5 })
+await page.keyboard.press('Escape')
+await sleep(300)
+check(
+  'Escape clears the line rather than moving the caret out of sight',
+  (await page.inputValue('.composer__input')) === '' &&
+    (await where()).includes('composer__input'),
+  await where()
+)
+await page.keyboard.press('Escape')
+await sleep(300)
+check(
+  'and a second Escape steps out of the composer',
+  !(await where()).includes('composer__input'),
+  await where()
+)
+
+await page.click('.composer__input')
+const tabStops = []
+for (let i = 0; i < 3; i++) {
+  await page.keyboard.press('Shift+Tab')
+  await sleep(250)
+  tabStops.push(await where())
+}
+check(
+  'Shift+Tab out of the composer never lands in the hidden terminal',
+  !tabStops.some((spot) => spot.includes('xterm-helper-textarea')),
+  JSON.stringify(tabStops)
+)
+check(
+  'and reaches the blocks',
+  tabStops.some((spot) => spot.includes('block__')),
+  JSON.stringify(tabStops)
+)
+
 // Enter on the header collapses it, the same as clicking.
 await page.evaluate(() => document.querySelector('.block__head')?.focus())
 const expandedBefore = await page.getAttribute('.block__head', 'aria-expanded')

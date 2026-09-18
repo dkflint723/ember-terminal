@@ -1304,6 +1304,21 @@ export class TerminalController {
     this.term.focus()
   }
 
+  /**
+   * Whether the keyboard may reach this terminal by Tab.
+   *
+   * xterm keeps a textarea to read input through, it carries tabIndex 0, and its
+   * focus ring is removed — which is fine while the terminal is on screen and a
+   * trap while it is not. Idle, the live view is height 0 and opacity 0, so a
+   * Shift+Tab out of the composer landed in a control nobody could see, with
+   * every keystroke going to the shell and Enter running it. Out of the tab order
+   * while there is nothing to look at; back in the moment there is.
+   */
+  setReachable(reachable: boolean): void {
+    const area = this.term.textarea
+    if (area) area.tabIndex = reachable ? 0 : -1
+  }
+
   /** Called when the user asks to leave the terminal with Shift+Tab. */
   onEscapeFocus: (() => void) | null = null
 

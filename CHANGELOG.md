@@ -5,6 +5,28 @@ newest entry sits on top.
 
 ## Unreleased
 
+### The caret stops going somewhere you cannot see it
+
+- **Escape handed the keyboard to a terminal that was not on screen.** While a pane
+  sits idle its live terminal is zero pixels tall and fully transparent, and xterm
+  reads input through a textarea that is still focusable and has had its focus ring
+  removed. Escape in the composer called focus on it. So the press a PowerShell user
+  makes to clear a line — a PSReadLine reflex — moved the caret into a control
+  nobody could see, where what you typed went to the shell invisibly and Enter ran
+  it. Idle, Escape now does what the habit expects: it clears the line, and a second
+  press steps out of the composer. While a command is running the strip is on screen
+  and Escape still goes there, which is the way back to a program that is waiting
+  for something.
+- **And Tab could get there too.** That textarea sits just before the composer in
+  the page, so Shift+Tab out of the composer landed in it rather than reaching the
+  blocks — a keyboard user had no way back to their output. The terminal is out of
+  the tab order whenever there is nothing to look at, and back in the moment a
+  command starts or a full-screen program takes the pane.
+- **How it is checked.** *keyboard and a11y* types a line, presses Escape, and asks
+  where the caret went; then presses Shift+Tab three times and asserts it never
+  lands in the hidden terminal and does reach a block. On the build before this,
+  Escape landed on `.xterm-helper-textarea` and so did all three tabs.
+
 ### Clear tidies the screen instead of deleting your history
 
 - **Ctrl+L deleted the pane's blocks from the database.** In bash and in PowerShell

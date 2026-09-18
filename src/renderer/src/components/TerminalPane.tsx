@@ -245,6 +245,10 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
   useEffect(() => {
     controller.refit()
     if (raw) controller.focus()
+    // Reachable by Tab exactly while it is visible: raw takes the whole pane, and
+    // a running command gets the strip. Idle it is a zero-height box, and being
+    // able to Tab into one is how focus goes missing.
+    controller.setReachable(raw || running)
   }, [controller, raw, running])
 
   /*
