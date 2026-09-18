@@ -5,6 +5,40 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Saying only what is true
+
+- **Settings described the opposite of what restore does.** It said "Command output
+  is not restored — a finished command from last week would only look live", while
+  blocks and their output have come back across launches for weeks, under a line
+  saying which session they are from. It now says what is kept: the last 120 blocks
+  a pane ran, output and exit codes with them, and that what you cleared stays
+  cleared.
+- **The README put a language server in the box that is not in it.** TypeScript,
+  Python, Bash and YAML really do ship. PowerShell is found inside the VS Code
+  PowerShell extension if you have it, and goes without a server if you do not.
+- **`Ctrl+R` does not search every command you have ever run.** It searches the last
+  twenty thousand; older ones fall off the end. That is what the README says now.
+- **The update promise was true and hid its cost.** Nothing is installed without
+  being asked for, and nothing is replaced under a running shell — but pressing
+  Install now closes Ember, and anything running in a pane ends with it. Saying the
+  first half without the second is how a true sentence still misleads.
+- **A section for what Ember does not do,** because a limitation found after
+  installing costs more than one read beforehand: which shells get blocks and which
+  do not, the caps on history and on a block's output, rename across files, the
+  PowerShell server, no screen-reader mode for terminal output, the 4 MB ceiling on
+  unsaved work, Windows only and unsigned. Every line of it is a fact from the code.
+- **The window says which version it is.** Nothing in it did, so the first question
+  anyone asks about a bug had no answer short of reading the installer's filename.
+- **The thirteen releases with no entries say so once, correctly.** The note that
+  was already here said 0.3.9 through 0.3.22, and 0.3.9 has an entry of its own. It
+  is 0.3.10 through 0.3.22, and they are deliberately not written up after the fact:
+  an entry reconstructed from its own commits months later is a guess wearing the
+  same clothes as the rest of this file.
+- **`engines`** records what the tests actually need — Node 22.18, where running a
+  `.ts` file without a flag became ordinary rather than experimental.
+- **The screenshots are still stale, and this does not fix them.** `docs/ide.png`
+  shows a chord that had already moved when the picture was taken.
+
 ### The debugger that ships is the one that was tested
 
 - **Every build fetched whatever Microsoft had published that day.** The Node
@@ -1130,8 +1164,12 @@ The other half of the pass, from Warp's per-block context line.
   actually having a test script, so nothing appears for a project that cannot run
   them.
 
-*Releases 0.3.9 through 0.3.22 have no entries here — the file went unmaintained
-through those. Their contents are in the tags and the commit log.*
+*Releases 0.3.10 through 0.3.22 have no entries here — thirteen of them, while the
+file went unmaintained. They are deliberately not written up after the fact: an
+entry reconstructed from its own commits months later is a guess wearing the same
+clothes as the rest of this file, and this file is worth something only while every
+line in it was written by somebody who knew. What those releases changed is in the
+commits between the tags `v0.3.9` and `v0.3.23`.*
 
 ## 0.3.9 — 2026-08-29
 

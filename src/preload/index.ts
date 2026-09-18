@@ -260,7 +260,9 @@ const api: EmberApi = {
   platform: process.platform,
   // Read at preload time so callers still see a plain string. Node is not
   // available in a sandboxed preload, which is the point.
-  homeDir: ipcRenderer.sendSync('app:homeDir') as string
+  homeDir: ipcRenderer.sendSync('app:homeDir') as string,
+  /** What to quote when reporting a bug. */
+  version: ipcRenderer.sendSync('app:version') as string
 }
 
 contextBridge.exposeInMainWorld('ember', api)

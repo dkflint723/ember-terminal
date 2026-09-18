@@ -38,7 +38,7 @@ output, or the whole thing as Markdown to paste into an issue — and re-runs on
 press. It says which directory it ran in, but only when that changed, so a
 session reads as a story rather than a stutter of repeated paths. Blocks survive
 quitting: reopen Ember and last week's failure is still there with its exit code,
-and `Ctrl+R` searches every command you have ever run.
+and `Ctrl+R` searches the last 20,000 commands you have run, across every session.
 
 **An editor a keystroke away.** `Ctrl+Shift+I` and the window is Monaco with real
 language servers, a file tree, search, problems and git — while the terminal
@@ -80,8 +80,10 @@ accept or reject rather than a block of text to copy by hand.
   in to.
 - **Edit with Claude** — select code in the editor, press `Ctrl+I`, say what you
   want changed, and it is rewritten in place as one undoable edit.
-- **IDE mode** — TypeScript, Python, Bash, YAML and PowerShell language servers in
-  the box, and any other LSP server teachable in settings (rust-analyzer, gopls…);
+- **IDE mode** — TypeScript, Python, Bash and YAML language servers in the box;
+  PowerShell if you already have the VS Code PowerShell extension, which is where
+  Ember looks for it. Any other LSP server is teachable in settings
+  (rust-analyzer, gopls…);
   go-to-definition, snippets, auto-save, format-on-save with the project's own
   prettier when it has one, split panes, search and replace. Open files follow the
   disk while Claude Code or git changes them, and a save never writes over a newer
@@ -121,6 +123,33 @@ accept or reject rather than a block of text to copy by hand.
 - **Density** — how much room a block takes is a setting, not a verdict: Compact,
   Normal or Comfortable, applied as you pick it.
 
+## What it does not do
+
+Worth knowing before you install. Each of these is a fact about the code rather
+than a plan.
+
+- **Blocks need a shell that reports them.** PowerShell, Git Bash and WSL's bash
+  announce where each command starts and ends, so those get blocks. cmd does not,
+  and neither do zsh or fish — they open as an ordinary terminal and say so.
+- **History is capped**, at 20,000 commands and at 120 blocks per pane. Older ones
+  fall off the end; a long block is kept up to 96,000 characters of output and says
+  when it has been cut.
+- **Renaming across files does not work yet.** F2 renames what is in front of you.
+  A symbol mentioned in a file you do not have open needs the editor to load that
+  file first, which it does not do, and the whole rename is abandoned rather than
+  half applied.
+- **PowerShell IntelliSense is not in the box.** Ember uses the copy of PowerShell
+  Editor Services that VS Code's PowerShell extension installs. Without that
+  extension, PowerShell files get no language server at all.
+- **There is no screen-reader mode.** The block list is ordinary markup and reads
+  reasonably, but terminal output is drawn by xterm.js with its screen-reader
+  support switched off, so a screen reader cannot follow a running command.
+- **Unsaved work over 4 MB is not carried across a restart.** It is kept in the
+  session file up to that size, and a buffer that grows past it says so rather than
+  letting you find out later.
+- **It is Windows only**, and the installer is not code-signed, so SmartScreen will
+  ask whether you mean it.
+
 ## Install
 
 Grab `Ember-Setup-<version>.exe` from
@@ -128,9 +157,11 @@ Grab `Ember-Setup-<version>.exe` from
 
 > It is not code-signed, so SmartScreen will ask whether you mean it. Updates are
 > **off by default** — turn them on in Settings, or press "Check now" whenever you
-> like. A new version downloads in the background and waits; installing it runs
-> the installer where you can watch it, and nothing is replaced underneath a
-> running shell.
+> like. A new version downloads in the background and waits: nothing is replaced
+> underneath a running shell, and nothing is installed until you press "Install
+> now". That closes Ember and runs the installer where you can watch it, so
+> anything still running in a pane ends with it — the promise is that Ember will
+> not do this behind your back, not that it costs nothing.
 
 ## Keyboard
 

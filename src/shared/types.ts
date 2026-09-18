@@ -1368,4 +1368,6 @@ export interface EmberApi {
   onWindowState(cb: (s: { maximized: boolean }) => void): () => void
   platform: string
   homeDir: string
+  /** The running build, for anyone writing down what went wrong. */
+  version: string
 }

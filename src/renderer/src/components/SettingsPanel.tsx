@@ -1604,8 +1604,20 @@ export function SettingsPanel(): React.JSX.Element | null {
                   <span>Reopen the last window&rsquo;s tabs, splits and files</span>
                 </label>
                 <div className="field__note">
-                  Layout and open files, including anything unsaved. Command output is not
-                  restored — a finished command from last week would only look live.
+                  Layout and open files, including anything unsaved, and the blocks each
+                  pane had run — with a line drawn where the last session ended, so a
+                  command from last week does not read as one from this morning. A pane
+                  keeps its last 120 blocks; anything cleared stays cleared.
+                </div>
+              </div>
+
+              <div className="field">
+                <label>Version</label>
+                {/* Nowhere in the window said which build this was, so the first
+                    question anyone asks about a bug — which version? — had no answer
+                    short of the installer's filename. */}
+                <div className="field__note">
+                  Ember {window.ember.version}
                 </div>
               </div>
 

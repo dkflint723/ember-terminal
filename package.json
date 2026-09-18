@@ -3,6 +3,9 @@
   "version": "0.3.26",
   "description": "A fast, block-based terminal for Windows",
   "main": "./out/main/index.js",
+  "engines": {
+    "node": ">=22.18.0"
+  },
   "author": "dkflint723",
   "license": "MIT",
   "private": true,

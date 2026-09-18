@@ -1189,6 +1189,12 @@ function createWindow(seed: WindowSeed = {}): number {
 function registerIpc(): void {
   // Synchronous because the preload reads it while it is being set up, before any
   // renderer code runs — and registerIpc() runs before the window is created.
+  // Asked for at preload, like the home directory: a version that has to be
+  // fetched is a version nobody has when they are writing down what went wrong.
+  ipcMain.on('app:version', (event) => {
+    event.returnValue = app.getVersion()
+  })
+
   ipcMain.on('app:homeDir', (event) => {
     event.returnValue = app.getPath('home')
   })
