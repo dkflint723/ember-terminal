@@ -103,6 +103,67 @@ await sleep(300)
 check('the press becomes the chord', (await row().locator('.keyrow__chord').textContent()) === 'Ctrl+Shift+Y')
 check('and a way back to the default appears', (await row().locator('[title="Back to the default"]').count()) === 1)
 
+
+/*
+ * --- the keys a binding cannot be ------------------------------------------
+ *
+ * Capture took anything that was not a bare modifier, so Tab, Enter, Space and
+ * the arrows could all be bound — and because the app-wide handler calls
+ * preventDefault, binding one took it away everywhere. A keyboard user pressing
+ * Enter on a chord and then Tab to move on bound Tab to Terminal↔IDE and lost
+ * Tab at the next Save.
+ */
+/*
+ * What the row says, or why it cannot be read.
+ *
+ * Returning a reason rather than throwing matters here: the failure this section
+ * is about is Settings closing when it should not, and a check that dies on the
+ * missing row reports a timeout where it could have reported the thing that went
+ * wrong.
+ */
+const chordNow = async () => {
+  const cell = row().locator('.keyrow__chord')
+  if ((await cell.count()) === 0) return '(the shortcuts list is gone — Settings closed)'
+  return (await cell.textContent()) ?? "(empty)"
+}
+
+await row().locator('.keyrow__chord').click()
+await sleep(200)
+await page.keyboard.press('Tab')
+await sleep(300)
+check(
+  'Tab is refused rather than bound',
+  (await chordNow()) !== 'Tab' && (await row().locator('.keyrow__refused').count()) === 1,
+  await chordNow()
+)
+await page.keyboard.press('Enter')
+await sleep(300)
+check('and so is Enter', (await chordNow()) !== 'Enter', await chordNow())
+await page.keyboard.press('ArrowLeft')
+await sleep(300)
+check('and the arrows', (await chordNow()) !== 'Left', await chordNow())
+
+/*
+ * And Escape while capturing backs out of the capture, not out of Settings.
+ *
+ * The window listener answered Escape in the capture phase, before the chord
+ * button saw it, and closing the dialog discards the draft — so pressing it to
+ * cancel a capture threw away every other edit in Settings. The note underneath
+ * promised "Esc changes nothing".
+ */
+await page.keyboard.press('Escape')
+await sleep(400)
+check(
+  'Escape while capturing leaves Settings open',
+  (await page.locator('.modal').count()) === 1,
+  'modals: ' + (await page.locator('.modal').count())
+)
+check(
+  'and the chord it was capturing is unchanged',
+  (await chordNow()) === 'Ctrl+Shift+Y',
+  await chordNow()
+)
+
 await page.locator('.modal .btn', { hasText: 'Save' }).click()
 await sleep(1000)
 

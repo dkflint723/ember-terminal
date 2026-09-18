@@ -5,6 +5,28 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Binding a shortcut stops costing you the rest of Settings
+
+- **Escape while picking a chord closed Settings and threw the draft away.** The
+  dialog answers Escape in the capture phase, which is before the chord button sees
+  the key at all, and closing discards every edit in the dialog. So backing out of a
+  capture — the one thing Escape is for there — took your theme, your font, your
+  shells and anything else you had changed with it. The note underneath said "Esc
+  changes nothing". It cancels the capture now and leaves the dialog alone, which is
+  what the note meant.
+- **Tab, Enter, Space and the arrows could be bound, and binding one took it away
+  everywhere.** Capture refused bare modifiers and accepted everything else. Because
+  the app answers its own chords with preventDefault, binding Tab did not add a
+  shortcut so much as remove Tab: a keyboard user who pressed Enter on a chord and
+  then Tab to move on left Settings with Tab bound to Terminal↔IDE, and after Save
+  there was no Tab anywhere in the window. A binding needs Ctrl or Alt now, or a
+  function key; Shift alone does not count, because Shift+Tab is still Tab. A key
+  that cannot be taken says so on its own row and the capture stays open, so the
+  answer is another press rather than a dead end.
+- **How it is checked.** *key rebinding* now presses Tab, then Enter, then an arrow
+  into an open capture and requires the chord to be unchanged and the refusal shown;
+  then presses Escape and requires Settings still open with the chord as it was.
+
 ### The keys the app names are the keys it answers to
 
 - **Hints taught chords that did something else.** Every legend, tooltip and palette

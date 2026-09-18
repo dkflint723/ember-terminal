@@ -451,6 +451,14 @@ button {
   color: var(--accent);
 }
 
+/* Why a key was not taken, on the row it was pressed on. The capture stays open
+   underneath it, so the answer to "that one cannot be bound" is another press. */
+.keyrow__refused {
+  color: var(--danger, var(--accent));
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 /* One custom shell: name, command, arguments, dialect, and the way out — with
    a second line for where it starts, which most shells leave blank. */
 .shellrow {

@@ -164,6 +164,12 @@ function joinArgs(args: string[]): string {
   return args.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(' ')
 }
 
+/** A pressed key as it should be read back: Tab, Space, Enter, ← rather than ArrowLeft. */
+function labelOfKey(key: string): string {
+  if (key === ' ') return 'Space'
+  if (key.startsWith('Arrow')) return key.slice(5)
+  return key
+}
 export function SettingsPanel(): React.JSX.Element | null {
   /** What the last hand-run update check said, shown beside the button. */
   const [updateNote, setUpdateNote] = useState('')
@@ -383,13 +389,29 @@ export function SettingsPanel(): React.JSX.Element | null {
     }
   }
 
+  const [refused, setRefused] = useState<{ id: string; key: string } | null>(null)
   const closeRef = useRef<() => void>(() => toggle(false))
+  /*
+   * Whether a chord is being captured, where the window listener can see it.
+   *
+   * That listener runs in the capture phase, so it answered Escape before the
+   * chord button ever saw the key — and Escape there closes the dialog and throws
+   * the draft away. The note under the list says "Esc changes nothing", and for
+   * anyone who pressed it to back out of a capture it changed everything: every
+   * other edit in Settings went with it.
+   */
+  const capturingRef = useRef<string | null>(null)
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return
       e.preventDefault()
       e.stopPropagation()
+      if (capturingRef.current) {
+        setCapturing(null)
+        capturingRef.current = null
+        return
+      }
       closeRef.current()
     }
     window.addEventListener('keydown', onKey, true)
@@ -1476,8 +1498,15 @@ export function SettingsPanel(): React.JSX.Element | null {
                         type="button"
                         className={`keyrow__chord ${capturing === command.id ? 'keyrow__chord--live' : ''}`}
                         aria-label={`Change the binding for ${command.label}`}
-                        onClick={() => setCapturing(command.id)}
-                        onBlur={() => setCapturing((c) => (c === command.id ? null : c))}
+                        onClick={() => {
+                          setCapturing(command.id)
+                          capturingRef.current = command.id
+                          setRefused(null)
+                        }}
+                        onBlur={() => {
+                          setCapturing((c) => (c === command.id ? null : c))
+                          if (capturingRef.current === command.id) capturingRef.current = null
+                        }}
                         onKeyDown={(e) => {
                           if (capturing !== command.id) return
                           // The press is the answer, not a keystroke for the app.
@@ -1485,9 +1514,32 @@ export function SettingsPanel(): React.JSX.Element | null {
                           e.stopPropagation()
                           if (e.key === 'Escape') {
                             setCapturing(null)
+                            capturingRef.current = null
+                            setRefused(null)
                             return
                           }
                           if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return
+                          /*
+                           * A binding has to need Ctrl or Alt, unless it is a
+                           * function key.
+                           *
+                           * Anything else is a key the window already needs for
+                           * something: Tab moves between controls, Enter presses
+                           * them, Space scrolls, the arrows move a caret. Binding
+                           * one took it away everywhere, because the app-wide
+                           * handler calls preventDefault — a keyboard user who
+                           * pressed Enter on a chord and then Tab to move on
+                           * bound Tab to Terminal↔IDE and lost Tab for good at
+                           * the next Save. Shift alone does not count: Shift+Tab
+                           * is still Tab.
+                           */
+                          const functionKey = /^F([1-9]|1[0-2])$/.test(e.key)
+                          if (!e.ctrlKey && !e.altKey && !functionKey) {
+                            setRefused({ id: command.id, key: e.key })
+                            return
+                          }
+                          setRefused(null)
+                          capturingRef.current = null
                           const next = { ...(draft.keybindings ?? {}) }
                           const pressed = chordOf(e.nativeEvent)
                           if (pressed === command.chord) delete next[command.id]
@@ -1498,6 +1550,11 @@ export function SettingsPanel(): React.JSX.Element | null {
                       >
                         {capturing === command.id ? 'press keys…' : chord}
                       </button>
+                      {refused?.id === command.id && (
+                        <span className="keyrow__refused" role="status">
+                          {labelOfKey(refused.key)} needs Ctrl or Alt
+                        </span>
+                      )}
                       {overridden && (
                         <button
                           className="icon-btn"
@@ -1524,8 +1581,10 @@ export function SettingsPanel(): React.JSX.Element | null {
                   </div>
                 ))}
                 <div className="field__note">
-                  Click a chord and press the new keys; Esc changes nothing. These are the
-                  window&rsquo;s own shortcuts — what the editor and the shell claim for
+                  Click a chord and press the new keys; Esc leaves it as it was. A
+                  binding needs Ctrl or Alt, or a function key — Tab, Enter, Space and
+                  the arrows belong to the window and cannot be taken. These are the
+                  window&rsquo;s own shortcuts: what the editor and the shell claim for
                   themselves stays theirs.
                 </div>
               </div>
