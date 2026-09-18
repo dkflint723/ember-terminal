@@ -5,6 +5,32 @@ newest entry sits on top.
 
 ## Unreleased
 
+### The debugger that ships is the one that was tested
+
+- **Every build fetched whatever Microsoft had published that day.** The Node
+  debugger is not on npm — it is a release tarball — so a script pulls it in at
+  build time, and that script asked for the *latest* release. Two builds a week
+  apart could therefore hold two different debuggers with nothing recording that
+  they did, which means no build here could be reproduced and "it worked on the
+  last one" said nothing about this one. It is pinned to `v1.117.0` now, which is
+  the version that has been in the tree all along.
+- **And nothing checked what came back.** Whatever those bytes were — a bad
+  download, a moved tag, somebody else's build — they were unpacked into the app
+  and shipped. The tarball is hashed before anything is written now, and a hash
+  that does not match the pin is refused: nothing is extracted, the copy already
+  here is left alone, and the message says both hashes, because "it did not match"
+  without them is not something anyone can act on.
+- **Moving the pin is a deliberate act.** `--update` fetches the newest release and
+  prints the three lines the pin would have to become. It changes nothing itself:
+  a debugger version is not a thing to change as a side effect of running a build.
+- **Two dependencies that were never wired up are gone.** `@xterm/addon-clipboard`
+  and `@xterm/addon-search` were installed at the first commit and never imported.
+  Both were development dependencies, so neither was ever shipped — what they cost
+  was an install and a false impression, and the clipboard one in particular reads
+  like OSC 52 support that does not exist. The terminal registers handlers for OSC
+  133 and 633 and nothing else; a remote program still cannot set the local
+  clipboard, and that was true before this too.
+
 ### Binding a shortcut stops costing you the rest of Settings
 
 - **Escape while picking a chord closed Settings and threw the draft away.** The
