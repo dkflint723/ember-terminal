@@ -5,6 +5,28 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Rename works, and has never worked before
+
+- **F2 did nothing at all in TypeScript and JavaScript.** A rename comes back from
+  the server as a map of edits keyed by the file they belong to, and
+  typescript-language-server spells that key the way it re-encoded it —
+  `file:///c%3A/users/…` where every document here is known as `file:///c:/users/…`.
+  Ember canonicalises the URIs in a message as it passes, but only where the URI is
+  a *value* under a key ending in "uri"; a URI that is itself a key went through
+  untouched. So the edits arrived filed under a name nothing was filed under, the
+  editor said "No text model" to itself, and the key you pressed did nothing —
+  no error, no edit, no sign that anything had been asked. Monaco's own TypeScript
+  rename is stood down the moment a language server starts, so there was nothing
+  left to cover for it. Keys that are file URIs are canonicalised now, the same way
+  values always were. A diagnostic report's `relatedDocuments` is keyed the
+  same way, and is covered by the same rule.
+- **How it is checked.** *multi-language lsp* renames a symbol used twice in an open
+  TypeScript file, by pressing F2 the way a person would, and asserts the new name
+  reached both mentions and the old one is gone. On the build before this it reached
+  neither: the wire shows the request going out as `file:///c:/users/…` and the
+  answer coming back keyed `file:///c%3A/users/…`, which is the whole of the bug in
+  two lines.
+
 ### The Claude chip stops offering to run commands on its own
 
 - **Three modes were offered and one of them was true.** The menu beside the prompt

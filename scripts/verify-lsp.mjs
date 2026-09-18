@@ -25,10 +25,11 @@ const pageErrors = []
 const CASES = {
   typescript: {
     file: 'sample.ts',
-    body: 'interface Point { x: number; y: number }\n\nexport function distance(a: Point, b: Point): number {\n  return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2)\n}\n\nconst broken: number = "not a number"\n',
+    body: 'interface Point { x: number; y: number }\n\nexport function distance(a: Point, b: Point): number {\n  return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2)\n}\n\nexport const far = distance({ x: 0, y: 0 }, { x: 3, y: 4 })\n\nconst broken: number = "not a number"\n',
     hoverWord: 'distance',
     hoverIncludes: 'distance',
-    minErrorSquiggles: 1
+    minErrorSquiggles: 1,
+    rename: { word: 'distance', to: 'separation', expect: 2 }
   },
   python: {
     file: 'sample.py',
@@ -225,6 +226,37 @@ async function run(language) {
     }
   }
 
+  /*
+   * F2, by the road a person takes to it.
+   *
+   * Monaco's own TypeScript rename is stood down the moment a language server
+   * starts, so what this exercises is the server's answer being applied — or not —
+   * rather than the bundled one quietly covering for it.
+   */
+  let rename = null
+  if (spec.rename) {
+    const word = page
+      .locator('.view-line span[class*="mtk"]', { hasText: spec.rename.word })
+      .first()
+    await word.dblclick()
+    await sleep(400)
+    await page.keyboard.press('F2')
+    await sleep(1200)
+    const box = page.locator('.rename-box input, .monaco-editor input.rename-input').first()
+    const opened = (await box.count()) > 0
+    if (opened) {
+      await box.fill(spec.rename.to)
+      await page.keyboard.press('Enter')
+      await sleep(3000)
+    }
+    rename = {
+      opened,
+      text: await page.evaluate(() =>
+        [...document.querySelectorAll('.view-line')].map((l) => l.textContent ?? '').join(' ')
+      )
+    }
+  }
+
   const ui = await page.evaluate(() => ({
     language: document.querySelector('.editor__lang')?.textContent ?? null,
     // A marker reaches the user as a squiggle, so that is what gets asserted.
@@ -236,10 +268,10 @@ async function run(language) {
 
   const lines = readLines(logPath)
   fs.rmSync(work, { recursive: true, force: true })
-  return { spec, ui, lines }
+  return { spec, ui, lines, rename }
 }
 
-function check(language, { spec, ui, lines }) {
+function check(language, { spec, ui, lines, rename }) {
   const failures = []
   const traffic = parseTraffic(lines)
   const sent = traffic.filter((t) => t.fromClient).map((t) => t.msg)
@@ -251,6 +283,29 @@ function check(language, { spec, ui, lines }) {
   if (lines.length === 0 && spec.optional) return ['SKIP: no server installed on this machine']
   if (lines.length === 0) failures.push('no traffic at all — the server never started')
   if (ui.language !== language) failures.push(`pane language is ${ui.language}, expected ${language}`)
+
+  /*
+   * Rename reaches the buffer.
+   *
+   * typescript-language-server answers with changes keyed by the URI it re-encoded,
+   * and the canonicaliser in main rewrote URIs that were values under a key ending
+   * in "uri" while leaving URIs that were themselves keys as the server spelled
+   * them. Monaco then looked for a model filed under a name nothing was filed under,
+   * threw "No text model", and F2 did nothing at all — with the bundled TypeScript
+   * rename already stood down, there was nothing left to cover for it.
+   */
+  if (spec.rename) {
+    if (!rename?.opened) failures.push('F2 did not open a rename box')
+    else {
+      const hits = rename.text.split(spec.rename.to).length - 1
+      if (hits < spec.rename.expect) {
+        failures.push(`rename reached ${hits} of ${spec.rename.expect} mentions`)
+      }
+      if (rename.text.includes(spec.rename.word)) {
+        failures.push('the old name is still in the buffer after the rename')
+      }
+    }
+  }
 
   // The server must still be alive at the end. Its own exit is logged; the only
   // acceptable one is the SIGTERM this app sends when the window closes.

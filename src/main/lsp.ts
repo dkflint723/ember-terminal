@@ -82,7 +82,22 @@ function normalizeUris<T>(message: T): T {
        */
       const isFileUri =
         /uri$/i.test(key) && typeof item === 'string' && item.startsWith('file://')
-      out[key] = isFileUri ? canonicalFileUri(item as string) : walk(item)
+
+      /*
+       * And a URI that is the key rather than the value.
+       *
+       * A rename comes back as `{ changes: { "<uri>": [edits] } }`, and
+       * typescript-language-server spells that key the way it re-encoded it —
+       * `file:///d%3A/…`. Only values were being rewritten, so the map arrived at
+       * the editor filed under a name no open document was filed under, Monaco
+       * threw "No text model", and F2 did nothing whatever. Monaco's own TypeScript
+       * rename is stood down as soon as a server starts, so nothing covered for it:
+       * rename has never worked for TypeScript or JavaScript in this app.
+       *
+       * `relatedDocuments` on a diagnostic report is keyed the same way.
+       */
+      const name = key.startsWith('file://') ? canonicalFileUri(key) : key
+      out[name] = isFileUri ? canonicalFileUri(item as string) : walk(item)
     }
     return out
   }
