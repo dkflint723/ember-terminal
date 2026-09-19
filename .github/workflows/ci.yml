@@ -23,12 +23,14 @@ on:
     - cron: '0 9 * * *'
 
 # A second push supersedes the first: nothing here is worth finishing for a commit
-# that has already been replaced. The nightly is left alone — it is not racing
-# anything, and cancelling it would mean the one full run of the day is the one
-# that got interrupted.
+# that has already been replaced. Nothing else supersedes anything. The nightly is
+# not racing a newer copy of itself, and cancelling it would mean the one full run
+# of the day is the one that got interrupted — and a dispatch is somebody asking a
+# question on purpose, so asking a second one should not throw away the answer to
+# the first. That is not hypothetical: it is how these are run one suite at a time.
 concurrency:
   group: ci-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: ${{ github.event_name != 'schedule' }}
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
 
 jobs:
   fast:
@@ -82,24 +84,27 @@ jobs:
           EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs
       # The suites that are green on a runner, which is not yet all of them.
       #
-      # Ten were tried and six pass here now. lsp was not failing on its subject:
-      # it read "no server available for powershell" as a server that had started
-      # and then answered nothing, when it is the app saying this machine has no
-      # copy — true of every hosted runner and of plenty of real ones.
+      # Ten were tried and seven pass here now. Neither of the two that came back
+      # was failing on its subject. lsp read "no server available for powershell"
+      # as a server that had started and then answered nothing, when it is the app
+      # saying this machine has no copy. boom read the session file out of the
+      # profile it named on the command line, and an already-elevated process —
+      # which is everything on a hosted runner — keeps its user data one directory
+      # further down, so it reported lost work on a machine that had lost none.
       #
-      # Four still fail here while passing on the maintainer's machine, and each
+      # Three still fail here while passing on the maintainer's machine, and each
       # is listed with what it actually said rather than quietly dropped — a
       # subset that hides its exclusions is the same trick as a check that cannot
       # fail:
       #
       #   verify-git      "explorer marks the untracked file — []"
-      #   verify-session  no detail surfaced yet
       #   verify-blocks   no detail surfaced yet
-      #   verify-boom     "-1 tab(s) in session.json — not written yet". It was
-      #                   given a wait instead of its nine-second sleep and still
-      #                   failed, so the clock was not what was wrong: the file is
-      #                   absent for the whole 45 seconds, where on this machine it
-      #                   is there before the crash as well as after it.
+      #   verify-session  "the restored view is weighted to the bottom — 114px
+      #                   above the end", which is what was left once it stopped
+      #                   reading the wrong directory. The window is resized 140px
+      #                   smaller and the view is read 800ms later, and 114 is most
+      #                   of 140 — so this may well be one more check about the
+      #                   clock.
       #
       # They still run in the nightly, where red is the honest state until they
       # are fixed. Keeping them out of the per-push job is so that a red smoke
@@ -114,7 +119,7 @@ jobs:
         shell: pwsh
         run: node scripts/gate.mjs --only $env:SUITES
         env:
-          SUITES: ${{ inputs.only || 'settings,output,shell,history,flood,lsp' }}
+          SUITES: ${{ inputs.only || 'settings,output,shell,history,flood,lsp,boom' }}
           EMBER_STRICT: '1'
           EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs
       # The screenshots and the main-process logs are the only way to read a
