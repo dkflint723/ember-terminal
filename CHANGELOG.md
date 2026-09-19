@@ -5,6 +5,25 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A check about clearing the screen stops being a check about the clock
+
+- **It failed once, on a loaded machine, and passed unchanged.** The check that a
+  running command survives a clear ran `Start-Sleep -Seconds 8`, waited for its
+  block to appear, cleared, and asserted about a second and a half later. That is
+  a budget, not an assertion: a stall of a few seconds let the sleep finish first,
+  and "0 running blocks" read as the clear having removed the command when nothing
+  had removed anything. A red line that means "the machine was busy" is worse than
+  no line — it teaches people to rerun rather than to read.
+- **The command runs until it is interrupted,** so there is nothing to outrun, and
+  the counts are taken on both sides of the keystroke, so what is compared is what
+  the clear changed. It is then stopped through the live terminal, with a bounded
+  wait that sends the interrupt again if the first was not heard — a wait with no
+  end is how a suite that should have failed once sat for twenty minutes instead.
+- **Nothing was weakened.** The two assertions the check existed for are still
+  made — the block survives, the keyboard stays with the program — and the reason
+  they matter is still the one the comment gives: a clear under a live `ssh` once
+  put its password prompt back in the ordinary composer, typed in the clear.
+
 ### A shell there is no script for says so at once
 
 - **zsh and fish spent six seconds pretending.** A pane waits that long for a

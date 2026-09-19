@@ -149,27 +149,64 @@ const timeline = (page) =>
    * prompt back in the ordinary composer, typed in the clear and on its way to the
    * history database.
    */
+  /*
+   * A command that outlasts any stall, and an assertion about the clear rather
+   * than about the clock.
+   *
+   * This ran `Start-Sleep -Seconds 8` and asserted about 1.6 s after the block
+   * appeared. That is a budget, and on a loaded machine the budget ran out: the
+   * sleep finished before the assertion, and "0 running blocks" read as the clear
+   * having removed the command when nothing had removed anything. The command now
+   * runs until it is interrupted, so there is nothing to outrun; and the counts are
+   * taken on both sides of the keystroke, so what is compared is what the clear
+   * changed.
+   */
+  const running = async () => ({
+    blocks: await page.locator('.block--running').count(),
+    panels: await page.locator('.composer__badge--warn').count()
+  })
   await page.click('.composer__input')
-  await page.keyboard.type('Start-Sleep -Seconds 8', { delay: 8 })
+  await page.keyboard.type('Start-Sleep -Seconds 300', { delay: 8 })
   await page.keyboard.press('Enter')
   // Waited for rather than slept through: a fixed pause here is a race with how
   // long the shell takes to start the command, and clearing before it has begun
   // tests nothing at all.
   await page.waitForSelector('.block--running', { timeout: 20_000 })
   await sleep(400)
+  const beforeClear = await running()
   await page.keyboard.press('Control+Shift+K')
   await sleep(1200)
+  const afterClear = await running()
+  check(
+    'a command is running, and has the keyboard, as the screen is cleared',
+    beforeClear.blocks === 1 && beforeClear.panels === 1,
+    JSON.stringify(beforeClear)
+  )
   check(
     'clearing the screen keeps the command still running in it',
-    (await page.locator('.block--running').count()) === 1,
-    `${await page.locator('.block--running').count()} running blocks`
+    afterClear.blocks === 1 && afterClear.blocks === beforeClear.blocks,
+    `${beforeClear.blocks} running before the clear, ${afterClear.blocks} after`
   )
   check(
     'so the keyboard still belongs to the program',
-    (await page.locator('.composer__badge--warn').count()) === 1,
-    `${await page.locator('.composer__badge--warn').count()} running panels`
+    afterClear.panels === 1 && afterClear.panels === beforeClear.panels,
+    `${beforeClear.panels} running panels before the clear, ${afterClear.panels} after`
   )
-  while ((await page.locator('.block--running').count()) > 0) await sleep(500)
+  // Stopped by hand, through the live terminal, which is where a running command's
+  // keys go. Bounded, and sent again if once was not heard: a wait with no end is
+  // how a suite that should have failed once sat for twenty minutes instead.
+  await page.locator('.xterm').first().click({ force: true })
+  await page.keyboard.press('Control+c')
+  let stopped = false
+  for (let i = 0; i < 40; i++) {
+    if ((await page.locator('.block--running').count()) === 0) {
+      stopped = true
+      break
+    }
+    if (i === 12) await page.keyboard.press('Control+c')
+    await sleep(500)
+  }
+  check('and the command stops when interrupted', stopped, 'still running after 20 s')
   await sleep(800)
 
   // And once it has finished it is history like anything else, so a second clear
