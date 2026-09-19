@@ -155,8 +155,8 @@ const api: EmberApi = {
   ghostTest: () => ipcRenderer.invoke('ghost:test'),
   rewriteSelection: (selection: string, instruction: string, language: string) =>
     ipcRenderer.invoke('edit:rewrite', selection, instruction, language),
-  gitBlameLine: (root: string, filePath: string, line: number) =>
-    ipcRenderer.invoke('git:blameLine', root, filePath, line),
+  gitBlameLine: (root: string, filePath: string, line: number, contents?: string) =>
+    ipcRenderer.invoke('git:blameLine', root, filePath, line, contents),
   gitLog: (root: string, filePath: string | null, limit: number) =>
     ipcRenderer.invoke('git:log', root, filePath, limit),
   gitStashList: (root: string) => ipcRenderer.invoke('git:stashList', root),

@@ -334,9 +334,14 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     const blame = attachBlame(editor, () => {
       const state = useStore.getState()
       const doc = state.panes[pane.id]
-      const active =
-        doc?.kind === 'editor' ? doc.documents[doc.activeIndex]?.filePath ?? null : null
-      return { root: state.gitStatus?.root ?? null, filePath: active }
+      const open = doc?.kind === 'editor' ? doc.documents[doc.activeIndex] : undefined
+      return {
+        root: state.gitStatus?.root ?? null,
+        filePath: open?.filePath ?? null,
+        // Only a dirty document needs its buffer sent; a saved one already
+        // matches what git would read off disk.
+        dirty: open?.dirty === true
+      }
     })
 
     /*

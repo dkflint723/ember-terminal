@@ -125,6 +125,54 @@ check(
   JSON.stringify(line1)
 )
 
+/*
+ * --- and blame follows the buffer, not the file on disk ----------------------
+ *
+ * The line number comes from the editor; the answer came from the file on disk.
+ * Those are the same thing only until something is typed. With one unsaved line
+ * inserted at the top, what the caret calls line 2 is line 1 of the file git can
+ * see — so git was asked about the caret's number in a file that no longer has
+ * the caret's line there.
+ *
+ * It did not go blank, which would at least have looked like an absence. It named
+ * a real commit and a real author, neither of which had touched the line being
+ * pointed at.
+ */
+await page.click('.monaco-editor .view-lines')
+await page.keyboard.press('Control+Home')
+await page.keyboard.type('// an unsaved line, pushing everything down' + String.fromCharCode(10), {
+  delay: 12
+})
+await sleep(800)
+
+const dirty = await page.evaluate(() => document.querySelectorAll('.pane.editor[data-dirty="true"]').length)
+check('the buffer really is unsaved', dirty === 1, String(dirty))
+
+// What was line 1 is line 2 now, and it still belongs to the first commit.
+const movedDown = await blameAt(2)
+check(
+  'a line pushed down by an unsaved edit keeps its own commit',
+  movedDown.includes('first commit'),
+  JSON.stringify(movedDown)
+)
+check(
+  'rather than the one that touched that line number on disk',
+  !movedDown.includes('second commit'),
+  JSON.stringify(movedDown)
+)
+
+// And the line the unsaved edit itself is on has no commit, so nothing is said.
+const onTheNewLine = await blameAt(1)
+check(
+  'the unsaved line itself is not attributed to anybody',
+  onTheNewLine === '',
+  JSON.stringify(onTheNewLine)
+)
+
+// Put it back, so the log checks below see the file the fixture built.
+await page.keyboard.press('Control+z')
+await sleep(600)
+
 // --- the log ------------------------------------------------------------------
 await page.keyboard.press('Control+Shift+G')
 await sleep(1500)

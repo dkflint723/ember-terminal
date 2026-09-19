@@ -1883,8 +1883,10 @@ function registerIpc(): void {
   ipcMain.handle('git:pull', (_e, root: string) => git.pull(root))
   ipcMain.handle('git:branches', (_e, root: string) => git.branches(root))
   ipcMain.handle('git:headText', (_e, filePath: string) => git.headText(filePath))
-  ipcMain.handle('git:blameLine', (_e, root: string, filePath: string, line: number) =>
-    git.blameLine(root, filePath, line)
+  ipcMain.handle(
+    'git:blameLine',
+    (_e, root: string, filePath: string, line: number, contents?: string) =>
+      git.blameLine(root, filePath, line, contents)
   )
   ipcMain.handle('git:log', (_e, root: string, filePath: string | null, limit: number) =>
     git.log(root, filePath, limit)

@@ -25,7 +25,7 @@ interface Attachment {
 
 export function attachBlame(
   editor: monaco.editor.IStandaloneCodeEditor,
-  context: () => { root: string | null; filePath: string | null }
+  context: () => { root: string | null; filePath: string | null; dirty?: boolean }
 ): Attachment {
   const decorations = editor.createDecorationsCollection([])
   let timer = 0
@@ -41,7 +41,7 @@ export function attachBlame(
 
   const paint = async (): Promise<void> => {
     const mine = ++generation
-    const { root, filePath } = context()
+    const { root, filePath, dirty } = context()
     const position = editor.getPosition()
     const model = editor.getModel()
     if (!root || !filePath || !position || !model) {
@@ -56,8 +56,13 @@ export function attachBlame(
       return
     }
 
+    /*
+     * The buffer goes with the question when it has been edited, because the line
+     * number being asked about is the buffer's. Sent only then: this runs as the
+     * caret moves, and a saved file is already the same on both sides.
+     */
     const line = await window.ember
-      .gitBlameLine(root, filePath, position.lineNumber)
+      .gitBlameLine(root, filePath, position.lineNumber, dirty ? model.getValue() : undefined)
       .catch(() => null)
     if (mine !== generation) return
     if (!line || line.uncommitted || !line.summary) {

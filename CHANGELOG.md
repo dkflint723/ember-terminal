@@ -5,6 +5,27 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Blame answers about the line you are looking at, not the one on disk
+
+- **The line number came from the editor and the answer came from the file on
+  disk.** Those are the same thing only until something is typed. Insert a line at
+  the top of a file and every annotation below it is off by one: git is asked
+  about the caret's line number in a file that no longer has the caret's line
+  there. Measured on a two-commit file with one unsaved line inserted above, git
+  was asked for line 2 and answered *second commit*, where the line the caret sat
+  on belongs to the first.
+- **It did not go blank, which would at least have read as an absence.** It named
+  a real commit and a real author, neither of which had touched the line being
+  pointed at. `--contents -` hands git the buffer to count lines in.
+- **Sent only when the document is dirty.** A saved file is already the same on
+  both sides, and this runs as the caret moves — so the common case keeps the
+  cheap path and nothing crosses the process boundary that did not need to.
+- **How it is checked.** *git history* inserts an unsaved line above a line whose
+  commit is known, and asserts the annotation still names that commit and
+  specifically not the one that touched that line number on disk — then that the
+  unsaved line itself is attributed to nobody, which is the assertion that would
+  not survive reporting nothing at all whenever a file is dirty.
+
 ### Stashing takes the untracked files with it again
 
 - **A fix from earlier in this release broke it.** Literal pathspecs were set on

@@ -1269,7 +1269,16 @@ export interface EmberApi {
     instruction: string,
     language: string
   ): Promise<{ ok: true; text: string } | { ok: false; error: string }>
-  gitBlameLine(root: string, filePath: string, line: number): Promise<GitBlameLine | null>
+  /**
+   * `contents` is the buffer, for a document with unsaved edits: the line number
+   * is the buffer's, so the file git counts lines in has to be the buffer too.
+   */
+  gitBlameLine(
+    root: string,
+    filePath: string,
+    line: number,
+    contents?: string
+  ): Promise<GitBlameLine | null>
   /** Recent commits, for the repository or for one file. */
   gitLog(root: string, filePath: string | null, limit: number): Promise<GitLogEntry[]>
   gitStashList(root: string): Promise<GitStashEntry[]>
