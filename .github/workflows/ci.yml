@@ -1,0 +1,83 @@
+# Checks that run somewhere other than the maintainer's machine.
+#
+# The gate has always run on the one computer it is capable of freezing, which is
+# why it does not get run between commits — and two regressions have now been
+# found late because of that. `verify-history` was red on master for six commits,
+# and `verify-lsp` passed for its whole existence while proving only the easy half
+# of its subject. Neither was a hard bug to see. Nobody was looking.
+#
+# The Windows half is deliberately small to begin with. Whether an Electron suite
+# can run at all on a hosted runner is not something to assume: there is no GPU,
+# so WebGL falls back to the DOM renderer, and ConPTY behaviour under a service
+# session is unknown. One suite first, and more once this has been watched to work.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+# A second push supersedes the first: nothing here is worth finishing for a commit
+# that has already been replaced.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fast:
+    name: typecheck, units, contrast
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # None of this runs the app, and the download is 100MB of nothing useful.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      # EMBER_STRICT is deliberately not set here. Several unit tables skip the
+      # shells they cannot find, and on Linux that is all of them; strict would
+      # turn "no PowerShell on this machine" into a failure that means nothing.
+      - run: npm run test:units
+      - name: Theme contrast
+        run: node scripts/verify-contrast.mjs
+      # The plan and the directory have to agree, which is what stops a suite
+      # existing on disk that nothing ever runs.
+      - name: Every suite is in the gate's plan
+        run: node scripts/gate.mjs --list
+
+  smoke:
+    name: windows smoke
+    runs-on: windows-latest
+    needs: fast
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx electron-vite build
+      # One suite, and the one that covers the most ground: it drives a real shell
+      # through a real pty and opens a real editor. If an Electron suite can run
+      # here at all, this says so.
+      - name: verify.mjs
+        run: node scripts/verify.mjs
+      # The screenshots and the main-process log are the only way to read a
+      # failure that happened on a machine nobody can look at.
+      - name: Keep what the run saw
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-evidence
+          path: |
+            .shots/
+            ${{ runner.temp }}/ember-profile-*/ember.log
+          if-no-files-found: ignore
+          retention-days: 7

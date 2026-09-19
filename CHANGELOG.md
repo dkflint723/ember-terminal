@@ -5,6 +5,27 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Checks that run somewhere other than this machine
+
+- **The gate runs on the one computer it can freeze**, which is why it does not
+  get run between commits. Two regressions have now been found late because of
+  that: *source control* was red on master for six commits, and *multi-language
+  lsp* passed for its whole existence while proving only the easy half of its
+  subject. Neither was hard to see. Nobody was looking.
+- **A fast job on Linux**, in a few minutes and for nothing: typecheck, the unit
+  tables, theme contrast, and the check that every suite on disk is in the gate's
+  plan. `EMBER_STRICT` is deliberately not set there — several unit tables skip
+  the shells they cannot find, and on Linux that is all of them, so strict would
+  turn "no PowerShell here" into a failure that means nothing.
+- **And one Windows suite, to find out whether that is possible at all.** A hosted
+  runner has no GPU, so WebGL falls back to the DOM renderer, and how ConPTY
+  behaves there is not something to assume. *verify.mjs* goes first because it
+  covers the most ground — a real shell through a real pty, and a real editor. The
+  rest follow once this has been watched to work rather than hoped to.
+- **What a failure leaves behind:** the screenshots and each profile's
+  `ember.log`, uploaded on failure, since nobody can look at the machine it
+  happened on.
+
 ### TypeScript diagnostics work in a folder whose name has a space in it
 
 - **They did not, and nothing said so.** Three parties spell a Windows path three
