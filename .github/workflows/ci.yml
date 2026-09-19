@@ -68,20 +68,33 @@ jobs:
       # keeps the child's stderr to itself, which is no use at all from here. So
       # Electron is started directly first, with whatever it has to say on the way
       # out, before anything tries to drive it.
-      - name: Can Electron start here
+      # `npm ci` finished in twenty seconds and left no binary behind, which is far
+      # too quick to have fetched a hundred megabytes of Electron. Why it skipped
+      # is worth knowing rather than working around blind, so this says what it
+      # found before it repairs anything.
+      - name: Electron's binary
         shell: pwsh
         run: |
+          Write-Host '--- ELECTRON_* in the environment ---'
+          Get-ChildItem env: | Where-Object Name -like 'ELECTRON*' | ForEach-Object { Write-Host "$($_.Name)=$($_.Value)" }
+          Write-Host '--- what npm left in node_modules/electron ---'
+          Get-ChildItem node_modules/electron -ErrorAction SilentlyContinue |
+            ForEach-Object { Write-Host "  $($_.Name)" }
+          Write-Host "path.txt: $(Get-Content node_modules/electron/path.txt -ErrorAction SilentlyContinue)"
           $exe = 'node_modules/electron/dist/electron.exe'
           Write-Host "binary present: $(Test-Path $exe)"
-          if (Test-Path $exe) { Write-Host "size: $((Get-Item $exe).Length)" }
-          Write-Host "--- electron --version ---"
-          & $exe --version 2>&1 | Write-Host
-          Write-Host "exit: $LASTEXITCODE"
-          Write-Host "--- the app itself, given five seconds ---"
-          $p = Start-Process -FilePath $exe -ArgumentList '.','--no-sandbox' -PassThru `
+          if (-not (Test-Path $exe)) {
+            Write-Host '--- fetching it the way the postinstall would have ---'
+            node node_modules/electron/install.js
+            Write-Host "binary present now: $(Test-Path $exe)"
+          }
+          if (-not (Test-Path $exe)) { throw 'Electron will not install on this runner' }
+          Write-Host "size: $((Get-Item $exe).Length)"
+          Write-Host '--- the app itself, given eight seconds ---'
+          $p = Start-Process -FilePath $exe -ArgumentList '.' -PassThru `
                  -RedirectStandardError app-err.txt -RedirectStandardOutput app-out.txt -NoNewWindow
-          Start-Sleep -Seconds 5
-          if (-not $p.HasExited) { Write-Host 'still running after 5s (good)'; Stop-Process -Id $p.Id -Force }
+          Start-Sleep -Seconds 8
+          if (-not $p.HasExited) { Write-Host 'still running (good)'; Stop-Process -Id $p.Id -Force }
           else { Write-Host "exited early with $($p.ExitCode)" }
           Write-Host '--- stderr ---'; Get-Content app-err.txt -ErrorAction SilentlyContinue | Write-Host
           Write-Host '--- stdout ---'; Get-Content app-out.txt -ErrorAction SilentlyContinue | Write-Host
