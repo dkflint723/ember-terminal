@@ -596,6 +596,25 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
         <div className="pane__notice">
           <span>{profileName ?? 'This shell'} has no shell integration — plain terminal mode.</span>
           {pane.exited && <span>· exited {pane.exitCode ?? ''}</span>}
+          {/*
+            A pane like this has no composer, so when its shell exited there was
+            nothing on screen to start another one with — the pane simply sat
+            there, dead, and the way out was to close it and open a new session.
+
+            The same hook as the composer's own restart chip, because it is the
+            same action. The two never appear together: a plain pane is a raw
+            pane, and the composer is drawn only when the pane is not raw.
+          */}
+          {pane.exited && (
+            <button
+              className="btn"
+              data-restart="shell"
+              title="Start a new shell in this pane"
+              onClick={() => controller.restart()}
+            >
+              Restart
+            </button>
+          )}
         </div>
       )}
     </div>

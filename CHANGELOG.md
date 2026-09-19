@@ -5,6 +5,32 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A plain pane whose shell died has a way back
+
+- **There was nothing to click.** A pane with no shell integration has no composer,
+  and the composer is where the restart chip lives — so when the shell exited, the
+  pane said `exited 0` and that was the end of it. The only way on was to close the
+  session. The notice offers Restart now, on the same hook the composer's chip
+  uses, because it is the same action. The two never appear together: a plain pane
+  is a raw pane, and the composer is only drawn when a pane is not raw.
+- **Restarting inside the grace period could write the new shell off.** A pane waits
+  six seconds for a shell to announce itself before deciding it has no integration.
+  That watchdog was replaced on restart without being cancelled, so the abandoned
+  one kept counting from the first spawn — and a shell that died and was restarted
+  within those six seconds could be marked plain by a timer belonging to the shell
+  before it.
+- **Plain terminal mode had no gated check at all.** It had one, in a suite the gate
+  does not run, and that check read the notice's text into a variable and then left
+  it out of the pass expression — so the notice could have said anything. *plain
+  terminal* is a suite of its own now, in the gate: it asserts the pane says why the
+  blocks are missing and names the shell, that there is no composer, that the
+  terminal has the whole pane, that no block is stranded, and that nothing offers to
+  restart a shell that is still running.
+- **How the restart is proved.** Not by reading the screen — the WebGL renderer
+  draws the rows rather than building them, so there is often no text in the DOM to
+  read. The suite tells the restarted shell to exit, and watches it do so. Only a
+  running shell can.
+
 ### Closing no longer ends what was running without asking
 
 - **A session, a pane or a window took its shells with it silently.** Every way of

@@ -507,6 +507,19 @@ export class TerminalController {
    * can take seconds to reach its first prompt.
    */
   private watchForIntegration(): void {
+    /*
+     * The old watch stops before the new one starts.
+     *
+     * Restarting reassigned this handle without cancelling what it was holding,
+     * and the abandoned timer kept its own deadline — the one counted from the
+     * first spawn. Restart a shell that died inside its six-second grace period
+     * and that stale timer would land on the new shell, find it still 'pending',
+     * and write it off as having no integration before it had finished starting.
+     */
+    if (this.integrationTimer !== null) {
+      window.clearTimeout(this.integrationTimer)
+      this.integrationTimer = null
+    }
     const pane = this.store().terminalPane(this.paneId)
     const profile = this.store().profiles.find((p) => p.id === pane?.profileId)
 
