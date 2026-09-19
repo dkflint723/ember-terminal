@@ -5,6 +5,36 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A pane follows output that grows without arriving
+
+- **The first thing in the app, rather than in a check, that the gate caught from
+  somewhere other than this machine.** On a hosted Windows runner, shrinking the
+  window by 140px parked a terminal 114px above the end of its output and left it
+  there — identically, every time, for as long as anything cared to wait. Here it
+  has never happened once.
+- **A pane watches two things and needed a third.** Its container changing size is
+  a `ResizeObserver`; blocks arriving is a `MutationObserver` on `childList`. What
+  neither sees is a block that is *already there* changing height: that is a style
+  on some element below, and the container's own box never moves. The live
+  terminal does exactly that on every resize — it re-fits its rows to the height it
+  now has — and it finishes *after* the resize that prompted it. So the pane pinned
+  itself to the end of a content height that was still on its way, and was never
+  asked again.
+- **The measurement, rather than a fourth guess:** the pane settled at scrollTop
+  2505 of a possible 2619 — which is exactly the end of a 2953px content, in a
+  container whose content had reached 3067px by the time anyone looked. Three
+  explanations had been offered for that number before anyone printed it: a slower
+  machine, the GPU-less renderer a runner falls back to, and the follow latch. The
+  first two were disproved by measurement, the third by changing it and watching
+  nothing happen.
+- **The children are observed for their size now,** and newly-arrived ones are
+  added to that as they mount, so a block that grows after it is already on screen
+  moves the view the same as one that has just appeared.
+- **How it is checked:** the session suite asks the claim on both sides of the
+  resize — a restore that never pinned and a resize that unpinned are separate
+  failures — and reports every pane's scroll geometry when it fails, which is what
+  ended the guessing and is left in place for the next time.
+
 ### A terminal stops telling itself to stop following its output
 
 - **Resize a window while a pane is following live output and it could quietly
@@ -22,12 +52,12 @@ newest entry sits on top.
   unchanged, which matters in both directions: output still lands under someone
   watching it live, and still does not yank someone reading back through a build
   log.
-- **The first thing in the app itself that the gate caught from somewhere else.**
-  Shrinking the window by 140px on a hosted runner parked the view 114px above the
-  end and left it there, identically, every time — where on the machine this was
-  written it has never once happened. Two guesses were spent on that number before
-  it was split into two questions; the restore pins the view correctly, and the
-  resize is what unpins it.
+- **This was found while chasing something else, and did not turn out to be it.**
+  It was the third explanation offered for a pane that parked 114px above the end
+  on a hosted runner, and the runner reported the same 114px afterwards. The
+  mechanism above is real and worth closing on its own account — a component
+  should not be able to clear its own latch by acting on it — but the 114px had a
+  different cause, and it is the entry below.
 - **How it is checked:** the session suite asks the claim on both sides of the
   resize, so a restore that never pinned and a resize that unpinned it are
   different failures. And the other half of the latch, which had no check at all,

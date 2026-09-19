@@ -374,8 +374,34 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
     // The container changing size: window resize, panel drag, find bar.
     const ro = new ResizeObserver(follow)
     ro.observe(el)
-    // The content changing without a dep: blocks mounting on restore.
-    const mo = new MutationObserver(follow)
+    /*
+     * And the container keeping its size while what is inside it changes height,
+     * which is the case neither observer saw.
+     *
+     * Blocks mounting is a childList mutation and was covered. A block that is
+     * already mounted getting taller or shorter is not: it is a style on an
+     * element somewhere below, and the container's own box does not move, so the
+     * ResizeObserver above says nothing either. The live terminal does exactly
+     * that whenever the window is resized — it re-fits its rows to the height it
+     * has now — and it finishes after the resize that prompted it.
+     *
+     * So the pin ran against a content height that was still on its way, landed
+     * where the end was at that instant, and was never asked again. Measured on a
+     * hosted runner: the pane settled at scrollTop 2505 of a possible 2619, which
+     * is the end of a 2953px content, in a container whose content had reached
+     * 3067px by the time anyone looked. 114px short, every time, for as long as
+     * you care to wait.
+     */
+    const observeChildren = (): void => {
+      for (const child of Array.from(el.children)) ro.observe(child)
+    }
+    observeChildren()
+    // The content changing without a dep: blocks mounting on restore — and each
+    // new one has to be watched for its height as well as its arrival.
+    const mo = new MutationObserver(() => {
+      observeChildren()
+      follow()
+    })
     mo.observe(el, { childList: true, subtree: true })
     // The font arriving, which reflows everything and notifies no one.
     void document.fonts.ready.then(follow)
