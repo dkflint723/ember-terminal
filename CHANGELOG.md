@@ -21,20 +21,36 @@ newest entry sits on top.
 
 ### The restored view is waited for rather than read on a timer
 
-- **A fourth check about the clock, and the fourth found the same way.** The
-  session check shrinks the window by 140px and reads the scroll position 800ms
-  later, requiring the restored view to be within 24px of the end of its output.
-  On a hosted runner it came back 114px above the end — and 114 is most of the 140
-  that had just been taken away, which is the shape of a pane measured partway
-  through reacting to a resize rather than one that had declined to react.
+- **The session check shrank the window by 140px and read the scroll position
+  800ms later,** requiring the restored view to be within 24px of the end of its
+  output. On a hosted runner it came back 114px above the end. 114 being most of
+  the 140 just taken away, this looked like a fourth check about the clock — a
+  pane measured partway through reacting to a resize.
+- **It was not.** Given fifteen seconds to settle instead of 800ms, it reports
+  114px still: the same number, not a number on its way anywhere. The pane does
+  not re-pin itself to the end on that machine at all, and no amount of waiting
+  changes it. The guess is written down here because the check was changed on the
+  strength of it, and because the change turned out to be worth making for a
+  different reason — a bounded wait is what proved the timing had nothing to do
+  with it.
+- **Nor is it the renderer.** A hosted runner has no GPU, so WebGL falls back to
+  the DOM renderer, which was the obvious next suspect. Run here under
+  `--disable-gpu`, the suite passes. Two guesses, both cheap to make and both
+  wrong, which is the argument for the third move being a measurement rather than
+  a third guess: the claim is now asked on both sides of the resize, so the
+  failure says whether the restore never pinned the view or the resize unpinned
+  it.
 - **The assertion is the one it always was:** the restored view ends up at the
-  bottom. A pane that never gets there still fails, after fifteen seconds instead
-  of under one.
-- **Four of these in one release is a pattern, not four accidents.** Every one was
-  a click or a resize, a fixed sleep, and then a measurement — and every one
-  passed on the machine it was written on and failed somewhere slower, reporting a
-  cause that was not the cause. Two were found by a loaded laptop by luck; two by
-  the gate running somewhere that is not this machine, on purpose.
+  bottom. A pane that never gets there still fails, now after fifteen seconds
+  rather than under one, and now it fails for a reason that has been established
+  instead of assumed.
+- **What is actually wrong is still open,** and it is in the app rather than the
+  check. Following the end is a latch: it is set while the view is within 24px of
+  the bottom and cleared when it is not, and once cleared, a resize will not bring
+  the view back. A restore is exactly the moment the layout moves underneath
+  itself — fonts arrive, blocks mount, the window settles into its saved bounds —
+  so a pane can come out of one having quietly stopped following. `verify-session`
+  stays out of the per-push set until that is understood, with this as its reason.
 
 ### Two checks were reading a session file the app had deliberately moved
 

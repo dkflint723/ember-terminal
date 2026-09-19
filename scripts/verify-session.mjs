@@ -190,25 +190,25 @@ fs.writeFileSync(crlf, CRLF_TEXT, 'utf8')
    * exactly the launch complaint — a view parked above the end until dragged.
    */
   await sleep(1200)
-  const size = await app.evaluate(({ BrowserWindow }) => {
-    const w = BrowserWindow.getAllWindows()[0]
-    const [width, height] = w.getContentSize()
-    w.setContentSize(width, height - 140)
-    return { width, height }
-  })
+
   /*
-   * Waited for, not slept after.
+   * Waited for, not slept after — and asked on both sides of the resize.
    *
-   * The window is made 140px shorter and the scroll position read 800ms later. A
-   * terminal sitting at the bottom has to reflow and re-pin itself, and on a
-   * hosted runner that had not finished inside 800ms: the view came back 114px
-   * above the end, which is most of the 140px that had just been taken away. That
-   * is the measurement of a pane caught partway through reacting, not of one that
-   * had declined to.
+   * This shrank the window by 140px and read the scroll position 800ms later. On a
+   * hosted runner it reported 114px above the end, and 114 being most of 140 that
+   * looked like a pane caught partway through reacting. It is not: given fifteen
+   * seconds instead of 800ms it reports 114px still, the same number rather than a
+   * number on its way anywhere.
    *
-   * The assertion is the one it always was — the restored view ends up at the
-   * bottom — and a pane that never gets there still fails, now after fifteen
-   * seconds instead of under one.
+   * Two guesses have been spent on that number. A slower machine was the first,
+   * and the wait disproved it. The GPU-less renderer a hosted runner falls back to
+   * was the second, and running this here under --disable-gpu disproved that too —
+   * it passes.
+   *
+   * So rather than guess a third time: "the restored view is at the end" is two
+   * claims, and they fail for different reasons in different places. A restore
+   * that never pinned the view is one bug; a resize that unpins it is another.
+   * Asked separately, the answer says which.
    */
   const distanceFromEnd = () =>
     page.evaluate(() => {
@@ -216,11 +216,25 @@ fs.writeFileSync(crlf, CRLF_TEXT, 'utf8')
       return el ? el.scrollHeight - el.scrollTop - el.clientHeight : -1
     })
   const atBottom = (d) => d >= 0 && d < 24
-  let parked = await distanceFromEnd()
-  for (let waited = 0; waited < 15_000 && !atBottom(parked); waited += 250) {
-    await sleep(250)
-    parked = await distanceFromEnd()
+  const settle = async () => {
+    let d = await distanceFromEnd()
+    for (let waited = 0; waited < 15_000 && !atBottom(d); waited += 250) {
+      await sleep(250)
+      d = await distanceFromEnd()
+    }
+    return d
   }
+
+  const restored = await settle()
+  check('the restored view starts at the end', atBottom(restored), `${restored}px above the end`)
+
+  const size = await app.evaluate(({ BrowserWindow }) => {
+    const w = BrowserWindow.getAllWindows()[0]
+    const [width, height] = w.getContentSize()
+    w.setContentSize(width, height - 140)
+    return { width, height }
+  })
+  const parked = await settle()
   check('the restored view is weighted to the bottom', atBottom(parked), `${parked}px above the end`)
   await app.evaluate(({ BrowserWindow }, s) => {
     BrowserWindow.getAllWindows()[0].setContentSize(s.width, s.height)
