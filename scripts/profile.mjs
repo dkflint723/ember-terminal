@@ -62,14 +62,48 @@ process.on('exit', () => {
   if (faulted && !process.exitCode) process.exitCode = 1
 })
 
+/*
+ * What a red run leaves behind on a machine nobody can look at.
+ *
+ * A profile is deleted on the way out, which is right — they are throwaway, and a
+ * few hundred of them would fill a disk. It also means the one artefact worth
+ * having after a failure on a hosted runner, main's own ember.log, is gone before
+ * anything can upload it. The workflow claimed to be collecting those logs and was
+ * collecting nothing: it globbed `ember-profile-*` under the runner's temp
+ * directory, and profiles are made in os.tmpdir(), which on a Windows runner is
+ * somewhere else entirely — and by upload time they had been removed regardless.
+ *
+ * With EMBER_KEEP_LOGS naming a directory, each log is copied there first, under
+ * the name of the profile it came from. Unset, which is every run on a laptop,
+ * nothing about this changes.
+ */
+function keepLogs(dir) {
+  const keep = process.env.EMBER_KEEP_LOGS
+  if (!keep) return
+  try {
+    fs.mkdirSync(keep, { recursive: true })
+    const stem = path.basename(dir)
+    for (const [from, suffix] of [
+      [path.join(dir, 'ember.log'), ''],
+      [path.join(dir, 'admin-window', 'ember.log'), '-admin']
+    ]) {
+      if (fs.existsSync(from)) fs.copyFileSync(from, path.join(keep, `${stem}${suffix}.log`))
+    }
+  } catch {
+    // Evidence is a convenience. Failing to keep it must not fail the run.
+  }
+}
+
 /**
  * Audit a user-data directory's logs and fail the run if main reported a fault.
  *
  * cleanup() calls this for every throwaway profile. The two suites that keep their
  * user data somewhere of their own — so they can read session.json and history.db
- * across relaunches — call it themselves before deleting that directory.
+ * across relaunches — call it themselves before deleting that directory. Which is
+ * why the logs are kept from here: it is the one point both paths go through.
  */
 export function auditProfileDir(dir, { expectFaults = [] } = {}) {
+  keepLogs(dir)
   const found = []
   for (const file of [path.join(dir, 'ember.log'), path.join(dir, 'admin-window', 'ember.log')]) {
     let text

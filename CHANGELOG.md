@@ -5,6 +5,32 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A failure on the runner leaves its logs behind
+
+- **It was claimed for three runs and was not happening.** The smoke job says the
+  screenshots and each profile's `ember.log` are uploaded when a run goes red,
+  since nobody can look at the machine it happened on. It was collecting neither.
+  The glob looked for `ember-profile-*/ember.log` under the runner's temp
+  directory; profiles are made in `os.tmpdir()`, which on a Windows runner is
+  somewhere else entirely, and a profile is deleted on its way out of the suite
+  regardless — so there was nothing to match even in the right place.
+  `if-no-files-found: ignore` meant the step went green having uploaded nothing.
+- **It went unnoticed until there was a failure worth reading.** The crash check
+  went red on the runner saying `not written yet`, which is a real answer and not
+  enough of one, and the evidence that would have explained it had been thrown
+  away by the suite that produced it.
+- **The log is copied out before the profile is removed,** when `EMBER_KEEP_LOGS`
+  names a directory, under the name of the profile it came from. The copy is made
+  in the fault audit rather than in cleanup, because the audit is the one point
+  every profile goes through — the throwaway ones, and the two suites that keep
+  their own user data so they can read `session.json` and `history.db` across a
+  relaunch. Unset, which is every run on a laptop, nothing about this changes.
+- **How it is checked:** a profile holding an `ember.log` and an elevated window's
+  own is audited and then deleted, and both files are still there afterwards,
+  named for the profile they came from. A green suite leaves nothing behind, which
+  is right rather than a gap — main writes that file when it has something to
+  report, and the runs worth reading are the ones that do.
+
 ### A language server this machine does not have is a skip, not a failure
 
 - **`multi-language lsp` spent its run on a runner asserting against a server
@@ -74,9 +100,9 @@ newest entry sits on top.
   behaves there is not something to assume. *verify.mjs* goes first because it
   covers the most ground — a real shell through a real pty, and a real editor. The
   rest follow once this has been watched to work rather than hoped to.
-- **What a failure leaves behind:** the screenshots and each profile's
-  `ember.log`, uploaded on failure, since nobody can look at the machine it
-  happened on.
+- **What a failure leaves behind:** the screenshots, and each profile's
+  `ember.log` copied out before the profile is deleted, since nobody can look at
+  the machine it happened on.
 
 ### TypeScript diagnostics work in a folder whose name has a space in it
 

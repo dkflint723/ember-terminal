@@ -70,6 +70,8 @@ jobs:
       # The broad one first: a real shell through a real pty, and a real editor.
       - name: verify.mjs
         run: node scripts/verify.mjs
+        env:
+          EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs
       # The suites that are green on a runner, which is not yet all of them.
       #
       # Ten were tried and six pass here now. lsp was not failing on its subject:
@@ -98,8 +100,12 @@ jobs:
         run: node scripts/gate.mjs --only settings,output,shell,history,flood,lsp
         env:
           EMBER_STRICT: '1'
+          EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs
       # The screenshots and the main-process logs are the only way to read a
-      # failure that happened on a machine nobody can look at.
+      # failure that happened on a machine nobody can look at. This collected
+      # neither for its first three runs — profiles are made in os.tmpdir() rather
+      # than here, and deleted before the upload could reach them, so the glob
+      # matched nothing and `if-no-files-found: ignore` kept quiet about it.
       - name: Keep what the run saw
         if: always()
         uses: actions/upload-artifact@v4
@@ -107,7 +113,7 @@ jobs:
           name: smoke-evidence
           path: |
             .shots/
-            ${{ runner.temp }}/ember-profile-*/ember.log
+            ${{ runner.temp }}/ember-logs/
           if-no-files-found: ignore
           retention-days: 7
 
@@ -134,6 +140,7 @@ jobs:
         run: node scripts/gate.mjs
         env:
           EMBER_STRICT: '1'
+          EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs
       - name: Keep what the run saw
         if: always()
         uses: actions/upload-artifact@v4
@@ -141,6 +148,6 @@ jobs:
           name: full-evidence
           path: |
             .shots/
-            ${{ runner.temp }}/ember-profile-*/ember.log
+            ${{ runner.temp }}/ember-logs/
           if-no-files-found: ignore
           retention-days: 14
