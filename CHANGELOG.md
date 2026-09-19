@@ -5,6 +5,28 @@ newest entry sits on top.
 
 ## Unreleased
 
+### The gate runs on a machine that is not this one
+
+- **Ten suites on every push, and all of them nightly.** The smoke job runs the
+  ones that would have caught what got past this release: the pty and its blocks,
+  a session across a restart, a shell that dies, settings, the flow valve under a
+  flood, the crash screen, source control, history and the language servers. The
+  nightly runs the whole gate. Both under `EMBER_STRICT`, so a suite that skips
+  itself for want of a shell counts as a failure rather than as silence.
+- **`npm ci` does not install Electron's binary.** Not on the runner and not here
+  either — it reports success and leaves `node_modules/electron` holding its
+  JavaScript, its licence and an empty `path.txt`, without the two hundred
+  megabytes the package exists to deliver. Running the install directly is what
+  the postinstall would have done, and it returns at once when the binary is
+  already there.
+- **Which was worth finding out rather than guessing at.** Playwright reports all
+  of it as `Process failed to launch!`, having kept the child's stderr to itself,
+  so a missing binary, an app that dies on its first line and a GPU that cannot be
+  used are one message. The first thing I would have reached for was
+  `--disable-gpu`; it would have fixed nothing.
+- **And the audit's open question is answered:** Electron suites do run on a
+  hosted Windows runner, GPU-less session and all.
+
 ### Checks that run somewhere other than this machine
 
 - **The gate runs on the one computer it can freeze**, which is why it does not

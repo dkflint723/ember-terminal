@@ -1,0 +1,28 @@
+name: Electron's binary
+description: >
+  Make sure node_modules/electron/dist exists, because npm ci on a hosted Windows
+  runner leaves the package without it.
+
+runs:
+  using: composite
+  steps:
+    # `npm ci` reports "added 439 packages in 20s" and leaves node_modules/electron
+    # holding its JavaScript, its licence and an empty path.txt — everything except
+    # the two hundred megabytes the package exists to deliver. Its postinstall does
+    # not run here; no ELECTRON_* variable is set on the runner to explain it, and
+    # the same lock file on the maintainer's machine installs it fine.
+    #
+    # Rather than leave that as a mystery that fails as "Process failed to launch!"
+    # — which is all Playwright will say, having kept the child's stderr to itself
+    # — the install is run directly. It is what the postinstall would have done,
+    # and it returns immediately when the binary is already there, so this costs
+    # nothing on a runner where npm behaves.
+    - shell: pwsh
+      run: |
+        $exe = 'node_modules/electron/dist/electron.exe'
+        if (-not (Test-Path $exe)) {
+          Write-Host 'npm ci left no Electron binary; fetching it as the postinstall would'
+          node node_modules/electron/install.js
+        }
+        if (-not (Test-Path $exe)) { throw 'Electron will not install on this runner' }
+        Write-Host "electron: $((Get-Item $exe).Length) bytes"

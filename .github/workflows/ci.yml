@@ -1,15 +1,11 @@
 # Checks that run somewhere other than the maintainer's machine.
 #
 # The gate has always run on the one computer it is capable of freezing, which is
-# why it does not get run between commits — and two regressions have now been
-# found late because of that. `verify-history` was red on master for six commits,
-# and `verify-lsp` passed for its whole existence while proving only the easy half
-# of its subject. Neither was a hard bug to see. Nobody was looking.
-#
-# The Windows half is deliberately small to begin with. Whether an Electron suite
-# can run at all on a hosted runner is not something to assume: there is no GPU,
-# so WebGL falls back to the DOM renderer, and ConPTY behaviour under a service
-# session is unknown. One suite first, and more once this has been watched to work.
+# why it does not get run between commits — and two regressions were found late
+# because of that. `source control` was red on master for six commits, and
+# `multi-language lsp` passed for its whole existence while running from a path
+# shape that could not expose the bug it was written to catch. Neither was hard to
+# see. Nobody was looking.
 name: CI
 
 on:
@@ -17,12 +13,17 @@ on:
     branches: [master]
   pull_request:
   workflow_dispatch:
+  # Everything, once a day, while nobody is waiting for it.
+  schedule:
+    - cron: '0 9 * * *'
 
 # A second push supersedes the first: nothing here is worth finishing for a commit
-# that has already been replaced.
+# that has already been replaced. The nightly is left alone — it is not racing
+# anything, and cancelling it would mean the one full run of the day is the one
+# that got interrupted.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 jobs:
   fast:
@@ -30,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      # None of this runs the app, and the download is 100MB of nothing useful.
+      # None of this runs the app, and the download is 200MB of nothing useful.
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@v4
@@ -42,7 +43,7 @@ jobs:
       - run: npm run typecheck
       # EMBER_STRICT is deliberately not set here. Several unit tables skip the
       # shells they cannot find, and on Linux that is all of them; strict would
-      # turn "no PowerShell on this machine" into a failure that means nothing.
+      # turn "no PowerShell on this runner" into a failure that means nothing.
       - run: npm run test:units
       - name: Theme contrast
         run: node scripts/verify-contrast.mjs
@@ -55,7 +56,8 @@ jobs:
     name: windows smoke
     runs-on: windows-latest
     needs: fast
-    timeout-minutes: 30
+    if: github.event_name != 'schedule'
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -63,47 +65,21 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
+      - uses: ./.github/actions/electron-binary
       - run: npx electron-vite build
-      # Playwright reports a launch failure as "Process failed to launch!" and
-      # keeps the child's stderr to itself, which is no use at all from here. So
-      # Electron is started directly first, with whatever it has to say on the way
-      # out, before anything tries to drive it.
-      # `npm ci` finished in twenty seconds and left no binary behind, which is far
-      # too quick to have fetched a hundred megabytes of Electron. Why it skipped
-      # is worth knowing rather than working around blind, so this says what it
-      # found before it repairs anything.
-      - name: Electron's binary
-        shell: pwsh
-        run: |
-          Write-Host '--- ELECTRON_* in the environment ---'
-          Get-ChildItem env: | Where-Object Name -like 'ELECTRON*' | ForEach-Object { Write-Host "$($_.Name)=$($_.Value)" }
-          Write-Host '--- what npm left in node_modules/electron ---'
-          Get-ChildItem node_modules/electron -ErrorAction SilentlyContinue |
-            ForEach-Object { Write-Host "  $($_.Name)" }
-          Write-Host "path.txt: $(Get-Content node_modules/electron/path.txt -ErrorAction SilentlyContinue)"
-          $exe = 'node_modules/electron/dist/electron.exe'
-          Write-Host "binary present: $(Test-Path $exe)"
-          if (-not (Test-Path $exe)) {
-            Write-Host '--- fetching it the way the postinstall would have ---'
-            node node_modules/electron/install.js
-            Write-Host "binary present now: $(Test-Path $exe)"
-          }
-          if (-not (Test-Path $exe)) { throw 'Electron will not install on this runner' }
-          Write-Host "size: $((Get-Item $exe).Length)"
-          Write-Host '--- the app itself, given eight seconds ---'
-          $p = Start-Process -FilePath $exe -ArgumentList '.' -PassThru `
-                 -RedirectStandardError app-err.txt -RedirectStandardOutput app-out.txt -NoNewWindow
-          Start-Sleep -Seconds 8
-          if (-not $p.HasExited) { Write-Host 'still running (good)'; Stop-Process -Id $p.Id -Force }
-          else { Write-Host "exited early with $($p.ExitCode)" }
-          Write-Host '--- stderr ---'; Get-Content app-err.txt -ErrorAction SilentlyContinue | Write-Host
-          Write-Host '--- stdout ---'; Get-Content app-out.txt -ErrorAction SilentlyContinue | Write-Host
-      # One suite, and the one that covers the most ground: it drives a real shell
-      # through a real pty and opens a real editor. If an Electron suite can run
-      # here at all, this says so.
-      - name: verify.mjs
-        run: node scripts/verify.mjs
-      # The screenshots and the main-process log are the only way to read a
+      # The suites that would have caught what got past us, and little else: the
+      # pty and its blocks, a session across a restart, a shell that dies, the
+      # settings dialog, the flow valve under a flood, and the crash screen. Run
+      # through the gate rather than one by one so the runner's own accounting —
+      # the fault audit in each profile's log — applies here too.
+      #
+      # Under three quarters of an hour, which is the point of a subset. The whole
+      # gate runs nightly.
+      - name: Suites
+        run: node scripts/gate.mjs --only blocks,output,session,shell,settings,flood,boom,git,history,lsp
+        env:
+          EMBER_STRICT: '1'
+      # The screenshots and the main-process logs are the only way to read a
       # failure that happened on a machine nobody can look at.
       - name: Keep what the run saw
         if: always()
@@ -115,3 +91,37 @@ jobs:
             ${{ runner.temp }}/ember-profile-*/ember.log
           if-no-files-found: ignore
           retention-days: 7
+
+  full:
+    name: every suite
+    runs-on: windows-latest
+    needs: fast
+    # Nightly, and on demand when something wants proving before a tag.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - uses: ./.github/actions/electron-binary
+      - run: npx electron-vite build
+      # Strict, so a suite that skips itself for want of a shell or a login counts
+      # as a failure rather than as silence. That is the whole difference between
+      # a gate and a habit.
+      - name: The gate
+        run: node scripts/gate.mjs
+        env:
+          EMBER_STRICT: '1'
+      - name: Keep what the run saw
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-evidence
+          path: |
+            .shots/
+            ${{ runner.temp }}/ember-profile-*/ember.log
+          if-no-files-found: ignore
+          retention-days: 14
