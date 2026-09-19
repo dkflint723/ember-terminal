@@ -9,7 +9,7 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { watchPageErrors } from './harness.mjs'
-import { auditProfileDir } from './profile.mjs'
+import { auditProfileDir, userDataOf } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -82,10 +82,14 @@ const showEditors = async (page) => {
   }
 }
 
+// Filled in from the first launch: see the note at the session file below.
+let liveUserData = userData
+
 // --- build a workspace worth restoring --------------------------------------
 {
   const app = await launch(files)
   const page = await app.firstWindow()
+  liveUserData = await userDataOf(app)
   await placeTopRight(app)
   await page.waitForSelector('.monaco-editor', { timeout: 30_000 })
   await sleep(2000)
@@ -128,7 +132,15 @@ const showEditors = async (page) => {
   await sleep(1200)
 }
 
-const sessionFile = path.join(userData, 'session.json')
+/*
+ * The directory the app chose, not the one it was handed. A process already
+ * running elevated moves its user data into an `admin-window` profile inside it,
+ * so that an administrator's Ember and an ordinary one never fight over one
+ * session file — and a hosted Windows runner is elevated throughout, which is why
+ * this suite reported no session file on one while the app was writing a perfectly
+ * good one a directory down.
+ */
+const sessionFile = path.join(liveUserData, 'session.json')
 check('a session file was written', fs.existsSync(sessionFile))
 if (fs.existsSync(sessionFile)) {
   const saved = JSON.parse(fs.readFileSync(sessionFile, 'utf8'))

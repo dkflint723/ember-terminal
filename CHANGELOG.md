@@ -5,6 +5,34 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Two checks were reading a session file the app had deliberately moved
+
+- **The crash check reported lost work on a machine that had lost none.** A
+  process already running elevated moves its user data into an `admin-window`
+  profile inside the one it was handed — on purpose, so that an administrator's
+  Ember and an ordinary one never fight over a single session file, settings file
+  and history database. Everything on a hosted Windows runner runs elevated. The
+  app wrote `<profile>/admin-window/session.json`; the suite read
+  `<profile>/session.json`, found nothing, and called it work that had gone.
+- **The session check reads it the same way** and is one of the four suites held
+  out of the per-push set for failing there. It is fixed the same way. Whether
+  that was its only problem is a question for the runner.
+- **Both ask the app now,** through a helper beside the fault audit. The app owns
+  the decision, so a path a suite works out for itself is a second implementation
+  of it — free to be wrong in exactly this way.
+- **How it was found took three commits, each of them load-bearing.** The check
+  used to say `-1 tab(s)`, meaning "not written yet", "half-written as I read it"
+  and "not valid JSON" indiscriminately. Given a wait instead of a nine-second
+  sleep it said "not written yet" — true, and still no cause. Given the same
+  question *before* the crash as well as after, it failed on the one before, which
+  ruled out crash handling altogether. Then it listed what the profile held:
+  `admin-window`, and nothing else. The log that confirmed it was in the evidence
+  artifact the previous commit had just made work.
+- **Nothing in the app was wrong.** The fault audit has read both locations since
+  it was written, so the crash the suite provokes on purpose was reported
+  correctly throughout. Only the suites reading files back out were looking in one
+  place.
+
 ### A check about stashing stops being a check about the clock
 
 - **It clicked stash and read the answer three seconds later.** That is a budget,

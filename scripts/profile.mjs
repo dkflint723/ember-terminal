@@ -122,6 +122,26 @@ export function auditProfileDir(dir, { expectFaults = [] } = {}) {
   return found
 }
 
+/**
+ * Where main actually keeps its user data, which is not always the directory it
+ * was handed.
+ *
+ * A process that is already running elevated moves itself into an `admin-window`
+ * profile inside the one it was given — deliberately, so that an administrator's
+ * Ember and an ordinary one never fight over a single session file, settings file
+ * and history database. A hosted Windows runner runs everything elevated, so on
+ * one of those the app writes a directory further down than it was pointed.
+ *
+ * Two suites read files back out of the profile, and both reported them missing
+ * for that reason alone, on a machine where the app was saving them perfectly
+ * well. Asking the app is the only answer that stays right, because the app owns
+ * the decision — and `auditProfileDir` above has always read both places, which is
+ * why the crash that proved this was in the log all along.
+ */
+export async function userDataOf(app) {
+  return await app.evaluate(({ app: electronApp }) => electronApp.getPath('userData'))
+}
+
 export function newProfile(label = 'run', { expectFaults = [] } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `ember-profile-${label}-`))
   return {

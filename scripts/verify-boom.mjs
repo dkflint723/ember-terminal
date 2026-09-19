@@ -17,7 +17,7 @@
 // Run: node scripts/verify-boom.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
-import { newProfile } from './profile.mjs'
+import { newProfile, userDataOf } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -72,7 +72,18 @@ const check = (label, ok, detail) => {
  * assertion — and when it ran out the failure said `-1 tab(s)`, naming no cause
  * at all.
  */
-const sessionFile = path.join(profile.dir, 'session.json')
+/*
+ * Asked of the app rather than assumed from the switch it was given.
+ *
+ * This read `<profile>/session.json`, and on a hosted runner found nothing there
+ * for the whole wait. The app was saving the workspace correctly the entire time,
+ * one directory down: a process already running elevated moves its user data into
+ * an `admin-window` profile so an administrator's Ember and an ordinary one never
+ * fight over one session file, and everything on a hosted Windows runner is
+ * elevated. So the check reported lost work on a machine that had lost none.
+ */
+const userData = await userDataOf(app)
+const sessionFile = path.join(userData, 'session.json')
 const readSession = () => {
   if (!fs.existsSync(sessionFile)) return { tabs: -1, why: 'not written yet' }
   try {
@@ -94,11 +105,18 @@ const waitForSession = async (want, tries) => {
 }
 /** What the profile actually holds, for a failure that says the file is not in it. */
 const profileHolds = () => {
-  try {
-    return fs.readdirSync(profile.dir).join(', ') || '(empty)'
-  } catch (err) {
-    return `unreadable: ${String(err?.message ?? err).slice(0, 40)}`
+  const show = (d) => {
+    try {
+      return fs.readdirSync(d).join(', ') || '(empty)'
+    } catch (err) {
+      return `unreadable: ${String(err?.message ?? err).slice(0, 40)}`
+    }
   }
+  // Both, when they differ: which they do is the answer, and it was the listing
+  // of the profile root that gave this away the first time.
+  return userData === profile.dir
+    ? show(profile.dir)
+    : `${show(profile.dir)}; user data is ${path.basename(userData)}/ holding: ${show(userData)}`
 }
 const sessionDetail = (read) =>
   `${read.tabs} tab(s) in session.json — ${read.why}; profile holds: ${profileHolds()}`
