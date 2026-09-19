@@ -69,13 +69,20 @@ check('too short is not', !isNonce(N.slice(0, 30)))
 check('empty is not', !isNonce(''))
 
 // --- and which directories may be followed ------------------------------------------------------
-cases += 10
+cases += 11
 check('a drive path passes', looksLocalDir('C:\\Users\\dkfli\\projects'))
 check('a drive path with forward slashes passes', looksLocalDir('D:/work/ember'))
 check('a bare drive root passes', looksLocalDir('C:\\'))
 check('a UNC path is refused', !looksLocalDir('\\\\evil\\share'))
 check('a UNC path in forward slashes is refused', !looksLocalDir('//evil/share'))
 check('a WSL UNC path is refused too', !looksLocalDir('\\\\wsl$\\Ubuntu\\home\\me'))
+// Both spellings of it. `wslpath -w` hands out the newer one, so a check that knew
+// only the older form would have gone on passing while the path it was written to
+// refuse walked past it.
+check(
+  'and the newer spelling of the same thing',
+  !looksLocalDir('\\\\wsl.localhost\\FedoraLinux-44\\home\\flint')
+)
 check('a relative path is refused', !looksLocalDir('projects\\ember'))
 check('a POSIX path is refused, having nothing here to check it against', !looksLocalDir('/home/me'))
 check('an empty path is refused', !looksLocalDir(''))

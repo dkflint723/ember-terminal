@@ -60,9 +60,13 @@ accept or reject rather than a block of text to copy by hand.
   the overview ruler. Restored on launch and bounded in memory and on disk, so a
   window left open for a fortnight still starts quickly.
 - **Shell integration** — PowerShell, Git Bash and WSL report where each command
-  starts and stops, its exit code and its directory, through OSC 133. cmd has no
-  integration script and runs as a plain terminal, which the pane says out loud
-  rather than leaving you to wonder.
+  starts and stops and its exit code, through OSC 133 and through Ember's own
+  markers, which are signed with a per-session nonce so that nothing a program
+  prints can forge them. The directory comes back too, where it is one this side
+  of the machine can open: a WSL shell standing in `/mnt/d` reports `D:\`, and one
+  standing in its own filesystem reports nothing rather than a path Windows cannot
+  follow. cmd has no integration script and runs as a plain terminal, which the
+  pane says out loud rather than leaving you to wonder.
 - **Inline suggestions** — grey text ahead of the caret, in the editor *and* on
   the command line, off until you ask for them. Answered by a model on your own
   machine (Ollama, llama.cpp, LM Studio), any OpenAI-compatible endpoint, or

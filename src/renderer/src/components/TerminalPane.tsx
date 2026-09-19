@@ -386,6 +386,10 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
       // Reflects shell-integration state for styling and for the verify harness,
       // which must not have to infer readiness from UI label text.
       data-integration={pane.integration}
+      // And whether any of it was signed. Readiness is reached by unsigned markers
+      // as well, so this is the only thing telling a shell whose own markers are
+      // arriving from one whose markers are all being thrown away.
+      data-authenticated={pane.authenticated ? 'yes' : 'no'}
       // And which pane this is, so a pane's own live terminal can be held against
       // it rather than counted among every other pane's.
       data-pane={pane.id}

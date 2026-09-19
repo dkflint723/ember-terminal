@@ -5,6 +5,64 @@ newest entry sits on top.
 
 ## Unreleased
 
+### bash and WSL report what they have been claiming to report
+
+- **WSL integration had never worked.** Not once. The nonce that signs Ember's own
+  markers lives in the Windows environment, and nothing in the Windows environment
+  crosses into a distro unless `WSLENV` names it — so every signed marker a WSL
+  pane ever sent was discarded on arrival for carrying no nonce. The directory, the
+  command line and the exit code went with them. What made it look like it worked
+  is that a pane reaches "integrated" on a bare OSC 133 too, which the script also
+  emits and which carries no signature to check.
+- **WSL is started through `-e` rather than `--`.** `wsl.exe -- <command>` runs the
+  command through the distro's login shell, so the string is parsed twice: a
+  variable reference in it arrives mangled, or — worse, because it reads as having
+  worked — silently emptied. `-e` execs the argv it is given and nothing else.
+- **It picks the user's shell rather than assuming one.** A distro whose login
+  shell is zsh or fish gets that shell, as a login shell, exactly as a bare
+  `wsl.exe` would have given them — losing integration, which they never had,
+  rather than losing their shell.
+- **And it checks the rc file before using it,** because `bash --rcfile` on a file
+  it cannot read starts silently, successfully, and with none of the user's
+  aliases, prompt or completions in it.
+- **Every block was named after a prompt hook, for anyone who has one.**
+  `PROMPT_COMMAND` has been an array since bash 5.1, and Fedora ships one. Ember
+  chained onto it as a string, which welded its hook onto the first element and
+  left the rest behind it — and it armed the capture at the *front*, so the user's
+  own prompt hooks ran armed and the DEBUG trap took the first of them for the
+  command. The command actually typed was never captured at all, and the
+  pre-output clear fired once per hook rather than once per command. A bare Git
+  Bash has no `PROMPT_COMMAND`, which is why this survived; starship, direnv,
+  atuin and oh-my-bash all put one there. Ember's hooks go around the user's now,
+  array-aware, disarmed for the whole length of the prompt.
+- **A command mentioning `__ember_prompt_command` produced no block.** The trap
+  matched that name anywhere in the line, not just at the start of it — needed
+  back when the hook ran armed, and nothing but harmful now that the prompt runs
+  disarmed.
+- **The first prompt closed a block that had never opened.** The signed `D` asked
+  whether this was the first prompt after the flag saying so had already been
+  cleared, so the shared marker was correctly withheld and Ember's own was sent
+  anyway.
+- **A shell whose only file is `.bashrc` got none of its own setup.** The generated
+  rc replays what a login shell reads, and bash stops at the first of those that
+  exists — so `.bashrc`, which that chain never reads, was never reached.
+- **The integration script shipped with the wrong line endings, and bash cannot
+  read it.** A carriage return is syntax to bash rather than whitespace, so a
+  CRLF `integration.bash` does not look untidy — it fails to parse at line 19, and
+  every shell that sources it comes up with no integration whatsoever. Git was
+  storing the file correctly with LF; `core.autocrlf` was rewriting it on
+  checkout, and nothing in the repository said it should not. So a clone on a
+  Windows machine with the ordinary settings built an app whose bash integration
+  had never worked, for Git Bash and WSL alike, while the committed script was
+  perfectly fine. There is a `.gitattributes` now.
+- **How it is checked.** *bash on both sides* drives Git Bash and a WSL distro
+  through the same assertions, and reads `data-authenticated` rather than
+  `data-integration`: readiness is reached by unsigned markers too, so without that
+  distinction a pane whose every signed marker is being thrown away passes. It
+  asserts the block is named after what was typed and after nothing else, that the
+  output and a failing exit code come back, that the hooks are installed, and that
+  a directory this side of the machine can open is reported.
+
 ### A check that never ran no longer reports that it did
 
 - **The Git Bash half of the integration suite could not fail.** It sat inside two

@@ -666,7 +666,10 @@ export class TerminalController {
     if (this.nonce) {
       const marker = parseEmberMarker(data, this.nonce)
       if (!marker) return
-      this.authenticated = true
+      if (!this.authenticated) {
+        this.authenticated = true
+        this.store().patchPane(this.paneId, { authenticated: true })
+      }
       switch (marker.kind) {
         case 'ready':
           this.markIntegration('ready')
@@ -1019,6 +1022,8 @@ export class TerminalController {
     // anything the moment the old shell does.
     this.nonce = ''
     this.authenticated = false
+    // A new shell has to prove itself again; the last one's word does not carry.
+    this.store().patchPane(this.paneId, { authenticated: false })
     void window.ember
       .spawn({
         paneId: this.paneId,

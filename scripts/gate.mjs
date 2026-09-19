@@ -72,6 +72,7 @@ const ORDER = [
   'verify-statusbar',
   'verify-shell',
   'verify-plain',
+  'verify-bash',
   'verify-live',
   'verify-lines',
   'verify-scripts',

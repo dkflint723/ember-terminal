@@ -151,6 +151,9 @@ export class PtyManager {
     if (/^(?:[A-Za-z]:[\\/]|\\\\)/.test(cwd) && !existsSync(cwd)) cwd = app.getPath('home')
 
     const loading = this.loadingFor(profile, opts.typedFallback === true)
+    // Whatever the loading needs in the environment — today only WSLENV, which is
+    // how anything at all crosses into a distro.
+    if (loading.env) Object.assign(env, loading.env)
     const pty = ptySpawn(profile.path, loading.args, {
       cols: Math.max(req.cols, 2),
       rows: Math.max(req.rows, 1),
@@ -214,11 +217,37 @@ export class PtyManager {
   private loadingFor(
     profile: ShellProfile,
     typedFallback: boolean
-  ): { args: string[]; typed: boolean } {
+  ): { args: string[]; typed: boolean; env?: Record<string, string> } {
     if (profile.integration === 'none') return { args: profile.args, typed: false }
+
+    /*
+     * The nonce has to be told to cross into a distro.
+     *
+     * WSL does not hand the Windows environment to the guest: only the variables
+     * named in WSLENV go over. EMBER_NONCE was not one of them, so every signed
+     * marker a WSL pane sent was dropped on arrival for carrying no nonce — which
+     * is why WSL has only ever reached "integrated" on the unsigned OSC 133
+     * markers, with its directory and its command line discarded in silence.
+     *
+     * Decided before the fallback below returns, because the old typed loading
+     * needs the nonce across just as much as the new one does: a rollback to
+     * something that never worked is not a rollback.
+     */
+    const isWsl = profile.integration === 'bash' && /wsl(\.exe)?$/i.test(profile.path)
+    const wslEnv = (extra: Record<string, string>): Record<string, string> => {
+      const names = ['EMBER_NONCE']
+      // `/p` is WSL's own path translation: the guest sees /mnt/c/... for what
+      // this side wrote to C:\, spaces and all.
+      if ('EMBER_RC' in extra) names.push('EMBER_RC/p')
+      const already = process.env.WSLENV
+      return { ...extra, WSLENV: already ? `${already}:${names.join(':')}` : names.join(':') }
+    }
+
     // The way out, for one release: a shell that will not take the new loading can
     // be put back on the old by a setting rather than by a new build.
-    if (typedFallback) return { args: profile.args, typed: true }
+    if (typedFallback) {
+      return { args: profile.args, typed: true, env: isWsl ? wslEnv({}) : undefined }
+    }
 
     if (profile.integration === 'powershell') {
       const encoded = this.encodedScript('integration.ps1')
@@ -226,16 +255,50 @@ export class PtyManager {
       return { args: profile.args, typed: true }
     }
 
-    /*
-     * bash only where bash is what is being started. WSL's profile runs wsl.exe,
-     * whose arguments are its own and not the shell's — `--rcfile` handed to it is
-     * a distro name it cannot find — so that one keeps the old loading.
-     */
+    // bash where bash is what is being started: the rc file is the shell's own
+    // argument, and the path it is handed is the one MSYS understands.
     if (profile.integration === 'bash' && /bash(\.exe)?$/i.test(profile.path)) {
-      const rc = this.bashRcFile(profile)
-      if (rc) return { args: ['--rcfile', rc, '-i'], typed: false }
+      const rc = this.bashRcFile(profile, {
+        login: profile.args.some((a) => a === '--login' || a === '-l'),
+        guest: 'msys'
+      })
+      if (rc) return { args: ['--rcfile', rc.guestPath, '-i'], typed: false }
     }
-    return { args: profile.args, typed: true }
+
+    /*
+     * WSL, which reaches a shell through wsl.exe rather than being one.
+     *
+     * `wsl.exe -- <command>` is not the way in. It runs the command through the
+     * distro's login shell, so the string is parsed twice: a variable reference
+     * or a bracket in it arrives mangled, or — worse, because it reads as having
+     * worked — silently emptied. `-e` execs the argv it is given and nothing else.
+     *
+     * The boot picks the shell rather than assuming one. A distro whose user runs
+     * zsh or fish gets that shell, as a login shell, exactly as a bare `wsl.exe`
+     * would have given them: losing integration, which they never had, rather than
+     * losing their shell. And the rc file is tested before it is used, because
+     * bash starts silently and successfully with an unreadable `--rcfile` — and
+     * what it starts is a shell with none of the user's aliases, prompt or
+     * completions in it.
+     */
+    if (isWsl) {
+      const rc = this.bashRcFile(profile, { login: true, guest: 'wsl' })
+      if (rc) {
+        const boot =
+          'shell="$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f7)"; ' +
+          'case "$shell" in ' +
+          '*/bash|"") [ -r "$EMBER_RC" ] && exec bash --rcfile "$EMBER_RC" -i ;; ' +
+          '*) [ -x "$shell" ] && exec "$shell" -l ;; ' +
+          'esac; exec bash -l'
+        return {
+          args: [...profile.args, '-e', 'sh', '-c', boot],
+          typed: false,
+          env: wslEnv({ EMBER_RC: rc.hostPath })
+        }
+      }
+    }
+
+    return { args: profile.args, typed: true, env: isWsl ? wslEnv({}) : undefined }
   }
 
   /** The PowerShell script as an encoded command: UTF-16LE, base64, as the flag wants it. */
@@ -256,21 +319,42 @@ export class PtyManager {
    * the user's own files in the order bash reads them, then Ember's script. Doing
    * less than that would silently cost a Git Bash user their PATH.
    */
-  private bashRcFile(profile: ShellProfile): string | null {
+  private bashRcFile(
+    profile: ShellProfile,
+    opts: { login: boolean; guest: 'msys' | 'wsl' }
+  ): { hostPath: string; guestPath: string } | null {
     try {
       const script = this.resourcePath('shell-integration', 'integration.bash')
+      /*
+       * The same drive, spelled the way this guest spells it. Git Bash's MSYS root
+       * puts C: at /c; a WSL distro mounts it at /mnt/c. A path in the other one's
+       * shape is not a path the guest can open, and `.` on a file that is not
+       * there is a silent no-op — the shell would come up looking perfectly
+       * ordinary with no integration in it whatsoever.
+       */
+      const mount = opts.guest === 'wsl' ? '/mnt/' : '/'
       const posix = (p: string): string =>
-        p.replace(/^([A-Za-z]):/, (_m, d: string) => `/${d.toLowerCase()}`).replace(/\\/g, '/')
-      const login = profile.args.some((a) => a === '--login' || a === '-l')
+        p
+          .replace(/^([A-Za-z]):/, (_m, d: string) => `${mount}${d.toLowerCase()}`)
+          .replace(/\\/g, '/')
       const lines = [
         '# Written by Ember for this shell only.',
         'if [ -f /etc/profile ]; then . /etc/profile; fi'
       ]
-      if (login) {
+      if (opts.login) {
+        /*
+         * The chain a login shell reads — and then the file it does not.
+         *
+         * bash stops at the first of these that exists, so a user whose only file
+         * is .bashrc, which the login chain never reads, got a shell with none of
+         * their own setup in it. That is the ordinary shape on a distro where
+         * something else has always been starting the login shell.
+         */
         lines.push(
           'if [ -f "$HOME/.bash_profile" ]; then . "$HOME/.bash_profile";',
           'elif [ -f "$HOME/.bash_login" ]; then . "$HOME/.bash_login";',
-          'elif [ -f "$HOME/.profile" ]; then . "$HOME/.profile"; fi'
+          'elif [ -f "$HOME/.profile" ]; then . "$HOME/.profile";',
+          'elif [ -f "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi'
         )
       } else {
         lines.push('if [ -f "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi')
@@ -278,8 +362,10 @@ export class PtyManager {
       lines.push(`. '${posix(script)}'`, '')
       const dir = mkdtempSync(join(tmpdir(), 'ember-rc-'))
       const file = join(dir, 'ember-bashrc')
-      writeFileSync(file, lines.join('\n'), 'utf8')
-      return posix(file)
+      // Written LF and without a byte-order mark. The guest reads this as a shell
+      // script, and a stray CR or a BOM is syntax to it.
+      writeFileSync(file, lines.join('\n'), { encoding: 'utf8' })
+      return { hostPath: file, guestPath: posix(file) }
     } catch {
       return null
     }

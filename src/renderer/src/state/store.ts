@@ -141,6 +141,16 @@ export interface TerminalPaneState extends BasePane {
   mode: 'blocks' | 'raw'
   integration: IntegrationState
   /**
+   * Whether this pane has ever had a marker it could check the signature on.
+   *
+   * Integration alone does not say that. A pane reaches `ready` on a bare OSC 133
+   * too, which any program can print and which carries no nonce — so a shell whose
+   * Ember markers are all being discarded looks exactly like one whose markers are
+   * arriving. That is not a distinction the interface needs, but it is the only
+   * thing that separates working from broken for a suite, and it was invisible.
+   */
+  authenticated?: boolean
+  /**
    * The running program appears to be asking for a secret, so input must be
    * masked and kept out of history.
    */

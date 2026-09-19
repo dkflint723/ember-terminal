@@ -1,0 +1,15 @@
+# Files whose line endings are not a matter of taste.
+#
+# The bash integration script is sourced by bash itself, on the other side of a
+# Git Bash or WSL boundary. A carriage return is syntax to bash, not whitespace:
+# with CRLF endings it does not merely look untidy, it fails to parse —
+#
+#   bash: $'\r': command not found
+#   integration.bash: line 19: syntax error near unexpected token `$'{\r''
+#
+# — and every shell that sources it comes up with no integration at all. Git is
+# storing the file with LF; it was `core.autocrlf` rewriting it on checkout, so a
+# clone on a Windows machine with the usual settings shipped a broken script while
+# the committed one was fine. Nothing in the repo said otherwise until now.
+*.bash text eol=lf
+*.sh text eol=lf
