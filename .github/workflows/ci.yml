@@ -122,6 +122,13 @@ jobs:
       # neither for its first three runs — profiles are made in os.tmpdir() rather
       # than here, and deleted before the upload could reach them, so the glob
       # matched nothing and `if-no-files-found: ignore` kept quiet about it.
+      #
+      # "No artifacts will be uploaded" is still the ordinary outcome and does not
+      # mean that is happening again: main writes ember.log when it has a fault to
+      # report, so a suite that failed an assertion rather than breaking main
+      # leaves none, and only some suites take screenshots. What it is here for is
+      # the other kind — a crash, a stack trace, a window that never appeared —
+      # where the suite's own output in this log does not say enough.
       - name: Keep what the run saw
         if: always()
         uses: actions/upload-artifact@v4
