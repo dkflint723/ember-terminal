@@ -204,11 +204,27 @@ check('and its last', many.includes('line 6000'), many.slice(-80))
  */
 const seen = (many.match(/line (\d+)/g) ?? []).map((t) => Number(t.slice(5)))
 const firstGap = seen.findIndex((n, i) => n !== i + 1)
+/*
+ * What was there, not only that it was wrong.
+ *
+ * This said "6007 lines, first 1, last 6000, breaks at 16" on a hosted runner and
+ * left the rest to be guessed at. Two things were ambiguous in it. "Breaks at 16"
+ * is the value at the break and reads like the position of it, and 6007 with both
+ * ends intact means seven entries too many — a repeat somewhere, not the loss this
+ * check was written to catch, which would come up short rather than over.
+ *
+ * Which lines repeated is the whole question, and it is only askable while the
+ * failure is happening, on a machine nobody can log into. So the neighbourhood of
+ * the break goes in the message.
+ */
+const around = (i) => seen.slice(Math.max(0, i - 4), i + 5).join(',')
 check(
   'and every line in between',
   seen.length === 6000 && firstGap === -1,
   `${seen.length} lines, first ${seen[0]}, last ${seen.at(-1)}` +
-    (firstGap === -1 ? '' : `, breaks at ${seen[firstGap]}`)
+    (firstGap === -1
+      ? ''
+      : `, breaks at index ${firstGap} holding ${seen[firstGap]} — around it: ${around(firstGap)}`)
 )
 
 // --- output belongs to the block that produced it ------------------------------

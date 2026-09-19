@@ -5,6 +5,20 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A broken line sequence says what was around the break
+
+- **"6007 lines, first 1, last 6000, breaks at 16" left the rest to be guessed.**
+  Two things were ambiguous in it. `breaks at 16` is the *value* at the break and
+  reads like the *position* of it. And 6007 with both ends intact means seven
+  entries too many — a repeat, not the loss this check exists to catch, which
+  would come up short rather than over.
+- **The neighbourhood of the break goes in the message now,** so a repeat reads as
+  one: `around it: 12,13,14,15,9,10,11,12,13`. Nothing about what passes or fails
+  has changed.
+- **Because it only happens somewhere nobody can log into.** It has passed twice
+  and failed once on the same runner, so the failure has to be readable the one
+  time it appears.
+
 ### The restored view is waited for rather than read on a timer
 
 - **A fourth check about the clock, and the fourth found the same way.** The
