@@ -1023,7 +1023,7 @@ export class TerminalController {
     this.nonce = ''
     this.authenticated = false
     // A new shell has to prove itself again; the last one's word does not carry.
-    this.store().patchPane(this.paneId, { authenticated: false })
+    this.store().patchPane(this.paneId, { authenticated: false, unsupported: undefined })
     void window.ember
       .spawn({
         paneId: this.paneId,
@@ -1034,6 +1034,20 @@ export class TerminalController {
       })
       .then((res) => {
         if (res.nonce) this.nonce = res.nonce
+        /*
+         * A shell with nothing to wait for is not waited for. The grace period is
+         * for a slow profile reaching its first prompt; a shell that has no script
+         * to source will never send a marker, and six seconds of a composer that
+         * then vanishes is worse than a plain terminal from the start.
+         */
+        if (res.unsupported) {
+          if (this.integrationTimer !== null) {
+            window.clearTimeout(this.integrationTimer)
+            this.integrationTimer = null
+          }
+          this.store().patchPane(this.paneId, { unsupported: res.unsupported })
+          this.markIntegration('absent')
+        }
         if (!res.ok) {
           this.term.write(`
 

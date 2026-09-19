@@ -21,10 +21,17 @@ import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
 import { watchPageErrors } from './harness.mjs'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
-const profile = newProfile('plain')
+// The reload below runs with session restore off, so the shell that was open before
+// it is adopted by nobody and main kills it ten seconds later, logging that it did.
+// That is the sweep doing its job on a shell this suite abandoned on purpose — but
+// the audit fails a suite for any fault it was not told to expect, and whether the
+// sweep had fired by the time the run ended depended on how long the run took.
+const profile = newProfile('plain', { expectFaults: [/shell left behind by a reload/] })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
@@ -129,7 +136,71 @@ if (hasCmd) {
   }
 }
 
+// --- a shell Ember has no script for says so, and says so at once -----------------
+//
+// zsh and fish were started as though they spoke bash, and the pane spent six
+// seconds waiting for markers that were never coming before admitting it had none —
+// with a toast, gone by then, as the only thing that ever named the reason. The
+// reason rides back on the spawn now, the pane settles the moment it arrives, and
+// the notice names the shell.
+//
+// Tested with a cmd.exe renamed zsh.exe: what is under test is what Ember says
+// about an executable called zsh, not zsh itself, which is not on this machine.
+const pretend = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-zsh-'))
+const pretendZsh = path.join(pretend, 'zsh.exe')
+fs.copyFileSync(path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'cmd.exe'), pretendZsh)
+
+const paneBefore = await page.evaluate(() => document.querySelector('.pane')?.getAttribute('data-pane') ?? null)
+await page.keyboard.press('Control+,')
+await page.waitForSelector('.modal', { timeout: 8_000 })
+await page.locator('.btn', { hasText: 'Add shell…' }).click()
+await sleep(400)
+await page.locator('.shellrow__name').last().fill('Pretend zsh')
+await page.locator('.shellrow__path').last().fill(pretendZsh)
+// Deliberately the wrong dialect, which is how a zsh user who wanted blocks would
+// have set it up — and the case that used to spin for six seconds.
+await page.locator('.shellrow__dialect').last().selectOption('bash')
+await page.locator('.modal .btn', { hasText: 'Save' }).click()
+await sleep(1400)
+await page.click('.sessions__new')
+await sleep(500)
+const zshEntry = page.locator('.sessions__menu .titlebar__menu-item', { hasText: 'Pretend zsh' })
+check('the taught shell is offered', (await zshEntry.count()) === 1, String(await zshEntry.count()))
+if ((await zshEntry.count()) === 1) {
+  await zshEntry.click()
+  // Timed from the new pane existing, not from the click.
+  const opened = await page.waitForFunction(
+    (was) => {
+      const now = document.querySelector('.pane')?.getAttribute('data-pane') ?? null
+      return now !== null && now !== was
+    },
+    paneBefore,
+    { timeout: 15_000 }
+  ).then(() => Date.now(), () => null)
+  check('a new pane opens for it', opened !== null)
+  if (opened !== null) {
+    let settledIn = null
+    for (let i = 0; i < 80; i++) {
+      const state = await page.evaluate(() => document.querySelector('.pane')?.getAttribute('data-integration'))
+      if (state === 'absent') {
+        settledIn = Date.now() - opened
+        break
+      }
+      await sleep(100)
+    }
+    check('the pane settles as plain', settledIn !== null)
+    // Well inside the six seconds the old build spent waiting; well outside noise.
+    check('and does so at once rather than after the grace period', settledIn !== null && settledIn < 4000, `${settledIn} ms`)
+    const said = await page.evaluate(() => document.querySelector('.pane__notice')?.textContent ?? '')
+    check('and the notice names the shell it has no script for', /no shell integration for zsh/i.test(said), JSON.stringify(said))
+    check('with no composer offered', (await page.locator('.composer__input').count()) === 0)
+  }
+}
 await app.close()
+// Only once the shells are dead. A running zsh.exe is a locked file, and removing
+// its directory from under it fails with EPERM — and, worse, throws past the
+// verdict, so a build that failed every check reported nothing at all.
+fs.rmSync(pretend, { recursive: true, force: true })
 profile.cleanup()
 for (const f of failures) console.log(`  - ${f}`)
 if (pageErrors.length > 0) console.log('page errors:', pageErrors.slice(0, 4).join(' | '))

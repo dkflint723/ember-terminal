@@ -5,6 +5,34 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A shell there is no script for says so at once
+
+- **zsh and fish spent six seconds pretending.** A pane waits that long for a
+  shell to announce itself before deciding it has no integration — a grace period
+  for a heavy profile taking its time to reach a prompt. A shell Ember has no
+  script for was never going to announce anything, so a zsh pane showed a composer
+  and the blocks layout for six seconds and then took them away again, which reads
+  as something breaking rather than something being decided.
+- **The only thing that named the reason was a toast, and it had gone.** It fired
+  on every spawn, so a restart said it again, and it was off the screen before the
+  shell was up. The reason rides back on the spawn now; the pane settles the moment
+  it arrives, and the notice under the terminal says *Ember has no shell
+  integration for zsh yet* rather than the generic line.
+- **And nothing is typed into a shell that cannot read it.** A zsh profile whose
+  owner had hopefully picked the bash dialect had the bash script typed into it —
+  ignored by the script's own guard on a good day, a screen of syntax errors on a
+  worse one.
+- **How it is checked.** *plain terminal* teaches Ember a shell called `zsh.exe`
+  that is a renamed `cmd.exe` — what is under test is what Ember says about an
+  executable called zsh, not zsh itself, which is not on the machine that runs the
+  gate. With the dialect deliberately wrong it asserts the pane settles as plain
+  well inside the grace period rather than after it, that the notice names the
+  shell, and that no composer was offered.
+- **Not covered.** A WSL distro whose login shell is not bash still takes the full
+  grace period before settling, because the guest's shell is only known from
+  inside the guest. It ends honest; it does not end quickly. There is no such
+  distro here to test against, so nothing claims otherwise.
+
 ### bash and WSL report what they have been claiming to report
 
 - **WSL integration had never worked.** Not once. The nonce that signs Ember's own

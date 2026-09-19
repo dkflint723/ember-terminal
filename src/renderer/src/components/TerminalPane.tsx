@@ -598,7 +598,11 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
       */}
       {plain && (
         <div className="pane__notice">
-          <span>{profileName ?? 'This shell'} has no shell integration — plain terminal mode.</span>
+          <span>
+            {pane.unsupported
+              ? `Ember has no shell integration for ${pane.unsupported} yet — plain terminal mode.`
+              : `${profileName ?? 'This shell'} has no shell integration — plain terminal mode.`}
+          </span>
           {pane.exited && <span>· exited {pane.exitCode ?? ''}</span>}
           {/*
             A pane like this has no composer, so when its shell exited there was

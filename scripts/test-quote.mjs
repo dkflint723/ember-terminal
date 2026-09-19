@@ -16,7 +16,8 @@ import {
   changeDirectoryCommand,
   fillBlanks,
   quoteFor,
-  shellKindOf
+  shellKindOf,
+  unsupportedShellOf
 } from '../src/shared/quote.ts'
 import { spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
@@ -251,6 +252,12 @@ check('PowerShell integration speaks PowerShell', shellKindOf({ integration: 'po
 check('bash integration speaks bash', shellKindOf({ integration: 'bash', path: 'x' }) === 'bash')
 check('the Command Prompt is recognised by its executable', shellKindOf({ integration: 'none', path: 'C:\\Windows\\System32\\cmd.exe' }) === 'cmd')
 check('an unknown shell is not guessed at', shellKindOf({ integration: 'none', path: 'C:\\tools\\nu.exe' }) === null)
+
+// --- and the shells there is no script for, named by their executable --------------
+check('zsh is named as a shell there is no script for', unsupportedShellOf({ path: 'C:\\msys64\\usr\\bin\\zsh.exe' }) === 'zsh')
+check('and fish, wherever it lives', unsupportedShellOf({ path: '/usr/bin/fish' }) === 'fish')
+check('bash is not one of them', unsupportedShellOf({ path: 'C:\\Program Files\\Git\\bin\\bash.exe' }) === null)
+check('nor is a shell nobody has heard of', unsupportedShellOf({ path: 'C:\\tools\\mysh.exe' }) === null)
 
 fs.rmSync(work, { recursive: true, force: true })
 if (skipped.length > 0) console.log(`shells not installed, not asked: ${skipped.join(', ')}`)

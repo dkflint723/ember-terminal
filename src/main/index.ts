@@ -191,6 +191,7 @@ import { FileService, fileArgs, isStamp, pathArgs } from './files.js'
 import { isEncodingName } from '../shared/encoding.js'
 import { hasSecret } from '../shared/secrets.js'
 import { isTrustedPath } from '../shared/trust.js'
+import { unsupportedShellOf } from '../shared/quote.js'
 import { LspService } from './lsp.js'
 import { GitService } from './git.js'
 import { GhostService } from './ghost.js'
@@ -1302,16 +1303,14 @@ function registerIpc(): void {
        * close, and the pane sat there spinning. Saying so is worth more than a
        * feature that only appears to be there.
        */
-      if (/[\\/](zsh|fish)(\.exe)?$/i.test(profile.path)) {
-        e.sender.send('ui:notice', {
-          text: `${profile.name} runs here, but Ember has no shell integration for it yet — so this pane has no command blocks.`,
-          tone: 'info'
-        })
-      }
+      // Said on the pane rather than in a toast: a toast fired on every spawn and
+      // had gone by the time the shell was up, while the pane sat for six seconds
+      // waiting for markers that were never coming before it admitted as much.
+      const unsupported = unsupportedShellOf(profile) ?? undefined
       ptys.spawn(req, profile, {
         typedFallback: settings.get().integrationTypedFallback === true
       })
-      return { ok: true, nonce: ptys.nonceFor(req.paneId) ?? undefined }
+      return { ok: true, nonce: ptys.nonceFor(req.paneId) ?? undefined, unsupported }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : 'Failed to start shell.' }
     }

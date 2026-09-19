@@ -1317,7 +1317,13 @@ export interface EmberApi {
   importThemeFrom(file: string): Promise<{ ok: boolean; id?: string; count?: number; error?: string }>
   importTheme(): Promise<{ ok: boolean; id?: string; error?: string }>
   openThemeFolder(): void
-  spawn(req: SpawnRequest): Promise<{ ok: boolean; error?: string; nonce?: string }>
+  /**
+   * `unsupported` names a shell Ember started but has no integration for, so the
+   * pane can say so at once rather than waiting out the grace period to find out.
+   */
+  spawn(
+    req: SpawnRequest
+  ): Promise<{ ok: boolean; error?: string; nonce?: string; unsupported?: string }>
   /** This pane's shell nonce, for checking the markers it prints. */
   paneNonce(paneId: string): Promise<string | null>
   /**

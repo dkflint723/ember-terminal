@@ -150,6 +150,8 @@ export interface TerminalPaneState extends BasePane {
    * thing that separates working from broken for a suite, and it was invisible.
    */
   authenticated?: boolean
+  /** The shell this pane runs, when it is one Ember has no integration for. */
+  unsupported?: string
   /**
    * The running program appears to be asking for a secret, so input must be
    * masked and kept out of history.

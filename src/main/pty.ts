@@ -1,6 +1,7 @@
 import { spawn as ptySpawn, type IPty } from '@lydell/node-pty'
 import { randomBytes } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { unsupportedShellOf } from '../shared/quote.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { app } from 'electron'
@@ -219,6 +220,9 @@ export class PtyManager {
     typedFallback: boolean
   ): { args: string[]; typed: boolean; env?: Record<string, string> } {
     if (profile.integration === 'none') return { args: profile.args, typed: false }
+    // A shell there is no script for gets no script: bash typed into zsh is at
+    // best ignored by its own guard and at worst a screen of syntax errors.
+    if (unsupportedShellOf(profile)) return { args: profile.args, typed: false }
 
     /*
      * The nonce has to be told to cross into a distro.

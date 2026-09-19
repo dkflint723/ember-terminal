@@ -212,6 +212,19 @@ export function changeDirectoryCommand(shell: ShellKind, path: string): string {
  * integration could be anything, and quoting for the wrong shell is how a value
  * stops being a value.
  */
+/**
+ * A shell Ember can start but has no integration script for, by executable name.
+ *
+ * Named rather than inferred from the dialect: a profile for zsh can carry any
+ * dialect its owner picked in Settings, and it is the executable that decides what
+ * the script would land in. Returned as the plain name so a notice can use it.
+ */
+export function unsupportedShellOf(profile: { path: string } | undefined): string | null {
+  if (!profile) return null
+  const exe = profile.path.split(/[\\/]/).pop()?.toLowerCase().replace(/\.exe$/, '') ?? ''
+  return exe === 'zsh' || exe === 'fish' || exe === 'nu' || exe === 'elvish' || exe === 'xonsh' ? exe : null
+}
+
 export function shellKindOf(profile: { integration: string; path: string } | undefined): ShellKind | null {
   if (!profile) return null
   if (profile.integration === 'powershell') return 'powershell'
