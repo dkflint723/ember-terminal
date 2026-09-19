@@ -225,8 +225,39 @@ fs.writeFileSync(crlf, CRLF_TEXT, 'utf8')
     return d
   }
 
+  /*
+   * Every pane's geometry, for a number that has now survived three explanations.
+   *
+   * 114px has been blamed on a slow machine, on the GPU-less renderer a hosted
+   * runner falls back to, and on the follow latch clearing itself. The first two
+   * were disproved by measurement and the third changed nothing. What has never
+   * been looked at is the state itself — and `distanceFromEnd` reads the *first*
+   * `.pane__scroll` on the page, while this window deliberately holds a split. If
+   * the pane being measured is not the pane holding the output, every explanation
+   * so far has been of the wrong element.
+   */
+  const geometry = async () =>
+    JSON.stringify({
+      panes: await page.evaluate(() =>
+        Array.from(document.querySelectorAll('.pane__scroll')).map((el, i) => ({
+          i,
+          top: Math.round(el.scrollTop),
+          scrollH: Math.round(el.scrollHeight),
+          clientH: Math.round(el.clientHeight),
+          end: Math.round(el.scrollHeight - el.scrollTop - el.clientHeight)
+        }))
+      ),
+      content: await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()[0].getContentSize()
+      )
+    })
+
   const restored = await settle()
-  check('the restored view starts at the end', atBottom(restored), `${restored}px above the end`)
+  check(
+    'the restored view starts at the end',
+    atBottom(restored),
+    `${restored}px above the end — ${await geometry()}`
+  )
 
   const size = await app.evaluate(({ BrowserWindow }) => {
     const w = BrowserWindow.getAllWindows()[0]
@@ -235,7 +266,11 @@ fs.writeFileSync(crlf, CRLF_TEXT, 'utf8')
     return { width, height }
   })
   const parked = await settle()
-  check('the restored view is weighted to the bottom', atBottom(parked), `${parked}px above the end`)
+  check(
+    'the restored view is weighted to the bottom',
+    atBottom(parked),
+    `${parked}px above the end — ${await geometry()}`
+  )
   await app.evaluate(({ BrowserWindow }, s) => {
     BrowserWindow.getAllWindows()[0].setContentSize(s.width, s.height)
   }, size)
