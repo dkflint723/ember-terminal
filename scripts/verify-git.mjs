@@ -428,6 +428,88 @@ check(
   JSON.stringify(stashesAfter.map((e) => e.subject))
 )
 
+/*
+ * --- a path is a path, not a pattern -----------------------------------------
+ *
+ * git reads a pathspec as a glob, and `[id]` is a character class. Next.js and
+ * SvelteKit name route folders exactly that, so discarding the untracked
+ * `app/[id]/page.tsx` ran `clean -f -- app/[id]/page.tsx`, which also matched
+ * `app/i/page.tsx` and `app/d/page.tsx` — and deleted them. Permanently: clean
+ * does not use the recycle bin, and an untracked file has nothing in git to come
+ * back from. The same widening threw away edits in tracked files nobody had
+ * selected, through `restore --worktree`.
+ *
+ * Last in the file because it leaves the tree changed, and because it is the one
+ * check here that is about something being destroyed rather than recorded.
+ */
+const ROUTE = 'app/[id]/page.tsx'
+const DECOY_I = 'app/i/page.tsx'
+const DECOY_D = 'app/d/page.tsx'
+const TRACKED_ROUTE = 'app/[id]/layout.tsx'
+const TRACKED_DECOY = 'app/i/layout.tsx'
+
+// Committed first, so the tracked half has something to be restored from.
+for (const p of [TRACKED_ROUTE, TRACKED_DECOY]) {
+  fs.mkdirSync(path.join(repo, path.dirname(p)), { recursive: true })
+  fs.writeFileSync(path.join(repo, p), 'export const original = true\n', 'utf8')
+}
+git('add', '-A')
+git('commit', '-qm', 'route folders')
+for (const p of [TRACKED_ROUTE, TRACKED_DECOY]) {
+  fs.writeFileSync(path.join(repo, p), 'export const edited = true\n', 'utf8')
+}
+for (const p of [ROUTE, DECOY_I, DECOY_D]) {
+  fs.mkdirSync(path.join(repo, path.dirname(p)), { recursive: true })
+  fs.writeFileSync(path.join(repo, p), 'export const scratch = true\n', 'utf8')
+}
+
+const rowFor = (p) => page.locator('.scm__row').filter({ has: page.locator(`[title="${p}"]`) })
+const onDisk = (p) => fs.existsSync(path.join(repo, p))
+// Line endings normalised, because the question is what the file says and not how
+// git wrote it: `core.autocrlf` is on by default here, so a file git restored comes
+// back CRLF while the one it left alone still holds the LF this suite wrote.
+const readFile = (p) =>
+  onDisk(p) ? fs.readFileSync(path.join(repo, p), 'utf8').replace(/\r\n/g, '\n') : null
+
+// Waited for rather than slept through: the panel polls, and a row that has not
+// arrived yet is not the same as one that is missing.
+await rowFor(ROUTE).first().waitFor({ timeout: 20_000 })
+await rowFor(TRACKED_ROUTE).first().waitFor({ timeout: 20_000 })
+
+// The untracked one: discarding it deletes it, and must delete nothing else.
+await rowFor(ROUTE).first().hover()
+await rowFor(ROUTE).first().locator('[title="Discard changes"]').click()
+await sleep(1800)
+
+check('the untracked route file is discarded', !onDisk(ROUTE), 'still on disk')
+check(
+  'and the files whose names it matches as a glob are left alone',
+  onDisk(DECOY_I) && onDisk(DECOY_D),
+  JSON.stringify({ [DECOY_I]: onDisk(DECOY_I), [DECOY_D]: onDisk(DECOY_D) })
+)
+// Confirmed against git as well as the filesystem, which is this suite's contract.
+const stillUntracked = git('status', '--porcelain', '--untracked-files=all')
+check(
+  'and git still reports them as untracked',
+  stillUntracked.includes(DECOY_I) && stillUntracked.includes(DECOY_D),
+  JSON.stringify(stillUntracked)
+)
+
+// The tracked one: discarding it restores it, and must restore nothing else.
+await rowFor(TRACKED_ROUTE).first().hover()
+await rowFor(TRACKED_ROUTE).first().locator('[title="Discard changes"]').click()
+await sleep(1800)
+
+check(
+  'the tracked route file is restored',
+  readFile(TRACKED_ROUTE) === 'export const original = true\n',
+  JSON.stringify(readFile(TRACKED_ROUTE))
+)
+check(
+  'and an edit in a file whose name it matches is not thrown away',
+  readFile(TRACKED_DECOY) === 'export const edited = true\n',
+  JSON.stringify(readFile(TRACKED_DECOY))
+)
 
 await app.close()
 fs.rmSync(repo, { recursive: true, force: true })

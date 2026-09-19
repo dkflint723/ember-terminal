@@ -50,7 +50,27 @@ export class GitService {
         GIT_TERMINAL_PROMPT: '0',
         // Pagers and colour codes are for humans; this output is parsed.
         GIT_PAGER: 'cat',
-        GIT_CONFIG_PARAMETERS: "'color.ui=false'"
+        GIT_CONFIG_PARAMETERS: "'color.ui=false'",
+        /*
+         * A path is a path, not a pattern.
+         *
+         * Every path this service hands to git came from git's own porcelain
+         * output or from the file tree, so it is literal by construction — but
+         * git reads a pathspec as a glob, and `[id]` is a character class. A
+         * Next.js or SvelteKit route folder is called exactly that, so
+         * discarding the untracked `app/[id]/page.tsx` ran
+         * `clean -f -- app/[id]/page.tsx`, which also matched `app/i/page.tsx`
+         * and `app/d/page.tsx` and deleted them. Permanently: clean does not use
+         * the recycle bin, and an untracked file has nothing in git to come back
+         * from. The same widening applied to `restore --worktree`, which threw
+         * away edits in files nobody had selected.
+         *
+         * Set on the wrapper rather than on the calls that take paths, because
+         * nothing here ever wants the glob: there is no pathspec magic and no
+         * wildcard anywhere in this file, and a future call that forgets the
+         * environment would be the same bug again.
+         */
+        GIT_LITERAL_PATHSPECS: '1'
       }
     })
   }

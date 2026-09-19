@@ -5,6 +5,31 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Discarding one file no longer deletes the ones whose names look like it
+
+- **git reads a path as a pattern, and `[id]` is a character class.** Next.js and
+  SvelteKit name route folders exactly that, so discarding the untracked
+  `app/[id]/page.tsx` ran `clean -f -- app/[id]/page.tsx` — which also matched
+  `app/i/page.tsx` and `app/d/page.tsx`, and deleted them. Permanently: `clean`
+  does not use the recycle bin the file explorer uses, and an untracked file has
+  nothing committed to come back from. The confirmation named one file and meant
+  three.
+- **The same widening threw away edits in tracked files.** `restore --worktree`
+  takes a pathspec too, so discarding changes in the route file discarded them in
+  every file the glob reached.
+- **A path is a path now, on every call.** `GIT_LITERAL_PATHSPECS=1` is set on the
+  wrapper every git call goes through, rather than on the ones that take paths
+  today: every path handed to git here comes from git's own porcelain output or
+  from the file tree, so it is literal by construction, and there is no glob or
+  pathspec magic anywhere in the file to lose. A call added later that forgot the
+  environment would be this bug again.
+- **How it is checked.** *source control* creates `app/[id]/page.tsx` beside
+  `app/i/page.tsx` and `app/d/page.tsx`, discards the first through the panel, and
+  asserts on disk and against `git status` that the other two are still there —
+  then does it again for a tracked `app/[id]/layout.tsx`, asserting the edit in
+  `app/i/layout.tsx` survived. Run against the previous build, the file that was
+  clicked disappears and so do both of its neighbours.
+
 ### A check about clearing the screen stops being a check about the clock
 
 - **It failed once, on a loaded machine, and passed unchanged.** The check that a
