@@ -266,10 +266,34 @@ fs.writeFileSync(crlf, CRLF_TEXT, 'utf8')
     return { width, height }
   })
   const parked = await settle()
+  /*
+   * Which of the two it is, asked rather than reasoned about.
+   *
+   * scrollTop does not move at all after the resize — it sits on the maximum it
+   * had at the old height — so nothing re-pins the pane. There are exactly two
+   * reasons for that: the pane no longer believes it is following, or it believes
+   * it is and nothing tells it the geometry moved.
+   *
+   * New output separates them. It arrives through React state, so it reaches the
+   * pane whether or not any observer is working, and it pins only if the pane
+   * still believes it is following. If the view jumps to the end here, following
+   * is intact and the resize notification is what is missing. If it stays put,
+   * the belief is what was lost, and it was lost before or during the resize.
+   */
+  const followsNewOutput = await (async () => {
+    const before = await distanceFromEnd()
+    await page.locator('.composer__input').first().click()
+    await page.keyboard.type('Write-Output "after-the-resize"', { delay: 4 })
+    await page.keyboard.press('Enter')
+    await sleep(4000)
+    return { before, after: await distanceFromEnd() }
+  })()
   check(
     'the restored view is weighted to the bottom',
     atBottom(parked),
-    `${parked}px above the end — ${await geometry()}`
+    `${parked}px above the end — ${await geometry()} — new output: ${JSON.stringify(
+      followsNewOutput
+    )}`
   )
   await app.evaluate(({ BrowserWindow }, s) => {
     BrowserWindow.getAllWindows()[0].setContentSize(s.width, s.height)
