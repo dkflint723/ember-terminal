@@ -197,10 +197,25 @@ check(
 )
 check('and its last', many.includes('line 6000'), many.slice(-80))
 /*
- * And every line between them, which is where a repaint does its damage: replayed
- * into a terminal of the wrong height it overwrites a screenful somewhere in the
- * interior and the stream carries on from there, taking out a few hundred lines
- * while leaving both ends of the block perfectly intact.
+ * And every line between them, which is where a repaint does its damage — in
+ * either direction, and this said only one of them.
+ *
+ * Conpty does not stream a stream, it repaints a screen. During a long scroll it
+ * re-sends rows it has already sent, so the bytes captured for one command
+ * routinely hold more lines than the command printed: measured here, 6015 of them
+ * for a command that printed 6000, the extra run repeating from line 2986. That
+ * is not a fault and it is not rare — it is what conpty does every time the
+ * screen scrolls far enough.
+ *
+ * What removes it is the replay into the offscreen terminal, where the repaint's
+ * own cursor moves land the re-sent rows back on top of the originals. The block
+ * is correct because that replay is correct.
+ *
+ * So this check fails in both directions and they mean opposite things. Short
+ * means the replay overwrote rows it should not have. Long means it failed to
+ * overwrite rows it should have, and the duplicate that was in the bytes all
+ * along survived into the block. Both have been seen on a runner and here; the
+ * count and the neighbourhood below say which.
  */
 const seen = (many.match(/line (\d+)/g) ?? []).map((t) => Number(t.slice(5)))
 const firstGap = seen.findIndex((n, i) => n !== i + 1)
@@ -218,13 +233,22 @@ const firstGap = seen.findIndex((n, i) => n !== i + 1)
  * the break goes in the message.
  */
 const around = (i) => seen.slice(Math.max(0, i - 4), i + 5).join(',')
+/*
+ * How many lines were re-sent, which is the number that names the cause.
+ *
+ * Conpty repaints a screen, so a repeat is one screenful: the two seen here were
+ * six lines long against a pane six rows tall. If that holds on every future
+ * occurrence then the replay height is what decides whether the re-sent rows land
+ * on the originals, and if it does not, this is something else.
+ */
+const repeatRun = (i) => (i > 0 ? seen[i - 1] - seen[i] + 1 : 0)
 check(
   'and every line in between',
   seen.length === 6000 && firstGap === -1,
   `${seen.length} lines, first ${seen[0]}, last ${seen.at(-1)}` +
     (firstGap === -1
       ? ''
-      : `, breaks at index ${firstGap} holding ${seen[firstGap]} — around it: ${around(firstGap)}`)
+      : `, breaks at index ${firstGap} holding ${seen[firstGap]} — ${repeatRun(firstGap)} line(s) re-sent — around it: ${around(firstGap)}`)
 )
 
 // --- output belongs to the block that produced it ------------------------------

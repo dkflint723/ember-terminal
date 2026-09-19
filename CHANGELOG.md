@@ -5,6 +5,36 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A capture is replayed at the shape it was captured at
+
+- **Conpty repaints a screen, so the bytes a block is cut from hold more lines
+  than the command printed, and always have.** During a long scroll it re-sends
+  rows it has already sent: measured here, 6015 lines of bytes for a command that
+  printed 6000, the extra run starting again from line 2986. That is not a fault
+  and it is not rare. What removes it is the replay into the offscreen terminal,
+  where the repaint's own cursor moves land the re-sent rows back on top of the
+  originals. A block is right because that replay is right.
+- **The replay was being done at the pane's height now, not the height the bytes
+  were addressed to.** Its own comment already said this has to match — "the same
+  shape as the screen these bytes were written for" — and then took the live
+  terminal's rows at the moment of rendering. Renders are queued one at a time, so
+  a block can wait behind others while the pane changes height underneath it. The
+  capture now carries the shape it was taken at, and is replayed at that.
+- **What points at it:** the two duplications caught here re-sent exactly six
+  lines each, against a pane six rows tall. One screenful, which is what a repaint
+  is. A failure now reports how many lines were re-sent, so the next occurrence
+  either confirms that or says plainly that this is something else.
+- **How it is checked, and what that is worth.** The check has run thirteen times
+  against this change without a duplication, and the twenty-three runs before it
+  produced two. That is support and it is not proof: the fault appears in bursts,
+  and there were eight consecutive clean runs on the old code in the middle of
+  this. The change is made because the code's own stated rule was being broken,
+  not because a run count says so — and the fault is not being marked closed.
+- **A second fault is in the way and is not this one.** A block sometimes comes
+  back completely empty — "no output", zero lines — at much the same rate with
+  this change as without it. It is the more serious of the two and it is still
+  open.
+
 ### A pane follows output that grows without arriving
 
 - **This is a real gap, and it is still not the 114px.** It is the fourth thing

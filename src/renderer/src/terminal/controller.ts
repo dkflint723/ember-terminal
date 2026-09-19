@@ -170,7 +170,7 @@ export class TerminalController {
    * Queued instead, oldest first. A finished capture belongs to a block that has
    * not claimed it yet, so nothing starting afterwards is allowed to touch it.
    */
-  private done: { bytes: string; trimmed: boolean }[] = []
+  private done: { bytes: string; trimmed: boolean; cols: number; rows: number }[] = []
   /** Lines one block can keep. Generous: a build log is the normal case, not the extreme. */
   private static readonly RENDER_SCROLLBACK = 50_000
   /** Holds back a few bytes so a marker split across pty chunks is still found. */
@@ -389,7 +389,14 @@ export class TerminalController {
          * `133;C` below used to clear this buffer while a finished capture was
          * still sitting in it.
          */
-        this.done.push({ bytes: this.capture, trimmed: this.captureTrimmed })
+        this.done.push({
+          bytes: this.capture,
+          trimmed: this.captureTrimmed,
+          // The shape of the screen these bytes were written for, taken here
+          // rather than at render time. See renderOne.
+          cols: this.term.cols,
+          rows: this.term.rows
+        })
         this.capture = ''
         this.captureTrimmed = false
         this.capturing = false
@@ -738,8 +745,13 @@ export class TerminalController {
   }
 
   /** Feed captured bytes through the offscreen terminal and serialize the result. */
-  private renderCapture(bytes: string, trimmed: boolean): Promise<string> {
-    const done = this.renderQueue.then(() => this.renderOne(bytes, trimmed))
+  private renderCapture(
+    bytes: string,
+    trimmed: boolean,
+    cols: number,
+    rows: number
+  ): Promise<string> {
+    const done = this.renderQueue.then(() => this.renderOne(bytes, trimmed, cols, rows))
     // The chain has to survive a failure, or one bad render stops every later
     // one and the pane stops producing blocks at all.
     this.renderQueue = done.then(
@@ -749,7 +761,12 @@ export class TerminalController {
     return done
   }
 
-  private async renderOne(bytes: string, trimmed: boolean): Promise<string> {
+  private async renderOne(
+    bytes: string,
+    trimmed: boolean,
+    cols: number,
+    rows: number
+  ): Promise<string> {
     if (bytes.trim().length === 0) return ''
 
     this.renderTerm.reset()
@@ -765,8 +782,17 @@ export class TerminalController {
      * there — and when the repaint arrived before the screen had scrolled at all,
      * it overwrote the whole of the output so far. Rows follow the live terminal
      * now, for the same reason columns always did.
+     *
+     * The live terminal *at the time these bytes were captured*, which is not the
+     * same thing as the live terminal now. Renders are queued, so a block can be
+     * waiting behind others while the pane changes height underneath it — a split,
+     * a panel opening, the window resized — and it was then replayed at whatever
+     * the pane happened to be when its turn came. Both of this suite's observed
+     * corruptions are that shape: repaint rows that failed to land on the rows
+     * they were overwriting, so the re-sent copy survives beside the original
+     * instead of covering it, or covers rows it was never meant to reach.
      */
-    this.renderTerm.resize(Math.max(this.term.cols, 20), Math.max(this.term.rows, 2))
+    this.renderTerm.resize(Math.max(cols, 20), Math.max(rows, 2))
 
     await new Promise<void>((resolve) => this.renderTerm.write(bytes, resolve))
 
@@ -856,10 +882,17 @@ export class TerminalController {
      * it, because the window opens before this line is reached at all.
      *
      * Empty when there is nothing queued, which is the honest answer for an
-     * interactive program that never produced a capture of its own.
+     * interactive program that never produced a capture of its own. The fallback
+     * carries the live shape, which is the right answer for a block that captured
+     * nothing: there are no bytes to put anywhere.
      */
-    const claimed = this.done.shift() ?? { bytes: '', trimmed: false }
-    let output = interactive ? '' : await this.renderCapture(claimed.bytes, claimed.trimmed)
+    const claimed = this.done.shift() ?? {
+      bytes: '',
+      trimmed: false,
+      cols: this.term.cols,
+      rows: this.term.rows
+    }
+    let output = interactive ? '' : await this.renderCapture(claimed.bytes, claimed.trimmed, claimed.cols, claimed.rows)
 
     /*
      * Bounded in memory the way it already is on disk. The history and session
