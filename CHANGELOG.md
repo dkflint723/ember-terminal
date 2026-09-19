@@ -7,11 +7,11 @@ newest entry sits on top.
 
 ### A pane follows output that grows without arriving
 
-- **The first thing in the app, rather than in a check, that the gate caught from
-  somewhere other than this machine.** On a hosted Windows runner, shrinking the
-  window by 140px parked a terminal 114px above the end of its output and left it
-  there — identically, every time, for as long as anything cared to wait. Here it
-  has never happened once.
+- **This is a real gap, and it is still not the 114px.** It is the fourth thing
+  offered as the cause of that number and the fourth to be wrong: the runner
+  reported the same 2505/3067/448 afterwards as before. The gap below is worth
+  closing on its own account and is described as what it is, not as a fix for
+  something it did not fix.
 - **A pane watches two things and needed a third.** Its container changing size is
   a `ResizeObserver`; blocks arriving is a `MutationObserver` on `childList`. What
   neither sees is a block that is *already there* changing height: that is a style
@@ -20,13 +20,23 @@ newest entry sits on top.
   now has — and it finishes *after* the resize that prompted it. So the pane pinned
   itself to the end of a content height that was still on its way, and was never
   asked again.
-- **The measurement, rather than a fourth guess:** the pane settled at scrollTop
-  2505 of a possible 2619 — which is exactly the end of a 2953px content, in a
-  container whose content had reached 3067px by the time anyone looked. Three
-  explanations had been offered for that number before anyone printed it: a slower
-  machine, the GPU-less renderer a runner falls back to, and the follow latch. The
-  first two were disproved by measurement, the third by changing it and watching
-  nothing happen.
+- **What the 114px actually is, now established.** The pane is not following at
+  all. `scrollTop` sits on 2505 — the maximum it had at the *old* height — and the
+  container has shrunk from 562px to 448px underneath it, which is the 114 exactly.
+  Told apart by asking rather than reasoning: new output was produced after the
+  resize, it reached the pane, and the view did not move, going from 114px to
+  183px behind. New output arrives through React state whether or not any observer
+  works, and it pins only if the pane still believes it is following. It does not.
+- **Which leaves a decision rather than a patch.** The belief is cleared by any
+  scroll event arriving while the view is off the end, and a scroll event is not
+  only something a reader causes: when content reflows shorter the browser clamps
+  `scrollTop` and fires one itself. Gating that on a recent wheel or pointer is the
+  obvious fix and it changes a real behaviour — the existing check simulates a
+  reader by assigning `scrollTop` directly, with no gesture at all, so the app and
+  its check disagree about what "the reader scrolled" means. That is worth settling
+  deliberately rather than in passing, so `verify-session` stays out of the
+  per-push set, failing honestly, with the geometry and the follow-test in its
+  message.
 - **The children are observed for their size now,** and newly-arrived ones are
   added to that as they mount, so a block that grows after it is already on screen
   moves the view the same as one that has just appeared.
@@ -60,9 +70,9 @@ newest entry sits on top.
   different cause, and it is the entry below.
 - **How it is checked:** the session suite asks the claim on both sides of the
   resize, so a restore that never pinned and a resize that unpinned it are
-  different failures. And the other half of the latch, which had no check at all,
-  has one now: the wheel takes the view off the end, output arrives, and the view
-  has to still be where the reader left it.
+  different failures. The other half of the latch was said here to have no check;
+  it has had one all along — *a reader who scrolled up is left where they were* —
+  and the duplicate added beside it has been taken out again.
 
 ### A directory browser is asked what it holds after it has been filled
 

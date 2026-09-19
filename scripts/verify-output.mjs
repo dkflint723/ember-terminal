@@ -227,63 +227,6 @@ check(
       : `, breaks at index ${firstGap} holding ${seen[firstGap]} — around it: ${around(firstGap)}`)
 )
 
-/*
- * --- and the other direction: a reader who has scrolled away stays there ---------
- *
- * Following the end is a latch. It is set while the view is within 24px of the
- * bottom and cleared when it is not, so that output lands under someone watching
- * it live and does not yank someone reading back through a build log. Only the
- * first half of that had a check, which meant the pane could be made to follow
- * more eagerly — or, as it turned out, less — without anything noticing.
- *
- * The wheel rather than an assignment to scrollTop, because this is a claim about
- * what the reader did, and a scroll the pane performs on itself is deliberately
- * not read as the reader doing anything.
- */
-const scrollBox = () =>
-  page.evaluate(() => {
-    const el = document.querySelector('.pane__scroll')
-    return el
-      ? { top: el.scrollTop, end: el.scrollHeight - el.scrollTop - el.clientHeight }
-      : { top: -1, end: -1 }
-  })
-
-await page.mouse.move(400, 300)
-await page.mouse.wheel(0, -4000)
-await sleep(800)
-const readingBack = await scrollBox()
-check(
-  'the wheel takes the view off the end',
-  readingBack.end > 24,
-  JSON.stringify(readingBack)
-)
-
-await run('Write-Output "after-the-reader-scrolled"')
-await sleep(1200)
-const stillThere = await scrollBox()
-check(
-  'and new output does not drag it back',
-  stillThere.end > 24,
-  `${JSON.stringify(stillThere)} — was ${JSON.stringify(readingBack)}`
-)
-
-/*
- * Back to the end, so nothing below inherits a scrolled-up pane.
- *
- * Not by wheeling the other way: a wheel large enough to cover any amount of
- * output is a guess about how much there is, and guessing short leaves every
- * check after this one reading a view that is still parked in the middle — which
- * is exactly what it did, reporting the newest output "4408px below the fold"
- * against a pane that was behaving perfectly. Assigning the position says what is
- * meant, and the latch re-arms from it because the handler sees a scroll that did
- * not come from the pane pinning itself.
- */
-await page.evaluate(() => {
-  const el = document.querySelector('.pane__scroll')
-  if (el) el.scrollTop = el.scrollHeight
-})
-await sleep(800)
-
 // --- output belongs to the block that produced it ------------------------------
 // A marker unique to this command: if a repaint dragged an earlier command's
 // screen into this capture, the earlier marker turns up here too.
