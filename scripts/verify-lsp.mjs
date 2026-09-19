@@ -142,7 +142,18 @@ async function run(language) {
   // differently with and without a workspace root.
   const profile = newProfile(language)
   profiles.push(profile)
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), `ember-${language}-`))
+  /*
+   * A space and an accent in the path, on purpose.
+   *
+   * Three parties spell a Windows path three ways and match documents by string
+   * equality, so every disagreement silently drops the message. This suite ran
+   * from `ember-typescript-XXXX`, where the only disagreement possible is the
+   * drive letter's case — so it proved the easy half and left the ordinary one
+   * untested. `C:\Users\Someone\OneDrive - Company\…` and any folder with a name
+   * in it are the common cases, and both carry characters that one party may
+   * percent-encode and another may not.
+   */
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), `Ember Tést ${language}-`))
   const file = path.join(work, spec.file)
   fs.writeFileSync(file, spec.body, 'utf8')
   const logPath = path.join(work, 'lsp.log')

@@ -56,9 +56,35 @@ function trace(direction: '-->' | '<--', language: string, message: unknown): vo
  * Lowercase with a literal colon is the canonical form because it is the one the
  * client already uses for its own reverse lookups. Confined to Windows: elsewhere the
  * case of a path is load-bearing and rewriting it would name a file that does not exist.
+ *
+ * And decoded before it is lowercased, because the colon is not the only character
+ * the two sides spell differently. Lowercasing alone settles `%3A` against `%3a`
+ * and nothing else: a space is `%20` to one party and a space to the other, an
+ * accent is `%C3%A9` or `é`, and neither pair is resolved by changing case. Run
+ * from `…\Ember Tést typescript-x\`, the suite showed the two spellings side by
+ * side —
+ *
+ *   sent     file:///c:/…/ember tést typescript-x/sample.ts
+ *   received file:///c:/…/ember%20t%c3%a9st%20typescript-x/sample.ts
+ *
+ * — and TypeScript's diagnostics did not arrive at all, because the document they
+ * were about was filed under the other name. A deliberate type error produced no
+ * squiggle, and rename reached none of its two mentions. Any folder with a space
+ * in it does this, which is to say most of them: `OneDrive - Company`,
+ * `My Documents`, or a person's name.
+ *
+ * Decoding wins over encoding as the canonical form for the same reason the
+ * lowercase did: it is what the client already produces.
  */
 function canonicalFileUri(uri: string): string {
-  return uri.toLowerCase().replace(/^file:\/\/\/([a-z])%3a/, 'file:///$1:')
+  if (!uri.startsWith('file://')) return uri
+  try {
+    return decodeURIComponent(uri).toLowerCase()
+  } catch {
+    // A malformed escape. A URI that cannot be read is not one to rewrite, and
+    // leaving it alone keeps it matching whatever else arrives spelled that way.
+    return uri.toLowerCase().replace(/^file:\/\/\/([a-z])%3a/, 'file:///$1:')
+  }
 }
 
 function normalizeUris<T>(message: T): T {

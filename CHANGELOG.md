@@ -5,6 +5,36 @@ newest entry sits on top.
 
 ## Unreleased
 
+### TypeScript diagnostics work in a folder whose name has a space in it
+
+- **They did not, and nothing said so.** Three parties spell a Windows path three
+  ways and match documents by string equality. Lowercasing settled `%3A` against
+  `%3a` and nothing else — a space is `%20` to one party and a space to the other,
+  an accent is `%C3%A9` or `é`, and changing case resolves neither. Run from a
+  folder called `Ember Tést`, Ember sent
+  `…/ember tést typescript-x/sample.ts` and the server answered about
+  `…/ember%20t%c3%a9st%20typescript-x/sample.ts`, so every reply was about a
+  document nothing was filed under.
+- **A deliberate type error produced no squiggle at all**, and rename reached
+  neither of its two mentions. Not degraded — absent, and silently. `OneDrive -
+  Company`, `My Documents`, or a folder with somebody's name in it all do this,
+  which is to say most of them.
+- **URIs are decoded before they are compared.** Decoded rather than encoded,
+  because that is the form the client already produces for its own lookups — the
+  same reason the canonical form is lowercase. A malformed escape is left alone
+  rather than rewritten.
+- **The suite had a check for this and had never been in a position to fail it.**
+  It ran from `ember-typescript-XXXX`, where the only disagreement possible is the
+  drive letter's case, which the old canonicaliser already handled. It runs from
+  `Ember Tést <language>-XXXX` now, and all five languages pass from there. pyright
+  and yaml-language-server passed either way, because they canonicalise
+  internally; tsserver and PowerShell Editor Services do not, which is what made
+  this visible.
+- **Not fixed here:** a URI nested in a field not named `*Uri` — the one in
+  `command.arguments` on a code lens — still passes through in whatever spelling
+  it arrived in. Rewriting every string that looks like a URI would reach into
+  hover text, where a `file://` link is content rather than an address.
+
 ### Blame answers about the line you are looking at, not the one on disk
 
 - **The line number came from the editor and the answer came from the file on
