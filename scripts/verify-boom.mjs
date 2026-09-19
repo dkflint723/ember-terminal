@@ -237,17 +237,40 @@ const alive = await app.evaluate(({ BrowserWindow }) =>
 )
 check('the window survives a killed renderer', alive >= 1, `${alive} window(s)`)
 
-let savedTabs = -1
-try {
-  const file = JSON.parse(fs.readFileSync(path.join(profile.dir, 'session.json'), 'utf8'))
-  savedTabs = file?.windows?.[0]?.snapshot?.tabs?.length ?? 0
-} catch {
-  savedTabs = -1
+/*
+ * Waited for rather than slept through, and told apart rather than counted.
+ *
+ * This read the file once, nine seconds after the crash, and reported -1 for all
+ * three of "not written yet", "half-written as I read it" and "not valid JSON".
+ * On a hosted runner, where starting Electron is slow and the session is written
+ * about a second after the workspace settles, nine seconds is a budget rather
+ * than an assertion — and when it ran out the failure said `-1 tab(s)`, which
+ * names no cause at all.
+ *
+ * The assertion is unchanged: the session main writes after putting the workspace
+ * back still has to hold both of them. Only the clock has gone, and a partial
+ * read now retries instead of counting as a verdict.
+ */
+const sessionFile = path.join(profile.dir, 'session.json')
+const readSession = () => {
+  if (!fs.existsSync(sessionFile)) return { tabs: -1, why: 'not written yet' }
+  try {
+    const file = JSON.parse(fs.readFileSync(sessionFile, 'utf8'))
+    return { tabs: file?.windows?.[0]?.snapshot?.tabs?.length ?? 0, why: 'read' }
+  } catch (err) {
+    // Most likely caught mid-write; worth retrying, and worth saying if it lasts.
+    return { tabs: -1, why: `unreadable: ${String(err?.message ?? err).slice(0, 48)}` }
+  }
+}
+let saved = readSession()
+for (let i = 0; i < 90 && saved.tabs !== 2; i++) {
+  await sleep(500)
+  saved = readSession()
 }
 check(
   'and the workspace it saves afterwards is still both sessions',
-  savedTabs === 2,
-  `${savedTabs} tab(s) in session.json`
+  saved.tabs === 2,
+  `${saved.tabs} tab(s) in session.json — ${saved.why}`
 )
 
 await app.close()

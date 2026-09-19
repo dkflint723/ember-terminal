@@ -72,19 +72,20 @@ jobs:
         run: node scripts/verify.mjs
       # The suites that are green on a runner, which is not yet all of them.
       #
-      # Ten were tried. These five pass in about two and a half minutes together.
-      # The other five fail here while passing on the maintainer's machine, and
-      # each is listed with what it actually said rather than quietly dropped —
-      # a subset that hides its exclusions is the same trick as a check that
-      # cannot fail:
+      # Ten were tried. Six pass here now — the sixth, boom, had a nine-second
+      # sleep where it wanted a wait, and failed on a runner for being slower
+      # rather than for being wrong.
+      #
+      # Four still fail here while passing on the maintainer's machine, and each
+      # is listed with what it actually said rather than quietly dropped — a
+      # subset that hides its exclusions is the same trick as a check that cannot
+      # fail:
       #
       #   verify-lsp      powershell: squiggles=0 messages=1. PowerShell Editor
       #                   Services is looked for under ~/.vscode/extensions, which
       #                   a runner has not got, so the suite asserted against a
       #                   language server that was never there. Wants skip().
       #   verify-git      "explorer marks the untracked file — []"
-      #   verify-boom     "-1 tab(s) in session.json" — a negative count, which
-      #                   looks like a real defect rather than an environment one
       #   verify-session  no detail surfaced yet
       #   verify-blocks   no detail surfaced yet
       #
@@ -92,7 +93,7 @@ jobs:
       # are fixed. Keeping them out of the per-push job is so that a red smoke
       # means something new broke, rather than meaning what it meant yesterday.
       - name: Suites
-        run: node scripts/gate.mjs --only settings,output,shell,history,flood
+        run: node scripts/gate.mjs --only settings,output,shell,history,flood,boom
         env:
           EMBER_STRICT: '1'
       # The screenshots and the main-process logs are the only way to read a
