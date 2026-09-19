@@ -5,6 +5,23 @@ newest entry sits on top.
 
 ## Unreleased
 
+### The restored view is waited for rather than read on a timer
+
+- **A fourth check about the clock, and the fourth found the same way.** The
+  session check shrinks the window by 140px and reads the scroll position 800ms
+  later, requiring the restored view to be within 24px of the end of its output.
+  On a hosted runner it came back 114px above the end — and 114 is most of the 140
+  that had just been taken away, which is the shape of a pane measured partway
+  through reacting to a resize rather than one that had declined to react.
+- **The assertion is the one it always was:** the restored view ends up at the
+  bottom. A pane that never gets there still fails, after fifteen seconds instead
+  of under one.
+- **Four of these in one release is a pattern, not four accidents.** Every one was
+  a click or a resize, a fixed sleep, and then a measurement — and every one
+  passed on the machine it was written on and failed somewhere slower, reporting a
+  cause that was not the cause. Two were found by a loaded laptop by luck; two by
+  the gate running somewhere that is not this machine, on purpose.
+
 ### Two checks were reading a session file the app had deliberately moved
 
 - **The crash check reported lost work on a machine that had lost none.** A

@@ -196,12 +196,32 @@ fs.writeFileSync(crlf, CRLF_TEXT, 'utf8')
     w.setContentSize(width, height - 140)
     return { width, height }
   })
-  await sleep(800)
-  const parked = await page.evaluate(() => {
-    const el = document.querySelector('.pane__scroll')
-    return el ? el.scrollHeight - el.scrollTop - el.clientHeight : -1
-  })
-  check('the restored view is weighted to the bottom', parked >= 0 && parked < 24, `${parked}px above the end`)
+  /*
+   * Waited for, not slept after.
+   *
+   * The window is made 140px shorter and the scroll position read 800ms later. A
+   * terminal sitting at the bottom has to reflow and re-pin itself, and on a
+   * hosted runner that had not finished inside 800ms: the view came back 114px
+   * above the end, which is most of the 140px that had just been taken away. That
+   * is the measurement of a pane caught partway through reacting, not of one that
+   * had declined to.
+   *
+   * The assertion is the one it always was — the restored view ends up at the
+   * bottom — and a pane that never gets there still fails, now after fifteen
+   * seconds instead of under one.
+   */
+  const distanceFromEnd = () =>
+    page.evaluate(() => {
+      const el = document.querySelector('.pane__scroll')
+      return el ? el.scrollHeight - el.scrollTop - el.clientHeight : -1
+    })
+  const atBottom = (d) => d >= 0 && d < 24
+  let parked = await distanceFromEnd()
+  for (let waited = 0; waited < 15_000 && !atBottom(parked); waited += 250) {
+    await sleep(250)
+    parked = await distanceFromEnd()
+  }
+  check('the restored view is weighted to the bottom', atBottom(parked), `${parked}px above the end`)
   await app.evaluate(({ BrowserWindow }, s) => {
     BrowserWindow.getAllWindows()[0].setContentSize(s.width, s.height)
   }, size)
