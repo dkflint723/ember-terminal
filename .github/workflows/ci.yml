@@ -64,6 +64,27 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx electron-vite build
+      # Playwright reports a launch failure as "Process failed to launch!" and
+      # keeps the child's stderr to itself, which is no use at all from here. So
+      # Electron is started directly first, with whatever it has to say on the way
+      # out, before anything tries to drive it.
+      - name: Can Electron start here
+        shell: pwsh
+        run: |
+          $exe = 'node_modules/electron/dist/electron.exe'
+          Write-Host "binary present: $(Test-Path $exe)"
+          if (Test-Path $exe) { Write-Host "size: $((Get-Item $exe).Length)" }
+          Write-Host "--- electron --version ---"
+          & $exe --version 2>&1 | Write-Host
+          Write-Host "exit: $LASTEXITCODE"
+          Write-Host "--- the app itself, given five seconds ---"
+          $p = Start-Process -FilePath $exe -ArgumentList '.','--no-sandbox' -PassThru `
+                 -RedirectStandardError app-err.txt -RedirectStandardOutput app-out.txt -NoNewWindow
+          Start-Sleep -Seconds 5
+          if (-not $p.HasExited) { Write-Host 'still running after 5s (good)'; Stop-Process -Id $p.Id -Force }
+          else { Write-Host "exited early with $($p.ExitCode)" }
+          Write-Host '--- stderr ---'; Get-Content app-err.txt -ErrorAction SilentlyContinue | Write-Host
+          Write-Host '--- stdout ---'; Get-Content app-out.txt -ErrorAction SilentlyContinue | Write-Host
       # One suite, and the one that covers the most ground: it drives a real shell
       # through a real pty and opens a real editor. If an Electron suite can run
       # here at all, this says so.
