@@ -78,7 +78,25 @@ export class GitService {
          * wildcard anywhere in this file, and a future call that forgets the
          * environment would be the same bug again.
          */
-        GIT_LITERAL_PATHSPECS: '1'
+        GIT_LITERAL_PATHSPECS: '1',
+        /*
+         * Reading the working tree does not get to interrupt working in it.
+         *
+         * `git status` takes the index lock to write back what it learned while
+         * stat-ing the tree — an optimisation for the next caller, and optional.
+         * The panel polls every three seconds, and the terminal in the next pane
+         * shares that index, so a `git add` typed there landed on a lock held by
+         * a poll nobody asked for and died: `fatal: Unable to create
+         * .git/index.lock: File exists.` Measured on a repository of fifteen
+         * hundred files, a poll running continuously against an add loop: 35 of
+         * 317 adds refused, and none once this was set.
+         *
+         * Safe on every call rather than only the reads, because this suppresses
+         * the lock where it is optional and nowhere else — add, commit, stash and
+         * restore take it because they need it, and go on taking it. Checked, not
+         * assumed.
+         */
+        GIT_OPTIONAL_LOCKS: '0'
       }
     })
   }

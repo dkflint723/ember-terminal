@@ -8,7 +8,7 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -551,6 +551,83 @@ check(
   'and an edit in a file whose name it matches is not thrown away',
   readFile(TRACKED_DECOY) === 'export const edited = true\n',
   JSON.stringify(readFile(TRACKED_DECOY))
+)
+
+/*
+ * --- reading the tree does not interrupt working in it ------------------------
+ *
+ * `git status` takes the index lock to write back what it learned while stat-ing
+ * the tree — optional work, for whoever calls next. The panel polls every three
+ * seconds and the terminal in the next pane shares that index, so an add typed
+ * there can meet a lock nobody asked for and die with
+ * `Unable to create .git/index.lock: File exists.`
+ *
+ * Read this as a guard, not as the evidence. Driving git directly at this
+ * repository's size refuses one add in twenty and, in the app's own call shape,
+ * twelve to twenty-two per run — but through the running app it would not happen
+ * here at all: 327 polls against 360 adds, zero refused, on a build with nothing
+ * suppressing the lock. So this passes on the broken build too, and what it is
+ * good for is noticing if some later change starts taking the lock in earnest.
+ * The measurement in the commit message is what says the fix works.
+ */
+for (let i = 0; i < 600; i++) {
+  fs.writeFileSync(path.join(repo, `bulk${i}.txt`), `${i}\n`, 'utf8')
+}
+git('add', '-A')
+git('commit', '-qm', 'something worth stat-ing')
+
+/*
+ * Four at once, because one was not enough to catch it.
+ *
+ * A single loop through the IPC leaves gaps: measured against this repository,
+ * one lane refuses about one add in twenty and nine seconds of it can come back
+ * clean, which is how the first version of this check passed on the build that
+ * had the bug. Four lanes hold the index busy enough that the collision is the
+ * ordinary case rather than the lucky one.
+ */
+const POLL_MS = 12_000
+const POLL_LANES = 4
+const polling = page.evaluate(
+  async ([r, ms, lanes]) => {
+    let polls = 0
+    const until = Date.now() + ms
+    const lane = async () => {
+      while (Date.now() < until) {
+        await window.ember.gitStatus(r)
+        polls++
+      }
+    }
+    await Promise.all(Array.from({ length: lanes }, lane))
+    return polls
+  },
+  [repo, POLL_MS, POLL_LANES]
+)
+
+// From this process, so the two genuinely overlap: the panel's reads run in the
+// app, these adds run here. Two processes, one index.
+let adds = 0
+let lockRefusals = 0
+let lockMessage = null
+const untilAdds = Date.now() + POLL_MS
+while (Date.now() < untilAdds) {
+  fs.writeFileSync(path.join(repo, `bulk${adds % 600}.txt`), `touched ${Date.now()}\n`, 'utf8')
+  const r = spawnSync('git', ['add', '-A'], { cwd: repo, encoding: 'utf8', windowsHide: true })
+  adds++
+  if (r.status !== 0) {
+    lockRefusals++
+    if (!lockMessage) lockMessage = (r.stderr ?? '').trim().split('\n').find((l) => l.trim()) ?? '(no stderr)'
+  }
+}
+const polls = await polling
+
+// Printed whether or not it passes: this check only means anything in proportion
+// to the pressure it managed to apply, so the pressure is part of the result.
+console.log(`  index contention: ${polls} polls, ${adds} adds, ${lockRefusals} refused`)
+check('the panel polled while the terminal staged', polls > 5 && adds > 20, `${polls} polls, ${adds} adds`)
+check(
+  'and staging from the terminal was never refused',
+  lockRefusals === 0,
+  `${lockRefusals} of ${adds} refused — ${JSON.stringify(lockMessage)}`
 )
 
 await app.close()

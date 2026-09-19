@@ -5,6 +5,32 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Reading the working tree gives up its claim on the index
+
+- **`git status` takes the index lock**, to write back what it learned while
+  stat-ing the working tree. It is an optimisation for whoever calls next, and git
+  marks it optional for exactly this reason. The panel polls every three seconds
+  and the terminal in the next pane shares that index, so an add typed there can
+  meet a lock nobody asked for and fail outright with
+  `fatal: Unable to create .git/index.lock: File exists.` Nothing retries it; the
+  file is simply not staged.
+- **Measured against git directly:** a repository of fifteen hundred files, the
+  panel's calls running against an add loop — **35 of 317 adds refused**, none once
+  `GIT_OPTIONAL_LOCKS=0` was set. In the shape `GitService.status()` actually
+  makes them, twelve to twenty-two per run.
+- **Not reproduced through the running app, and said so rather than implied.**
+  Driven end to end — 327 polls against 360 adds, more pressure than the standalone
+  run that refused twenty-two — nothing was refused, on a build with nothing
+  suppressing the lock. So this is a defensive change: the mechanism is real and
+  the flag removes it, but the collision was never observed through Ember itself.
+  The suite check that came with it passes on the old build too, which makes it a
+  guard against some later change taking the lock in earnest rather than evidence
+  for this one.
+- **Set on every call rather than only the reads**, because it suppresses the lock
+  where taking it is optional and nowhere else. `add`, `commit`, `stash push`,
+  `stash pop` and `restore --staged` take it because they need it, and go on taking
+  it — checked one at a time under the flag rather than assumed.
+
 ### A git command that fails says what went wrong
 
 - **The panel showed the first line of git's error, which is never the one that
