@@ -5,6 +5,35 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A terminal stops telling itself to stop following its output
+
+- **Resize a window while a pane is following live output and it could quietly
+  stop following, permanently.** Following the end is a latch: set while the view
+  is within 24px of the bottom, cleared when it is not, from the scroll handler.
+  The pane also pins itself to the end by assigning `scrollTop`, and that fires a
+  scroll event which the same handler answers from whatever the layout happens to
+  be at that instant. When the pin lands while the layout is still settling — a
+  window just resized, blocks still mounting after a restore — the answer at that
+  moment is "not at the end", so the latch clears on the back of the pane's own
+  action. Nothing sets it again. New output then lands below the fold until
+  somebody scrolls to the bottom by hand.
+- **The pane records where it pinned itself** and no longer reads a scroll to that
+  exact position as the reader having moved. Everything else about the latch is
+  unchanged, which matters in both directions: output still lands under someone
+  watching it live, and still does not yank someone reading back through a build
+  log.
+- **The first thing in the app itself that the gate caught from somewhere else.**
+  Shrinking the window by 140px on a hosted runner parked the view 114px above the
+  end and left it there, identically, every time — where on the machine this was
+  written it has never once happened. Two guesses were spent on that number before
+  it was split into two questions; the restore pins the view correctly, and the
+  resize is what unpins it.
+- **How it is checked:** the session suite asks the claim on both sides of the
+  resize, so a restore that never pinned and a resize that unpinned it are
+  different failures. And the other half of the latch, which had no check at all,
+  has one now: the wheel takes the view off the end, output arrives, and the view
+  has to still be where the reader left it.
+
 ### A directory browser is asked what it holds after it has been filled
 
 - **Waiting for the box is not waiting for what is in it.** The check clicks the

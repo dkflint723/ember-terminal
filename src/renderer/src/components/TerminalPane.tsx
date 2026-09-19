@@ -319,9 +319,32 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
    * notch that lands a pixel short, which is still someone watching the end.
    */
   const stuck = useRef(true)
+  /*
+   * Where this last pinned itself, so that its own scrolling is not read as the
+   * reader's.
+   *
+   * Assigning scrollTop fires a scroll event, and the handler below answers "is
+   * the view at the end?" from whatever the layout happens to be at that instant.
+   * When the pin lands while the layout is still settling — a window just resized,
+   * blocks still mounting after a restore — the honest answer at that moment is
+   * "no", and the latch clears on the back of this component's own action. Nothing
+   * sets it again, so the pane stops following for good.
+   *
+   * That is not hypothetical and it is not only about slow machines. On a hosted
+   * runner, shrinking the window by 140px parked the view 114px above the end and
+   * left it there, identically, every time it was tried.
+   */
+  const pinnedTo = useRef(-1)
+  const pin = (el: HTMLElement): void => {
+    el.scrollTop = el.scrollHeight
+    // Read back rather than assumed: the assignment above is clamped to the range.
+    pinnedTo.current = el.scrollTop
+  }
   const noteScroll = (): void => {
     const el = scroller.current
-    if (el) stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
+    if (!el) return
+    if (el.scrollTop === pinnedTo.current) return
+    stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
   }
 
   // The size of what the newest block is holding, which is what changes when output
@@ -330,7 +353,7 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
 
   useEffect(() => {
     const el = scroller.current
-    if (el && stuck.current) el.scrollTop = el.scrollHeight
+    if (el && stuck.current) pin(el)
   }, [pane.blocks.length, running, lastSize, mode])
 
   /*
@@ -346,7 +369,7 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
     const el = scroller.current
     if (!el) return
     const follow = (): void => {
-      if (stuck.current) el.scrollTop = el.scrollHeight
+      if (stuck.current) pin(el)
     }
     // The container changing size: window resize, panel drag, find bar.
     const ro = new ResizeObserver(follow)
