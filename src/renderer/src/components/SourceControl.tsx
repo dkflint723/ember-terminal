@@ -177,6 +177,25 @@ export function SourceControl(): React.JSX.Element {
     )
   }
 
+  /**
+   * Finish, step over, or give up whatever is half-done.
+   *
+   * Abort is the one that throws work away, so it asks first — it is the only
+   * action here that cannot be undone by doing it again.
+   */
+  const operation = async (action: 'continue' | 'abort' | 'skip'): Promise<void> => {
+    const pending = status?.operation
+    if (!root || !pending) return
+    const name = OPERATION_NAME[pending].toLowerCase()
+    if (action === 'abort' && !window.confirm(`Give up this ${name}? Anything resolved so far is lost.`)) {
+      return
+    }
+    await act(
+      () => window.ember.gitOperation(root, pending, action),
+      action === 'abort' ? 'Aborting' : action === 'skip' ? 'Skipping' : 'Continuing'
+    )
+  }
+
   const commit = async (): Promise<void> => {
     if (!root) return
     setBusy(true)
@@ -397,9 +416,55 @@ export function SourceControl(): React.JSX.Element {
           one button that would have finished it. */}
       {status.operation && (
         <div className="scm__operation">
-          {status.conflicts.length > 0
-            ? `${OPERATION_NAME[status.operation]} in progress — resolve the conflicts below, then stage them.`
-            : `${OPERATION_NAME[status.operation]} in progress — commit to finish it.`}
+          <span>
+            {/*
+              What finishes it depends on which it is. "Commit to finish it" is
+              true of a merge, a cherry-pick and a revert, and wrong for a rebase:
+              committing there makes an extra commit rather than continuing the
+              one that stopped, which leaves the rebase exactly where it was.
+            */}
+            {status.conflicts.length > 0
+              ? `${OPERATION_NAME[status.operation]} in progress — resolve the conflicts below, then stage them.`
+              : status.operation === 'rebase'
+                ? 'Rebase in progress — continue it to carry on.'
+                : `${OPERATION_NAME[status.operation]} in progress — commit to finish it.`}
+          </span>
+          {/*
+            None of this could be done from the panel before. A rebase that
+            stopped on a conflict could only be finished from the terminal.
+          */}
+          <span className="scm__operation-acts">
+            <button
+              className="btn"
+              disabled={busy || status.conflicts.length > 0}
+              title={
+                status.conflicts.length > 0
+                  ? 'Resolve and stage the conflicts first'
+                  : `Carry on with the ${OPERATION_NAME[status.operation].toLowerCase()}`
+              }
+              onClick={() => void operation('continue')}
+            >
+              Continue
+            </button>
+            {status.operation !== 'merge' && (
+              <button
+                className="btn"
+                disabled={busy}
+                title="Leave this commit out and carry on"
+                onClick={() => void operation('skip')}
+              >
+                Skip
+              </button>
+            )}
+            <button
+              className="btn"
+              disabled={busy}
+              title={`Give up the ${OPERATION_NAME[status.operation].toLowerCase()} and put the branch back`}
+              onClick={() => void operation('abort')}
+            >
+              Abort
+            </button>
+          </span>
         </div>
       )}
 

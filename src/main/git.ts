@@ -85,6 +85,30 @@ export class GitService {
   }
 
   /**
+   * Where this working tree keeps its git state.
+   *
+   * `.git` is a directory in an ordinary clone and a file everywhere else: a
+   * linked worktree and a submodule both put a `gitdir:` pointer there instead,
+   * and the state that pointer names is somewhere else entirely. Reading the
+   * pointer rather than asking `git rev-parse --git-path` keeps this free — the
+   * status poll runs every three seconds and does not need another process to
+   * learn something a single file already says.
+   */
+  private async gitDirOf(root: string): Promise<string | null> {
+    try {
+      const { existsSync, readFileSync, statSync } = await import('node:fs')
+      const { join, resolve, dirname } = await import('node:path')
+      const dotGit = join(root, '.git')
+      if (!existsSync(dotGit)) return null
+      if (statSync(dotGit).isDirectory()) return dotGit
+      const pointer = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, 'utf8'))?.[1]
+      return pointer ? resolve(dirname(dotGit), pointer.trim()) : null
+    } catch {
+      return null
+    }
+  }
+
+  /**
    * Whether git left its index lock behind.
    *
    * Worth saying after a cancel: git refuses to touch the index while it is
@@ -92,22 +116,11 @@ export class GitService {
    * terminal in the next pane shares this repository, and the lock may be its.
    */
   private async indexLockExists(root: string): Promise<boolean> {
-    try {
-      const { existsSync, readFileSync, statSync } = await import('node:fs')
-      const { join, resolve, dirname } = await import('node:path')
-      const dotGit = join(root, '.git')
-      if (!existsSync(dotGit)) return false
-      // A linked worktree or a submodule keeps `.git` as a file pointing away.
-      const pointer = statSync(dotGit).isDirectory()
-        ? dotGit
-        : resolve(
-            dirname(dotGit),
-            (/^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, 'utf8'))?.[1] ?? '').trim()
-          )
-      return existsSync(join(pointer, 'index.lock'))
-    } catch {
-      return false
-    }
+    const gitDir = await this.gitDirOf(root)
+    if (!gitDir) return false
+    const { existsSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    return existsSync(join(gitDir, 'index.lock'))
   }
 
   /**
@@ -308,7 +321,16 @@ export class GitService {
   private async pendingOperation(root: string): Promise<GitStatus['operation']> {
     const { existsSync } = await import('node:fs')
     const { join } = await import('node:path')
-    const gitDir = join(root, '.git')
+    /*
+     * Through the pointer, because `.git` is only a directory in an ordinary
+     * clone. In a linked worktree it is a file, so `<root>/.git/MERGE_HEAD` is a
+     * path inside a file and can never exist — a conflicted merge there was
+     * invisible to this panel. Worse than invisible: with the conflicts resolved
+     * the lists come back empty, so it said "No changes" and disabled Commit,
+     * which was the one button that would have finished the merge.
+     */
+    const gitDir = await this.gitDirOf(root)
+    if (!gitDir) return null
     if (existsSync(join(gitDir, 'MERGE_HEAD'))) return 'merge'
     if (existsSync(join(gitDir, 'CHERRY_PICK_HEAD'))) return 'cherry-pick'
     if (existsSync(join(gitDir, 'REVERT_HEAD'))) return 'revert'
@@ -591,6 +613,40 @@ export class GitService {
     }
   }
 
+  /**
+   * Carry on with a half-finished operation, step over it, or give it up.
+   *
+   * There was no way to do any of these from the panel. A rebase that stopped on
+   * a conflict could only be finished from the terminal, and the panel's advice —
+   * "commit to finish it" — was wrong for a rebase, where committing makes an
+   * extra commit rather than continuing the one that stopped.
+   *
+   * No deadline, for the same reason a commit has none: `--continue` runs the
+   * hooks. `GIT_EDITOR=true` takes the message git already prepared rather than
+   * waiting for an editor that has nowhere to open.
+   */
+  async operationAction(
+    root: string,
+    operation: 'merge' | 'rebase' | 'cherry-pick' | 'revert',
+    action: 'continue' | 'abort' | 'skip'
+  ): Promise<GitSimpleResult> {
+    // Both come from the renderer, so both are checked against what git accepts
+    // rather than passed through.
+    const known = ['merge', 'rebase', 'cherry-pick', 'revert']
+    const doable = ['continue', 'abort', 'skip']
+    if (!known.includes(operation) || !doable.includes(action)) {
+      return { ok: false, error: 'Not something that can be done to this operation.' }
+    }
+    if (action === 'skip' && operation === 'merge') {
+      return { ok: false, error: 'A merge has nothing to skip.' }
+    }
+    return this.simple(root, [operation, `--${action}`], {
+      timeout: null,
+      cancelKey: root,
+      env: { GIT_EDITOR: 'true' }
+    })
+  }
+
   // Checking out a large tree is slow on its own, and can run hooks besides.
   async checkout(root: string, name: string): Promise<GitSimpleResult> {
     return this.simple(root, ['checkout', name], { timeout: null, cancelKey: root })
@@ -774,7 +830,7 @@ export class GitService {
   private async simple(
     root: string,
     args: string[],
-    options: { timeout?: number | null; cancelKey?: string } = {}
+    options: { timeout?: number | null; cancelKey?: string; env?: NodeJS.ProcessEnv } = {}
   ): Promise<GitSimpleResult> {
     try {
       await this.git(root, args, options)

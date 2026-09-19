@@ -779,6 +779,97 @@ check(
 // run does not leave them in the temp directory.
 git('rm', '-q', '-f', '--', 'oversize.txt')
 
+/*
+ * --- a half-finished operation, in a worktree that is not the main one -------
+ *
+ * `.git` is a directory in an ordinary clone and a file everywhere else: a linked
+ * worktree puts a `gitdir:` pointer there and keeps its state under the main
+ * repository. So `<root>/.git/MERGE_HEAD` is a path inside a file, which can
+ * never exist, and a conflicted merge in a worktree was invisible here. Worse
+ * than invisible — with the conflicts resolved the change lists come back empty,
+ * so the panel said "No changes" and disabled Commit, the one button that would
+ * have finished it.
+ *
+ * Its own window, because the panel follows the workspace root and this one is a
+ * different tree.
+ */
+{
+  const wtProfile = newProfile('git-worktree')
+  const linked = path.join(os.tmpdir(), 'ember-git-wt-' + String(Date.now()))
+  git('worktree', 'add', '-q', '-b', 'sidebranch', linked)
+  const inTree = (...args) =>
+    execFileSync('git', args, { cwd: linked, encoding: 'utf8', windowsHide: true }).trim()
+
+  // Divergent edits to the same line, so merging must stop on a conflict.
+  fs.writeFileSync(path.join(linked, 'shared.txt'), 'from the worktree' + String.fromCharCode(10), 'utf8')
+  inTree('add', '-A')
+  inTree('commit', '-qm', 'worktree edit')
+  fs.writeFileSync(path.join(repo, 'shared.txt'), 'from the main tree' + String.fromCharCode(10), 'utf8')
+  git('add', '--', 'shared.txt')
+  git('commit', '-qm', 'main tree edit')
+  const merging = spawnSync('git', ['merge', 'main'], {
+    cwd: linked,
+    encoding: 'utf8',
+    windowsHide: true
+  })
+  check('the fixture really is mid-merge', merging.status !== 0, `merge exited ${merging.status}`)
+
+  const wtApp = await electron.launch({
+    executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
+    args: [APP_DIR, wtProfile.arg, path.join(linked, 'shared.txt')],
+    cwd: APP_DIR,
+    env,
+    timeout: 60_000
+  })
+  const wtPage = await wtApp.firstWindow()
+  await placeTopRight(wtApp)
+  await wtPage.waitForSelector('.monaco-editor', { timeout: 30_000 })
+  wtPage.on('dialog', (d) => void d.accept())
+  await wtPage.click('.activity__item[data-view="scm"]')
+  await wtPage.waitForSelector('.scm', { timeout: 10_000 })
+  await sleep(2500)
+
+  const strip = await wtPage.evaluate(() => ({
+    text: document.querySelector('.scm__operation')?.textContent ?? '',
+    actions: [...document.querySelectorAll('.scm__operation-acts button')].map(
+      (b) => b.textContent?.trim() ?? ''
+    )
+  }))
+  check(
+    'a merge stopped in a linked worktree is noticed at all',
+    /merge in progress/i.test(strip.text),
+    JSON.stringify(strip.text).slice(0, 160)
+  )
+  check(
+    'and offers a way out of it',
+    strip.actions.includes('Abort'),
+    JSON.stringify(strip.actions)
+  )
+
+  // Abort puts the branch back, which is the half that proves the buttons reach git.
+  const abort = wtPage.locator('.scm__operation-acts button', { hasText: 'Abort' })
+  if ((await abort.count()) > 0) {
+    await abort.first().click()
+    const cleared = await wtPage
+      .waitForFunction(() => document.querySelectorAll('.scm__operation').length === 0, {
+        timeout: 20_000
+      })
+      .then(() => true, () => false)
+    check('aborting it ends the merge', cleared, 'the strip stayed')
+    check(
+      'and git agrees the merge is over',
+      !fs.existsSync(path.join(inTree('rev-parse', '--git-path', 'MERGE_HEAD'))),
+      inTree('rev-parse', '--git-path', 'MERGE_HEAD')
+    )
+  }
+
+  await wtApp.close()
+  await sleep(800)
+  wtProfile.cleanup()
+  git('worktree', 'remove', '--force', linked)
+  git('branch', '-q', '-D', 'sidebranch')
+}
+
 await app.close()
 fs.rmSync(repo, { recursive: true, force: true })
 

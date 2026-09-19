@@ -176,6 +176,11 @@ const api: EmberApi = {
     ipcRenderer.invoke('git:discard', root, paths, untracked),
   gitCommit: (root: string, message: string) => ipcRenderer.invoke('git:commit', root, message),
   gitCancel: (root: string) => ipcRenderer.invoke('git:cancel', root),
+  gitOperation: (
+    root: string,
+    operation: 'merge' | 'rebase' | 'cherry-pick' | 'revert',
+    action: 'continue' | 'abort' | 'skip'
+  ) => ipcRenderer.invoke('git:operation', root, operation, action),
   writeFile: (path: string, content: string, opts?: FileWriteOptions) =>
     ipcRenderer.invoke('file:write', path, content, opts),
   markFiles: (paths: string[]) => ipcRenderer.invoke('file:marks', paths),

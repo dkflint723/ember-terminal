@@ -172,6 +172,17 @@ button {
   background: var(--bg-elevated);
   color: var(--fg-dim);
   font-size: 11px;
+  /* It carries its own actions now, on the same line as what it is telling you. */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.scm__operation-acts {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
 }
 
 /* A single line for things that failed with nowhere else to say so. Bottom-right,

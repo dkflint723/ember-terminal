@@ -5,6 +5,31 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A half-finished merge or rebase can be finished from the panel
+
+- **In a linked worktree, it could not even be seen.** `.git` is a directory in an
+  ordinary clone and a file everywhere else — a worktree and a submodule both put
+  a `gitdir:` pointer there and keep their state under the main repository. The
+  panel looked for `MERGE_HEAD` inside `<root>/.git`, which in a worktree is a
+  path inside a file and can never exist. So a merge that stopped on a conflict
+  was invisible; and once the conflicts were resolved the change lists came back
+  empty, so it said *No changes* and disabled Commit — the one button that would
+  have finished it. The pointer is followed now, which costs no extra git call on
+  a poll that runs every three seconds.
+- **Continue, Skip and Abort.** None of this was reachable from the panel: a
+  rebase that stopped on a conflict could only be finished from the terminal.
+  Abort asks first, being the only one of the three that cannot be undone by
+  doing it again.
+- **And the advice was wrong for a rebase.** *Commit to finish it* is true of a
+  merge, a cherry-pick and a revert. During a rebase, committing makes an extra
+  commit and leaves the rebase exactly where it was — so that one says *continue
+  it to carry on* instead.
+- **How it is checked.** *source control* builds a real linked worktree, forces a
+  merge that stops on a conflict in it, and asserts the panel notices at all —
+  then presses Abort and confirms against git's own
+  `rev-parse --git-path MERGE_HEAD` that the merge is over, so the buttons are
+  shown to reach git rather than merely to disappear.
+
 ### A diff that could not be read says so, instead of showing a file as brand new
 
 - **An empty left-hand side is an answer, and it was also every failure.** The

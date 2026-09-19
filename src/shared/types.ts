@@ -1300,6 +1300,12 @@ export interface EmberApi {
    * that it was interrupted partway through writing.
    */
   gitCancel(root: string): Promise<{ ok: boolean; stopped: number; lock: boolean }>
+  /** Carry on with a half-finished operation, step over it, or give it up. */
+  gitOperation(
+    root: string,
+    operation: 'merge' | 'rebase' | 'cherry-pick' | 'revert',
+    action: 'continue' | 'abort' | 'skip'
+  ): Promise<GitSimpleResult>
   writeFile(path: string, content: string, opts?: FileWriteOptions): Promise<FileSaveResult>
   /** Size and time for each path, in order, for noticing files that changed. */
   markFiles(paths: string[]): Promise<FileMark[]>
