@@ -311,11 +311,23 @@ function check(language, { spec, ui, lines, rename }) {
   const sent = traffic.filter((t) => t.fromClient).map((t) => t.msg)
   const received = traffic.filter((t) => !t.fromClient).map((t) => t.msg)
 
-  // An optional server is one this app does not ship — PowerShell Editor Services
-  // is used if the machine already has a copy. Its absence is a fact about the
-  // machine, not a defect, so it reports as skipped rather than failed.
-  if (lines.length === 0 && spec.optional) return ['SKIP: no server installed on this machine']
-  if (lines.length === 0) failures.push('no traffic at all — the server never started')
+  /*
+   * An optional server is one this app does not ship — PowerShell Editor Services
+   * is used if the machine already has a copy. Its absence is a fact about the
+   * machine, not a defect, so it reports as skipped rather than failed.
+   *
+   * Absence arrives two ways, and this knew only one of them. No traffic at all
+   * is the obvious one. The other is a single line — main saying "no server
+   * available for powershell", which is the app being clear about it — and that
+   * was read as a server which had started and then answered nothing. On a hosted
+   * runner, where nobody has installed the VS Code PowerShell extension, that is
+   * the case every time: the suite spent its run asserting against a language
+   * server that was never going to exist.
+   */
+  const noServer =
+    lines.length === 0 || lines.every((line) => /no server available/i.test(line))
+  if (noServer && spec.optional) return ['SKIP: no server installed on this machine']
+  if (noServer) failures.push('no traffic at all — the server never started')
   if (ui.language !== language) failures.push(`pane language is ${ui.language}, expected ${language}`)
 
   /*
@@ -421,11 +433,13 @@ function check(language, { spec, ui, lines, rename }) {
 }
 
 let failed = 0
+const skipped = []
 for (const language of languages) {
   const result = await run(language)
   const failures = check(language, result)
   if (failures.length === 1 && failures[0].startsWith('SKIP:')) {
     console.log(`${language}: SKIP —${failures[0].slice(5)}`)
+    skipped.push(language)
     continue
   }
   if (failures.length === 1 && failures[0].startsWith('SKIP')) {
@@ -446,6 +460,19 @@ for (const language of languages) {
 
 profiles.forEach((p) => p.cleanup())
 if (pageErrors.length > 0) console.log('page errors:', pageErrors.slice(0, 4).join(' | '))
+/*
+ * Said in the summary, not only in the middle of the traffic.
+ *
+ * And not fatal under EMBER_STRICT, which is the opposite of how this repository
+ * treats a skipped suite — deliberately. A skipped suite means a check nobody
+ * ran. This means a server Ember does not ship and does not claim to: the README
+ * was corrected earlier in this release for implying otherwise. A machine without
+ * the VS Code PowerShell extension is a supported machine, so the honest report
+ * is that the language was not exercised, rather than that something is broken.
+ * A bundled server going missing still fails, because `optional` is only set on
+ * the one that is not bundled.
+ */
+if (skipped.length > 0) console.log(`languages with no server on this machine: ${skipped.join(', ')}`)
 const passed = failed === 0 && pageErrors.length === 0
 console.log(passed ? 'multi-language lsp: PASS' : `multi-language lsp: FAIL (${failed} languages, ${pageErrors.length} page errors)`)
 process.exit(passed ? 0 : 1)

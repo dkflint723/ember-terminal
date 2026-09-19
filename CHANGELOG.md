@@ -5,14 +5,44 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A language server this machine does not have is a skip, not a failure
+
+- **`multi-language lsp` spent its run on a runner asserting against a server
+  that was never going to exist.** PowerShell Editor Services is not something
+  Ember ships — it is used if the machine already has a copy, which is why
+  `powershell` is the one language marked optional. The skip that was written for
+  it recognised absence in one shape only: no traffic whatsoever. The other shape
+  is a single line, main saying `no server available for powershell`, which is the
+  app being perfectly clear about it — and that read as a server which had started
+  and then answered nothing. Anywhere the VS Code PowerShell extension is not
+  installed, which is every hosted runner, that is the case every time.
+- **Absence is now read off what the app says,** in either shape, and the
+  languages that were skipped are named once more in the summary rather than only
+  in the middle of the traffic. A skip nobody can see is barely better than a pass
+  that means nothing.
+- **Deliberately not fatal under `EMBER_STRICT`,** which is the opposite of how
+  this repository treats a skipped suite, so it is worth saying why. A skipped
+  suite means a check nobody ran. This means a server Ember does not ship and does
+  not claim to — the README was corrected earlier in this release for implying
+  otherwise — so a machine without it is a supported machine, and the honest
+  report is that one language went unexercised. `optional` is set on that one
+  language and no other, so a server that does ship going missing still fails.
+- **How it is checked:** the suite is run here, where PowerShell Editor Services
+  *is* installed, and `powershell` still has to start and answer for real —
+  `messages=31`, not a skip. That is the half that matters, because a fix of this
+  shape earns its green by making a check stop running, and this one is watched
+  not to. It goes back into the per-push set, which is six suites now.
+
 ### The gate runs on a machine that is not this one
 
-- **Ten suites on every push, and all of them nightly.** The smoke job runs the
-  ones that would have caught what got past this release: the pty and its blocks,
-  a session across a restart, a shell that dies, settings, the flow valve under a
-  flood, the crash screen, source control, history and the language servers. The
-  nightly runs the whole gate. Both under `EMBER_STRICT`, so a suite that skips
-  itself for want of a shell counts as a failure rather than as silence.
+- **Six suites on every push, and all of them nightly.** Ten were meant to run
+  and this said so before any of them had been watched to: what the smoke job
+  runs is settings, the pty and its blocks, a shell that dies, history, the flow
+  valve under a flood, and the language servers. The nightly runs the whole gate.
+  Both under `EMBER_STRICT`, so a suite that skips itself for want of a shell
+  counts as a failure rather than as silence. The four that are held back are
+  named in the workflow with what each of them said, because a subset that hides
+  its exclusions is the same trick as a check that cannot fail.
 - **`npm ci` does not install Electron's binary.** Not on the runner and not here
   either — it reports success and leaves `node_modules/electron` holding its
   JavaScript, its licence and an empty `path.txt`, without the two hundred
