@@ -19,6 +19,14 @@ const run = promisify(execFile)
 const TIMEOUT_MS = 20_000
 /** `git show` of a whole file has to fit; anything larger is not worth diffing. */
 const MAX_BUFFER = 32 * 1024 * 1024
+/**
+ * How much of git's own explanation is worth carrying to the panel.
+ *
+ * Generous, because the useful part is often the fourth or fifth line, and git is
+ * not verbose when something has gone wrong. A merge listing a hundred conflicted
+ * paths is the case this exists to stop.
+ */
+const MAX_ERROR_CHARS = 2000
 
 /**
  * Git as the source-control panel needs it.
@@ -75,10 +83,29 @@ export class GitService {
     })
   }
 
+  /**
+   * What git said, rather than the first line of it.
+   *
+   * This returned `stderr.split('\n')[0]`, and git's first line is almost never
+   * the one that explains anything. A rejected push opens with the remote's URL —
+   * so the panel showed a path and nothing else, while the four lines under it
+   * said `! [rejected] main -> main (fetch first)`, `error: failed to push some
+   * refs`, and a hint naming `git pull` as the way out. A pull blocked by local
+   * changes was the same shape: the branch it fetched from, and no mention of the
+   * files standing in the way.
+   *
+   * Kept whole and capped, in git's own order. Reordering to put the explanation
+   * first was the other option and it is worse: the lines refer to each other, and
+   * a reader who knows git is looking for the shape they already recognise.
+   */
   private static message(err: unknown): string {
     const e = err as { stderr?: string; message?: string; code?: string }
-    const stderr = typeof e?.stderr === 'string' ? e.stderr.trim() : ''
-    if (stderr) return stderr.split('\n')[0]
+    const stderr = typeof e?.stderr === 'string' ? e.stderr.replace(/\r\n/g, '\n').trim() : ''
+    if (stderr) {
+      return stderr.length > MAX_ERROR_CHARS
+        ? `${stderr.slice(0, MAX_ERROR_CHARS).trimEnd()}\n…`
+        : stderr
+    }
     if (e?.code === 'ENOENT') return 'git is not installed, or not on PATH.'
     return e?.message ?? 'git failed.'
   }

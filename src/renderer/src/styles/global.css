@@ -4061,6 +4061,23 @@ button.scm__branch {
   color: var(--fail);
   background: var(--fail-bg);
   border: 1px solid var(--fail-border);
+  /*
+   * Bounded, because git's own output is. A push rejection is eight lines and a
+   * merge can name every conflicted path; the box scrolls rather than pushing the
+   * file list off the panel.
+   */
+  max-height: 11em;
+  overflow-y: auto;
+}
+
+/* git leads with the URL and explains underneath, so the explanation is lifted. */
+.scm__error-line {
+  opacity: 0.75;
+}
+
+.scm__error-line--says {
+  opacity: 1;
+  font-weight: 600;
 }
 
 .scm__note {

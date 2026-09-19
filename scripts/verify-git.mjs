@@ -386,6 +386,48 @@ await page.keyboard.press('Enter')
 await sleep(2000)
 check('picking an existing branch switches back', git('branch', '--show-current') === 'main', git('branch', '--show-current'))
 
+/*
+ * --- what git said, not the first line of it ---------------------------------
+ *
+ * git opens a rejected push with the remote's URL and explains underneath, and
+ * the panel showed only the first line — so a push that was refused presented as
+ * a temp path, with `! [rejected] main -> main (fetch first)` and the hint naming
+ * `git pull` both discarded. The clone made above is what makes the remote move
+ * on without this repository knowing.
+ */
+fs.writeFileSync(path.join(there, 'ahead.txt'), 'the remote moved on\n', 'utf8')
+gitAt(there, 'add', '-A')
+gitAt(there, 'commit', '-qm', 'a commit this clone does not have')
+gitAt(there, 'push', '-q')
+fs.writeFileSync(path.join(repo, 'mine.txt'), 'and so did this one\n', 'utf8')
+git('add', '-A')
+git('commit', '-qm', 'a local commit that will be refused')
+
+await page.locator('.scm [aria-label="Push"]').click()
+await page.waitForFunction(
+  () => (document.querySelector('.scm__error')?.textContent ?? '').length > 0,
+  { timeout: 20_000 }
+)
+const refused = await page.evaluate(() => ({
+  text: document.querySelector('.scm__error')?.textContent ?? '',
+  lines: document.querySelectorAll('.scm__error-line').length,
+  lifted: [...document.querySelectorAll('.scm__error-line--says')].map((e) => e.textContent ?? '')
+}))
+check('a refused push says it was rejected', /rejected/i.test(refused.text), JSON.stringify(refused.text))
+check(
+  'and carries the lines that explain it',
+  /fetch first|failed to push/i.test(refused.text),
+  JSON.stringify(refused.text)
+)
+check('rather than one line naming the remote', refused.lines > 1, `${refused.lines} lines`)
+check(
+  'with the explanation picked out from the address',
+  refused.lifted.some((l) => /rejected|failed to push/i.test(l)),
+  JSON.stringify(refused.lifted)
+)
+// Back in step with the remote, so the checks after this are not pushing uphill.
+git('pull', '--rebase', '-q')
+
 fs.rmSync(remoteDir, { recursive: true, force: true })
 fs.rmSync(elsewhere, { recursive: true, force: true })
 

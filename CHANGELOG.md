@@ -5,6 +5,28 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A git command that fails says what went wrong
+
+- **The panel showed the first line of git's error, which is never the one that
+  explains anything.** A rejected push opens with the remote's address, so what
+  appeared was a path — while the seven lines under it said
+  `! [rejected] main -> main (fetch first)`, `error: failed to push some refs`,
+  and a hint naming `git pull` as the way out. A pull blocked by local changes was
+  the same shape: the branch it fetched from, and no mention of the files in the
+  way. Every word git wrote comes back now, in git's own order, capped so a merge
+  naming a hundred conflicted paths cannot take the panel with it.
+- **The explanation is picked out from the address.** git prefixes the lines that
+  matter — `error:`, `fatal:`, `hint:`, `remote:`, and the ` ! [rejected]` form —
+  so those are carried at full weight and the rest is dimmed. The box scrolls
+  rather than pushing the file list off the panel.
+- **Reordering was the other option, and it is worse.** Putting the explanation
+  first reads better in isolation, but git's lines refer to one another and anyone
+  who has seen the message before is looking for the shape they recognise.
+- **How it is checked.** *source control* pushes a commit from the second clone so
+  the remote moves on, commits locally, and presses Push: the error has to say
+  *rejected*, carry the line that explains why, run to more than one line, and
+  have the explanation among the lifted lines rather than the address.
+
 ### Discarding one file no longer deletes the ones whose names look like it
 
 - **git reads a path as a pattern, and `[id]` is a character class.** Next.js and

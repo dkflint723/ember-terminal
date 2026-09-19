@@ -23,6 +23,14 @@ const OPERATION_NAME = {
   revert: 'Revert'
 } as const
 
+/**
+ * The prefixes git uses for the part of an error that is about the error.
+ *
+ * ` ! [rejected]` has no colon and is the one that matters most on a push, so it
+ * is matched on its own rather than folded into the list.
+ */
+const GIT_EXPLAINS = /^(?:error|fatal|hint|remote|warning):|^\s*!\s/
+
 export function SourceControl(): React.JSX.Element {
   const status = useStore((s) => s.gitStatus)
   const treeRoot = useStore(workspaceRoot)
@@ -376,7 +384,26 @@ export function SourceControl(): React.JSX.Element {
         </button>
       </div>
 
-      {error && <div className="scm__error">{error}</div>}
+      {/*
+        Every line git wrote, with the ones that explain picked out.
+
+        git leads with the remote or the branch and puts the reason underneath, so
+        a one-line error box showed a URL and threw away the sentence naming what
+        to do next. The lines it prefixes itself — `error:`, `fatal:`, `hint:`,
+        `remote:`, and the ` ! [rejected]` form — are the ones worth the weight.
+      */}
+      {error && (
+        <div className="scm__error">
+          {error.split('\n').map((line, i) => (
+            <div
+              key={i}
+              className={`scm__error-line${GIT_EXPLAINS.test(line) ? ' scm__error-line--says' : ''}`}
+            >
+              {line}
+            </div>
+          ))}
+        </div>
+      )}
       {note && <div className="scm__note">{note}</div>}
 
       <div className="scm__body">
