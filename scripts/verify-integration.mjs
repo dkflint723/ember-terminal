@@ -189,13 +189,25 @@ const hasGitBash = await page.evaluate(async () => {
   const all = await window.ember.listProfiles()
   return all.some((p) => p.id === 'git-bash')
 })
+/*
+ * Not installed is a reason to skip, not a reason to pass.
+ *
+ * This half sat inside two nested ifs that registered no check between them: a
+ * machine without Git Bash printed a line and went green, and so did one where
+ * the menu simply did not offer the entry. The suite reported coverage it had
+ * never run. Recorded now, and fatal under EMBER_STRICT — which is what the gate
+ * sets — so the only place it stays quiet is a laptop that genuinely lacks it.
+ */
+const skipped = []
 if (!hasGitBash) {
-  console.log('  (Git Bash is not installed on this machine; that half is not exercised)')
+  skipped.push('Git Bash')
 } else {
   await page.click('.sessions__new')
   await sleep(500)
   const bash = page.locator('.sessions__menu .titlebar__menu-item', { hasText: 'Git Bash' })
-  if ((await bash.count()) > 0) {
+  const offered = (await bash.count()) > 0
+  check('a profile that was detected is offered in the menu', offered)
+  if (offered) {
     await bash.first().click()
     await sleep(2000)
     let bashState = 'pending'
@@ -263,6 +275,8 @@ profile.cleanup()
 fs.rmSync(work, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)
 if (pageErrors.length > 0) console.log('page errors:', pageErrors.slice(0, 4).join(' | '))
-const passed = failures.length === 0 && pageErrors.length === 0
+if (skipped.length > 0) console.log(`shells not installed, not asked: ${skipped.join(', ')}`)
+const strictSkip = skipped.length > 0 && !!process.env.EMBER_STRICT
+const passed = failures.length === 0 && pageErrors.length === 0 && !strictSkip
 console.log('shell integration that cannot be forged:', passed ? 'PASS' : 'FAIL')
 process.exit(passed ? 0 : 1)

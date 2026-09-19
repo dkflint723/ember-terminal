@@ -5,6 +5,22 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A check that never ran no longer reports that it did
+
+- **The Git Bash half of the integration suite could not fail.** It sat inside two
+  nested conditions that registered nothing between them: a machine without Git
+  Bash printed a line and went green, and so did a machine where the new-session
+  menu simply did not offer the entry. The suite reported coverage it had never
+  run, and `EMBER_STRICT` — which the gate sets, and which exists precisely so a
+  run that skipped half of itself cannot call itself green — never saw it, because
+  nothing had been recorded to see.
+- **A skip is recorded now, and fatal where it matters.** Not installed is a reason
+  to skip, not a reason to pass. The only place it stays quiet is a laptop that
+  genuinely lacks the shell.
+- **And a profile that was detected has to be offered.** The inner condition is an
+  assertion rather than a silent gate, so the case where the shell exists but the
+  menu does not list it is a failure rather than a shrug.
+
 ### A plain pane whose shell died has a way back
 
 - **There was nothing to click.** A pane with no shell integration has no composer,
