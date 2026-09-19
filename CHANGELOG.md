@@ -5,6 +5,28 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A check about stashing stops being a check about the clock
+
+- **It clicked stash and read the answer three seconds later.** That is a budget,
+  not an assertion, and on a hosted runner it ran out in the middle of the
+  operation. The shape of the failure says so: the third assertion, that the
+  untracked file went with the stash, *passed* — so the stash had started and had
+  already taken `untracked.txt` — while `notes.ts` had not yet been put back and
+  the panel had not yet reloaded. `[]` on the stash and "still holds the stashed
+  edit" were reported of a stash that was working correctly when it was asked.
+- **The entry appearing is what says the command returned,** so that is waited for
+  first, and the working tree is then read with a bounded wait of its own rather
+  than assumed to have settled. Popping had the identical fixed sleep and now has
+  the identical treatment.
+- **Nothing was weakened.** The assertions are the ones the check existed for —
+  one entry on the stash, the tree back at the commit, the untracked file taken
+  and brought back, the stash empty at the end — and a failure that is real still
+  fails, within thirty seconds instead of three.
+- **The third of these in this release, and the first the runner found itself.**
+  The other two were caught by a loaded laptop, by accident. This one was caught
+  by the gate running somewhere that is not this machine, which is the entire
+  argument for doing that — arriving four commits after the argument was made.
+
 ### A single suite can be asked for on the runner
 
 - **Four suites pass here and fail there,** which is the whole reason the runner

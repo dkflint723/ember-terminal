@@ -29,6 +29,24 @@ const failures = []
 const check = (label, ok, detail) => {
   if (!ok) failures.push(`${label}${detail !== undefined ? ` — ${detail}` : ''}`)
 }
+/**
+ * Wait for something on disk, for the checks the DOM cannot answer.
+ *
+ * Returns as soon as the condition holds, and gives up after `ms` so a real
+ * failure is still a failure rather than a suite that never ends.
+ */
+const waitOnDisk = async (condition, ms = 15_000) => {
+  for (let waited = 0; waited < ms; waited += 250) {
+    try {
+      if (condition()) return true
+    } catch {
+      // A file mid-write reads as not ready yet.
+    }
+    await sleep(250)
+  }
+  return false
+}
+const notes = () => fs.readFileSync(path.join(work, 'notes.ts'), 'utf8')
 
 // --- a repository with a past ------------------------------------------------
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-history-'))
@@ -204,36 +222,61 @@ fs.writeFileSync(path.join(work, 'untracked.txt'), 'new file\n')
 await sleep(2500)
 
 await page.locator('.scm__section-head', { hasText: 'Stashes' }).locator('.icon-btn').click()
-await sleep(3000)
 
+/*
+ * Waited for, not slept after.
+ *
+ * This clicked stash and read the answer three seconds later, which is a budget
+ * rather than an assertion. On a hosted runner it ran out in the middle of the
+ * operation, and the shape of the failure said so: the untracked file had already
+ * been taken — that check passed — while notes.ts had not yet been put back and
+ * the panel had not yet reloaded. So `[]` on the stash and "still holds the
+ * stashed edit" were reported of a stash that was working correctly at the time
+ * it was asked.
+ *
+ * The entry appearing is what says the command returned, so that is waited for
+ * first, and the working tree is then read with a bounded wait of its own rather
+ * than assumed to have settled. It is the third check in this release that turned
+ * out to be a check about the clock, and they have all failed the same way:
+ * somewhere slower than here, for a reason that was not the one printed.
+ */
+const stashLanded = await page
+  .waitForFunction(() => document.querySelectorAll('.stash__subject').length === 1, undefined, {
+    timeout: 30_000
+  })
+  .then(() => true)
+  .catch(() => false)
 const stashed = await page.evaluate(() =>
   [...document.querySelectorAll('.stash__subject')].map((e) => e.textContent ?? '')
 )
 check('stashing puts an entry on the stash', stashed.length === 1, JSON.stringify(stashed))
 check(
   'and the working tree goes back to the commit',
-  fs.existsSync(path.join(work, 'notes.ts')) &&
-    !fs.readFileSync(path.join(work, 'notes.ts'), 'utf8').includes('third'),
-  'notes.ts still holds the stashed edit'
+  await waitOnDisk(() => fs.existsSync(path.join(work, 'notes.ts')) && !notes().includes('third')),
+  `notes.ts still holds the stashed edit${stashLanded ? '' : ', and the entry never appeared'}`
 )
 check(
   'taking the untracked file with it',
-  !fs.existsSync(path.join(work, 'untracked.txt')),
+  await waitOnDisk(() => !fs.existsSync(path.join(work, 'untracked.txt'))),
   'untracked.txt was left behind'
 )
 
-// Pop it back.
+// Pop it back. Waited for on the same grounds as the stash above.
 await page.locator('.stash__row').first().locator('.icon-btn').first().click()
-await sleep(3000)
+await page
+  .waitForFunction(() => document.querySelectorAll('.stash__subject').length === 0, undefined, {
+    timeout: 30_000
+  })
+  .catch(() => {})
 
 check(
   'popping restores the edit',
-  fs.readFileSync(path.join(work, 'notes.ts'), 'utf8').includes('third'),
+  await waitOnDisk(() => fs.existsSync(path.join(work, 'notes.ts')) && notes().includes('third')),
   'the edit did not come back'
 )
 check(
   'and the untracked file with it',
-  fs.existsSync(path.join(work, 'untracked.txt')),
+  await waitOnDisk(() => fs.existsSync(path.join(work, 'untracked.txt'))),
   'untracked.txt did not come back'
 )
 const left = await page.evaluate(() => document.querySelectorAll('.stash__subject').length)
