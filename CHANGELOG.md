@@ -5,6 +5,45 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Closing no longer ends what was running without asking
+
+- **A session, a pane or a window took its shells with it silently.** Every way of
+  closing ended in the same kill, and none of them said what was about to die. A
+  build, a dev server, an overnight test run — all of it went on a keystroke meant
+  for the window, with nothing on screen afterwards to say what had been running.
+  Unsaved files had been asked about for a long time; work that was still going had
+  not.
+- **The question names the commands.** "2 commands are still running" is not enough
+  to answer with: one of them might be a `ping` you forgot and one might be the
+  thing you have been waiting an hour for. Up to three are named, and the rest
+  counted.
+- **One question, however many reasons there are to ask it.** Closing something
+  that holds both unsaved files and running commands asks once, saying both,
+  rather than raising two prompts in a row — a second dialog behind the first
+  reads as a glitch and gets answered the way the first one was.
+- **Installing an update was the door with nothing behind it.** Install now latches
+  a flag that tells every window's close handler not to prompt — deliberately,
+  because the installer is already on its way and a cancelled quit would leave it
+  running against a live app. Its own dialog counted unsaved files only, and only
+  the ones no session snapshot is keeping — which, with restore on, is usually
+  none of them. So in practice the button in Settings took every shell in every
+  window without a word, and the run that proved it asked nothing at all with a
+  file sitting unsaved on screen. It asks about both now, and about running work
+  even when nothing is unsaved.
+- **A window that closed stopped being counted.** The running commands each window
+  reports were kept by window id and never removed, so a window closed holding a
+  `ping -t` would have gone on being cited by every prompt that came afterwards.
+- **It does not ask when there is nothing to ask about.** The names come from blocks
+  still marked running, so an idle pane closes the way it always has. A prompt on
+  every close is the version of this that people learn to click through.
+- **How it is checked.** *keeping work* now runs `ping -t`, presses Delete on the
+  focused session card — the path that reached the close without going near the X
+  button anyone would think to guard — and asserts the question names the command,
+  that Cancel keeps the session, and that Cancel keeps the process alive. It then
+  asks the update path the same question, stops the command, and closes again to
+  assert nothing is asked the second time. The second window is given something
+  running as well as an unsaved file, so the single dialog has to carry both.
+
 ### Output with nowhere to go now has somewhere
 
 - **Anything printed outside a command was invisible.** Output becomes a block by

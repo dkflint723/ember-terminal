@@ -242,7 +242,7 @@ const api: EmberApi = {
   noteTrust: (folder: string, trusted: boolean): Promise<Settings> =>
     ipcRenderer.invoke('settings:noteTrust', folder, trusted),
   settingsLoadError: (): Promise<string | null> => ipcRenderer.invoke('settings:loadError'),
-  reportUnsaved: (counts: { dirty: number; kept: number }) =>
+  reportUnsaved: (counts: { dirty: number; kept: number; running?: string[] }) =>
     ipcRenderer.send('window:unsaved', counts),
   setZoom: (factor: number) => ipcRenderer.send('window:zoom', factor),
   setSettings: (patch: Partial<Settings>) =>

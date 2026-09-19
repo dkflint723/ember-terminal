@@ -454,11 +454,12 @@ let downloadedThisRun: string | null = null
 /**
  * True from the moment an install is agreed to until the app goes.
  *
- * The close prompt must not ask about unsaved work a second time: the install
- * dialog already asked, and by the time windows close the installer has been
- * spawned — a prompt answered "cancel" there would veto the quit and leave an
- * installer running against a live app. Clearing the unsaved counts is not
- * enough on its own, because every renderer rewrites them within milliseconds.
+ * The close prompt must not ask about unsaved work or running commands a second
+ * time: the install dialog already asked about both, and by the time windows
+ * close the installer has been spawned — a prompt answered "cancel" there would
+ * veto the quit and leave an installer running against a live app. Clearing the
+ * counts is not enough on its own, because every renderer rewrites them within
+ * milliseconds.
  */
 let installing = false
 
@@ -574,6 +575,39 @@ let mainWindow: BrowserWindow | null = null
 const paneOwners = new Map<string, number>()
 /** Unsaved-document counts, per window — each close prompt asks about its own. */
 const unsavedCounts = new Map<number, { dirty: number; kept: number }>()
+
+/**
+ * The commands running in each window, by name.
+ *
+ * Kept current by the renderer for the same reason the unsaved counts are: the
+ * close handler has to decide synchronously, and asking the window at close time
+ * is a round trip that arrives after the decision. Names rather than a number,
+ * because "2 commands are still running" is not enough to choose with.
+ */
+const runningCommands = new Map<number, string[]>()
+
+/**
+ * What closing costs, said once.
+ *
+ * Both prompts that ask — the window's own, and the one in front of an update
+ * install — have to say the same thing, and two copies of this wording is two
+ * places for it to drift. Up to three commands are named and the rest counted,
+ * because a name is what the answer depends on and a tally is not.
+ */
+function whatWouldBeLost(unsaved: number, running: string[]): string {
+  const shown = running.slice(0, 3).join(', ')
+  const more = running.length > 3 ? `, and ${running.length - 3} more` : ''
+  return [
+    unsaved > 0
+      ? `${unsaved} ${unsaved === 1 ? 'file has' : 'files have'} unsaved changes.`
+      : null,
+    running.length > 0
+      ? `${running.length === 1 ? '1 command is' : `${running.length} commands are`} still running (${shown}${more}).`
+      : null
+  ]
+    .filter((line): line is string => line !== null)
+    .join(' ')
+}
 
 /**
  * How much of a window's unsaved work closing it now would lose.
@@ -1062,15 +1096,29 @@ function createWindow(seed: WindowSeed = {}): number {
     // installer; asking again here could veto a quit that has to happen.
     if (installing) return
     const unsaved = unsavedLostOnClose(id)
-    if (unsaved === 0 || closingConfirmed) return
+    const running = runningCommands.get(id) ?? []
+    if ((unsaved === 0 && running.length === 0) || closingConfirmed) return
     event.preventDefault()
+
+    /*
+     * One question, however many reasons there are to ask it.
+     *
+     * Unsaved files were asked about and running commands were not, so closing a
+     * window ended a build, a dev server or an hour-long test run without a word.
+     * Two dialogs in a row would be worse than one that says both things, and the
+     * commands are named because their names are what the answer depends on.
+     */
+    const cost = [
+      unsaved > 0 ? 'discards them' : null,
+      running.length > 0 ? `ends ${running.length === 1 ? 'it' : 'them'}` : null
+    ].filter((part): part is string => part !== null)
     const choice = dialog.showMessageBoxSync(win, {
       type: 'warning',
-      buttons: ['Cancel', 'Close without saving'],
+      buttons: ['Cancel', unsaved > 0 ? 'Close without saving' : 'End them and close'],
       defaultId: 0,
       cancelId: 0,
-      message: `${unsaved} ${unsaved === 1 ? 'file has' : 'files have'} unsaved changes.`,
-      detail: 'Closing now discards them.'
+      message: whatWouldBeLost(unsaved, running),
+      detail: `Closing now ${cost.join(' and ')}.`
     })
     if (choice === 1) {
       closingConfirmed = true
@@ -1139,6 +1187,9 @@ function createWindow(seed: WindowSeed = {}): number {
     lsps.get(id)?.dispose()
     lsps.delete(id)
     unsavedCounts.delete(id)
+    // With it, or a window that closed holding a `ping -t` would go on being
+    // counted as running work by every prompt that asks afterwards.
+    runningCommands.delete(id)
     keepSets.delete(id)
     parkedSnapshots.delete(id)
     parkedTransfers.delete(id)
@@ -2015,23 +2066,38 @@ function registerIpc(): void {
           (sum, counts) => sum + Math.max(0, counts.dirty - counts.kept),
           0
         )
-        if (unsaved > 0) {
+        /*
+         * And what is running, which a session does not hold either.
+         *
+         * This was the one door with no question behind it. Installing latches
+         * `installing`, and the close handler returns on that latch, so the
+         * prompt every window would otherwise raise is deliberately suppressed —
+         * which left a build, a dev server or an overnight run ending on a
+         * button in Settings with nothing said. The question has to be asked
+         * here or not at all.
+         */
+        const running = [...runningCommands.values()].flat()
+        if (unsaved > 0 || running.length > 0) {
           const win = windowFromEvent(e) ?? mainWindow
           const choice = dialog.showMessageBoxSync(win ?? undefined!, {
             type: 'warning',
-            buttons: ['Cancel', 'Install and discard'],
+            buttons: ['Cancel', unsaved > 0 ? 'Install and discard' : 'Install and end them'],
             defaultId: 0,
             cancelId: 0,
-            message: `${unsaved} ${unsaved === 1 ? 'file has' : 'files have'} unsaved changes.`,
-            detail: 'Installing closes Ember. Save them first, or install and lose them.'
+            message: whatWouldBeLost(unsaved, running),
+            detail:
+              unsaved > 0
+                ? 'Installing closes Ember. Save them first, or install and lose them.'
+                : 'Installing closes Ember, and closing ends them.'
           })
           if (choice !== 1) {
-            logLine('updater', 'install declined: unsaved work')
+            logLine('updater', `install declined: ${unsaved > 0 ? 'unsaved work' : 'running commands'}`)
             return
           }
           // Agreed to, so the close prompt must not ask the same question again
           // and strand the installer behind a dialog.
           unsavedCounts.clear()
+          runningCommands.clear()
         }
         const updater = await loadUpdater()
         watchUpdater(updater)
@@ -2111,10 +2177,15 @@ function registerIpc(): void {
   })
   ipcMain.on('window:unsaved', (e, counts: unknown) => {
     const id = windowIdOf(e.sender)
-    const reported = counts as { dirty?: unknown; kept?: unknown } | null
+    const reported = counts as { dirty?: unknown; kept?: unknown; running?: unknown } | null
     const dirty = Math.max(0, Number(reported?.dirty) || 0)
     const kept = Math.min(dirty, Math.max(0, Number(reported?.kept) || 0))
-    if (id !== null) unsavedCounts.set(id, { dirty, kept })
+    if (id === null) return
+    unsavedCounts.set(id, { dirty, kept })
+    const running = Array.isArray(reported?.running)
+      ? (reported.running as unknown[]).filter((c): c is string => typeof c === 'string').slice(0, 20)
+      : []
+    runningCommands.set(id, running)
   })
   ipcMain.handle('settings:encryption', () => settings.encryptionAvailable())
 

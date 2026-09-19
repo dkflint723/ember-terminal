@@ -1,4 +1,4 @@
-// Three ways the editor lost work without anyone being asked, each done on purpose.
+// Four ways work was lost without anyone being asked, each done on purpose.
 //
 // Ctrl+S was registered for the whole window rather than for its editor, and the
 // last editor created answered it: with two files side by side, saving the left one
@@ -9,6 +9,12 @@
 // grounds that the unsaved work would come back — but closing a window that is not
 // the last deletes its session, and a buffer over 4 MB is never written into one.
 // Both went without a word.
+//
+// Work that is still running was the loudest of them: closing a session, a pane or
+// a window killed every shell under it silently, so a build, a dev server or an
+// overnight test run ended on a keystroke meant for the window. Installing an
+// update was worse — it latches a flag that tells every window's close handler not
+// to prompt, so that door had no question behind it at all.
 //
 // And the lot where closed files' buffers wait to be reopened kept them by the
 // exact spelling of the path, while disposing by the file. The same file arrives
@@ -66,9 +72,22 @@ const app = watchPageErrors(
 )
 const page = await app.firstWindow()
 await placeTopRight(app)
-// The renderer's own "close it anyway?" is a question for the tab, not the window;
-// agreeing keeps a build that saved the wrong file from stalling the run here.
-page.on('dialog', (d) => void d.accept())
+/*
+ * The renderer's own questions, written down and answered by policy.
+ *
+ * Agreeing by default keeps a build that saved the wrong file from stalling the
+ * run. But "nothing was asked" and "it was asked and declined" have to be told
+ * apart, and the running-work question has to be declinable — cancelling is the
+ * half of it that matters — so every confirm passes through here and `decline`
+ * decides which ones are refused.
+ */
+const confirms = []
+let decline = /(?!)/
+page.on('dialog', (d) => {
+  confirms.push(d.message())
+  if (decline.test(d.message())) void d.dismiss()
+  else void d.accept()
+})
 await page.waitForSelector('.monaco-editor', { timeout: 40_000 })
 await sleep(2500)
 
@@ -234,20 +253,126 @@ if (opened) {
   await second.keyboard.type('// only in the second window\n', { delay: 6 })
   await sleep(1500)
 }
+// And something still running in it, so the one dialog has to carry both.
+await second.locator('.composer__input').first().click()
+await second.keyboard.type('ping -t 127.0.0.1', { delay: 5 })
+await second.keyboard.press('Enter')
+await second.waitForSelector('.block--running', { timeout: 20_000 })
+await sleep(500)
 const beforeSecond = (await asked()).length
 await secondWindow.evaluate((w) => w.close())
 await sleep(1500)
 const afterSecond = await asked()
 check('closing a window that is not the last asks about its unsaved work', afterSecond.length > beforeSecond, JSON.stringify(afterSecond))
+const bothAsked = afterSecond[afterSecond.length - 1] ?? ''
+check('and about what it had running, in the same breath', /unsaved changes/i.test(bothAsked) && /still running/i.test(bothAsked), JSON.stringify(bothAsked))
+check('naming the command rather than counting it', /ping/i.test(bothAsked), JSON.stringify(bothAsked))
+
+// --- work that is still running -------------------------------------------------------
+// The audit's own test: run `ping -t`, close the session, and Cancel keeps the
+// process alive. Cancel is the assertion — a question that does not actually stop
+// the close is worse than no question, because it reads as permission asked.
+//
+// In a session of its own, holding nothing unsaved. Sharing one with the editors
+// above would put the unsaved-work question in front of this one, and declining
+// that returns before the running-work question is ever reached — so "it did not
+// ask about running work" would be true for the wrong reason and the check would
+// pass whatever the code did.
+// The session cards are the terminal window's side slot, and this window opened
+// on a file, so it is an IDE. The mode button turns it into the other thing and
+// back; the editors and their unsaved edits are store state and survive the round
+// trip, which is what the rest of this suite goes on to rely on.
+const modeNow = () => page.evaluate(() => document.querySelector('.workspace')?.getAttribute('data-mode'))
+const startedAs = await modeNow()
+if (startedAs !== 'terminal') {
+  await page.locator('.titlebar__mode').click()
+  await page.waitForFunction(() => document.querySelector('.workspace')?.getAttribute('data-mode') === 'terminal', { timeout: 15_000 })
+  await sleep(1500)
+}
+check('the window is a terminal, so it has session cards', (await page.locator('.sessions__card').count()) > 0)
+
+await page.locator('.sessions__new').click()
+await sleep(500)
+if ((await page.locator('.sessions__menu').count()) > 0) {
+  await page.locator('.sessions__menu .titlebar__menu-item').first().click()
+}
+await page.waitForFunction(() => document.querySelectorAll('.sessions__card').length >= 2, { timeout: 20_000 })
+await sleep(2500)
+// Focused rather than clicked: a session that has run nothing draws its hint over
+// the composer, and the click lands on that instead.
+await page.locator('.composer__input').first().focus()
+await page.keyboard.type('ping -t 127.0.0.1', { delay: 5 })
+await page.keyboard.press('Enter')
+await page.waitForSelector('.block--running', { timeout: 20_000 })
+await sleep(500)
+check('a command is running to be asked about', (await page.locator('.block--running').count()) === 1)
+
+// Delete on the focused card, which is the path the finding names by hand — and
+// the one that reached closeTab without going near the X button anybody would
+// think to guard.
+const tabsBefore = await page.locator('.sessions__card').count()
+const closeCard = async () => {
+  await page.locator('.sessions__card--on').first().focus()
+  await page.keyboard.press('Delete')
+  await sleep(1200)
+}
+decline = /still running/i
+confirms.length = 0
+await closeCard()
+const tabQuestion = confirms.find((m) => /still running/i.test(m)) ?? ''
+check('closing a session asks about the command still running in it', tabQuestion !== '', JSON.stringify(confirms))
+check('and names it', /ping/i.test(tabQuestion), JSON.stringify(tabQuestion))
+check('Cancel keeps the session', (await page.locator('.sessions__card').count()) === tabsBefore)
+check('and Cancel keeps the process alive', (await page.locator('.block--running').count()) === 1)
+
+// Installing an update is the door that latched the prompt off, so it has to ask
+// on its own account. The stub answers Cancel, so nothing is installed here.
+const beforeInstall = (await asked()).length
+await page.evaluate(() => window.ember.installUpdateNow())
+await sleep(2000)
+const installAsked = await asked()
+const installQuestion = installAsked[installAsked.length - 1] ?? ''
+check('installing an update asks before ending it too', installAsked.length > beforeInstall, JSON.stringify(installAsked))
+check('and names what it would end', /still running/i.test(installQuestion) && /ping/i.test(installQuestion), JSON.stringify(installQuestion))
+
+// Stopped, and now the same close must not ask — a prompt on every close would be
+// the cry-wolf version of this, and people stop reading those.
+// Into the live terminal first: the keyboard is on a session card right now, and
+// Ctrl+C there is a copy.
+await page.locator('.xterm').first().click({ force: true })
+await page.keyboard.press('Control+c')
+for (let i = 0; i < 60 && (await page.locator('.block--running').count()) > 0; i++) await sleep(250)
+check('the command stops', (await page.locator('.block--running').count()) === 0)
+confirms.length = 0
+await closeCard()
+check('with nothing running, closing does not ask about running work', confirms.length === 0, JSON.stringify(confirms))
+check('and the session closes', (await page.locator('.sessions__card').count()) === tabsBefore - 1)
+
+// Back to what it was, for the editor checks below.
+if (startedAs !== 'terminal') {
+  await page.locator('.titlebar__mode').click()
+  await page.waitForFunction(() => document.querySelector('.workspace')?.getAttribute('data-mode') === 'ide', { timeout: 15_000 })
+  await sleep(1500)
+}
+check('the editors come back with it', (await page.locator('.pane.editor').count()) > 0)
 
 // --- a buffer too big to keep ---------------------------------------------------------
 await quickOpen('big.log')
+// Asserted rather than assumed: a build where a close took the editors' session
+// with it arrives here with nothing open, and a suite that throws on the way to
+// its checks reports a stack trace instead of what went wrong.
+const bigOpen = await page.evaluate(() =>
+  window.monaco.editor.getModels().some((m) => m.uri.path.endsWith('/big.log'))
+)
+check('big.log opens', bigOpen)
 // Five megabytes, the way a big paste arrives: one edit to the buffer.
-await page.evaluate(() => {
-  const model = window.monaco.editor.getModels().find((m) => m.uri.path.endsWith('/big.log'))
-  model.pushEditOperations([], [{ range: model.getFullModelRange(), text: 'x'.repeat(5 * 1024 * 1024) }], () => null)
-})
-await sleep(2500)
+if (bigOpen) {
+  await page.evaluate(() => {
+    const model = window.monaco.editor.getModels().find((m) => m.uri.path.endsWith('/big.log'))
+    model.pushEditOperations([], [{ range: model.getFullModelRange(), text: 'x'.repeat(5 * 1024 * 1024) }], () => null)
+  })
+  await sleep(2500)
+}
 const bigNotice = await page.evaluate(() => document.querySelector('.notice')?.textContent ?? '')
 check('a buffer too big to keep says so', /too large to keep/i.test(bigNotice), bigNotice)
 const askedBefore = (await asked()).length

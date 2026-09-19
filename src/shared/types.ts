@@ -1358,10 +1358,14 @@ export interface EmberApi {
   settingsLoadError(): Promise<string | null>
   /** Keep main's count current, so closing the window can ask before discarding. */
   /**
-   * How much unsaved work this window holds, and how much of it its session
-   * snapshot is keeping — main decides from the two whether a close loses any.
+   * What closing this window would cost, kept current rather than asked for.
+   *
+   * How much unsaved work this window holds, how much of it its session snapshot
+   * is keeping — main decides from the two whether a close loses any — and what
+   * is still running, which no snapshot keeps. The close handler decides
+   * synchronously, so both halves have to already be there when it is asked.
    */
-  reportUnsaved(counts: { dirty: number; kept: number }): void
+  reportUnsaved(counts: { dirty: number; kept: number; running?: string[] }): void
   /** Scale the whole interface. Clamped in main to something usable. */
   setZoom(factor: number): void
   windowAction(action: 'minimize' | 'maximize' | 'close'): void

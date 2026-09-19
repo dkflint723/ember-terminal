@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
-import { useStore, workspaceRoot } from './state/store'
+import { runningCommandsIn, useStore, workspaceRoot } from './state/store'
 import { chordOf, resolveBindings } from './keys'
 import { noteChord } from './composer/learned'
 import { TitleBar } from './components/TitleBar'
@@ -142,11 +142,20 @@ export function App(): React.JSX.Element {
           else if (doc.filePath) tooBig.add(doc.filePath)
         }
       }
+      /*
+       * And what is still running, which closing would end.
+       *
+       * Main cannot ask for this at close time — the handler decides
+       * synchronously and a round trip arrives too late — so it rides along with
+       * the counts that were already being kept current for unsaved files.
+       */
+      const running = runningCommandsIn(Object.keys(s.panes), s.panes)
+
       // Sent only when it changes: this runs on every change to the store.
-      const counts = `${dirty}:${kept}`
+      const counts = `${dirty}:${kept}:${running.join('\u0000')}`
       if (counts !== sent) {
         sent = counts
-        window.ember.reportUnsaved({ dirty, kept })
+        window.ember.reportUnsaved({ dirty, kept, running })
       }
       /*
        * Said once per file, as it crosses the line. The set is replaced before the

@@ -721,20 +721,53 @@ function removeLeaf(node: LayoutNode, paneId: string): LayoutNode | null {
   }
 }
 
+/** The commands running in these panes, named, newest last. */
+export function runningCommandsIn(paneIds: string[], panes: Record<string, Pane>): string[] {
+  const names: string[] = []
+  for (const id of paneIds) {
+    const pane = panes[id]
+    if (pane?.kind !== 'terminal') continue
+    for (const block of pane.blocks) {
+      if (block.kind === 'command' && block.status === 'running') names.push(block.command)
+    }
+  }
+  return names
+}
+
 /**
- * Ask before closing something that holds unsaved work.
+ * Ask before closing something that holds work.
  *
  * In the store rather than in a component because every way of closing converges
  * here, and the one that did ask was the only one anybody had thought about.
  * Returns true when there is nothing to lose or the user accepted losing it.
+ *
+ * Unsaved files were asked about; work that was still running was not. Closing a
+ * pane, a session or a window killed every shell under it silently, so a build, a
+ * dev server or a twenty-minute test run ended on a keystroke meant for the
+ * window, with no way back and nothing to read afterwards about what had been
+ * going. Both halves are one question rather than two in a row, the same as the
+ * window's own prompt: a second dialog behind the first reads as a glitch, and
+ * gets answered the way the first one was.
+ *
+ * The commands are named because a name is what the answer depends on — one of
+ * them might be a `ping` you forgot and one might be the thing you have been
+ * waiting an hour for.
  */
-function confirmDiscarding(titles: string[]): boolean {
-  if (titles.length === 0) return true
-  const names = titles.slice(0, 4).join(', ')
-  const rest = titles.length > 4 ? ` and ${titles.length - 4} more` : ''
-  return window.confirm(
-    `${names}${rest} ${titles.length === 1 ? 'has' : 'have'} unsaved changes. Close anyway?`
-  )
+function confirmClosing(titles: string[], commands: string[]): boolean {
+  if (titles.length === 0 && commands.length === 0) return true
+  const lines: string[] = []
+  if (titles.length > 0) {
+    const names = titles.slice(0, 4).join(', ')
+    const rest = titles.length > 4 ? ` and ${titles.length - 4} more` : ''
+    lines.push(`${names}${rest} ${titles.length === 1 ? 'has' : 'have'} unsaved changes.`)
+  }
+  if (commands.length > 0) {
+    const shown = commands.slice(0, 3).join(', ')
+    const rest = commands.length > 3 ? `, and ${commands.length - 3} more` : ''
+    const count = commands.length === 1 ? '1 command is' : `${commands.length} commands are`
+    lines.push(`${count} still running (${shown}${rest}).`)
+  }
+  return window.confirm(`${lines.join(' ')} Close anyway?`)
 }
 
 export function collectPaneIds(node: LayoutNode, out: string[] = []): string[] {
@@ -1044,10 +1077,16 @@ export const useStore = create<Store>((set, get) => ({
     const { tabs, panes } = get()
     const tab = tabs.find((t) => t.id === tabId)
     if (!tab) return
-    // A tab can hold several editors, so this asks about all of them at once
-    // rather than once per pane on the way down. Skipped when closePane has
-    // already asked about the same documents on its way here.
-    if (!alreadyConfirmed && !confirmDiscarding(get().dirtyDocumentsIn(paneIdsOf(tab)))) {
+    // A tab can hold several editors and several shells, so this asks about all of
+    // them at once rather than once per pane on the way down. Skipped when
+    // closePane has already asked about the same panes on its way here.
+    if (
+      !alreadyConfirmed &&
+      !confirmClosing(
+        get().dirtyDocumentsIn(paneIdsOf(tab)),
+        runningCommandsIn(paneIdsOf(tab), panes)
+      )
+    ) {
       return
     }
 
@@ -1249,14 +1288,17 @@ export const useStore = create<Store>((set, get) => ({
     const tab = tabs.find((t) => t.id === tabId)
     if (!tab) return
     /*
-     * Ask before taking unsaved work with it.
+     * Ask before taking work with it.
      *
      * The tab strip's own close button asked, but nothing else did — Close Pane,
      * Ctrl+Shift+W and closing a whole tab all went straight through and removed
-     * editors holding unsaved edits without a word. The check belongs here because
-     * this is where every one of those paths converges.
+     * editors holding unsaved edits without a word, and none of them ever asked
+     * about a shell that was still busy. The check belongs here because this is
+     * where every one of those paths converges.
      */
-    if (!confirmDiscarding(get().dirtyDocumentsIn([paneId]))) return
+    if (!confirmClosing(get().dirtyDocumentsIn([paneId]), runningCommandsIn([paneId], panes))) {
+      return
+    }
     const closingDocs =
       panes[paneId]?.kind === 'editor'
         ? (panes[paneId] as EditorPaneState).documents.map((d) => d.filePath)
