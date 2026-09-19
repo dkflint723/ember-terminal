@@ -232,6 +232,21 @@ await page.click('[data-status="cwd"]')
 await page.waitForSelector('.qp__box', { timeout: 10_000 })
 check('the path opens a directory browser', (await page.locator('.qp__box').count()) === 1)
 
+/*
+ * The box arrives before what is in it.
+ *
+ * Waiting for `.qp__box` waits for the browser to open, and reading `.qp__item`
+ * on the next line reads whatever happens to be in it at that instant. The entry
+ * back up is the one the picker can render without going to disk, so a list that
+ * has not been filled in yet is not empty — it holds exactly that, and on a hosted
+ * runner it did: `["..Parent directory"]`, reported as a directory browser that
+ * lists nothing, of a browser that was about to list everything.
+ */
+await page
+  .waitForFunction(() => document.querySelectorAll('.qp__item').length > 1, undefined, {
+    timeout: 15_000
+  })
+  .catch(() => {})
 const listed = await page.evaluate(() =>
   Array.from(document.querySelectorAll('.qp__item')).map((i) => (i.textContent ?? '').trim())
 )

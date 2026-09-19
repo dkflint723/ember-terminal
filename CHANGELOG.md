@@ -5,6 +5,22 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A directory browser is asked what it holds after it has been filled
+
+- **Waiting for the box is not waiting for what is in it.** The check clicks the
+  path in the status bar, waits for the browser to open, and reads its entries on
+  the very next line. The way back up the tree is the one entry the picker can
+  render without going to disk, so a list that has not been filled in yet is not
+  empty — it holds exactly that, and nothing else. On a hosted runner it did:
+  `["..Parent directory"]`, reported as a browser that lists nothing, of a browser
+  that was about to list everything.
+- **The entries are waited for now,** bounded, and both assertions are the ones
+  that were there before.
+- **The fifth check in this release found reading at a fixed moment** instead of
+  waiting for the thing it was reading. Four of the five were genuinely about the
+  clock; the fifth, the session check's resize, turned out not to be, and is still
+  open. The shape is worth knowing on sight: an action, a sleep, a measurement.
+
 ### A broken line sequence says what was around the break
 
 - **"6007 lines, first 1, last 6000, breaks at 16" left the rest to be guessed.**
