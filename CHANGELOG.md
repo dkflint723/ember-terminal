@@ -5,6 +5,23 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Stashing takes the untracked files with it again
+
+- **A fix from earlier in this release broke it.** Literal pathspecs were set on
+  the wrapper every git call passes through, to stop discarding one file deleting
+  the ones whose names its glob reached. That part is right and stays — but
+  `stash push --include-untracked` collects untracked files through pathspec
+  machinery of git's own, and under literal pathspecs it collected none. The
+  stash reported success and left every new file in the working tree, so anyone
+  stashing to get a clean tree got neither a clean tree nor the files put away.
+- **It goes on the calls that take paths now** — stage, unstage, discard's restore
+  and clean, the two `ls-files` probes and blame — which is where the
+  recommendation said to put it. The argument for the wrapper was that nothing
+  here ever wants the glob; that is true of the arguments Ember builds and false
+  of the ones git builds for itself.
+- **Found by a suite that had been red on master for six commits**, and only
+  looked at because something unrelated sent me back to it.
+
 ### A half-finished merge or rebase can be finished from the panel
 
 - **In a linked worktree, it could not even be seen.** `.git` is a directory in an

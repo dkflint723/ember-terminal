@@ -27,6 +27,24 @@ const MAX_BUFFER = 32 * 1024 * 1024
  * Anything else — an invalid revision, output past the buffer, a deadline — is a
  * failure and is treated as one.
  */
+/**
+ * For the calls that hand git a path somebody picked.
+ *
+ * git reads a pathspec as a glob, and `[id]` is a character class. Next.js and
+ * SvelteKit name route folders exactly that, so discarding the untracked
+ * `app/[id]/page.tsx` ran `clean -f -- app/[id]/page.tsx`, which also matched
+ * `app/i/page.tsx` and `app/d/page.tsx` and deleted them. Permanently: clean does
+ * not use the recycle bin, and an untracked file has nothing to come back from.
+ *
+ * On the calls that take paths, and not on the wrapper. It was on the wrapper,
+ * with the argument that nothing here ever wants the glob — which was true of
+ * the arguments this file passes and false of the ones git builds for itself.
+ * `stash push --include-untracked` collects the untracked files through pathspec
+ * machinery, and under literal pathspecs it collected none: the stash reported
+ * success, and left every new file sitting in the working tree.
+ */
+const LITERAL_PATHS = { GIT_LITERAL_PATHSPECS: '1' } as const
+
 const NOT_IN_THAT_TREE =
   /does not exist|exists on disk, but not in|is in the index, but not at stage/
 /**
@@ -147,6 +165,8 @@ export class GitService {
       timeout?: number | null
       /** The repository, when Cancel should be able to stop this. */
       cancelKey?: string
+      /** Written to the child's stdin, for the calls that read one. */
+      stdin?: string
     } = {}
   ): Promise<{ stdout: string | Buffer }> {
     const spawnOptions = {
@@ -164,26 +184,6 @@ export class GitService {
         // Pagers and colour codes are for humans; this output is parsed.
         GIT_PAGER: 'cat',
         GIT_CONFIG_PARAMETERS: "'color.ui=false'",
-        /*
-         * A path is a path, not a pattern.
-         *
-         * Every path this service hands to git came from git's own porcelain
-         * output or from the file tree, so it is literal by construction — but
-         * git reads a pathspec as a glob, and `[id]` is a character class. A
-         * Next.js or SvelteKit route folder is called exactly that, so
-         * discarding the untracked `app/[id]/page.tsx` ran
-         * `clean -f -- app/[id]/page.tsx`, which also matched `app/i/page.tsx`
-         * and `app/d/page.tsx` and deleted them. Permanently: clean does not use
-         * the recycle bin, and an untracked file has nothing in git to come back
-         * from. The same widening applied to `restore --worktree`, which threw
-         * away edits in files nobody had selected.
-         *
-         * Set on the wrapper rather than on the calls that take paths, because
-         * nothing here ever wants the glob: there is no pathspec magic and no
-         * wildcard anywhere in this file, and a future call that forgets the
-         * environment would be the same bug again.
-         */
-        GIT_LITERAL_PATHSPECS: '1',
         /*
          * Reading the working tree does not get to interrupt working in it.
          *
@@ -217,6 +217,12 @@ export class GitService {
         // and message() looks for it on the error.
         reject(Object.assign(err, { stderr: String(stderr ?? ''), cancelled: entry.cancelled }))
       })
+      /*
+       * Fed and closed at once. git waits on stdin for as long as it is open, so
+       * forgetting the end() would hang the call until its deadline rather than
+       * failing — the worst shape of bug to go looking for later.
+       */
+      if (options.stdin !== undefined) child.stdin?.end(options.stdin)
       entry.child = child
       if (options.cancelKey) {
         const live = this.running.get(options.cancelKey) ?? new Set()
@@ -480,7 +486,9 @@ export class GitService {
   /** Whether a path is mid-conflict, which is to say it has stages rather than one blob. */
   private async conflicted(root: string, path: string): Promise<boolean> {
     try {
-      const { stdout } = await this.git(root, ['ls-files', '--unmerged', '--', path])
+      const { stdout } = await this.git(root, ['ls-files', '--unmerged', '--', path], {
+        env: LITERAL_PATHS
+      })
       return (stdout as string).trim().length > 0
     } catch {
       return false
@@ -489,7 +497,9 @@ export class GitService {
 
   private async tracked(root: string, path: string): Promise<boolean> {
     try {
-      const { stdout } = await this.git(root, ['ls-files', '--error-unmatch', '--', path])
+      const { stdout } = await this.git(root, ['ls-files', '--error-unmatch', '--', path], {
+        env: LITERAL_PATHS
+      })
       return (stdout as string).trim().length > 0
     } catch {
       return false
@@ -544,11 +554,11 @@ export class GitService {
   async stage(root: string, paths: string[]): Promise<GitSimpleResult> {
     // `add` both stages a modification and records a deletion, which `--all` is
     // what makes true for a path that is no longer there.
-    return this.simple(root, ['add', '--all', '--', ...paths])
+    return this.simple(root, ['add', '--all', '--', ...paths], { env: LITERAL_PATHS })
   }
 
   async unstage(root: string, paths: string[]): Promise<GitSimpleResult> {
-    return this.simple(root, ['restore', '--staged', '--', ...paths])
+    return this.simple(root, ['restore', '--staged', '--', ...paths], { env: LITERAL_PATHS })
   }
 
   /**
@@ -557,11 +567,15 @@ export class GitService {
    */
   async discard(root: string, paths: string[], untracked: string[]): Promise<GitSimpleResult> {
     if (paths.length) {
-      const res = await this.simple(root, ['restore', '--worktree', '--', ...paths])
+      const res = await this.simple(root, ['restore', '--worktree', '--', ...paths], {
+        env: LITERAL_PATHS
+      })
       if (!res.ok) return res
     }
     // An untracked file has no committed state to restore; it has to be removed.
-    if (untracked.length) return this.simple(root, ['clean', '-f', '--', ...untracked])
+    if (untracked.length) {
+      return this.simple(root, ['clean', '-f', '--', ...untracked], { env: LITERAL_PATHS })
+    }
     return { ok: true }
   }
 
@@ -668,17 +682,44 @@ export class GitService {
    * summary together; the short formats drop the summary, which is the half that
    * says *why*.
    */
-  async blameLine(root: string, filePath: string, line: number): Promise<GitBlameLine | null> {
+  /**
+   * Who last touched one line — of the buffer, when the buffer has been edited.
+   *
+   * The line number comes from the editor and the answer came from the file on
+   * disk, which are the same thing only until something is typed. Insert a line
+   * at the top of a file and every annotation below it is off by one: git is
+   * asked about the caret's line number in a file that no longer has the caret's
+   * line there. It does not go blank, which would at least look like an absence.
+   * It names a real commit and a real author, neither of which touched the line
+   * being pointed at.
+   *
+   * `--contents -` hands git the buffer to count lines in. Only sent when the
+   * document is actually dirty: a saved file is already the same on both sides,
+   * and this runs as the caret moves.
+   */
+  async blameLine(
+    root: string,
+    filePath: string,
+    line: number,
+    contents?: string
+  ): Promise<GitBlameLine | null> {
     if (!Number.isInteger(line) || line < 1) return null
     try {
-      const { stdout } = await this.git(root, [
-        'blame',
-        '-L',
-        `${line},${line}`,
-        '--line-porcelain',
-        '--',
-        filePath
-      ])
+      const { stdout } = await this.git(
+        root,
+        [
+          'blame',
+          '-L',
+          `${line},${line}`,
+          '--line-porcelain',
+          ...(contents === undefined ? [] : ['--contents', '-']),
+          '--',
+          filePath
+        ],
+        contents === undefined
+          ? { env: LITERAL_PATHS }
+          : { stdin: contents, env: LITERAL_PATHS }
+      )
       const raw = stdout as string
       const hash = raw.slice(0, 40)
       if (!/^[0-9a-f]{40}$/.test(hash)) return null
