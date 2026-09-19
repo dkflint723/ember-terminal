@@ -4070,6 +4070,17 @@ button.scm__branch {
   overflow-y: auto;
 }
 
+/*
+ * The way out of an operation with no deadline.
+ *
+ * Coloured like a failure rather than like another icon: it only exists while
+ * something is running that nothing else will end, and pressing it is a decision
+ * to abandon work git has already started.
+ */
+.scm__stop {
+  color: var(--fail);
+}
+
 /* git leads with the URL and explains underneath, so the explanation is lifted. */
 .scm__error-line {
   opacity: 0.75;

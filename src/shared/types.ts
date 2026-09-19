@@ -1293,6 +1293,13 @@ export interface EmberApi {
   gitUnstage(root: string, paths: string[]): Promise<GitSimpleResult>
   gitDiscard(root: string, paths: string[], untracked: string[]): Promise<GitSimpleResult>
   gitCommit(root: string, message: string): Promise<GitCommitResult>
+  /**
+   * Stop whatever git is doing in this repository, and everything it started.
+   *
+   * `lock` says whether an index lock was left behind, which is git's own signal
+   * that it was interrupted partway through writing.
+   */
+  gitCancel(root: string): Promise<{ ok: boolean; stopped: number; lock: boolean }>
   writeFile(path: string, content: string, opts?: FileWriteOptions): Promise<FileSaveResult>
   /** Size and time for each path, in order, for noticing files that changed. */
   markFiles(paths: string[]): Promise<FileMark[]>

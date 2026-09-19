@@ -46,15 +46,38 @@ export function SourceControl(): React.JSX.Element {
   const [note, setNote] = useState<string | null>(null)
   /** Which way the remote conversation is going, while it is going. */
   const [syncing, setSyncing] = useState<'push' | 'pull' | null>(null)
+  /**
+   * What git is doing that has no deadline, so it can be stopped.
+   *
+   * Commit, push, pull and checkout are allowed to take as long as they take —
+   * hooks and credential prompts legitimately do — which means the only thing
+   * that ends them is the user deciding to.
+   */
+  const [stoppable, setStoppable] = useState<string | null>(null)
+
+  const stop = async (): Promise<void> => {
+    if (!root) return
+    const res = await window.ember.gitCancel(root)
+    setStoppable(null)
+    if (res.lock) {
+      setError(
+        'Stopped. git left .git/index.lock behind — remove it if nothing else is using this repository.'
+      )
+    }
+  }
   /** The branch picker's items, when it is open. */
   const [branchPick, setBranchPick] = useState<QuickPickItem[] | null>(null)
 
   const root = status?.root ?? null
 
   /** Run a mutation, then re-read: git is the state, this component is a view of it. */
-  const act = async (fn: () => Promise<{ ok: boolean; error?: string }>): Promise<boolean> => {
+  const act = async (
+    fn: () => Promise<{ ok: boolean; error?: string }>,
+    label?: string
+  ): Promise<boolean> => {
     setBusy(true)
     setError(null)
+    if (label) setStoppable(label)
     const res = await fn()
     if (!res.ok) setError(res.error ?? 'git failed.')
     await refreshGitStatus()
@@ -63,6 +86,7 @@ export function SourceControl(): React.JSX.Element {
     // open file is read rather than stat'ed: git can finish inside the same tick of
     // the clock it read the file in, and this is not the moment to trust a time.
     if (res.ok) await checkDisk(undefined, { thorough: true })
+    setStoppable(null)
     setBusy(false)
     return res.ok
   }
@@ -157,7 +181,10 @@ export function SourceControl(): React.JSX.Element {
     if (!root) return
     setBusy(true)
     setError(null)
+    // Hooks run here, and a slow one used to be killed at twenty seconds.
+    setStoppable('Committing')
     const res = await window.ember.gitCommit(root, message)
+    setStoppable(null)
     if (res.ok) {
       setMessage('')
       setNote(res.summary)
@@ -233,10 +260,12 @@ export function SourceControl(): React.JSX.Element {
     setSyncing(kind)
     setError(null)
     setNote(null)
+    setStoppable(kind === 'push' ? 'Pushing' : 'Pulling')
     const res =
       kind === 'push'
         ? await window.ember.gitPush(root, status.upstream !== null)
         : await window.ember.gitPull(root)
+    setStoppable(null)
     if (!res.ok) setError(res.error)
     else setNote(kind === 'push' ? 'Pushed.' : 'Pulled.')
     await refreshGitStatus()
@@ -267,7 +296,9 @@ export function SourceControl(): React.JSX.Element {
     if (!create && name === status.branch) return
     setError(null)
     setNote(null)
+    setStoppable(create ? 'Creating the branch' : 'Switching branch')
     const res = await window.ember.gitCheckout(root, name, create)
+    setStoppable(null)
     if (!res.ok) setError(res.error)
     else setNote(create ? `On new branch ${name}.` : `On ${name}.`)
     await refreshGitStatus()
@@ -344,6 +375,21 @@ export function SourceControl(): React.JSX.Element {
         <button className="icon-btn" title="Refresh" disabled={busy} onClick={() => void refreshGitStatus()}>
           ↻
         </button>
+        {/*
+          Only while something is running that nothing else will end. A commit
+          waiting on a hook, or a push waiting on a browser sign-in, used to be
+          killed at twenty seconds; now it waits, so this is the way out.
+        */}
+        {stoppable && (
+          <button
+            className="icon-btn scm__stop"
+            title={`${stoppable} — stop it`}
+            aria-label="Stop"
+            onClick={() => void stop()}
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       {/* A half-finished merge shows nothing in the change lists once its conflicts

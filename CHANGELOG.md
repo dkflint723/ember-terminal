@@ -5,6 +5,38 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A commit waits for its hooks, and you can stop it waiting
+
+- **One twenty-second deadline covered every git call**, including the ones that
+  legitimately take longer. A commit runs the repository's hooks, so a
+  lint-staged or test hook taking twenty-five seconds could not commit at all —
+  git was killed partway through, and whatever the hook had started went on
+  running without it. A push or a pull waiting on Git Credential Manager to
+  finish a sign-in in a browser met the same end, as did checking out a large
+  tree. `commit`, `push`, `pull` and `checkout` now take as long as they take;
+  everything else keeps the deadline, because a status that hangs should not hang
+  the panel.
+- **Which makes a way out necessary rather than nice.** Without a deadline, a push
+  waiting on a prompt that never comes waits for ever. A Stop button appears while
+  any of those four is running and kills the whole process tree — not git alone:
+  the hook and the credential helper are its children, and killing the parent by
+  itself leaves them running and holding the index, which is the state this exists
+  to get out of.
+- **A stopped call says which kind of stopped it was.** Node reports a killed
+  child as `Command failed: git commit -m …`, with nothing in it about a deadline,
+  which reads as though git refused. A call that ran out of time now says so in
+  those words, and one the user stopped says *Stopped.*
+- **And says when git left its lock behind.** Interrupting git partway through
+  writing can leave `.git/index.lock`, after which git refuses to touch the index.
+  The panel reports it rather than removing it: git's own advice is to remove it
+  only if nothing else is running, and the terminal in the next pane shares this
+  repository.
+- **How it is checked.** *source control* installs a `pre-commit` hook that sleeps
+  twenty-five seconds. Once: commit, wait for Stop, press it — the commit has to
+  end well inside the hook's sleep and nothing may be committed. Again: commit and
+  let it run — the commit has to land, and to have taken more than twenty seconds
+  doing it, so it cannot pass by the hook having been skipped.
+
 ### Reading the working tree gives up its claim on the index
 
 - **`git status` takes the index lock**, to write back what it learned while

@@ -630,6 +630,95 @@ check(
   `${lockRefusals} of ${adds} refused — ${JSON.stringify(lockMessage)}`
 )
 
+/*
+ * --- an operation with no deadline, and the way out of one --------------------
+ *
+ * One twenty-second timeout covered every git call, including the three that
+ * legitimately take longer: a commit runs the repository's hooks, and a push or
+ * pull can be waiting on Git Credential Manager to finish a sign-in in a browser.
+ * A lint-staged hook that takes twenty-five seconds could not commit at all —
+ * git was killed partway through, and whatever the hook had started carried on
+ * without it.
+ *
+ * Taking the deadline off makes a Cancel necessary rather than nice: without one,
+ * a push waiting on a prompt that will never come waits forever. Both halves are
+ * checked here, because shipping either alone is worse than shipping neither.
+ */
+const hook = path.join(repo, '.git', 'hooks', 'pre-commit')
+const slowHook = ['#!/bin/sh', 'sleep 25', 'exit 0', ''].join(String.fromCharCode(10))
+// LF and no byte-order mark: git peeks at the first bytes for `#!`, and Git for
+// Windows finds its own sh to run it with.
+fs.writeFileSync(hook, slowHook, 'utf8')
+
+const commitsNow = () => git('rev-list', '--count', 'HEAD')
+const commitsBefore = commitsNow()
+
+// --- stopping one ------------------------------------------------------------
+fs.writeFileSync(
+  path.join(repo, 'stopped.txt'),
+  'this commit gets stopped' + String.fromCharCode(10),
+  'utf8'
+)
+git('add', '-A')
+await page.fill('.scm__message', 'this one is stopped partway through')
+const stopStarted = Date.now()
+await page.click('.scm__commit-btn')
+
+const stopButton = page.locator('.scm [aria-label="Stop"]')
+const offered = await stopButton
+  .waitFor({ timeout: 15_000 })
+  .then(() => true, () => false)
+check('a commit with no deadline offers a way to stop it', offered)
+
+if (offered) {
+  await stopButton.click()
+  // Ended, and ended because it was stopped rather than because the hook finished.
+  const ended = await page
+    .waitForFunction(() => document.querySelectorAll('.scm [aria-label="Stop"]').length === 0, {
+      timeout: 20_000
+    })
+    .then(() => Date.now() - stopStarted, () => null)
+  check('and stopping it ends it', ended !== null, 'the button never went away')
+  check(
+    'well before the hook would have finished',
+    ended !== null && ended < 20_000,
+    `${ended} ms, hook sleeps 25000`
+  )
+  check('and nothing was committed', commitsNow() === commitsBefore, `${commitsBefore} -> ${commitsNow()}`)
+}
+
+// git is interrupted partway through writing, so it can leave its lock behind.
+// The suite owns this repository, so it clears it; the panel says so instead.
+const lockPath = path.join(repo, '.git', 'index.lock')
+if (fs.existsSync(lockPath)) fs.rmSync(lockPath, { force: true })
+
+// --- and letting one finish ---------------------------------------------------
+await page.fill('.scm__message', 'a hook slower than the old timeout')
+const slowStarted = Date.now()
+await page.click('.scm__commit-btn')
+const landed = await page
+  .waitForFunction(
+    (was) => {
+      const note = document.querySelector('.scm__note')?.textContent ?? ''
+      return note.length > 0 && note !== was
+    },
+    '',
+    { timeout: 60_000 }
+  )
+  .then(() => Date.now() - slowStarted, () => null)
+
+check(
+  'a hook slower than the old timeout still commits',
+  commitsNow() === String(Number(commitsBefore) + 1),
+  `${commitsBefore} -> ${commitsNow()}, after ${landed} ms`
+)
+check(
+  'and it really did wait for the hook',
+  landed !== null && landed > 20_000,
+  `${landed} ms — the old timeout was 20000`
+)
+fs.rmSync(hook, { force: true })
+
 await app.close()
 fs.rmSync(repo, { recursive: true, force: true })
 

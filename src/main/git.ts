@@ -1,5 +1,4 @@
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
+import { execFile, execFileSync, type ChildProcess } from 'node:child_process'
 import { decodeText as decodeBytes } from '../shared/encoding.js'
 import type {
   GitBlameLine,
@@ -12,8 +11,6 @@ import type {
   GitStatus,
   GitStatusResult
 } from '../shared/types.js'
-
-const run = promisify(execFile)
 
 /** Long enough for a cold index on a large repo, short enough not to hang the panel. */
 const TIMEOUT_MS = 20_000
@@ -40,14 +37,96 @@ const MAX_ERROR_CHARS = 2000
  * not to change. Paths come back NUL-separated so a filename can contain anything.
  */
 export class GitService {
-  private async git(
+  /**
+   * Everything git is doing right now, by repository, so Cancel can reach it.
+   *
+   * Only calls with no deadline go in here. A status that hangs is already dealt
+   * with by its own timeout; a push waiting on a credential prompt in a browser
+   * is not, and is the reason this exists.
+   */
+  private running = new Map<string, Set<{ child: ChildProcess; cancelled: boolean }>>()
+
+  /**
+   * Stop whatever git is doing in this repository, and everything it started.
+   *
+   * The whole tree rather than git.exe alone: a commit is usually waiting on a
+   * hook and a push on Git Credential Manager, both of which are children.
+   * Killing the parent by itself leaves them running and holding the index, which
+   * is the state this is meant to get out of rather than into.
+   */
+  async cancel(root: string): Promise<{ ok: boolean; stopped: number; lock: boolean }> {
+    const live = this.running.get(root)
+    let stopped = 0
+    for (const entry of live ?? []) {
+      entry.cancelled = true
+      const pid = entry.child.pid
+      if (pid === undefined) continue
+      try {
+        execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true })
+        stopped++
+      } catch {
+        // Gone between deciding to stop it and saying so. Nothing left to do.
+      }
+    }
+    return { ok: true, stopped, lock: await this.indexLockExists(root) }
+  }
+
+  /**
+   * Whether git left its index lock behind.
+   *
+   * Worth saying after a cancel: git refuses to touch the index while it is
+   * there. Removing it is not something the panel should do unasked — the
+   * terminal in the next pane shares this repository, and the lock may be its.
+   */
+  private async indexLockExists(root: string): Promise<boolean> {
+    try {
+      const { existsSync, readFileSync, statSync } = await import('node:fs')
+      const { join, resolve, dirname } = await import('node:path')
+      const dotGit = join(root, '.git')
+      if (!existsSync(dotGit)) return false
+      // A linked worktree or a submodule keeps `.git` as a file pointing away.
+      const pointer = statSync(dotGit).isDirectory()
+        ? dotGit
+        : resolve(
+            dirname(dotGit),
+            (/^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, 'utf8'))?.[1] ?? '').trim()
+          )
+      return existsSync(join(pointer, 'index.lock'))
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * One git call.
+   *
+   * The deadline is a decision rather than a constant now. Twenty seconds applied
+   * to everything, including the operations that legitimately take longer: a
+   * commit runs the repository's hooks, and a push or pull can be waiting on Git
+   * Credential Manager to finish a sign-in in a browser. git was killed
+   * mid-operation in all of those — a lint-staged hook taking twenty-five seconds
+   * could not commit at all — and whatever the hook had started carried on
+   * running without it.
+   *
+   * The callback form rather than the promisified one, because what that hands
+   * back is the child, and Cancel needs something to kill.
+   */
+  private git(
     cwd: string,
     args: string[],
-    options: { encoding?: 'utf8' | 'buffer'; env?: NodeJS.ProcessEnv } = {}
+    options: {
+      encoding?: 'utf8' | 'buffer'
+      env?: NodeJS.ProcessEnv
+      /** `null` for a call allowed to take as long as it takes. */
+      timeout?: number | null
+      /** The repository, when Cancel should be able to stop this. */
+      cancelKey?: string
+    } = {}
   ): Promise<{ stdout: string | Buffer }> {
-    return run('git', args, {
+    const spawnOptions = {
       cwd,
-      timeout: TIMEOUT_MS,
+      // Node reads 0 as "no deadline", which is what a null timeout asks for.
+      timeout: options.timeout === null ? 0 : (options.timeout ?? TIMEOUT_MS),
       maxBuffer: MAX_BUFFER,
       windowsHide: true,
       encoding: (options.encoding ?? 'utf8') as 'utf8',
@@ -98,6 +177,26 @@ export class GitService {
          */
         GIT_OPTIONAL_LOCKS: '0'
       }
+    }
+
+    return new Promise((resolve, reject) => {
+      const entry = { child: undefined as unknown as ChildProcess, cancelled: false }
+      const child = execFile('git', args, spawnOptions, (err, stdout, stderr) => {
+        if (options.cancelKey) this.running.get(options.cancelKey)?.delete(entry)
+        if (!err) {
+          resolve({ stdout })
+          return
+        }
+        // Node hands stderr to the callback rather than hanging it on the error,
+        // and message() looks for it on the error.
+        reject(Object.assign(err, { stderr: String(stderr ?? ''), cancelled: entry.cancelled }))
+      })
+      entry.child = child
+      if (options.cancelKey) {
+        const live = this.running.get(options.cancelKey) ?? new Set()
+        live.add(entry)
+        this.running.set(options.cancelKey, live)
+      }
     })
   }
 
@@ -117,13 +216,30 @@ export class GitService {
    * a reader who knows git is looking for the shape they already recognise.
    */
   private static message(err: unknown): string {
-    const e = err as { stderr?: string; message?: string; code?: string }
+    const e = err as {
+      stderr?: string
+      message?: string
+      code?: string
+      killed?: boolean
+      cancelled?: boolean
+    }
+    if (e?.cancelled) return 'Stopped.'
     const stderr = typeof e?.stderr === 'string' ? e.stderr.replace(/\r\n/g, '\n').trim() : ''
-    if (stderr) {
-      return stderr.length > MAX_ERROR_CHARS
+    const capped =
+      stderr.length > MAX_ERROR_CHARS
         ? `${stderr.slice(0, MAX_ERROR_CHARS).trimEnd()}\n…`
         : stderr
+    /*
+     * Said plainly, because Node does not. A killed child comes back as "Command
+     * failed: git commit -m …" with nothing about the deadline in it, which reads
+     * like git refused rather than like Ember stopped waiting.
+     */
+    if (e?.killed) {
+      const seconds = Math.round(TIMEOUT_MS / 1000)
+      const timedOut = `git took longer than ${seconds} seconds, so it was stopped.`
+      return capped ? `${timedOut}\n${capped}` : timedOut
     }
+    if (capped) return capped
     if (e?.code === 'ENOENT') return 'git is not installed, or not on PATH.'
     return e?.message ?? 'git failed.'
   }
@@ -396,7 +512,10 @@ export class GitService {
     if (!message.trim()) return { ok: false, error: 'A commit needs a message.' }
     try {
       // `--` with no pathspec commits exactly what is staged, never the working tree.
-      const { stdout } = await this.git(root, ['commit', '-m', message])
+      const { stdout } = await this.git(root, ['commit', '-m', message], {
+        timeout: null,
+        cancelKey: root
+      })
       return { ok: true, summary: (stdout as string).trim().split('\n')[0] ?? '' }
     } catch (err) {
       return { ok: false, error: GitService.message(err) }
@@ -409,7 +528,10 @@ export class GitService {
    * which is what makes the button meaningful on a brand-new branch.
    */
   async push(root: string, hasUpstream: boolean): Promise<GitSimpleResult> {
-    return this.simple(root, hasUpstream ? ['push'] : ['push', '-u', 'origin', 'HEAD'])
+    return this.simple(root, hasUpstream ? ['push'] : ['push', '-u', 'origin', 'HEAD'], {
+      timeout: null,
+      cancelKey: root
+    })
   }
 
   /**
@@ -418,7 +540,7 @@ export class GitService {
    * anything but fast-forwards would just outsource the mess to a terminal.
    */
   async pull(root: string): Promise<GitSimpleResult> {
-    return this.simple(root, ['pull'])
+    return this.simple(root, ['pull'], { timeout: null, cancelKey: root })
   }
 
   /** The local branches, as git names them. */
@@ -434,12 +556,13 @@ export class GitService {
     }
   }
 
+  // Checking out a large tree is slow on its own, and can run hooks besides.
   async checkout(root: string, name: string): Promise<GitSimpleResult> {
-    return this.simple(root, ['checkout', name])
+    return this.simple(root, ['checkout', name], { timeout: null, cancelKey: root })
   }
 
   async createBranch(root: string, name: string): Promise<GitSimpleResult> {
-    return this.simple(root, ['checkout', '-b', name])
+    return this.simple(root, ['checkout', '-b', name], { timeout: null, cancelKey: root })
   }
 
   /**
@@ -613,9 +736,13 @@ export class GitService {
     return this.simple(root, ['stash', 'drop', ref])
   }
 
-  private async simple(root: string, args: string[]): Promise<GitSimpleResult> {
+  private async simple(
+    root: string,
+    args: string[],
+    options: { timeout?: number | null; cancelKey?: string } = {}
+  ): Promise<GitSimpleResult> {
     try {
-      await this.git(root, args)
+      await this.git(root, args, options)
       return { ok: true }
     } catch (err) {
       return { ok: false, error: GitService.message(err) }

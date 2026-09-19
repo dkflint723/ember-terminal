@@ -175,6 +175,7 @@ const api: EmberApi = {
   gitDiscard: (root: string, paths: string[], untracked: string[]) =>
     ipcRenderer.invoke('git:discard', root, paths, untracked),
   gitCommit: (root: string, message: string) => ipcRenderer.invoke('git:commit', root, message),
+  gitCancel: (root: string) => ipcRenderer.invoke('git:cancel', root),
   writeFile: (path: string, content: string, opts?: FileWriteOptions) =>
     ipcRenderer.invoke('file:write', path, content, opts),
   markFiles: (paths: string[]) => ipcRenderer.invoke('file:marks', paths),
