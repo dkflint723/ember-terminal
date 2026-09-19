@@ -61,6 +61,48 @@ const check = (label, ok, detail) => {
   if (!ok) failures.push(`${label}${detail !== undefined ? ` — ${detail}` : ''}`)
 }
 
+/*
+ * The session file, waited for rather than slept on, and told apart rather than
+ * counted.
+ *
+ * This was read once, nine seconds after the crash, and reported -1 for all three
+ * of "not written yet", "half-written as I read it" and "not valid JSON". On a
+ * hosted runner, where starting Electron is slow and the session is written about
+ * a second after the workspace settles, nine seconds is a budget rather than an
+ * assertion — and when it ran out the failure said `-1 tab(s)`, naming no cause
+ * at all.
+ */
+const sessionFile = path.join(profile.dir, 'session.json')
+const readSession = () => {
+  if (!fs.existsSync(sessionFile)) return { tabs: -1, why: 'not written yet' }
+  try {
+    const file = JSON.parse(fs.readFileSync(sessionFile, 'utf8'))
+    return { tabs: file?.windows?.[0]?.snapshot?.tabs?.length ?? 0, why: 'read' }
+  } catch (err) {
+    // Most likely caught mid-write; worth retrying, and worth saying if it lasts.
+    return { tabs: -1, why: `unreadable: ${String(err?.message ?? err).slice(0, 48)}` }
+  }
+}
+/** Poll until the session on disk holds `want` tabs; report what it last said. */
+const waitForSession = async (want, tries) => {
+  let saved = readSession()
+  for (let i = 0; i < tries && saved.tabs !== want; i++) {
+    await sleep(500)
+    saved = readSession()
+  }
+  return saved
+}
+/** What the profile actually holds, for a failure that says the file is not in it. */
+const profileHolds = () => {
+  try {
+    return fs.readdirSync(profile.dir).join(', ') || '(empty)'
+  } catch (err) {
+    return `unreadable: ${String(err?.message ?? err).slice(0, 40)}`
+  }
+}
+const sessionDetail = (read) =>
+  `${read.tabs} tab(s) in session.json — ${read.why}; profile holds: ${profileHolds()}`
+
 /**
  * Put the session rail on screen, whatever mode the window is in.
  *
@@ -120,8 +162,18 @@ const secondSession = await page
   .then(() => true)
   .catch(() => false)
 check('a second session opens', secondSession, `${await page.locator('.sessions__card').count()} card(s)`)
-// Past the autosave's debounce, so the snapshot on disk holds both sessions.
-await sleep(2600)
+/*
+ * On disk before the crash, rather than assumed to be.
+ *
+ * This slept 2.6 seconds for the autosave's debounce and went on. The sleep was
+ * almost certainly long enough; what was missing was the assertion. So when the
+ * check after the crash reported no session file, there was no telling a
+ * workspace main had failed to write back from one that had never been written at
+ * all — and those are different faults with different fixes. Asked here, the
+ * answer localises itself.
+ */
+const before = await waitForSession(2, 30)
+check('the workspace is on disk before the crash', before.tabs === 2, sessionDetail(before))
 
 // --- the crash ------------------------------------------------------------------
 await page.evaluate(() => window.dispatchEvent(new CustomEvent('ember:boom')))
@@ -238,39 +290,17 @@ const alive = await app.evaluate(({ BrowserWindow }) =>
 check('the window survives a killed renderer', alive >= 1, `${alive} window(s)`)
 
 /*
- * Waited for rather than slept through, and told apart rather than counted.
- *
- * This read the file once, nine seconds after the crash, and reported -1 for all
- * three of "not written yet", "half-written as I read it" and "not valid JSON".
- * On a hosted runner, where starting Electron is slow and the session is written
- * about a second after the workspace settles, nine seconds is a budget rather
- * than an assertion — and when it ran out the failure said `-1 tab(s)`, which
- * names no cause at all.
- *
  * The assertion is unchanged: the session main writes after putting the workspace
- * back still has to hold both of them. Only the clock has gone, and a partial
- * read now retries instead of counting as a verdict.
+ * back still has to hold both of them. Only the clock has gone — and now that the
+ * same thing is asked before the crash as well, a failure here means main did not
+ * write the workspace back, rather than meaning any of the several things a bare
+ * `-1 tab(s)` used to mean.
  */
-const sessionFile = path.join(profile.dir, 'session.json')
-const readSession = () => {
-  if (!fs.existsSync(sessionFile)) return { tabs: -1, why: 'not written yet' }
-  try {
-    const file = JSON.parse(fs.readFileSync(sessionFile, 'utf8'))
-    return { tabs: file?.windows?.[0]?.snapshot?.tabs?.length ?? 0, why: 'read' }
-  } catch (err) {
-    // Most likely caught mid-write; worth retrying, and worth saying if it lasts.
-    return { tabs: -1, why: `unreadable: ${String(err?.message ?? err).slice(0, 48)}` }
-  }
-}
-let saved = readSession()
-for (let i = 0; i < 90 && saved.tabs !== 2; i++) {
-  await sleep(500)
-  saved = readSession()
-}
+const saved = await waitForSession(2, 90)
 check(
   'and the workspace it saves afterwards is still both sessions',
   saved.tabs === 2,
-  `${saved.tabs} tab(s) in session.json — ${saved.why}`
+  sessionDetail(saved)
 )
 
 await app.close()

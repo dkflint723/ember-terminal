@@ -5,6 +5,28 @@ newest entry sits on top.
 
 ## Unreleased
 
+### The crash check says which half of the restore failed
+
+- **It went red on the runner saying `not written yet`, and that was as far as it
+  got.** The check asserts that the workspace main writes after putting itself
+  back together still holds both sessions. Before the crash it slept 2.6 seconds
+  for the autosave and went on without looking — so when the session file was
+  missing afterwards, "main failed to write the workspace back" and "the workspace
+  was never on disk to begin with" came out as the same red line. Those are
+  different faults with different fixes, and one of them is not about crashes at
+  all.
+- **The same question is now asked on both sides of the crash,** waited for rather
+  than slept through. A failure after it means main did not write the workspace
+  back. A failure before it means the workspace was never being saved, which is a
+  different bug in a different place.
+- **And a failure says what the profile actually holds,** since a check reporting
+  a file missing ought to say what was there instead of it.
+- **How it is checked:** the suite passes here, where the file is on disk before
+  the crash as well as after — so the new assertion is one the working case
+  already satisfies, which is what stops it being a second way to fail. The case
+  it was written for is the runner, where the file is on neither side, and that
+  answer has to come from there.
+
 ### A failure on the runner leaves its logs behind
 
 - **It was claimed for three runs and was not happening.** The smoke job says the
