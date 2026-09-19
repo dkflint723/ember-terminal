@@ -5,6 +5,34 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A diff that could not be read says so, instead of showing a file as brand new
+
+- **An empty left-hand side is an answer, and it was also every failure.** The
+  side of a diff that comes from git is read with `git show`, and an empty string
+  is genuinely right for a file staged but never committed — it has no `HEAD`
+  version. But the same empty string came back from every other outcome: a call
+  that ran out of time, output past the buffer cap, git missing from PATH. The
+  editor draws an empty left-hand side as the whole file having just been added,
+  so a file that had barely changed could present as entirely new, with nothing
+  anywhere saying the read had failed.
+- **A diff that fails is a nuisance; one that quietly says the opposite of the
+  truth is worse than none.** git has three ways of saying the object is not in
+  that tree — *does not exist*, *exists on disk, but not in 'HEAD'*, *is in the
+  index, but not at stage 2* — and only those still mean empty. Everything else
+  now reaches the panel as the error it is.
+- **How it is checked.** Both directions, because either alone can be satisfied
+  by breaking the other: a read forced to fail has to come back as a failure with
+  something to say, and a file staged but never committed still has to diff as an
+  addition. The failure is forced with a buffer too small for the file, the same
+  arrangement the pty's flow valve uses to make a modest flood engage a valve
+  sized for megabytes, in its own app instance so a cap that small cannot disturb
+  the rest of the suite.
+- **Still swallowed, and worth saying:** `branches`, `log` and `stashList` return
+  an empty list when their call fails, so a history that could not be read looks
+  like a history with nothing in it. That is a smaller lie than a diff of a file
+  that did not change, and it wants somewhere in the panel to put the reason
+  before it is worth fixing.
+
 ### A commit waits for its hooks, and you can stop it waiting
 
 - **One twenty-second deadline covered every git call**, including the ones that

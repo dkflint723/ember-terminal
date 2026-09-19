@@ -719,6 +719,66 @@ check(
 )
 fs.rmSync(hook, { force: true })
 
+/*
+ * --- a diff that could not be read says so, rather than inventing a new file --
+ *
+ * The side of a diff that comes out of git is read with `git show`, and an empty
+ * string is a real answer to that: a file staged but never committed has no HEAD
+ * version. It was also what came back from every other failure — a deadline,
+ * output past the buffer cap, git missing off PATH — and the editor draws an
+ * empty left-hand side as the whole file having just been added. So a file that
+ * had barely changed could present as entirely new, with nothing anywhere saying
+ * the read had failed.
+ *
+ * Forced against the real cap rather than a test-only one. The first version of
+ * this made the buffer overridable and shrank it, which proved nothing: the
+ * previous build has no such knob, so its buffer stayed at thirty-two megabytes,
+ * the file fitted, the read succeeded, and the check failed only because the knob
+ * was new.
+ */
+const oversize = path.join(repo, 'oversize.txt')
+fs.writeFileSync(oversize, Buffer.alloc(33 * 1024 * 1024, 'x'))
+git('add', '--', 'oversize.txt')
+git('commit', '-qm', 'a file past what a diff will buffer')
+fs.writeFileSync(oversize, Buffer.alloc(33 * 1024 * 1024, 'y'))
+git('add', '--', 'oversize.txt')
+
+// Staged, so both sides are read with `git show` and both meet the cap.
+const tooBig = await page.evaluate((r) => window.ember.gitDiff(r, 'oversize.txt', true), repo)
+check(
+  'a diff whose read failed does not come back as a diff',
+  tooBig?.ok === false,
+  JSON.stringify({ ok: tooBig?.ok, original: (tooBig?.original ?? '').slice(0, 30) })
+)
+check(
+  'and says what went wrong',
+  typeof tooBig?.error === 'string' && tooBig.error.length > 0,
+  JSON.stringify(tooBig?.error)
+)
+
+/*
+ * The half that keeps the fix honest. Every failed read could be reported by
+ * calling every empty side a failure, and this is the check that would not
+ * survive it: a file staged but never committed has no HEAD version, and its
+ * diff is an addition rather than an error.
+ */
+fs.writeFileSync(
+  path.join(repo, 'brand-new.ts'),
+  'export const fresh = 1' + String.fromCharCode(10),
+  'utf8'
+)
+git('add', '--', 'brand-new.ts')
+const addition = await page.evaluate((r) => window.ember.gitDiff(r, 'brand-new.ts', true), repo)
+check(
+  'a file with no HEAD version still diffs as an addition',
+  addition?.ok === true && addition.original === '',
+  JSON.stringify({ ok: addition?.ok, original: addition?.original, error: addition?.error })
+)
+
+// The thirty-three megabytes go before the repository is torn down, so a failed
+// run does not leave them in the temp directory.
+git('rm', '-q', '-f', '--', 'oversize.txt')
+
 await app.close()
 fs.rmSync(repo, { recursive: true, force: true })
 

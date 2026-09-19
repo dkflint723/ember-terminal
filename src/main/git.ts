@@ -16,6 +16,19 @@ import type {
 const TIMEOUT_MS = 20_000
 /** `git show` of a whole file has to fit; anything larger is not worth diffing. */
 const MAX_BUFFER = 32 * 1024 * 1024
+
+/**
+ * git saying the object is not in that tree, which is an answer rather than a
+ * failure.
+ *
+ * All three shapes it uses: a file staged but never committed is "exists on disk,
+ * but not in 'HEAD'"; one that was never there at all "does not exist"; and a
+ * stage of a path that is not conflicted "is in the index, but not at stage 2".
+ * Anything else — an invalid revision, output past the buffer, a deadline — is a
+ * failure and is treated as one.
+ */
+const NOT_IN_THAT_TREE =
+  /does not exist|exists on disk, but not in|is in the index, but not at stage/
 /**
  * How much of git's own explanation is worth carrying to the panel.
  *
@@ -234,6 +247,11 @@ export class GitService {
      * failed: git commit -m …" with nothing about the deadline in it, which reads
      * like git refused rather than like Ember stopped waiting.
      */
+    // Node's own words for this are "stdout maxBuffer length exceeded", which
+    // says nothing about which file or why it matters.
+    if (e?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+      return 'That file is too large to show a diff of.'
+    }
     if (e?.killed) {
       const seconds = Math.round(TIMEOUT_MS / 1000)
       const timedOut = `git took longer than ${seconds} seconds, so it was stopped.`
@@ -460,12 +478,29 @@ export class GitService {
    * A blob's text, empty when the path does not exist at that revision — which is
    * the correct left-hand side for an added file — and null when it is binary.
    */
+  /**
+   * A file as one tree has it, or an empty string when that tree has no such file.
+   *
+   * Empty is a real answer: a file staged but never committed has no HEAD version,
+   * and the left-hand side of its diff is genuinely nothing. It was also what came
+   * back from every other failure — a call that ran out of time, output past the
+   * buffer cap, a git that is not on PATH — and an empty left-hand side is drawn
+   * by the editor as the whole file having just been added. So a `git show` that
+   * was killed at twenty seconds presented a file that had barely changed as one
+   * that was entirely new, with nothing anywhere saying so.
+   *
+   * A diff that fails is a nuisance. A diff that quietly says the opposite of the
+   * truth is worse than no diff at all, and this one was reached by opening a file
+   * in a large repository at a bad moment.
+   */
   private async showOrEmpty(root: string, spec: string): Promise<string | null> {
     try {
       const { stdout } = await this.git(root, ['show', spec], { encoding: 'buffer' })
       return decodeText(stdout as Buffer)
-    } catch {
-      return ''
+    } catch (err) {
+      const stderr = String((err as { stderr?: unknown }).stderr ?? '')
+      if (NOT_IN_THAT_TREE.test(stderr)) return ''
+      throw err
     }
   }
 
