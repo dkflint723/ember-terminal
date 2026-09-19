@@ -5,6 +5,20 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A single suite can be asked for on the runner
+
+- **Four suites pass here and fail there,** which is the whole reason the runner
+  exists — and the only way to watch one of them fail on it was to put it back
+  into the job that guards every push, where a known failure trains people to
+  ignore red. So the ones being diagnosed were the ones that could not be run.
+- **A dispatch can now name what it wants:** `gh workflow run ci.yml -f only=boom`
+  runs exactly that on Windows and nothing else. The broad suite is skipped when
+  particular ones were asked for, being most of the wall clock and none of the
+  answer, and the nightly's whole-gate job stays out of the way unless the
+  dispatch named nothing — so asking about one suite costs one suite.
+- **The list goes through the environment rather than into the command line,**
+  because a dispatch input is a string somebody typed.
+
 ### The crash check says which half of the restore failed
 
 - **It went red on the runner saying `not written yet`, and that was as far as it

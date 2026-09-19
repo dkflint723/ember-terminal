@@ -13,6 +13,11 @@ on:
     branches: [master]
   pull_request:
   workflow_dispatch:
+    inputs:
+      only:
+        description: 'Suites to run on Windows, comma-separated. Blank runs the whole gate.'
+        required: false
+        default: ''
   # Everything, once a day, while nobody is waiting for it.
   schedule:
     - cron: '0 9 * * *'
@@ -68,7 +73,10 @@ jobs:
       - uses: ./.github/actions/electron-binary
       - run: npx electron-vite build
       # The broad one first: a real shell through a real pty, and a real editor.
+      # Skipped when particular suites were asked for, since it is most of the
+      # wall clock and none of the answer.
       - name: verify.mjs
+        if: ${{ !inputs.only }}
         run: node scripts/verify.mjs
         env:
           EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs
@@ -96,9 +104,17 @@ jobs:
       # They still run in the nightly, where red is the honest state until they
       # are fixed. Keeping them out of the per-push job is so that a red smoke
       # means something new broke, rather than meaning what it meant yesterday.
+      #
+      # Which is also how the four get diagnosed: `gh workflow run ci.yml -f
+      # only=boom` runs one of them here, on demand, without putting it back in
+      # the set that guards every push. The list goes through the environment
+      # rather than into the command line, because a dispatch input is a string
+      # somebody typed.
       - name: Suites
-        run: node scripts/gate.mjs --only settings,output,shell,history,flood,lsp
+        shell: pwsh
+        run: node scripts/gate.mjs --only $env:SUITES
         env:
+          SUITES: ${{ inputs.only || 'settings,output,shell,history,flood,lsp' }}
           EMBER_STRICT: '1'
           EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs
       # The screenshots and the main-process logs are the only way to read a
@@ -121,8 +137,11 @@ jobs:
     name: every suite
     runs-on: windows-latest
     needs: fast
-    # Nightly, and on demand when something wants proving before a tag.
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # Nightly, and on demand when something wants proving before a tag — but not
+    # when the dispatch asked for particular suites, which smoke has just run.
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && !inputs.only)
     timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
