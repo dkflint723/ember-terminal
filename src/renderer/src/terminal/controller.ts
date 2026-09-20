@@ -862,7 +862,37 @@ export class TerminalController {
   }
 
   private async finishBlock(exitCode: number): Promise<void> {
-    this.capturing = false
+    /*
+     * The splitter's state is not this function's to touch.
+     *
+     * This used to begin by setting `capturing` to false, which reads as tidying
+     * up after a finished command and is the parser reaching across into a state
+     * machine that belongs to the byte stream. The two run at different points in
+     * that stream: feedCapture is synchronous in write(), while this is called
+     * when xterm's parser reaches the end marker, thousands of lines later under a
+     * flood. So by the time a block finishes here, the splitter may already have
+     * opened the *next* capture — and closing it from here discards those bytes
+     * and leaves the flag false, so that capture's own `133;D` falls through the
+     * `if (this.capturing)` which does the queueing, and nothing is ever queued
+     * for it.
+     *
+     * What is measured, on the runs where a block came back empty: exactly one
+     * capture destroyed here, of 35 bytes, with fourteen captures opened against
+     * thirteen queued, and fifteen end markers on the wire against thirteen the
+     * splitter acted on. Destroying a live capture from the wrong side of the
+     * stream is wrong on its own terms, and that much is counted.
+     *
+     * What is *not* established is that this accounts for the whole of the
+     * empty-block fault. The block seen losing its output held a command that had
+     * printed sixty-five kilobytes, and the capture destroyed here was 35 bytes —
+     * so if the two are connected it is through the queue being left one short and
+     * every later block claiming the wrong entry, which has not been shown.
+     *
+     * An unclosed capture is still bounded without this: appendCapture caps one at
+     * two megabytes, the next `133;C` clears it, and a pane reset drops it. Both
+     * shipped integrations emit `133;C` and `133;D`, so neither shell depends on
+     * anyone else closing a capture for it.
+     */
     const blockId = this.currentBlockId
     this.currentBlockId = null
     if (!blockId) return

@@ -5,6 +5,38 @@ newest entry sits on top.
 
 ## Unreleased
 
+### The parser stops reaching into the splitter's state
+
+- **Finishing a block used to clear the flag that says a capture is open.** Those
+  are two different parts of the stream. The splitter runs synchronously inside
+  `write()`, as the bytes arrive; a block finishes when xterm's parser reaches the
+  end marker, which under a flood is thousands of lines later. So by the time a
+  block finished, the splitter had often opened the *next* command's capture — and
+  clearing the flag from there discarded those bytes and left it false, so that
+  capture's own `133;D` fell through the test that does the queueing and nothing
+  was ever queued for it.
+- **Counted, on the runs where a block came back empty:** one capture destroyed
+  this way, of 35 bytes; fourteen captures opened against thirteen queued; fifteen
+  end markers on the wire against thirteen the splitter acted on. A capture being
+  destroyed from the wrong side of the stream is wrong on its own terms, and that
+  much is measured rather than argued.
+- **What is not established is that this is the whole of the empty-block fault.**
+  The block seen losing its output belonged to a command that had printed sixty-five
+  kilobytes, and the capture destroyed was thirty-five bytes. If the two are
+  connected it is by the queue being left one short and later blocks claiming the
+  wrong entry, and that has not been shown.
+- **How it is checked — and the part that could not be done.** The repository's
+  practice is to watch the check fail on the old build, and that has not been
+  possible here. The fault needs the parser to fall far behind the splitter, which
+  on this machine meant memory commit sitting near its ceiling: it fired four times
+  in four runs at 39–40 GB committed, and not at all once that dropped to 35 GB, on
+  an unchanged build. A pagefile change has since taken the ceiling from 41 GB to
+  123 GB, so the condition no longer occurs here to test against. Forcing the
+  interleaving deliberately — flooding the parser and type-ahead submitting the next
+  command before it can catch up — does not reproduce it either: three attempts,
+  both blocks intact each time. What is verified is that the three suites covering
+  block capture across a restart, a shell's lifetime and long output all still pass.
+
 ### A capture is replayed at the shape it was captured at
 
 - **Conpty repaints a screen, so the bytes a block is cut from hold more lines
