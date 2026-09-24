@@ -186,7 +186,8 @@ check('and something in its place', answered.includes('[redacted]'), answered.sl
  * by a prompt it never started under, and the line then ran under a block of its
  * own. One Enter, two blocks, two history rows. Whether a given machine meets that
  * width is down to how long its temp path is, so this cannot promise to provoke it
- * everywhere; where it does, it says so.
+ * everywhere, and a pass on a machine whose prompt is some other width says
+ * nothing about the fault either way. The hosted runner's does meet it.
  */
 const ONCE = 'echo once-after-the-panel-2718'
 await run(ONCE)
