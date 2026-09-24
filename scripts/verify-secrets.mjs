@@ -177,6 +177,30 @@ check('the whole question came back echoed', answered.includes('rejected?'), ans
 check('with the key taken out of it', !answered.includes('ASKEDKEY'), answered.slice(0, 200))
 check('and something in its place', answered.includes('[redacted]'), answered.slice(0, 200))
 
+// --- one Enter is one command, the first one after the panel included --------------------------
+/*
+ * The panel takes width from the terminal, and on the elevated runner that left the
+ * prompt exactly as wide as the console. PSReadLine throws drawing the first key
+ * typed after a prompt like that, prints its bug report, and puts up a fresh prompt
+ * before running the line it was sent — so the block opened for the line was closed
+ * by a prompt it never started under, and the line then ran under a block of its
+ * own. One Enter, two blocks, two history rows. Whether a given machine meets that
+ * width is down to how long its temp path is, so this cannot promise to provoke it
+ * everywhere; where it does, it says so.
+ */
+const ONCE = 'echo once-after-the-panel-2718'
+await run(ONCE)
+const onceRows = (await found('once-after-the-panel-2718')).filter((r) => r.command === ONCE)
+check('one Enter after the panel answers is one history row', onceRows.length === 1, JSON.stringify(onceRows))
+const onceBlocks = await page.locator(`.block[aria-label^="${ONCE} "]`).count()
+check('and one block', onceBlocks === 1, `${onceBlocks} blocks`)
+const onceBody = await page
+  .locator(`.block[aria-label^="${ONCE} "] .block__body`)
+  .last()
+  .textContent()
+  .catch(() => '')
+check('holding what the command printed', (onceBody ?? '').includes('once-after-the-panel-2718'), (onceBody ?? '').slice(0, 120))
+
 // --- the two round trips withhold rather than redact ---------------------------------------
 await page.evaluate(() =>
   window.ember.setSettings({
