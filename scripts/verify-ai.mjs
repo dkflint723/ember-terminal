@@ -10,7 +10,7 @@
 // Run: node scripts/verify-ai.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
-import { newProfile } from './profile.mjs'
+import { newProfile, seedDirs, userDataOf } from './profile.mjs'
 import * as http from 'node:http'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -21,11 +21,14 @@ const profile = newProfile('ai')
  * Seeded as a machine that once chose Bypass would be, because the interesting
  * question is what happens to that choice now that there is nothing to honour it.
  */
-fs.writeFileSync(
-  path.join(profile.dir, 'settings.json'),
-  JSON.stringify({ aiMode: 'bypass', aiEffort: 'max' }),
-  'utf8'
-)
+// Into every directory the app might read from, since it cannot be asked yet.
+for (const dir of seedDirs(profile.dir)) {
+  fs.writeFileSync(
+    path.join(dir, 'settings.json'),
+    JSON.stringify({ aiMode: 'bypass', aiEffort: 'max' }),
+    'utf8'
+  )
+}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 const received = []
@@ -206,7 +209,7 @@ check(
 // would reappear: the merge keeps whatever the file holds unless something drops it.
 await page.locator('.claude__item').first().click()
 await sleep(1400)
-const saved = JSON.parse(fs.readFileSync(path.join(profile.dir, 'settings.json'), 'utf8'))
+const saved = JSON.parse(fs.readFileSync(path.join(await userDataOf(app), 'settings.json'), 'utf8'))
 check(
   'and a mode stored by an older build is dropped rather than written back',
   saved.aiMode === undefined && saved.aiEffort === undefined,

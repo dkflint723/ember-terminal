@@ -132,14 +132,37 @@ export function auditProfileDir(dir, { expectFaults = [] } = {}) {
  * and history database. A hosted Windows runner runs everything elevated, so on
  * one of those the app writes a directory further down than it was pointed.
  *
- * Two suites read files back out of the profile, and both reported them missing
- * for that reason alone, on a machine where the app was saving them perfectly
- * well. Asking the app is the only answer that stays right, because the app owns
+ * Nine suites read files back out of the profile, and every one of them reported
+ * them missing for that reason alone, on a machine where the app was saving them
+ * perfectly well — two found in the smoke job, seven more once the nightly ran the
+ * whole gate there. Asking the app is the only answer that stays right, because the app owns
  * the decision — and `auditProfileDir` above has always read both places, which is
  * why the crash that proved this was in the log all along.
  */
 export async function userDataOf(app) {
   return await app.evaluate(({ app: electronApp }) => electronApp.getPath('userData'))
+}
+
+/**
+ * Every directory the app might read its user data from, for a file a suite puts
+ * down before the app has started.
+ *
+ * userDataOf answers where the data is, but only once the app is running, and a
+ * suite seeding a history database or a settings file has to do it before then.
+ * An elevated process reads from `admin-window` inside the profile, and that
+ * profile is seeded from the ordinary one for a short list of settings, themes and
+ * snippets only — so a history database written to the profile root is invisible
+ * to it, and a setting outside that list never arrives. On a hosted Windows
+ * runner, which is elevated throughout, that is every seeded suite.
+ *
+ * Both places, so the suite never has to know which one the app will choose. That
+ * decision belongs to the app, and a copy of it here would be one more thing to go
+ * stale the day the rule changes.
+ */
+export function seedDirs(dir) {
+  const admin = path.join(dir, 'admin-window')
+  fs.mkdirSync(admin, { recursive: true })
+  return [dir, admin]
 }
 
 export function newProfile(label = 'run', { expectFaults = [] } = {}) {

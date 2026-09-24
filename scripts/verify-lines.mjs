@@ -21,7 +21,7 @@
 // Run: node scripts/verify-lines.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
-import { newProfile } from './profile.mjs'
+import { newProfile, userDataOf } from './profile.mjs'
 import * as path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
@@ -240,9 +240,11 @@ check(
 // Read straight out of the database rather than through searchHistory, which
 // returns a command's metadata and not the text stored against it. What is on
 // disk is the thing that was wrong, so that is the thing to look at.
+// Asked while the app is still up, because the database is read after it closes.
+const userData = await userDataOf(app)
 await app.close()
 
-const db = new DatabaseSync(path.join(profile.dir, 'history.db'), { readOnly: true })
+const db = new DatabaseSync(path.join(userData, 'history.db'), { readOnly: true })
 const rows = db.prepare("SELECT command, output FROM commands WHERE command LIKE '%ALPHA%'").all()
 db.close()
 

@@ -17,7 +17,7 @@
 // Run: node scripts/verify-secrets.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
-import { newProfile } from './profile.mjs'
+import { newProfile, seedDirs, userDataOf } from './profile.mjs'
 import { watchPageErrors } from './harness.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import * as fs from 'node:fs'
@@ -54,26 +54,29 @@ const leakPath = path.join(work, 'leak.js')
  * do once, in the open, and losing the command lines with it was not asked for.
  */
 const OLD = 'sk-ant-api03-OLDKEY0123456789'
-const seeded = new DatabaseSync(path.join(profile.dir, 'history.db'))
-seeded.exec(`
-  CREATE TABLE IF NOT EXISTS commands (
-    id          INTEGER PRIMARY KEY,
-    command     TEXT    NOT NULL,
-    cwd         TEXT    NOT NULL DEFAULT '',
-    shell       TEXT    NOT NULL DEFAULT '',
-    exit_code   INTEGER,
-    duration_ms INTEGER,
-    started_at  INTEGER NOT NULL,
-    output      TEXT    NOT NULL DEFAULT ''
-  );
-`)
-seeded
-  .prepare(
-    `INSERT INTO commands (command, cwd, shell, exit_code, duration_ms, started_at, output)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  )
-  .run(`curl -H "x-api-key: ${OLD}" https://api.example.com`, 'C:\\', 'pwsh', 0, 12, Date.now(), 'ok')
-seeded.close()
+// Into every directory the app might read from, since it cannot be asked yet.
+for (const dir of seedDirs(profile.dir)) {
+  const seeded = new DatabaseSync(path.join(dir, 'history.db'))
+  seeded.exec(`
+    CREATE TABLE IF NOT EXISTS commands (
+      id          INTEGER PRIMARY KEY,
+      command     TEXT    NOT NULL,
+      cwd         TEXT    NOT NULL DEFAULT '',
+      shell       TEXT    NOT NULL DEFAULT '',
+      exit_code   INTEGER,
+      duration_ms INTEGER,
+      started_at  INTEGER NOT NULL,
+      output      TEXT    NOT NULL DEFAULT ''
+    );
+  `)
+  seeded
+    .prepare(
+      `INSERT INTO commands (command, cwd, shell, exit_code, duration_ms, started_at, output)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(`curl -H "x-api-key: ${OLD}" https://api.example.com`, 'C:\\', 'pwsh', 0, 12, Date.now(), 'ok')
+  seeded.close()
+}
 
 const pageErrors = []
 const app = watchPageErrors(
@@ -297,12 +300,14 @@ check(
 )
 
 // --- what is actually on disk, with the app shut --------------------------------------------
+// Asked while the app is still up, because the files are read after it closes.
+const userData = await userDataOf(app)
 await app.close()
 await sleep(1200)
 
 const onDisk = []
 for (const name of ['history.db', 'history.db-wal', 'history.db-shm', 'session.json']) {
-  const file = path.join(profile.dir, name)
+  const file = path.join(userData, name)
   if (!fs.existsSync(file)) continue
   onDisk.push({ name, bytes: fs.readFileSync(file) })
 }

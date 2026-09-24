@@ -23,7 +23,7 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { watchPageErrors } from './harness.mjs'
-import { auditProfileDir } from './profile.mjs'
+import { auditProfileDir, userDataOf } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as http from 'node:http'
 import * as os from 'node:os'
@@ -130,10 +130,15 @@ const timeline = (page) =>
     }))
   )
 
+// Filled in from the first launch: the directory the app chose, which an elevated
+// process makes one level further down than the one it was handed.
+let liveUserData = userData
+
 // --- a session worth keeping -------------------------------------------------
 {
   const app = await launch([work])
   const page = await app.firstWindow()
+  liveUserData = await userDataOf(app)
   await placeTopRight(app)
   await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
   await sleep(1500)
@@ -427,7 +432,7 @@ const timeline = (page) =>
 
 // --- plant the exchange, dated before the command ------------------------------
 {
-  const raw = JSON.parse(fs.readFileSync(path.join(userData, 'session.json'), 'utf8'))
+  const raw = JSON.parse(fs.readFileSync(path.join(liveUserData, 'session.json'), 'utf8'))
   const snap = raw.version === 2 ? raw.windows[0].snapshot : raw
   const paneId = snap.panes.find((entry) => entry.kind === 'terminal')?.id
   const app = await launch()

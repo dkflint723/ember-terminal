@@ -5,6 +5,33 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Seven more checks stop reading a directory the app had moved
+
+- **The nightly ran the whole gate on a runner for five nights, and nineteen suites
+  failed every one of them** on an unchanged commit — deterministic, not flaky. Seven
+  shared the cause already found for the crash and session checks: a hosted Windows
+  runner is elevated throughout, an elevated Ember keeps its user data in
+  `admin-window` inside the profile, and these suites read `session.json`,
+  `settings.json` or `history.db` from the directory they had named on the command
+  line. Title bar, rebinding, ghost text, lines, chat wire, secrets and blocks.
+- **Two directions, two helpers.** Reading back what the app wrote now asks the app
+  where it keeps it (`userDataOf`). Seeding a file before launch cannot ask, since
+  there is nothing yet to ask, and the admin profile is seeded from the ordinary one
+  for a short list of settings, themes and snippets only — so a seeded history
+  database was invisible to an elevated app and a seeded AI mode never arrived. Those
+  now write to both places the app might read (`seedDirs`), which keeps the
+  elevation rule in the app rather than copying it into the harness.
+- **How it is checked:** all seven pass here, where the app is not elevated, and six
+  pass on the runner, where every one of them failed five nights running. The
+  seventh, secrets, goes from four failures there to one — a history row that should
+  leave the list and does not — which is a different question and is being asked
+  separately.
+- **What this does not fix, said so it is not mistaken for fixed.** On an elevated
+  runner every suite exercises the administrator window, not the one most people
+  run. For these seven that is honest coverage of a supported configuration. For the
+  IDE bridge it is not: an elevated window deliberately never starts it, so the
+  three suites that drive it cannot pass there on correct behaviour.
+
 ### The parser stops reaching into the splitter's state
 
 - **Finishing a block used to clear the flag that says a capture is open.** Those

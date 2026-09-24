@@ -13,7 +13,7 @@
 // Run: node scripts/verify-ghost.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
-import { newProfile } from './profile.mjs'
+import { newProfile, userDataOf } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as http from 'node:http'
 import * as os from 'node:os'
@@ -557,7 +557,8 @@ const readBack = await page.evaluate(() => window.ember.getSettings())
 check('a provider key is never handed to the renderer', readBack.ghostApiKey === null, String(readBack.ghostApiKey))
 check('though the window is told one exists', readBack.hasGhostKey === true, String(readBack.hasGhostKey))
 
-const onDisk = fs.readFileSync(path.join(profile.dir, 'settings.json'), 'utf8')
+// Where the app keeps it, not where it was pointed: see userDataOf.
+const onDisk = fs.readFileSync(path.join(await userDataOf(app), 'settings.json'), 'utf8')
 check('and it is not sitting in the settings file in the clear', !onDisk.includes('sk-secret-value-here'))
 
 /*

@@ -9,7 +9,7 @@
 // Run: node scripts/verify-titlebar.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
-import { newProfile } from './profile.mjs'
+import { newProfile, userDataOf } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
@@ -136,7 +136,8 @@ check('and the name sticks to the card', cardName === 'build watch', String(card
 // The snapshot writer debounces; the name must be in the file it writes, or a
 // restart would quietly hand the card back to the shell.
 await sleep(2600)
-const snapshot = fs.readFileSync(path.join(profile.dir, 'session.json'), 'utf8')
+// Where the app keeps it, not where it was pointed: see userDataOf.
+const snapshot = fs.readFileSync(path.join(await userDataOf(app), 'session.json'), 'utf8')
 check('the name reaches the session file', snapshot.includes('"build watch"'))
 await page.locator('.sessions__card').first().locator('.sessions__name').dblclick()
 await sleep(300)

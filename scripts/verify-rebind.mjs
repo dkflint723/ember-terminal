@@ -8,7 +8,7 @@
 // Run: node scripts/verify-rebind.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
-import { newProfile } from './profile.mjs'
+import { newProfile, userDataOf } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
@@ -177,7 +177,8 @@ check('the new chord flips the mode', (await modeNow()) === 'ide', await modeNow
 await page.keyboard.press('Control+Shift+Y')
 await sleep(500)
 
-const stored = JSON.parse(fs.readFileSync(path.join(profile.dir, 'settings.json'), 'utf8'))
+// Where the app keeps it, not where it was pointed: see userDataOf.
+const stored = JSON.parse(fs.readFileSync(path.join(await userDataOf(app), 'settings.json'), 'utf8'))
 check(
   'the override is written down',
   stored.keybindings?.['mode.toggle'] === 'Ctrl+Shift+Y',
