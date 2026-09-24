@@ -5,6 +5,28 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A folder opened by its short name is opened by its long one
+
+- **The workspace and the shell named one folder two ways.** A folder or file on the
+  command line was kept exactly as spelled, while the shell and git report the long
+  form. So the explorer lost its git marks — this is the nightly's "explorer marks the
+  untracked file — []" — and the git poll took the shell to be outside its own
+  workspace and asked about it a second time on every tick.
+- **Short names are written out, and nothing else is changed.** `longPath` expands 8.3
+  components in command-line paths using the filesystem's own answer, but keeps the
+  original if anything other than a short name would change — so a junction, a
+  `subst` drive or a mapped share stays where the person pointed, rather than being
+  swapped for the folder behind it. A path with no `~` in it is returned untouched.
+- **The suite's own line could never have passed on the runner.** It looked for the
+  short temp path inside the shell's long-form answer. It now compares with the
+  folder's long name, case-insensitively, and waits for the answer rather than
+  reading after a fixed two and a half seconds.
+- **How it is checked:** verify-explorer gains "and the workspace names it as the shell
+  does". On the hosted runner it fails against the previous build (workspace
+  `RUNNER~1`, shell `runneradmin`) and passes with this change. verify-git's untracked
+  mark went from red to green across the same pair — one run each, which is a
+  sighting, not a rate.
+
 ### Gutter marks appear for a file opened by its short Windows name
 
 - **The file was measured against its repository in two different spellings.** Git

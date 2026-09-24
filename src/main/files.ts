@@ -1,6 +1,6 @@
 import { dialog, shell, type BrowserWindow } from 'electron'
 import { createHash } from 'node:crypto'
-import { existsSync, statSync, type Stats } from 'node:fs'
+import { existsSync, realpathSync, statSync, type Stats } from 'node:fs'
 import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import type {
@@ -50,13 +50,51 @@ export function pathArgs(argv: string[], appPath: string): { files: string[]; fo
     try {
       if (!existsSync(candidate)) continue
       const info = statSync(candidate)
-      if (info.isFile()) files.push(candidate)
-      else if (info.isDirectory()) folders.push(resolve(candidate))
+      if (info.isFile()) files.push(longPath(candidate))
+      else if (info.isDirectory()) folders.push(longPath(resolve(candidate)))
     } catch {
       // Not a path we can inspect; ignore it.
     }
   }
   return { files, folders }
+}
+
+/**
+ * A Windows path with its 8.3 short names written out in full, and nothing else
+ * about it changed.
+ *
+ * C:\Users\RUNNER~1 and C:\Users\runneradmin are one folder, and Ember is told
+ * about it in both spellings: the short one by whatever launched it — a TEMP
+ * variable set that way, `ember .` from a shell standing in a short path, a tool
+ * on the command line — and the long one by everything that asks the filesystem,
+ * which is the shell reporting where it is and git reporting its root. Opened by
+ * the short name, the workspace was spelled one way and the shell and git the
+ * other: the explorer lost its git marks, and the git poll took the shell to be
+ * outside the folder it had been started in and asked git about it a second
+ * time on every tick.
+ *
+ * `realpathSync.native` names a path the way the filesystem finally does, which
+ * writes short names out — but it also follows junctions, substituted drives and
+ * mapped shares, and swapping S:\project for the folder behind it is a different
+ * place as far as the person who chose S: is concerned. So its answer is taken
+ * only when every part that changed was a short name to begin with.
+ */
+export function longPath(p: string): string {
+  if (process.platform !== 'win32' || !p.includes('~')) return p
+  let real: string
+  try {
+    real = realpathSync.native(p)
+  } catch {
+    return p
+  }
+  const given = p.split(/[\\/]+/).filter(Boolean)
+  const named = real.split(/[\\/]+/).filter(Boolean)
+  if (given.length !== named.length) return p
+  for (let i = 0; i < given.length; i++) {
+    if (given[i].toLowerCase() === named[i].toLowerCase()) continue
+    if (!given[i].includes('~')) return p
+  }
+  return real
 }
 
 export class FileService {
