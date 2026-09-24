@@ -167,8 +167,11 @@ jobs:
       # Strict, so a suite that skips itself for want of a shell or a login counts
       # as a failure rather than as silence. That is the whole difference between
       # a gate and a habit.
+      # --hosted leaves out the three suites that need something no hosted runner
+      # has (VS Code, a gh login, Claude Code), and prints them with the reason. The
+      # list lives in gate.mjs, beside the suites it names.
       - name: The gate
-        run: node scripts/gate.mjs
+        run: node scripts/gate.mjs --hosted
         env:
           EMBER_STRICT: '1'
           EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs

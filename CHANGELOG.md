@@ -5,6 +5,22 @@ newest entry sits on top.
 
 ## Unreleased
 
+### The nightly names what a hosted runner cannot run, instead of failing on it
+
+- **Three suites skip on a hosted runner every night, and under `EMBER_STRICT` a
+  skip is a failure.** That rule is right on the maintainer's machine, where a skip
+  means a check nobody ran. On a runner these three want things it will never have —
+  VS Code for the theme import, a signed-in `gh` for the GitHub panel, Claude Code
+  for the login — so the nightly was red on them five nights of five, and red that
+  never changes teaches people to stop reading it.
+- **`gate.mjs --hosted` leaves them out and says so**, by name and with the reason,
+  every time it runs. The list lives in the gate beside the existing one for suites
+  that run in another step, the plan check fails if it names something that is not a
+  gated suite, and `--list` shows each of them with where it runs. They are not
+  retired: anywhere those things exist, they run and have to pass.
+- **How it is checked:** `--list` gives seventy-two suites, `--list --hosted` gives
+  sixty-nine and names the three. The nightly uses `--hosted` from tomorrow.
+
 ### Seven more checks stop reading a directory the app had moved
 
 - **The nightly ran the whole gate on a runner for five nights, and nineteen suites

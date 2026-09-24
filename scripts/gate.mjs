@@ -3,6 +3,7 @@
 //      node scripts/gate.mjs --list     check the plan and print it; run nothing
 //      node scripts/gate.mjs --only a,b just these (names without the .mjs)
 //      node scripts/gate.mjs --from x   resume at a suite after fixing one
+//      node scripts/gate.mjs --hosted   leave out what a hosted runner cannot have
 //
 // It replaces a fifty-link `&&` chain in package.json, which had two faults. It
 // stopped at the first failure, so a gate that takes most of an hour reported one
@@ -104,13 +105,38 @@ const ELSEWHERE = {
   'verify-update': 'needs the same unpacked build — runs in verify:packaged, after verify-packaged'
 }
 
+/*
+ * Suites that need something a hosted runner does not have, each with what that is.
+ *
+ * A skip is fatal under EMBER_STRICT, which is right: a suite that skips for want of
+ * a shell on the maintainer's machine is a check nobody ran. On a hosted runner these
+ * three skip every night for reasons that are about the runner and not the code —
+ * there is no VS Code, no gh login and no Claude Code there, and there never will
+ * be — so the nightly went red on them five nights out of five and red stopped
+ * meaning anything. `--hosted` leaves them out and says so, by name, with the reason,
+ * because a subset that hides its exclusions is the same trick as a check that
+ * cannot fail. They still run, and still have to pass, anywhere they can.
+ */
+const NEEDS_A_REAL_MACHINE = {
+  'verify-vsix': 'imports themes from an installed VS Code extension; a hosted runner has no VS Code',
+  'verify-github': 'drives the GitHub panel through a signed-in gh; a hosted runner has no gh login to lend it',
+  'verify-claude-login': 'needs Claude Code installed and signed in; a hosted runner has neither'
+}
+
 // --- the plan has to match the files -------------------------------------------
 const onDisk = fs
   .readdirSync(HERE)
   .filter((f) => /^verify-.+\.mjs$/.test(f))
   .map((f) => f.slice(0, -'.mjs'.length))
 const unplaced = onDisk.filter((s) => !ORDER.includes(s) && !(s in ELSEWHERE))
-const missing = [...ORDER, ...Object.keys(ELSEWHERE)].filter((s) => !onDisk.includes(s))
+const missing = [...ORDER, ...Object.keys(ELSEWHERE), ...Object.keys(NEEDS_A_REAL_MACHINE)].filter(
+  (s) => !onDisk.includes(s)
+)
+const strayHosted = Object.keys(NEEDS_A_REAL_MACHINE).filter((s) => !ORDER.includes(s))
+if (strayHosted.length) {
+  console.log(`hosted exclusions that are not gated suites: ${strayHosted.join(', ')}`)
+  process.exit(1)
+}
 const twice = ORDER.filter((s, i) => ORDER.indexOf(s) !== i)
 if (unplaced.length || missing.length || twice.length) {
   if (unplaced.length) console.log(`not in the gate: ${unplaced.join(', ')} — add each to ORDER, or to ELSEWHERE with a reason`)
@@ -147,11 +173,21 @@ if (from) {
   plan = plan.slice(start)
 }
 
+const hosted = args.includes('--hosted')
+if (hosted) plan = plan.filter((s) => !(s in NEEDS_A_REAL_MACHINE))
+
 if (args.includes('--list')) {
   console.log(`${plan.length} suites, in order:`)
   for (const s of plan) console.log(`  ${s}`)
   for (const [s, why] of Object.entries(ELSEWHERE)) console.log(`  (${s}: ${why})`)
+  for (const [s, why] of Object.entries(NEEDS_A_REAL_MACHINE)) {
+    console.log(`  (${s}: ${hosted ? 'left out here' : 'runs here'} — ${why})`)
+  }
   process.exit(0)
+}
+if (hosted) {
+  console.log('left out on a hosted runner, and why:')
+  for (const [s, why] of Object.entries(NEEDS_A_REAL_MACHINE)) console.log(`  ${s}: ${why}`)
 }
 
 /*
