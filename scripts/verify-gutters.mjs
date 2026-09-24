@@ -44,9 +44,23 @@ fs.writeFileSync(crlfFile, crlfLines.join(CRLF) + CRLF, 'utf8')
 const loose = path.join(repo, 'loose.ts')
 fs.writeFileSync(loose, 'export const untracked = true\n', 'utf8')
 
+/*
+ * Opened by a second name for the same folder.
+ *
+ * git names a repository the way the disk does, and a file opened under any other
+ * name — an 8.3 short name, a junction, a subst drive — came out "outside the
+ * repository" and got no marks at all. That is every file on a hosted Windows
+ * runner, whose %TEMP% is C:\Users\RUNNER~1\..., and on a machine whose temp
+ * directory has no short name it is nothing this suite would ever see. A junction
+ * gives it the same second name everywhere, so the check does not depend on whose
+ * user name is longer than eight characters.
+ */
+const link = `${repo}-link`
+fs.symlinkSync(repo, link, 'junction')
+
 const app = await electron.launch({
   executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
-  args: [APP_DIR, profile.arg, tracked],
+  args: [APP_DIR, profile.arg, path.join(link, 'tracked.ts')],
   cwd: APP_DIR,
   env,
   timeout: 60_000
@@ -100,10 +114,15 @@ check(
 )
 
 // --- Alt+click puts the hunk back ----------------------------------------------
+// Only when there is a mark to click. Without one, Playwright waited thirty
+// seconds for it and threw, and the three failures above — which say why there
+// was no mark — were never printed.
 const mark = page.locator('.gutter-modified').first()
-await page.keyboard.down('Alt')
-await mark.click({ force: true })
-await page.keyboard.up('Alt')
+if ((await mark.count()) > 0) {
+  await page.keyboard.down('Alt')
+  await mark.click({ force: true })
+  await page.keyboard.up('Alt')
+}
 await sleep(800)
 const reverted = await page.evaluate(() => {
   const model = window.monaco.editor.getModels().find((m) => m.uri.path.includes('tracked.ts'))
@@ -198,6 +217,12 @@ check('and, untouched, shows no marks', crlfState?.marks === 0, JSON.stringify(c
 await app.close()
 profile.cleanup()
 fs.rmSync(repo, { recursive: true, force: true })
+try {
+  // The junction itself, left dangling once the folder it named is gone.
+  fs.rmdirSync(link)
+} catch {
+  // A leftover link in the temp directory is not worth failing a run over.
+}
 for (const f of failures) console.log(`  - ${f}`)
 console.log('git gutters:', failures.length === 0 ? 'PASS' : 'FAIL')
 console.log('page errors:', errors.length === 0 ? '(none)' : errors.slice(0, 4))

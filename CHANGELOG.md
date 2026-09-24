@@ -5,6 +5,22 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A missing change mark is reported as missing, not as a timeout
+
+- **The click was waiting for a mark that was never drawn.** On the hosted runner the
+  editor found no committed text for its file — the short-name defect fixed above —
+  so it drew no change marks. verify-gutters then clicked the first mark, waited
+  thirty seconds for it, and threw; the three failures it had already recorded, each
+  saying plainly that there were no marks, were never printed. The nightly showed a
+  bare `locator.click: Timeout` for a fault the suite had correctly described.
+- **It clicks only a mark that is there**, so a missing one arrives as "marks exist for
+  an unsaved edit — []" rather than as a timeout.
+- **And it opens its file through a junction**, which gives the folder a second name
+  on every machine. Before this only a machine whose temp directory has a short name
+  could see the defect at all.
+- **How it is checked:** on the runner the new suite against the old app fails on the
+  missing marks and passes with the fix, twice.
+
 ### A repository opened through a junction or subst drive keeps its git colours
 
 - **The explorer looked its rows up under git's name for the folder.** Git reports a
