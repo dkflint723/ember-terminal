@@ -240,9 +240,17 @@ check(
 )
 
 // --- and one command can be forgotten on purpose --------------------------------------------
+/*
+ * Run twice, so there are twins to forget. Main forgets by what was typed, every
+ * row of it, and the list used to drop only the row that was clicked — which went
+ * unseen here until the elevated runner happened to record this line twice on its
+ * own, and the list kept the twin the file no longer held. Two runs make the case
+ * on every machine rather than on the one that stumbles into it.
+ */
+await run(`echo ${FORGET_ME}`)
 await run(`echo ${FORGET_ME}`)
 const beforeForget = await found(FORGET_ME)
-check('the command to forget was recorded first', beforeForget.length >= 1, JSON.stringify(beforeForget))
+check('the command to forget was recorded, twice', beforeForget.length >= 2, JSON.stringify(beforeForget))
 
 await page.keyboard.press('Control+r')
 await page.waitForSelector('.hist__input', { timeout: 10_000 }).catch(() => {})
@@ -251,11 +259,12 @@ if ((await page.locator('.hist__input').count()) > 0) {
   await sleep(1000)
   const rows = await page.locator('.hist__forget').count()
   check('the row offers to be forgotten', rows >= 1, `${rows} forget controls`)
+  check('and its twin is listed beside it', rows >= 2, `${rows} rows listed`)
   if (rows >= 1) {
     await page.locator('.hist__forget').first().click()
     await sleep(1200)
     const left = await page.locator('.hist__cmd').count()
-    check('and goes from the list when it is', left === 0, `${left} rows left`)
+    check('and goes from the list when it is, twin and all', left === 0, `${left} rows left`)
   }
   await page.keyboard.press('Escape')
   await sleep(400)

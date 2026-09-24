@@ -5,6 +5,24 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Forgetting a command takes every copy of it off the history list
+
+- **The database lost every copy and the list lost one.** Forgetting a command in
+  Ctrl+R history deletes every row with the same text, by design. The list then
+  removed only the row that was clicked, so a command run twice left the database
+  entirely and stayed on screen once — naming a command that was no longer on disk.
+  The list now drops every row with that text, which is what main deletes.
+- **Found on the runner because it had recorded one line twice.** One typed `echo`
+  became two history rows and two blocks — one with output, one 77 ms later with
+  none — on the first command after the Claude panel had answered a question. Why
+  one Enter records twice is not established and not fixed here; it is a separate
+  fault, and it is being chased separately.
+- **How it is checked:** verify-secrets now runs the command twice on purpose, checks
+  both copies are listed, forgets one, and requires the list and the database both
+  empty of it. On the hosted runner it fails against the old list ("2 rows left") and
+  passes twice with the change. The case no longer depends on a machine happening to
+  double a line.
+
 ### A folder opened by its short name is opened by its long one
 
 - **The workspace and the shell named one folder two ways.** A folder or file on the
