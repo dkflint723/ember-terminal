@@ -1,5 +1,6 @@
 import { execFile, execFileSync, type ChildProcess } from 'node:child_process'
 import { decodeText as decodeBytes } from '../shared/encoding.js'
+import { samePath } from '../shared/paths.js'
 import type {
   GitBlameLine,
   GitCommitResult,
@@ -55,6 +56,41 @@ const NOT_IN_THAT_TREE =
  * paths is the case this exists to stop.
  */
 const MAX_ERROR_CHARS = 2000
+
+/**
+ * The repository root, spelled the way the caller spelled the folder inside it.
+ *
+ * Windows has more than one name for a folder, and git answers with the one the
+ * disk calls it: a folder reached as `C:\Users\RUNNER~1\...`, through its 8.3 short
+ * name, comes back from `--show-toplevel` as `C:/Users/runneradmin/...`, and one
+ * reached through a junction comes back as wherever the junction points. The
+ * explorer builds its rows from the folder it was given and looked each one up
+ * under git's spelling, so a repository opened under any other name had every row
+ * undecorated — the source-control panel listing an untracked file the tree beside
+ * it would not mark. A short name is not exotic: it is what %TEMP% is for anyone
+ * whose user name is longer than eight characters, a hosted Windows runner
+ * included.
+ *
+ * So the root is walked up from the folder asked about, by as many levels as git
+ * says that folder is below the top, and kept only if it really is the same
+ * directory; otherwise git's own answer stands. When the two already agree, git's
+ * spelling is returned as it always was, and when they do not the caller's comes
+ * back in git's shape, with forward slashes, since that is what every reader of
+ * the root has only ever been given.
+ */
+async function rootAsAsked(asked: string, reported: string, prefix: string): Promise<string> {
+  const { dirname, resolve } = await import('node:path')
+  const { realpathSync } = await import('node:fs')
+  let candidate = resolve(asked)
+  for (const segment of prefix.split('/')) if (segment) candidate = dirname(candidate)
+  if (samePath(candidate, reported)) return reported
+  try {
+    if (!samePath(realpathSync.native(candidate), realpathSync.native(reported))) return reported
+    return process.platform === 'win32' ? candidate.replace(/\\/g, '/') : candidate
+  } catch {
+    return reported
+  }
+}
 
 /**
  * Git as the source-control panel needs it.
@@ -289,12 +325,18 @@ export class GitService {
    * a folder that genuinely is not a repository all came out as the same sentence
    * — "not a git repository" — which sends someone looking in exactly the wrong
    * place.
+   *
+   * The root comes back in the caller's spelling of the path where that names the
+   * same folder; see rootAsAsked.
    */
   private async findRoot(cwd: string): Promise<{ root: string } | { error: string }> {
     try {
-      const { stdout } = await this.git(cwd, ['rev-parse', '--show-toplevel'])
-      const root = (stdout as string).trim()
-      return root ? { root } : { error: 'Not a git repository.' }
+      const { stdout } = await this.git(cwd, ['rev-parse', '--show-toplevel', '--show-prefix'])
+      const [top = '', prefix = ''] = (stdout as string).split(/\r?\n/)
+      const root = top.trim()
+      return root
+        ? { root: await rootAsAsked(cwd, root, prefix.trim()) }
+        : { error: 'Not a git repository.' }
     } catch (err) {
       const e = err as { code?: string; stderr?: string }
       const stderr = typeof e.stderr === 'string' ? e.stderr : ''

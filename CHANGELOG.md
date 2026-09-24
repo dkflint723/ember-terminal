@@ -5,6 +5,27 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A repository opened through a junction or subst drive keeps its git colours
+
+- **The explorer looked its rows up under git's name for the folder.** Git reports a
+  repository's root the way the disk finally names it, so a folder reached through a
+  junction or a `subst` drive comes back from `--show-toplevel` under the name
+  behind it. The explorer builds its rows from the folder it was given, looked each
+  one up under git's spelling, and found none: every row undecorated, while the
+  source-control panel beside it listed the changes.
+- **The root now comes back in the caller's spelling when that names the same
+  folder.** It is walked up from the folder asked about by as many levels as git says
+  that folder sits below the top, and trusted only if `realpath` agrees it is the
+  same directory; otherwise git's answer stands. When the two spellings already
+  match, nothing changes. This covers what the previous entry deliberately does not:
+  short names are written out at the command line, but a junction or a `subst`
+  drive is a place the person chose and is left as they named it.
+- **How it is checked:** verify-git now opens its repository through a junction,
+  which gives the folder a second name on every machine rather than only on one
+  whose temp directory has a short name. Against the previous build it fails here —
+  "explorer marks the untracked file — []", the line the hosted runner had failed on
+  every night — and it passes with this change.
+
 ### Forgetting a command takes every copy of it off the history list
 
 - **The database lost every copy and the list lost one.** Forgetting a command in
