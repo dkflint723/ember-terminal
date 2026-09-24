@@ -5,6 +5,16 @@ newest entry sits on top.
 
 ## Unreleased
 
+### The runner's screenshots reach the evidence artifact
+
+- **`.shots` starts with a dot**, and `upload-artifact` has skipped hidden files by
+  default since v4.4. Every screenshot a suite took on the runner was dropped, and
+  the artifact that exists to explain failures on a machine nobody can look at held
+  main-process logs and no pictures.
+- **Both upload steps now set `include-hidden-files: true`.**
+- **How it is checked:** a nightly artifact held two logs and nothing else; a dispatch
+  with the setting held all four of verify-git's screenshots.
+
 ### A missing change mark is reported as missing, not as a timeout
 
 - **The click was waiting for a mark that was never drawn.** On the hosted runner the

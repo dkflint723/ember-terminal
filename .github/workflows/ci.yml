@@ -143,6 +143,10 @@ jobs:
             .shots/
             ${{ runner.temp }}/ember-logs/
           if-no-files-found: ignore
+          # `.shots` starts with a dot, and upload-artifact has skipped hidden
+          # files by default since v4.4 — so the screenshots this step names were
+          # never in the artifact, and only the logs ever arrived.
+          include-hidden-files: true
           retention-days: 7
 
   full:
@@ -184,4 +188,8 @@ jobs:
             .shots/
             ${{ runner.temp }}/ember-logs/
           if-no-files-found: ignore
+          # `.shots` starts with a dot, and upload-artifact has skipped hidden
+          # files by default since v4.4 — so the screenshots this step names were
+          # never in the artifact, and only the logs ever arrived.
+          include-hidden-files: true
           retention-days: 14
