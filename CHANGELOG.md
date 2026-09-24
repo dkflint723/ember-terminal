@@ -5,6 +5,29 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Gutter marks appear for a file opened by its short Windows name
+
+- **The file was measured against its repository in two different spellings.** Git
+  writes a repository's root the way the filesystem finally names it, long form. The
+  file's place inside it was worked out by comparing that root with the path the
+  editor held, so a file opened as `C:\Users\RUNNER~1\...` came out as somewhere above
+  the repository and was treated as outside it: no gutter marks on any line, however
+  much it was edited. A Windows profile with a long user name looks like that
+  whenever something hands over its short form — a TEMP variable, a tool on the
+  command line.
+- **Git is asked where the file is instead.** `--show-prefix` gives the folder's
+  place in the repository in git's own terms, so the two spellings never meet.
+- **Two checks had been passing for the wrong reason.** On a short TEMP path the lines
+  expecting *no* marks — a committed Windows-1252 file, a byte-order mark — passed
+  because a gutter that could not read the committed text drew nothing at all.
+- **Not covered: a file whose own name, rather than its folder, is spelled short.** It
+  is still not found.
+- **How it is checked:** verify-encoding's "while an edit to it is" failed every night
+  on the hosted runner, whose TEMP is an 8.3 path, and in an instrumented run that
+  read the committed text both ways — empty by the short spelling, present by the
+  long. It passes with this change. It has never failed here, where TEMP has no
+  short names.
+
 ### The nightly names what a hosted runner cannot run, instead of failing on it
 
 - **Three suites skip on a hosted runner every night, and under `EMBER_STRICT` a

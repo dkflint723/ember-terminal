@@ -418,13 +418,27 @@ export class GitService {
    */
   async headText(filePath: string): Promise<string | null> {
     try {
-      const { dirname, relative } = await import('node:path')
+      const { basename, dirname } = await import('node:path')
       const dir = dirname(filePath)
-      const { stdout } = await this.git(dir, ['rev-parse', '--show-toplevel'])
-      const root = (stdout as string).trim()
+      /*
+       * Where the file sits in the repository is asked of git, not worked out by
+       * comparing git's root with the path the editor holds.
+       *
+       * The two need not be spelled alike. Git writes the root the way the
+       * filesystem finally names it, so a buffer opened as
+       * C:\Users\RUNNER~1\... was measured against C:/Users/runneradmin/...,
+       * came out as somewhere above the repository, and was treated as outside it:
+       * no gutter marks at all, on any line, however much was edited. That is
+       * what a Windows profile with a long user name looks like whenever something
+       * hands over its short form — a TEMP variable set that way, a tool on the
+       * command line. `--show-prefix` is the directory's place inside the
+       * repository in git's own terms, so the spelling never has to match.
+       */
+      const { stdout } = await this.git(dir, ['rev-parse', '--show-toplevel', '--show-prefix'])
+      const [top = '', prefix = ''] = (stdout as string).split('\n').map((l) => l.replace(/\r$/, ''))
+      const root = top.trim()
       if (!root) return null
-      const rel = relative(root, filePath).replace(/\\/g, '/')
-      if (rel.startsWith('..')) return null
+      const rel = `${prefix}${basename(filePath)}`
       if (!(await this.tracked(root, rel))) return null
       return await this.showOrEmpty(root, `HEAD:${rel}`)
     } catch {
