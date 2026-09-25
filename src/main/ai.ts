@@ -8,6 +8,7 @@ import type {
 } from '../shared/types.js'
 import { chatSystem } from '../shared/prompt.js'
 import { redactSecrets } from '../shared/secrets.js'
+import { hasServerFallback, takesEffort, thinksByDefault } from '../shared/models.js'
 import type { SettingsStore } from './settings.js'
 import type { ClaudeCliService } from './claude-cli.js'
 
@@ -177,16 +178,30 @@ export class AiService {
     const system = chatSystem(req)
 
     try {
-      const stream = client.messages.stream({
-        model: this.settings.get().aiModel,
-        max_tokens: 4096,
+      const model = this.settings.get().aiModel
+      const stream = client.beta.messages.stream({
+        model,
+        /*
+         * Room for the thinking as well as the answer. The newer models think before
+         * they write whether or not they are asked, and what they think counts
+         * against this — 4096 was enough for an answer and not for both, so a hard
+         * question on Opus 5 could stop partway through its reply. Streamed, so a
+         * larger ceiling costs nothing unless it is used.
+         */
+        max_tokens: thinksByDefault(model) ? 16_000 : 4096,
         system,
-        messages: req.messages.map((m) => ({ role: m.role, content: m.text }))
+        messages: req.messages.map((m) => ({ role: m.role, content: m.text })),
+        ...fallbackFor(model)
       })
       this.chatStreams.set(req.requestId, { abort: () => stream.controller.abort() })
       stream.on('text', (delta) => sink({ requestId: req.requestId, delta }))
-      await stream.finalMessage()
-      sink({ requestId: req.requestId, done: 'complete' })
+      const final = await stream.finalMessage()
+      const declined = refusalOf(final)
+      sink(
+        declined
+          ? { requestId: req.requestId, done: 'error', error: declined }
+          : { requestId: req.requestId, done: 'complete' }
+      )
     } catch (err) {
       const aborted = err instanceof Error && err.name === 'AbortError'
       sink(
@@ -238,12 +253,27 @@ export class AiService {
     if (apiKey) {
       try {
         const client = new Anthropic({ apiKey, maxRetries: 1 })
-        const message = await client.messages.create({
+        /*
+         * A short answer from a model that thinks first.
+         *
+         * These are the suggestion ahead of the caret and an edit to a selection:
+         * a few lines, wanted quickly. On a model that thinks whether asked or not,
+         * the thinking is counted against max_tokens, and a budget sized for the
+         * answer alone could be spent before any of the answer was written — an
+         * empty suggestion, with nothing to say why. So the budget has room for
+         * both, and effort is turned down where the model takes it: less thinking,
+         * fewer tokens, a quicker answer, which is what these two want.
+         */
+        const message = await client.beta.messages.create({
           model: chosen,
-          max_tokens: maxTokens,
+          max_tokens: thinksByDefault(chosen) ? Math.max(maxTokens, 4096) : maxTokens,
           system,
-          messages: [{ role: 'user', content: prompt }]
+          messages: [{ role: 'user', content: prompt }],
+          ...(takesEffort(chosen) ? { output_config: { effort: 'low' as const } } : {}),
+          ...fallbackFor(chosen)
         })
+        const declined = refusalOf(message)
+        if (declined) return { ok: false, error: declined }
         const text = message.content
           .map((part) => (part.type === 'text' ? part.text : ''))
           .join('')
@@ -393,4 +423,36 @@ export class AiService {
     }
     return err instanceof Error ? err.message : 'Unknown error contacting Claude.'
   }
+}
+
+/**
+ * Let the API retry a declined request on the model's own fallback.
+ *
+ * Opus 5, Opus 5.5 and Fable 5.1 run safety classifiers, and a request one of them
+ * declines comes back with `stop_reason: "refusal"` and, often, nothing written.
+ * With `fallbacks: "default"` the API reruns it on the model's configured fallback
+ * inside the same call, so a question that trips a classifier by mistake is still
+ * answered. Nothing for any other model: the parameter is only accepted on these.
+ */
+function fallbackFor(model: string): { betas?: string[]; fallbacks?: 'default' } {
+  return hasServerFallback(model)
+    ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }
+    : {}
+}
+
+/**
+ * Why an answer was declined, as something to show — or null if it was not.
+ *
+ * A refusal arrives as an ordinary, successful response whose stop reason says it
+ * was declined, often with no text at all. Treated as a success it showed as an
+ * empty reply, which reads as the app having broken rather than the model having
+ * said no. Reached only once every fallback has declined too.
+ */
+function refusalOf(message: {
+  stop_reason: string | null
+  stop_details?: { category?: string | null } | null
+}): string | null {
+  if (message.stop_reason !== 'refusal') return null
+  const category = message.stop_details?.category
+  return `Claude declined to answer this${category ? ` (${category})` : ''}. Rewording it, or choosing another model in Settings, may help.`
 }
