@@ -74,12 +74,24 @@ jobs:
       - run: npm ci
       - uses: ./.github/actions/electron-binary
       - run: npx electron-vite build
+      # The runner is an administrator with UAC off, so everything below would be an
+      # elevated Ember: its user data one directory down, and no Claude Code bridge,
+      # which is correct for an elevated window and wrong for what is being tested.
+      # unelevated.ps1 starts each command with the token an ordinary user has, and
+      # this step fails if that stops being true, rather than letting the suites
+      # quietly go back to testing the administrator's window.
+      - name: The suites run as an ordinary user
+        shell: pwsh
+        run: pwsh -NoProfile -File .github/unelevated.ps1 'node .github/elevation.mjs --expect unelevated'
+        env:
+          EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs
       # The broad one first: a real shell through a real pty, and a real editor.
       # Skipped when particular suites were asked for, since it is most of the
       # wall clock and none of the answer.
       - name: verify.mjs
         if: ${{ !inputs.only }}
-        run: node scripts/verify.mjs
+        shell: pwsh
+        run: pwsh -NoProfile -File .github/unelevated.ps1 'node scripts/verify.mjs'
         env:
           EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs
       # The suites that are green on a runner, which is not yet all of them.
@@ -117,7 +129,7 @@ jobs:
       # somebody typed.
       - name: Suites
         shell: pwsh
-        run: node scripts/gate.mjs --only $env:SUITES
+        run: pwsh -NoProfile -File .github/unelevated.ps1 'pwsh -NoProfile -Command node scripts/gate.mjs --only $env:SUITES; exit $LASTEXITCODE'
         env:
           SUITES: ${{ inputs.only || 'settings,output,shell,history,flood,lsp,boom' }}
           EMBER_STRICT: '1'
@@ -168,6 +180,17 @@ jobs:
       - run: npm ci
       - uses: ./.github/actions/electron-binary
       - run: npx electron-vite build
+      # The runner is an administrator with UAC off, so everything below would be an
+      # elevated Ember: its user data one directory down, and no Claude Code bridge,
+      # which is correct for an elevated window and wrong for what is being tested.
+      # unelevated.ps1 starts each command with the token an ordinary user has, and
+      # this step fails if that stops being true, rather than letting the suites
+      # quietly go back to testing the administrator's window.
+      - name: The suites run as an ordinary user
+        shell: pwsh
+        run: pwsh -NoProfile -File .github/unelevated.ps1 'node .github/elevation.mjs --expect unelevated'
+        env:
+          EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs
       # Strict, so a suite that skips itself for want of a shell or a login counts
       # as a failure rather than as silence. That is the whole difference between
       # a gate and a habit.
@@ -175,7 +198,8 @@ jobs:
       # has (VS Code, a gh login, Claude Code), and prints them with the reason. The
       # list lives in gate.mjs, beside the suites it names.
       - name: The gate
-        run: node scripts/gate.mjs --hosted
+        shell: pwsh
+        run: pwsh -NoProfile -File .github/unelevated.ps1 'node scripts/gate.mjs --hosted'
         env:
           EMBER_STRICT: '1'
           EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs

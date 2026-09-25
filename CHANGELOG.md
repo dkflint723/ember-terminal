@@ -5,6 +5,33 @@ newest entry sits on top.
 
 ## Unreleased
 
+### The runner tests the window people actually open
+
+- **The runner was testing the administrator's window.** A hosted Windows runner runs
+  every step as an administrator with UAC off. Ember rightly treats an elevated launch
+  as its admin window, which keeps its data one directory down and never starts the
+  Claude Code bridge — so the bridge suites failed every night waiting for a lockfile
+  Ember was right not to write, the admin suite failed on a reset socket because it
+  needs an ordinary window to start from, and every other suite was testing the path
+  most people never take.
+- **The suites now start under an ordinary user's token.** `.github/unelevated.ps1`
+  asks Windows for the "normal user" level that `runas /trustlevel:0x20000` uses,
+  lowers the integrity to medium as a filtered UAC token has, starts the command with
+  it and hands back its output and exit code — which plain `runas` does neither of.
+  Nothing in the app knows it is under test: its own elevation check simply answers
+  no, for the reason it would on a desk.
+- **A step stops it quietly going back.** Before any suite runs, `elevation.mjs` has to
+  fail to list `System32\config` under that token, and has to be able to write
+  everywhere the suites write. If either stops being true the job fails there, rather
+  than the gate drifting back to the administrator's window unnoticed.
+- **What it does not fix.** In a full run the failures went from 22 to 14. It surfaced
+  a hang that was already there: Electron sometimes never exits on close, which is why
+  `integration`, `live` and `dirpicker` hit the gate's twenty-minute limit on most
+  nights, elevated or not.
+- **How it is checked:** on the runner, `ide`, `keeps-work`, `conflict` and `admin` fail
+  on the elevated path and pass under the new token; `verify.mjs` and the per-push
+  suites still pass; in a full run ten suites went from failing to passing.
+
 ### One Enter is one block, and a command no longer resizes the terminal twice
 
 - **A prompt came back before the line had started.** The idle terminal strip was three
