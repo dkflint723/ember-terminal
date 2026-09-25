@@ -8,3 +8,6 @@ resources/js-debug/
 
 # Incremental compiler state: a build artifact, and noise in every diff.
 *.tsbuildinfo
+
+# Claude Code settings for this machine only: its own allow-list, never shared.
+.claude/settings.local.json
