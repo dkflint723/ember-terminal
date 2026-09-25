@@ -1,5 +1,6 @@
 import { app } from 'electron'
 import { DatabaseSync } from 'node:sqlite'
+import { existsSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { containsInlineSecret, redactSecrets } from '../shared/secrets.js'
 import type {
@@ -425,17 +426,62 @@ export class HistoryStore {
   /** The pass over old rows, batch by batch, while nothing else needs the thread. */
   private scrubTimer: ReturnType<typeof setTimeout> | null = null
 
+  /** What happened to a history file that could not be opened, said once. */
+  private notice: string | null = null
+
+  /*
+   * A database that will not open is set aside, and a new one started.
+   *
+   * A failed open used to mark history broken — for this launch and, because the
+   * file was left exactly as it was, for every launch after it — so history
+   * search, suggestions and every pane's restored blocks were simply gone, with
+   * nothing said. The damaged file and its journal are moved to history.db.bad and
+   * a fresh database is made; if even that fails, history is off for this launch
+   * only, and the window is told.
+   */
   private open(): DatabaseSync | null {
     if (this.db || this.broken) return this.db
+    const file = join(app.getPath('userData'), 'history.db')
+    const attempt = (): DatabaseSync => {
+      const db = new DatabaseSync(file)
+      try {
+        this.migrate(db)
+        return db
+      } catch (err) {
+        try {
+          db.close()
+        } catch {
+          // Closing a database that never opened properly can fail too.
+        }
+        throw err
+      }
+    }
     try {
-      this.db = new DatabaseSync(join(app.getPath('userData'), 'history.db'))
-      this.migrate(this.db)
-    } catch {
-      // History is a convenience; losing it must never stop the app.
-      this.broken = true
-      this.db = null
+      this.db = attempt()
+    } catch (first) {
+      const problem = first instanceof Error ? first.message : 'it could not be opened'
+      try {
+        for (const suffix of ['', '-wal', '-shm']) {
+          if (existsSync(file + suffix)) renameSync(file + suffix, `${file}.bad${suffix}`)
+        }
+        this.db = attempt()
+        this.notice = `Ember couldn't open its command history (${problem}), so it started a new one. The old file was kept as history.db.bad.`
+      } catch {
+        // History is a convenience; losing it must never stop the app.
+        this.broken = true
+        this.db = null
+        this.notice = `Ember couldn't open its command history (${problem}), so history is off until it is restarted.`
+      }
     }
     return this.db
+  }
+
+  /** Open now, and say what went wrong doing it, once. */
+  takeNotice(): string | null {
+    this.open()
+    const notice = this.notice
+    this.notice = null
+    return notice
   }
 
   private migrate(db: DatabaseSync): void {

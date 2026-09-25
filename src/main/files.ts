@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, realpathSync, statSync, type Stats } from 'node:fs'
 import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
+import { writeDocument } from './atomic.js'
 import type {
   DirEntry,
   DirReadResult,
@@ -378,7 +379,13 @@ export class FileService {
       // Saving a deleted file anyway can mean its folder went with it — a branch
       // switch removes both — and the person has already said to put it back.
       if (opts.force === true) await mkdir(dirname(filePath), { recursive: true })
-      await writeFile(filePath, data)
+      /*
+       * Whole or not at all. It was a plain write over the file, so a full disk, a
+       * crash or a sharing violation partway through left the file truncated —
+       * the one on screen being the only copy of what it should have held. See
+       * main/atomic.ts for when it is written in place instead, and why.
+       */
+      writeDocument(filePath, data)
       // The stamp of what was written, so the next save knows its own work when it
       // sees it and only somebody else's as a change.
       return { ok: true, stamp: stampOf(data, (await stat(filePath)).mtimeMs) }

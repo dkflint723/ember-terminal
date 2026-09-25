@@ -5,6 +5,58 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A damaged file is kept and recovered from, not lost
+
+- **Writes are whole or not at all.** The session file was renamed into place before
+  its bytes were known to be on disk, settings the same, and a save in the editor
+  or a replace across files wrote straight over the file — so a crash, a full disk
+  or a sharing violation partway through left a truncated file behind. One writer
+  now does all of them: a temporary file beside the target, flushed with fsync,
+  renamed over it; a rename refused because something holds the file is retried a
+  few times, which on Windows is usually an antivirus scan finishing.
+- **Settings and the workspace keep the generation before.** Each write copies the
+  previous file to `.bak` first, and a file that will not parse is moved to `.bad`
+  — kept, since it may be the only copy — and the `.bak` read instead. A torn write
+  costs the last change rather than all of them.
+- **A workspace from a newer Ember is kept for it.** An unknown version used to be
+  dropped and then overwritten by the first save. It is set aside as
+  session.json.bad, untouched.
+- **A history database that will not open is replaced, not given up on.** A failed
+  open switched history off — for that launch and, since the file was left as it
+  was, every launch after — so search, suggestions and every pane's restored
+  blocks were gone without a word. It is moved to history.db.bad with its journal,
+  and a new one started.
+- **And each of these says so,** together, in the one notice line at startup:
+  "Ember couldn't read its saved workspace (…), so it restored the previous copy.
+  The damaged file was kept as session.json.bad."
+- **An edited file is replaced only where replacing is right.** A hard-linked file
+  is written in place, so its other names see the change; a symbolic link has the
+  file it points at written, and stays a link. A file something else holds open is
+  written in place too, after its previous bytes are copied to `.bak` beside it —
+  the only case where Ember leaves a file in a project folder.
+- **Clearing the session clears its backup,** which holds the same unsaved buffers.
+- **How it is checked.** *atomic writes* (34 cases, in the unit tables) makes each
+  step fail on purpose — the disk filling halfway, a failed flush, a rename that is
+  never allowed — and checks the original is untouched and nothing is left behind;
+  that the flush comes before the rename; that a busy file is waited for and then
+  given up on; hard links, symbolic links and a held file; and reading back torn,
+  newer and missing files. Removing the fsync or the clean-up fails it. *damaged
+  files* (new) launches on a profile whose settings are torn with a good `.bak`
+  beside them, whose session is from version 3, and whose history.db is not a
+  database, and checks the app reaches a prompt, all three are kept as `.bad`,
+  settings come back from the backup, one notice names all three, a new command
+  lands in the new history, and the next settings write keeps a `.bak`. On the
+  Windows runner against the code before this, settings were reset rather than
+  restored, nothing was said about the workspace or history, and history recorded
+  nothing at all; all of it passes now, beside *settings*, *session*, *history*,
+  *save*, *conflict*, *keeps-work*, *encoding*, *replace*, *fileops*, *boom*,
+  *reopen*, *blocks*, *idle*, *secrets* and *admin*.
+- **Not done here:** a pane that cannot be read still drops its whole window rather
+  than just itself; and a file replaced by rename takes its folder's permissions
+  rather than keeping its own, which matters only for files given permissions of
+  their own. The race the audit found between restoring windows and pruning their
+  blocks had already been closed in 0.4.0.
+
 ### A terminal that does not load an editor, and a window that rests when it is idle
 
 - **The editor is no longer part of starting up.** Monaco was in the entry chunk —

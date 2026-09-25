@@ -98,7 +98,8 @@ const ORDER = [
   'verify-profiles',
   'verify-rebind',
   'verify-window',
-  'verify-idle'
+  'verify-idle',
+  'verify-damaged'
 ]
 
 /** Suites this runner deliberately leaves to another step, each with its reason. */

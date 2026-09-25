@@ -249,6 +249,8 @@ const api: EmberApi = {
     ipcRenderer.invoke('settings:noteTrust', folder, trusted),
   realFolder: (folder: string): Promise<string> => ipcRenderer.invoke('file:realFolder', folder),
   settingsLoadError: (): Promise<string | null> => ipcRenderer.invoke('settings:loadError'),
+  sessionLoadNotice: (): Promise<string | null> => ipcRenderer.invoke('session:loadNotice'),
+  historyLoadNotice: (): Promise<string | null> => ipcRenderer.invoke('history:loadNotice'),
   settingsLoadNotes: (): Promise<string[]> => ipcRenderer.invoke('settings:loadNotes'),
   exportSettings: () => ipcRenderer.invoke('settings:export'),
   importSettings: () => ipcRenderer.invoke('settings:import'),
