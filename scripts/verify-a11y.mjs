@@ -372,6 +372,236 @@ const treeWent = await page
 check('and turning it off takes the tree away again', treeWent)
 
 /*
+ * --- the palette and history are dialogs, and give focus back -----------------
+ *
+ * The palette's rows were buttons in the tab order, so Tab walked out of the
+ * overlay into the page behind it while it was still drawn over everything, and
+ * nothing told a screen reader which row the arrows were on. Closing it only set
+ * state, so focus fell to the body and the next keystroke went nowhere.
+ */
+/**
+ * Put away whatever a failed check left open, so the next check starts from the
+ * composer and says what it found, rather than the run dying on a click the
+ * overlay swallowed. Escape from inside each one's own input, which is the one
+ * place every version of it has always listened.
+ */
+const closeOverlays = async () => {
+  for (const input of ['.qp__box', '.hist__input']) {
+    if (await page.locator(input).count()) {
+      await page.focus(input)
+      await page.keyboard.press('Escape')
+      await sleep(300)
+    }
+  }
+  if (await page.locator('.modal').count()) {
+    await page.keyboard.press('Escape')
+    await sleep(300)
+  }
+}
+
+const focusInside = (selector) =>
+  page.evaluate((sel) => !!document.querySelector(sel)?.contains(document.activeElement), selector)
+
+await page.click('.composer__input')
+await page.keyboard.press('Control+Shift+P')
+const paletteUp = await page
+  .waitForSelector('.qp', { timeout: 10_000 })
+  .then(() => true)
+  .catch(() => false)
+const pickShape = () =>
+  page.evaluate(() => {
+    const dialog = document.querySelector('.qp')
+    const box = document.querySelector('.qp__box')
+    const active = box?.getAttribute('aria-activedescendant')
+    const row = active ? document.getElementById(active) : null
+    const list = document.getElementById(box?.getAttribute('aria-controls') ?? '')
+    return {
+      dialog: dialog?.getAttribute('role') ?? null,
+      modal: dialog?.getAttribute('aria-modal') ?? null,
+      named: (dialog?.getAttribute('aria-label') ?? '').length > 0,
+      box: box?.getAttribute('role') ?? null,
+      list: list?.getAttribute('role') ?? null,
+      row: row?.getAttribute('role') ?? null,
+      selected: row?.getAttribute('aria-selected') ?? null,
+      active
+    }
+  })
+const firstPick = await pickShape()
+check(
+  'the palette is a named modal dialog',
+  paletteUp && firstPick.dialog === 'dialog' && firstPick.modal === 'true' && firstPick.named,
+  JSON.stringify(firstPick)
+)
+check(
+  'around a combobox that controls a listbox',
+  firstPick.box === 'combobox' && firstPick.list === 'listbox',
+  JSON.stringify(firstPick)
+)
+check(
+  'and says which option the arrows are on',
+  firstPick.row === 'option' && firstPick.selected === 'true',
+  JSON.stringify(firstPick)
+)
+await page.keyboard.press('ArrowDown')
+await sleep(200)
+const secondPick = await pickShape()
+check(
+  'and follows the arrows',
+  secondPick.active !== null && secondPick.active !== firstPick.active && secondPick.selected === 'true',
+  `${firstPick.active} -> ${secondPick.active}`
+)
+for (let i = 0; i < 4; i++) await page.keyboard.press('Tab')
+await sleep(200)
+check('Tab stays inside the palette', await focusInside('.qp'), await where())
+await page.keyboard.press('Escape')
+await sleep(400)
+check(
+  'and closing it gives focus back to where it was',
+  (await where()).includes('composer__input'),
+  await where()
+)
+
+await closeOverlays()
+await page.keyboard.press('Control+r')
+const historyUp = await page
+  .waitForSelector('.hist', { timeout: 10_000 })
+  .then(() => true)
+  .catch(() => false)
+const hist = await page.evaluate(() => {
+  const dialog = document.querySelector('.hist')
+  const box = document.querySelector('.hist__input')
+  return {
+    dialog: dialog?.getAttribute('role') ?? null,
+    named: (dialog?.getAttribute('aria-label') ?? '').length > 0,
+    box: box?.getAttribute('role') ?? null,
+    list: document.getElementById(box?.getAttribute('aria-controls') ?? '')?.getAttribute('role') ?? null
+  }
+})
+check(
+  'history search is a named dialog around a combobox and a listbox',
+  historyUp && hist.dialog === 'dialog' && hist.named && hist.box === 'combobox' && hist.list === 'listbox',
+  JSON.stringify(hist)
+)
+// Its filters are real stops, so Tab moves among them — and comes back round.
+const histStops = []
+for (let i = 0; i < 5; i++) {
+  await page.keyboard.press('Tab')
+  await sleep(150)
+  histStops.push((await focusInside('.hist')) ? await where() : `OUTSIDE ${await where()}`)
+}
+check(
+  'Tab moves through history search without leaving it',
+  histStops.every((s) => !s.startsWith('OUTSIDE')) && histStops.some((s) => s.startsWith('button')),
+  JSON.stringify(histStops)
+)
+// Escape from wherever Tab left focus — a filter, not the search box.
+await page.keyboard.press('Escape')
+await sleep(400)
+check('Escape closes history search from any stop in it', (await page.locator('.hist').count()) === 0)
+check(
+  'and closing it gives focus back too',
+  (await where()).includes('composer__input'),
+  await where()
+)
+
+/*
+ * --- every control in Settings has a name -------------------------------------
+ *
+ * Labels were sibling elements with no htmlFor anywhere in the dialog, so a screen
+ * reader met "combo box" and "edit text" with nothing to say which. A control is
+ * named if a label points at it or holds it, or it names itself.
+ */
+await closeOverlays()
+await page.keyboard.press('Control+,')
+const settingsUp = await page
+  .waitForSelector('.modal', { timeout: 10_000 })
+  .then(() => true)
+  .catch(() => false)
+await sleep(600)
+const unnamed = await page.evaluate(() => {
+  const nameOf = (el) => {
+    if (el.getAttribute('aria-label')?.trim()) return el.getAttribute('aria-label').trim()
+    const by = el.getAttribute('aria-labelledby')
+    if (by) return by.split(/\s+/).map((id) => document.getElementById(id)?.textContent ?? '').join(' ').trim()
+    return Array.from(el.labels ?? []).map((l) => l.textContent ?? '').join(' ').trim()
+  }
+  const controls = Array.from(document.querySelectorAll('.modal input, .modal select, .modal textarea'))
+    .filter((el) => el.type !== 'hidden' && el.offsetParent !== null)
+  const groups = Array.from(document.querySelectorAll('.modal .field[role="group"]'))
+  return {
+    controls: controls.length,
+    unnamed: controls.filter((el) => nameOf(el).length === 0).map((el) => el.outerHTML.slice(0, 90)),
+    unnamedGroups: groups.filter((g) => nameOf(g).length === 0).length
+  }
+})
+check(
+  'every control in Settings has a name',
+  settingsUp && unnamed.controls > 5 && unnamed.unnamed.length === 0,
+  JSON.stringify(unnamed)
+)
+check('and every group of them is named', unnamed.unnamedGroups === 0, JSON.stringify(unnamed))
+const chordName = await page.evaluate(
+  () => document.querySelector('.keyrow__chord')?.getAttribute('aria-label') ?? ''
+)
+check(
+  'a shortcut button says its command, its chord and what pressing it does',
+  /:.*(Ctrl|Alt|F\d)/.test(chordName) && /press to change/i.test(chordName),
+  chordName
+)
+await page.keyboard.press('Escape')
+await sleep(400)
+
+/*
+ * --- a Windows contrast theme keeps what was said with a fill ------------------
+ *
+ * A contrast theme repaints every authored colour and removes box-shadows, so the
+ * chosen row in the palette — a hover fill and an inset bar — was the same as every
+ * other row, and the ruler's failure marks, which are fills, vanished.
+ */
+await closeOverlays()
+await page.emulateMedia({ forcedColors: 'active' })
+await sleep(300)
+await page.click('.composer__input')
+await page.keyboard.press('Control+Shift+P')
+await page.waitForSelector('.qp__item--on', { timeout: 10_000 }).catch(() => {})
+const forced = await page.evaluate(() => {
+  const on = document.querySelector('.qp__item--on')
+  const off = document.querySelector('.qp__item:not(.qp__item--on)')
+  const canvas = getComputedStyle(document.body).backgroundColor
+  const mark = document.querySelector('.ruler__mark--failed')
+  return {
+    forced: matchMedia('(forced-colors: active)').matches,
+    on: on ? getComputedStyle(on).backgroundColor : null,
+    off: off ? getComputedStyle(off).backgroundColor : null,
+    canvas,
+    mark: mark ? getComputedStyle(mark).backgroundColor : null
+  }
+})
+check('forced colours can be emulated here', forced.forced, JSON.stringify(forced))
+/*
+ * Told apart by what is on screen, not by the computed string: the old row was
+ * forced to an opaque Canvas and the others were transparent over that same Canvas
+ * — two different strings for one colour, which a first version of this check
+ * counted as a difference and passed.
+ */
+const shown = (c) => (c === null || /rgba\(\d+, \d+, \d+, 0\)|transparent/.test(c) ? forced.canvas : c)
+check(
+  'under a contrast theme the chosen palette row is still told apart',
+  forced.on !== null && shown(forced.on) !== shown(forced.off),
+  JSON.stringify(forced)
+)
+check(
+  'and a failure on the ruler is still drawn',
+  forced.mark !== null &&
+    forced.mark !== forced.canvas &&
+    !/rgba\(0, 0, 0, 0\)|transparent/.test(forced.mark),
+  JSON.stringify(forced)
+)
+await closeOverlays()
+await page.emulateMedia({ forcedColors: 'none' })
+await sleep(300)
+
+/*
  * --- Shift+Tab keeps leaving, all the way out ---------------------------------
  *
  * xterm consumes every key, so focus that entered a terminal pane could never leave

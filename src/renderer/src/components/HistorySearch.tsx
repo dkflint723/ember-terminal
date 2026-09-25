@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { HistoryEntry } from '@shared/types'
 import { useStore } from '../state/store'
+import { useDialog } from './useDialog'
 
 function timeAgo(ms: number): string {
   const seconds = Math.max(1, Math.round((Date.now() - ms) / 1000))
@@ -39,6 +40,9 @@ export function HistorySearch(): React.JSX.Element | null {
   const [index, setIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const listId = useId()
+  useDialog(dialogRef, open, () => toggle(false))
 
   const activeTab = tabs.find((t) => t.id === activeTabId)
   const activePane = activeTab ? panes[activeTab.activePaneId] : undefined
@@ -139,7 +143,14 @@ export function HistorySearch(): React.JSX.Element | null {
 
   return (
     <div className="modal-scrim" onMouseDown={() => toggle(false)}>
-      <div className="hist" onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        ref={dialogRef}
+        className="hist"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command history"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="hist__head">
           <span className="composer__sigil">⌕</span>
           <input
@@ -148,6 +159,12 @@ export function HistorySearch(): React.JSX.Element | null {
             placeholder="search commands and their output…"
             spellCheck={false}
             value={text}
+            role="combobox"
+            aria-label="Search command history"
+            aria-expanded={entries.length > 0}
+            aria-controls={listId}
+            aria-autocomplete="list"
+            aria-activedescendant={entries[index] ? `${listId}-${index}` : undefined}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDown}
           />
@@ -177,18 +194,31 @@ export function HistorySearch(): React.JSX.Element | null {
           >
             failures only
           </button>
-          <span className="hist__count">{entries.length} results</span>
+          <span className="hist__count" role="status">
+            {entries.length} results
+          </span>
         </div>
 
-        <div className="hist__list" ref={listRef}>
-          {entries.length === 0 && (
-            <div className="hist__empty">
-              {text.trim().length > 0 ? 'No matching commands.' : 'No history yet.'}
-            </div>
-          )}
+        {entries.length === 0 && (
+          <div className="hist__empty">
+            {text.trim().length > 0 ? 'No matching commands.' : 'No history yet.'}
+          </div>
+        )}
+        <div
+          className="hist__list"
+          ref={listRef}
+          id={listId}
+          role="listbox"
+          aria-label="Commands"
+          hidden={entries.length === 0}
+        >
           {entries.map((entry, i) => (
-            <div className="hist__row" key={entry.id}>
+            <div className="hist__row" key={entry.id} role="presentation">
             <button
+              id={`${listId}-${i}`}
+              role="option"
+              aria-selected={i === index}
+              tabIndex={-1}
               className={`hist__item ${i === index ? 'hist__item--on' : ''}`}
               onMouseDown={(e) => {
                 e.preventDefault()
@@ -207,9 +237,14 @@ export function HistorySearch(): React.JSX.Element | null {
                 {shortPath(entry.cwd, window.ember.homeDir)} · {timeAgo(entry.startedAt)}
               </span>
             </button>
+            {/* The pointer's way to do what Shift+Delete does on the chosen row, so
+                it is kept out of the listbox a screen reader walks and out of the
+                tab order the dialog cycles through. */}
             <button
               className="hist__forget"
               data-forget={entry.id}
+              tabIndex={-1}
+              aria-hidden="true"
               title="Forget this command (Shift+Delete)"
               aria-label={`Forget ${entry.command}`}
               onMouseDown={(e) => {
@@ -227,7 +262,8 @@ export function HistorySearch(): React.JSX.Element | null {
         <div className="complete__foot">
           <span>Enter puts the command in the input — it does not run it</span>
           <span>
-            <kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>Esc</kbd> close
+            <kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>Shift</kbd> <kbd>Del</kbd> forget ·{' '}
+            <kbd>Esc</kbd> close
           </span>
         </div>
       </div>

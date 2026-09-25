@@ -5,6 +5,61 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Contrast themes, dialogs that keep focus, and Settings that says what each box is
+
+- **A Windows contrast theme erased every selection.** It repaints the colours an
+  app names and removes box-shadows, so the chosen row in the palette, history and
+  completion lists — a hover fill and an inset bar — looked like every other row,
+  the session being looked at looked like the rest, and a failed session's square
+  and the ruler's failure marks, all fills, were gone. The focus ring was a
+  translucent accent that the forcing turned into the colour of every border. Under
+  a contrast theme the chosen thing is now drawn the way Windows draws a selection,
+  Highlight behind HighlightText; a current tab or a pressed toggle has a Highlight
+  edge; the focus ring is solid Highlight; and the marks are drawn in CanvasText.
+- **ANSI colours are held to 4.5:1**, like the app's own text. Only black was ever
+  lifted, so a program's warning in bright yellow was 3.2:1 on the light fallback
+  and Solar Dusk's red 2.3:1 on its own background. Each colour is moved toward the
+  theme's foreground only as far as it takes, against the terminal's background and
+  the grounds a block's output sits on, so most of them do not move at all. Black
+  keeps its gentler floor: it is meant to be the darkest thing on a dark screen.
+- **The palette and history search are dialogs.** Every picker — commands, files,
+  the directory picker, scripts, branches — is a modal dialog around a combobox
+  whose `aria-activedescendant` names the row the arrows are on, so a screen reader
+  hears the row rather than nothing. Tab stays inside: the palette's rows were
+  buttons in the tab order, so a few presses walked out of an overlay still drawn
+  over everything. History search's filters are real stops, and Tab cycles through
+  them. Its forget buttons, the pointer's copy of Shift+Delete, are out of the tab
+  order, and the footer now says Shift+Delete forgets.
+- **Escape closes a dialog from wherever focus is in it.** Only the search box
+  listened for it, which was harmless while Tab could not reach anything else —
+  and stopped being harmless the moment the filters became stops. The first run
+  of the new checks found it: Tab to a filter, and history search could not be
+  closed from the keyboard at all.
+- **Closing either gives focus back.** It only set state, so focus fell to the body
+  and the next keystroke went nowhere. Whatever had focus when the dialog opened
+  gets it again — unless the pick put it somewhere on purpose, like an editor for a
+  file just opened, or unless that was an idle terminal, whose input is invisible.
+- **Every control in Settings has a name.** Labels were sibling elements with no
+  `htmlFor` anywhere in the dialog. One that names one control is paired with it;
+  one that heads a group — a checkbox row, a list of saved commands — labels a
+  `role="group"`, and each row's inputs are named for their place ("Custom shell 2:
+  arguments") rather than left to a placeholder. A shortcut button says its
+  command, its chord and that pressing it changes it.
+- **How it is checked.** *theme contrast* measures all fifteen ANSI text colours in
+  all ten themes; before the lift, 58 of those failed. *keyboard and a11y* checks
+  the palette's roles, that the active option follows the arrows, that Tab stays
+  inside, and that Escape hands focus back to the composer; the same for history
+  search, with its filters reachable; that every visible control in Settings has a
+  name and every group a label; and, with forced colours emulated, that the chosen
+  palette row is still told apart and a failure on the ruler is still drawn.
+  *settings* reads group headings as well as labels. Run on the Windows runner
+  against the pickers, Settings and stylesheet as they were, twelve of those
+  failed — among them every role, both focus returns, ten unnamed controls in
+  Settings, the shortcut buttons' names and the ruler's mark. One passed there that
+  should not have: the chosen row under forced colours was compared as a computed
+  string, and the old opaque Canvas and the other rows' transparent-over-Canvas are
+  two strings for one colour. It compares what is on screen now.
+
 ### A screen reader hears where Enter goes, and what came of it
 
 - **The composer had no name.** Its placeholder is empty while it is reading the

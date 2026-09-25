@@ -2902,7 +2902,8 @@ kbd {
   margin-bottom: 22px;
 }
 
-.field > label {
+.field > label,
+.field > .field__label {
   display: block;
   margin-bottom: 7px;
   color: var(--fg-dim);
@@ -5254,6 +5255,79 @@ label.field__check {
   .spinner {
     animation: none !important;
     opacity: 0.75;
+  }
+}
+
+/*
+ * Windows contrast themes.
+ *
+ * Under one, Chromium repaints every colour this file names with the user's own
+ * palette, removes box-shadows and background images, and leaves alone only the
+ * system colours an author asks for by name. Everything that said "this one" with
+ * a fill, a gradient or an inset bar said nothing at all: the chosen row in the
+ * palette, history and completion lists, the session being looked at, a failed
+ * session's mark, the overview ruler. And the focus ring was a translucent accent,
+ * which the forcing turned into the same colour as every border around it.
+ *
+ * So the chosen thing is drawn the way the system draws a selection — Highlight
+ * behind HighlightText — a current tab or a pressed toggle gets a Highlight edge,
+ * and marks that were fills are drawn in CanvasText, which is guaranteed to show.
+ */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
+  }
+
+  .qp__item--on,
+  .hist__item--on,
+  .complete__item--on,
+  .claude__item--on,
+  .settings__nav-item--on,
+  .tree__row--selected,
+  .dbg__frame--on,
+  .dbg__thread--on,
+  .sessions__card.sessions__card--on,
+  .sessions__card.sessions__card--on:hover {
+    background: Highlight;
+    color: HighlightText;
+  }
+  :is(
+      .qp__item--on,
+      .hist__item--on,
+      .complete__item--on,
+      .claude__item--on,
+      .settings__nav-item--on,
+      .tree__row--selected,
+      .dbg__frame--on,
+      .dbg__thread--on,
+      .sessions__card--on
+    )
+    * {
+    color: HighlightText;
+  }
+
+  .btn--on,
+  .find__toggle--on,
+  .gh__switch-btn--on,
+  .panel__tab--active,
+  .etab--active,
+  .pane--active {
+    border-color: Highlight;
+  }
+  .activity__item--active {
+    border-left-color: Highlight;
+  }
+
+  /* A square that was a fill, and a column of marks that were fills. */
+  .sessions__dot--failed {
+    background: CanvasText;
+  }
+  .ruler__mark {
+    background: GrayText;
+  }
+  .ruler__mark--failed {
+    background: CanvasText;
   }
 }
 
