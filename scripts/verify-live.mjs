@@ -484,9 +484,35 @@ for (let round = 0; round < 6; round += 1) {
    * `rite-Output`, which came back as an unknown command. That is this suite
    * failing to set the situation up — condemning the code for it would be
    * reporting the test's own mistake as a defect in what it is testing.
+   *
+   * As written means all of it. This used to ask only whether the marker was in
+   * there, and `e-Output "BBB-0"` has the marker: it ran, failed as an unknown
+   * command, printed no BBB-0, and was counted as output crossing between blocks
+   * when nothing had crossed — the command was simply not the one typed.
    */
-  if (!pair.secondCmd.includes(b)) {
-    missed.push({ round, cmd: pair.secondCmd.slice(0, 40) })
+  const typedB = `Write-Output "${b}"`
+  if (pair.secondCmd.trim() !== typedB) {
+    missed.push({
+      round,
+      why: 'the second command did not reach the shell as typed',
+      typed: typedB,
+      arrived: pair.secondCmd.slice(0, 60)
+    })
+    /*
+     * And cleared up after, so it fails alone.
+     *
+     * What did reach the shell can be half a line with an open quote in it —
+     * `B-0"` — which PowerShell holds as the start of a string and waits on for
+     * the rest. Every round after it was then typed into that wait: the next
+     * block's command came back as three lines of this loop run together, and
+     * the suite's close check found a command still running at the end.
+     */
+    if ((await page.locator('.block--running').count()) > 0) {
+      await page.keyboard.down('Control')
+      await page.keyboard.press('c')
+      await page.keyboard.up('Control')
+      await sleep(1000)
+    }
     continue
   }
   if (!pair.firstHasOwn || pair.firstHasOther || !pair.secondHasOwn || pair.secondHasOther) {
@@ -510,6 +536,48 @@ check(
   missed.length < 6,
   JSON.stringify(missed)
 )
+
+/*
+ * --- a line half-typed when the program ends is still there ---------------------
+ *
+ * What goes into a running program is a line editor's line, held until Enter.
+ * The editor exists only while something runs, and the program ending took it
+ * away with the line in it: the rounds above lost `Write-Output "BB` that way on a
+ * hosted runner, typed a moment before the flood finished, and only the keys that
+ * landed after the swap reached the shell. That happens only when the timing
+ * lines up, so it is set up here on purpose — typed, not sent, and left for the
+ * command to end underneath.
+ */
+await page.click('.composer__input')
+await page.keyboard.type('Start-Sleep -Seconds 3', { delay: 3 })
+await page.keyboard.press('Enter')
+for (let i = 0; i < 40; i += 1) {
+  if ((await page.locator('.block--running').count()) > 0) break
+  await sleep(100)
+}
+// Past the hand-over into the running panel, for the reason given above.
+await sleep(700)
+const halfTyped = 'Write-Output "half-typed"'
+await page.keyboard.type(halfTyped, { delay: 3 })
+for (let i = 0; i < 60; i += 1) {
+  if ((await page.locator('.block--running').count()) === 0) break
+  await sleep(250)
+}
+await sleep(600)
+const leftOver = await page.evaluate(
+  () => document.querySelector('.composer__input')?.value ?? null
+)
+check(
+  'a line typed into a program that then ends is kept for the shell',
+  leftOver === halfTyped,
+  JSON.stringify(leftOver)
+)
+// Emptied, so the next command typed here is only itself.
+await page.click('.composer__input')
+await page.keyboard.down('Control')
+await page.keyboard.press('a')
+await page.keyboard.up('Control')
+await page.keyboard.press('Backspace')
 
 /*
  * Output arriving while nothing is running is still lost, and is not checked here.

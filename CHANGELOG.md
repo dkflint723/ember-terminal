@@ -5,6 +5,33 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A line typed into a running program is kept when the program ends
+
+- **Half a line typed while a command ran was lost if the command finished first.**
+  What you type into a running program is held until Enter, in an input that exists only
+  while something runs, and the program ending took the input away with the line in it.
+  Typing the next command into the tail of a long one lost its first characters that
+  way: `Write-Output "BBB-0"` begun a moment before the first command ended reached the
+  shell as `B-0"`, and the stray quote left PowerShell waiting on a string that never
+  closed. `verify-live`'s typed-ahead rounds hit this on a hosted runner, and every
+  round after it failed with it.
+- **Now the unsent line moves to the composer** when the program ends, with the caret at
+  its end, and waits there for Enter. It is not sent: it was typed for a program that
+  has gone, and the shell is a different reader. A secret being typed is never moved.
+- **The typed-ahead rounds now count only a second command that arrived exactly as
+  typed.** They used to ask only whether the marker was in it, so `e-Output "BBB-0"`
+  counted as output crossing between blocks when nothing had crossed. A mangled command
+  is now a missed round, reported with what was typed and what arrived, and whatever
+  half-line reached the shell is interrupted so it cannot fail the rounds after it.
+- **Not proven:** that this is the only way those rounds lost characters. A trace of 60
+  rounds on the runner caught no failure. In every one the keys went into the running
+  program's input, and the first command ended 223–803 ms after the second one's Enter,
+  against 155–247 ms of typing. The first command ending during that typing is the
+  failure, one typing-length from the closest round seen.
+- **How it is checked:** `verify-live` types half a line into a `Start-Sleep -Seconds 3`
+  and leaves it unsent while the sleep ends, then reads the composer. The previous build
+  leaves it empty in 16 runs of 16; this change leaves the line there in 12 of 12.
+
 ### The first Tab in a new pane completes
 
 - **The first completion asked of a pane could come back empty.** The PowerShell that

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CompletionItem, CompletionResult } from '@shared/types'
 import { commonPrefix } from '@shared/completion'
 import type { TerminalController } from '../terminal/controller'
@@ -173,7 +173,10 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
     const el = ref.current
     if (el) {
       el.focus()
-      requestAnimationFrame(() => el.setSelectionRange(pending.length, pending.length))
+      // The end of what is there by then, not of what was handed over: a key that
+      // arrives before the frame goes after the text, and a caret put back in
+      // front of it would take the rest of the line in the wrong order.
+      requestAnimationFrame(() => el.setSelectionRange(el.value.length, el.value.length))
     }
   }, [pending, pane.id])
 
@@ -1043,6 +1046,34 @@ function RunningInput({ pane, controller }: Props): React.JSX.Element {
   const secretRef = useRef<HTMLInputElement>(null)
   const runningRef = useRef<HTMLTextAreaElement>(null)
   const secret = pane.awaitingSecret
+
+  /*
+   * A line still being typed when the program ends goes to the composer.
+   *
+   * This panel only exists while something runs, so the program finishing takes
+   * it away — and with it whatever had been typed and not yet sent. A command
+   * typed ahead into the tail of a long one lost its opening characters that way:
+   * `Write-Output "BBB-0"` begun a moment before the first command ended came out
+   * as `B-0"`, the keys that landed after the swap, and the stray quote left
+   * PowerShell waiting for the rest of a string that never came.
+   *
+   * Handed over rather than sent. What was typed was meant for the program, which
+   * has gone; the shell is a different reader, so the line waits in the composer
+   * for an Enter that is the user's to press. A layout effect, so the hand-over
+   * happens in the same commit that mounts the composer, before another key can
+   * arrive. Never a secret.
+   */
+  const unsent = useRef('')
+  unsent.current = secret ? '' : value
+  useLayoutEffect(
+    () => () => {
+      const text = unsent.current
+      if (!text) return
+      const st = useStore.getState()
+      if (st.panes[pane.id]) st.setPendingInput(pane.id, text)
+    },
+    [pane.id]
+  )
 
   /*
    * Take the focus the composer just lost.
