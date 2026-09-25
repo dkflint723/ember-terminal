@@ -231,6 +231,25 @@ const LIGHT_ANSI = {
   brightWhite: '#000000'
 }
 
+/** Every ANSI colour a program writes text in, which is all of them but black. */
+const ANSI_TEXT = [
+  'red',
+  'green',
+  'yellow',
+  'blue',
+  'magenta',
+  'cyan',
+  'white',
+  'brightBlack',
+  'brightRed',
+  'brightGreen',
+  'brightYellow',
+  'brightBlue',
+  'brightMagenta',
+  'brightCyan',
+  'brightWhite'
+] as const
+
 export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
   const colors = file.colors ?? {}
   const type: 'dark' | 'light' =
@@ -413,6 +432,25 @@ export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
   const text = (color: string): string => readable(color, surfaces, 4.5, fg)
   // 3:1 is the floor for borders, icons and other non-text marks.
   const mark = (color: string): string => readable(color, surfaces, 3, fg)
+
+  /*
+   * ANSI colours are text too, and only black was ever lifted.
+   *
+   * A program's warning in bright yellow was 3.2:1 on the light fallback and a
+   * Solarized red 2.3:1 on its own background — the output a program most wants
+   * read, drawn in the colour least likely to be. Lifted to the same 4.5:1 as the
+   * app's own text, against the terminal's background and the grounds a block's
+   * output is drawn on, resting and hovered. Black keeps its gentler floor above:
+   * it is meant to be the darkest thing on a dark screen, and pulling it up to
+   * 4.5:1 would turn it grey.
+   *
+   * After `ok`, `fail` and `info` have taken their defaults from the raw palette,
+   * so those go through `text()` against every surface exactly as before.
+   */
+  const ansiGrounds = [terminal.background, bg, mix(fg, bg, dark ? 0.03 : 0.02), hover]
+  for (const name of ANSI_TEXT) {
+    terminal[name] = readable(terminal[name], ansiGrounds, 4.5, fg)
+  }
 
   const vars: Record<string, string> = {
     bg,

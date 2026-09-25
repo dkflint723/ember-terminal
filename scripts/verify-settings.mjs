@@ -78,8 +78,12 @@ await gear.click()
 await page.waitForSelector('.modal', { timeout: 10_000 })
 check('clicking it opens settings', true)
 
+// A field's heading is a <label> when it names one control, and a labelled span
+// when it names a group of them — a checkbox row, or a list of rows.
 const fields = await page.evaluate(() =>
-  Array.from(document.querySelectorAll('.field > label:first-child')).map((l) => l.textContent)
+  Array.from(document.querySelectorAll('.field > :is(label, .field__label):first-child')).map(
+    (l) => l.textContent
+  )
 )
 for (const wanted of ['Theme', 'Default shell', 'Claude access', 'On launch', 'Notify after']) {
   check(`it offers ${wanted}`, fields.some((f) => f?.includes(wanted)), fields.join(' | '))

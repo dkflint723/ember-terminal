@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useDialog } from './useDialog'
 
 export interface QuickPickItem {
   id: string
@@ -38,6 +39,9 @@ export function QuickPick({ placeholder, items, onPick, onClose, empty, craft }:
   const [index, setIndex] = useState(0)
   const box = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLDivElement>(null)
+  const dialog = useRef<HTMLDivElement>(null)
+  const listId = useId()
+  useDialog(dialog, true, onClose)
 
   useEffect(() => {
     box.current?.focus()
@@ -72,13 +76,32 @@ export function QuickPick({ placeholder, items, onPick, onClose, empty, craft }:
 
   return (
     <div className="qp__scrim" onMouseDown={onClose}>
-      <div className="qp" onMouseDown={(e) => e.stopPropagation()}>
+      {/*
+        A dialog around a combobox and its listbox: the input keeps focus the whole
+        time, and aria-activedescendant tells a screen reader which row the arrows
+        are on. The rows are out of the tab order for the same reason — they are
+        chosen with the arrows, not visited with Tab.
+      */}
+      <div
+        ref={dialog}
+        className="qp"
+        role="dialog"
+        aria-modal="true"
+        aria-label={placeholder}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <input
           ref={box}
           className="qp__box"
           placeholder={placeholder}
           value={text}
           spellCheck={false}
+          role="combobox"
+          aria-label={placeholder}
+          aria-expanded={matches.length > 0}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={matches[index] ? `${listId}-${index}` : undefined}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'ArrowDown' || (e.ctrlKey && e.key.toLowerCase() === 'n')) {
@@ -98,11 +121,19 @@ export function QuickPick({ placeholder, items, onPick, onClose, empty, craft }:
           }}
         />
 
-        <div className="qp__list" ref={list}>
-          {matches.length === 0 && <div className="qp__none">{empty ?? 'No matches'}</div>}
+        {matches.length === 0 && (
+          <div className="qp__none" role="status">
+            {empty ?? 'No matches'}
+          </div>
+        )}
+        <div className="qp__list" ref={list} id={listId} role="listbox" aria-label={placeholder}>
           {matches.map((item, i) => (
             <button
               key={item.id}
+              id={`${listId}-${i}`}
+              role="option"
+              aria-selected={i === index}
+              tabIndex={-1}
               className={`qp__item ${i === index ? 'qp__item--on' : ''}`}
               // Mouse down rather than click: the scrim closes on mousedown, and a
               // click would land after the overlay had already gone.

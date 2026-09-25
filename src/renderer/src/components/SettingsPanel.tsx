@@ -134,8 +134,8 @@ function ExplorerMenuField(): React.JSX.Element | null {
   }
 
   return (
-    <div className="field">
-      <label>Windows Explorer</label>
+    <div className="field" role="group" aria-labelledby="settings-explorer">
+      <span className="field__label" id="settings-explorer">Windows Explorer</span>
       <label className="field__check">
         <input
           type="checkbox"
@@ -601,8 +601,8 @@ export function SettingsPanel(): React.JSX.Element | null {
               <h3 className="settings__section-title">Appearance</h3>
 
               <div className="field">
-                <label>Theme</label>
-                <select value={draft.themeId} onChange={(e) => chooseTheme(e.target.value)}>
+                <label htmlFor="settings-theme">Theme</label>
+                <select id="settings-theme" value={draft.themeId} onChange={(e) => chooseTheme(e.target.value)}>
                   {themes.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.name} · {t.type}
@@ -636,7 +636,7 @@ export function SettingsPanel(): React.JSX.Element | null {
               </div>
 
               <div className="field">
-                <label>Font family</label>
+                <label htmlFor="settings-font">Font family</label>
                 {(() => {
                   const current = leadFamily(draft.fontFamily)
                   const options = fontChoices.includes(current)
@@ -644,6 +644,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                     : [current, ...fontChoices]
                   return (
                     <select
+                      id="settings-font"
                       className="settings__font"
                       value={current}
                       onChange={(e) => field('fontFamily', stackFor(e.target.value))}
@@ -667,9 +668,10 @@ export function SettingsPanel(): React.JSX.Element | null {
               </div>
 
               <div className="field">
-                <label>Font size</label>
+                <label htmlFor="settings-font-size">Font size</label>
                 <div className="field__unit">
                   <input
+                    id="settings-font-size"
                     type="number"
                     min={8}
                     max={32}
@@ -681,9 +683,10 @@ export function SettingsPanel(): React.JSX.Element | null {
               </div>
 
               <div className="field">
-                <label>Interface size</label>
+                <label htmlFor="settings-zoom">Interface size</label>
                 <div className="field__unit">
                   <input
+                    id="settings-zoom"
                     type="number"
                     min={60}
                     max={250}
@@ -708,8 +711,9 @@ export function SettingsPanel(): React.JSX.Element | null {
               {/* Applied as it changes, like the zoom above it: how much room a
                   block should take is a thing to judge by looking, not by reading. */}
               <div className="field">
-                <label>Block density</label>
+                <label htmlFor="settings-density">Block density</label>
                 <select
+                  id="settings-density"
                   className="settings__density"
                   value={draft.blockDensity ?? 'normal'}
                   onChange={(e) => {
@@ -729,8 +733,8 @@ export function SettingsPanel(): React.JSX.Element | null {
                 </div>
               </div>
 
-              <div className="field">
-                <label>Screen reader</label>
+              <div className="field" role="group" aria-labelledby="settings-sr">
+                <span className="field__label" id="settings-sr">Screen reader</span>
                 <label className="field__check">
                   <input
                     type="checkbox"
@@ -752,8 +756,9 @@ export function SettingsPanel(): React.JSX.Element | null {
               <h3 className="settings__section-title">Terminal</h3>
 
               <div className="field">
-                <label>Default shell</label>
+                <label htmlFor="settings-shell">Default shell</label>
                 <select
+                  id="settings-shell"
                   value={draft.defaultProfileId ?? profiles[0]?.id ?? ''}
                   onChange={(e) => field('defaultProfileId', e.target.value)}
                 >
@@ -765,12 +770,13 @@ export function SettingsPanel(): React.JSX.Element | null {
                 </select>
               </div>
 
-              <div className="field">
-                <label>Saved commands</label>
+              <div className="field" role="group" aria-labelledby="settings-saved">
+                <span className="field__label" id="settings-saved">Saved commands</span>
                 {draft.savedCommands.map((saved, i) => (
                   <div key={saved.id} className="savedrow">
                     <input
                       className="savedrow__name"
+                      aria-label={`Saved command ${i + 1}: name`}
                       placeholder="Name"
                       value={saved.name}
                       spellCheck={false}
@@ -785,6 +791,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                     />
                     <input
                       className="savedrow__command"
+                      aria-label={`Saved command ${i + 1}: command line`}
                       placeholder="docker compose up {{service}}"
                       value={saved.command}
                       spellCheck={false}
@@ -833,12 +840,13 @@ export function SettingsPanel(): React.JSX.Element | null {
                 </div>
               </div>
 
-              <div className="field">
-                <label>Custom shells</label>
+              <div className="field" role="group" aria-labelledby="settings-shells">
+                <span className="field__label" id="settings-shells">Custom shells</span>
                 {draft.customProfiles.map((shell, i) => (
                   <div key={shell.id} className="shellrow">
                     <input
                       className="shellrow__name"
+                      aria-label={`Custom shell ${i + 1}: name`}
                       placeholder="Name"
                       value={shell.name}
                       spellCheck={false}
@@ -846,6 +854,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                     />
                     <input
                       className="shellrow__path"
+                      aria-label={`Custom shell ${i + 1}: program`}
                       placeholder="wsl.exe"
                       value={shell.path}
                       spellCheck={false}
@@ -853,6 +862,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                     />
                     <input
                       className="shellrow__args"
+                      aria-label={`Custom shell ${i + 1}: arguments`}
                       placeholder="-d Ubuntu"
                       value={joinArgs(shell.args)}
                       spellCheck={false}
@@ -860,6 +870,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                     />
                     <select
                       className="shellrow__dialect"
+                      aria-label={`Custom shell ${i + 1}: integration`}
                       value={shell.integration}
                       title="Which shell-integration dialect to inject, for blocks and prompts"
                       onChange={(e) =>
@@ -887,6 +898,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                     </button>
                     <input
                       className="shellrow__cwd"
+                      aria-label={`Custom shell ${i + 1}: start in`}
                       placeholder="Start in — optional, e.g. D:\code (new sessions only)"
                       value={shell.cwd ?? ''}
                       spellCheck={false}
@@ -921,9 +933,10 @@ export function SettingsPanel(): React.JSX.Element | null {
               </div>
 
               <div className="field">
-                <label>Notify after</label>
+                <label htmlFor="settings-notify">Notify after</label>
                 <div className="field__unit">
                   <input
+                    id="settings-notify"
                     type="number"
                     min={0}
                     max={3600}
@@ -945,8 +958,8 @@ export function SettingsPanel(): React.JSX.Element | null {
             <section className="settings__section" data-section="editor">
               <h3 className="settings__section-title">Editor</h3>
 
-              <div className="field">
-                <label>Formatting</label>
+              <div className="field" role="group" aria-labelledby="settings-format">
+                <span className="field__label" id="settings-format">Formatting</span>
                 <label className="field__check">
                   <input
                     type="checkbox"
@@ -963,12 +976,13 @@ export function SettingsPanel(): React.JSX.Element | null {
                 </div>
               </div>
 
-              <div className="field">
-                <label>Language servers</label>
+              <div className="field" role="group" aria-labelledby="settings-lsp">
+                <span className="field__label" id="settings-lsp">Language servers</span>
                 {draft.languageServers.map((server, i) => (
                   <div key={server.id} className="langrow">
                     <input
                       className="langrow__language"
+                      aria-label={`Language server ${i + 1}: language`}
                       placeholder="rust"
                       title="The Monaco language id this server answers for"
                       value={server.languageId}
@@ -977,6 +991,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                     />
                     <input
                       className="langrow__command"
+                      aria-label={`Language server ${i + 1}: program`}
                       placeholder="rust-analyzer"
                       value={server.command}
                       spellCheck={false}
@@ -984,6 +999,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                     />
                     <input
                       className="langrow__args"
+                      aria-label={`Language server ${i + 1}: arguments`}
                       placeholder="arguments"
                       value={joinArgs(server.args)}
                       spellCheck={false}
@@ -1004,6 +1020,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                     </button>
                     <input
                       className="langrow__extensions"
+                      aria-label={`Language server ${i + 1}: file extensions`}
                       placeholder="Extensions — optional, e.g. .rs (most languages need none)"
                       value={(server.extensions ?? []).join(' ')}
                       spellCheck={false}
@@ -1042,9 +1059,10 @@ export function SettingsPanel(): React.JSX.Element | null {
               </div>
 
               <div className="field">
-                <label>Auto save after</label>
+                <label htmlFor="settings-autosave">Auto save after</label>
                 <div className="field__unit">
                   <input
+                    id="settings-autosave"
                     type="number"
                     min={0}
                     max={600}
@@ -1062,8 +1080,8 @@ export function SettingsPanel(): React.JSX.Element | null {
                 </div>
               </div>
 
-              <div className="field">
-                <label>Snippets</label>
+              <div className="field" role="group" aria-labelledby="settings-snippets">
+                <span className="field__label" id="settings-snippets">Snippets</span>
                 <div className="field__note">
                   Snippets in the VS Code format, from a folder or a <code>.vsix</code>. A file
                   named for its language applies to that language; a <code>.code-snippets</code>{' '}
@@ -1085,8 +1103,8 @@ export function SettingsPanel(): React.JSX.Element | null {
             <section className="settings__section" data-section="suggestions">
               <h3 className="settings__section-title">Suggestions</h3>
 
-              <div className="field">
-                <label>Inline suggestions</label>
+              <div className="field" role="group" aria-labelledby="settings-ghost">
+                <span className="field__label" id="settings-ghost">Inline suggestions</span>
                 <label className="field__check">
                   <input
                     type="checkbox"
@@ -1108,8 +1126,9 @@ export function SettingsPanel(): React.JSX.Element | null {
               {draft.ghostEnabled && (
                 <>
                   <div className="field">
-                    <label>Answered by</label>
+                    <label htmlFor="settings-ghost-provider">Answered by</label>
                     <select
+                      id="settings-ghost-provider"
                       className="settings__ghost-provider"
                       value={draft.ghostProvider}
                       onChange={(e) =>
@@ -1131,8 +1150,9 @@ export function SettingsPanel(): React.JSX.Element | null {
 
                   {draft.ghostProvider !== 'claude' && (
                     <div className="field">
-                      <label>Address</label>
+                      <label htmlFor="settings-ghost-address">Address</label>
                       <input
+                        id="settings-ghost-address"
                         className="settings__ghost-url"
                         value={draft.ghostBaseUrl}
                         spellCheck={false}
@@ -1147,7 +1167,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                   )}
 
                   <div className="field">
-                    <label>Model</label>
+                    <label htmlFor="settings-ghost-model">Model</label>
                     {/*
                       Chosen, where the server will say what it has.
                       A model name is exact and unforgiving — a missing tag, a colon
@@ -1165,6 +1185,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                     {draft.ghostProvider === 'local' && localModels.length > 0 && !typedModel ? (
                       <div className="settings__modelrow">
                         <select
+                          id="settings-ghost-model"
                           className="settings__ghost-model"
                           value={draft.ghostModel}
                           onChange={(e) => {
@@ -1219,6 +1240,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                       <div className="settings__modelrow">
                         <input
                           className="settings__ghost-model"
+                          id="settings-ghost-model"
                           value={draft.ghostModel}
                           spellCheck={false}
                           placeholder={
@@ -1270,8 +1292,9 @@ export function SettingsPanel(): React.JSX.Element | null {
 
                   {draft.ghostProvider === 'openai' && (
                     <div className="field">
-                      <label>Key</label>
+                      <label htmlFor="settings-ghost-key">Key</label>
                       <input
+                        id="settings-ghost-key"
                         className="settings__ghost-key"
                         type="password"
                         autoComplete="off"
@@ -1293,8 +1316,8 @@ export function SettingsPanel(): React.JSX.Element | null {
                       is no way to tell a wrong address from a quiet moment by
                       watching. This is how you tell.
                     */}
-                  <div className="field">
-                    <label>Check it works</label>
+                  <div className="field" role="group" aria-labelledby="settings-ghost-check">
+                    <span className="field__label" id="settings-ghost-check">Check it works</span>
                     <div className="composer__proposal-actions">
                       <button
                         className="btn"
@@ -1345,9 +1368,10 @@ export function SettingsPanel(): React.JSX.Element | null {
                   </div>
 
                   <div className="field">
-                    <label>Wait before asking</label>
+                    <label htmlFor="settings-ghost-wait">Wait before asking</label>
                     <div className="field__unit">
                       <input
+                        id="settings-ghost-wait"
                         type="number"
                         min={0}
                         max={2000}
@@ -1373,13 +1397,14 @@ export function SettingsPanel(): React.JSX.Element | null {
               <h3 className="settings__section-title">Claude</h3>
 
               <div className="field">
-                <label>Claude model</label>
+                <label htmlFor="settings-claude-model">Claude model</label>
                 {(() => {
                   const known = AI_MODELS.some((m) => m.id === draft.aiModel)
                   const showCustom = modelCustom || !known
                   return (
                     <>
                       <select
+                        id="settings-claude-model"
                         className="settings__model"
                         value={showCustom ? 'custom' : draft.aiModel}
                         onChange={(e) => {
@@ -1406,6 +1431,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                       {showCustom && (
                         <input
                           className="settings__model-custom"
+                          aria-label="Claude model name"
                           placeholder="claude-…"
                           value={draft.aiModel}
                           spellCheck={false}
@@ -1432,8 +1458,8 @@ export function SettingsPanel(): React.JSX.Element | null {
               {/* Claude access, shown as what is actually in effect rather than as a field
                   to fill in. Signing in through the browser is the common case; the key is
                   for people who would rather bring their own. */}
-              <div className="field">
-                <label>Claude access</label>
+              <div className="field" role="group" aria-labelledby="settings-claude-access">
+                <span className="field__label" id="settings-claude-access">Claude access</span>
                 <div className={`access access--${credentialTone(credential, claude)}`}>
                   <span className="access__state">{credentialLabel(credential, claude)}</span>
                   {credential?.source === 'claude-code' && credential.detail && (
@@ -1460,6 +1486,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                     "clear it". Removing one is a separate, deliberate action. */}
                 <input
                   type="password"
+                  aria-label="Anthropic API key"
                   placeholder={hasApiKey ? 'A key is saved — type to replace it' : 'sk-ant-…'}
                   value={draft.anthropicApiKey ?? ''}
                   onChange={(e) => field('anthropicApiKey', e.target.value || null)}
@@ -1496,8 +1523,8 @@ export function SettingsPanel(): React.JSX.Element | null {
             <section className="settings__section" data-section="keyboard">
               <h3 className="settings__section-title">Keyboard</h3>
 
-              <div className="field">
-                <label>Shortcuts</label>
+              <div className="field" role="group" aria-labelledby="settings-keys">
+                <span className="field__label" id="settings-keys">Shortcuts</span>
                 <input
                   className="settings__keyfilter"
                   placeholder="Filter shortcuts…"
@@ -1515,7 +1542,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                       <button
                         type="button"
                         className={`keyrow__chord ${capturing === command.id ? 'keyrow__chord--live' : ''}`}
-                        aria-label={`Change the binding for ${command.label}`}
+                        aria-label={`${command.label}: ${capturing === command.id ? 'press the new keys' : chord}. Press to change`}
                         onClick={() => {
                           setCapturing(command.id)
                           capturingRef.current = command.id
@@ -1611,8 +1638,8 @@ export function SettingsPanel(): React.JSX.Element | null {
             <section className="settings__section" data-section="system">
               <h3 className="settings__section-title">System</h3>
 
-              <div className="field">
-                <label>On launch</label>
+              <div className="field" role="group" aria-labelledby="settings-launch">
+                <span className="field__label" id="settings-launch">On launch</span>
                 <label className="field__check">
                   <input
                     type="checkbox"
@@ -1629,8 +1656,8 @@ export function SettingsPanel(): React.JSX.Element | null {
                 </div>
               </div>
 
-              <div className="field">
-                <label>Version</label>
+              <div className="field" role="group" aria-labelledby="settings-version">
+                <span className="field__label" id="settings-version">Version</span>
                 {/* Nowhere in the window said which build this was, so the first
                     question anyone asks about a bug — which version? — had no answer
                     short of the installer's filename. */}
@@ -1639,8 +1666,8 @@ export function SettingsPanel(): React.JSX.Element | null {
                 </div>
               </div>
 
-              <div className="field">
-                <label>Updates</label>
+              <div className="field" role="group" aria-labelledby="settings-updates">
+                <span className="field__label" id="settings-updates">Updates</span>
                 <label className="field__check">
                   <input
                     type="checkbox"

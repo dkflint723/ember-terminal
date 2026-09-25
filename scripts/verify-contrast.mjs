@@ -168,6 +168,25 @@ for (const name of fs.readdirSync(THEMES).filter((f) => f.endsWith('.json'))) {
    * exactly their own background, so anything a program printed in black — which
    * is a normal thing for a program to do — vanished completely.
    */
+  /*
+   * And every other ANSI colour is text, so it is held to text's floor.
+   *
+   * Only black was ever lifted. The light fallback's bright yellow, #b8860b on
+   * #fdfdfd, is 3.2:1 — a warning printed in it is the thing on the screen least
+   * likely to be read. Measured against the terminal's own background and the
+   * surfaces a block's output is drawn on, resting and hovered.
+   */
+  const grounds = [theme.terminal.background, v.bg, v['bg-block'], v['bg-hover']]
+  for (const name of [
+    'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white',
+    'brightBlack', 'brightRed', 'brightGreen', 'brightYellow', 'brightBlue',
+    'brightMagenta', 'brightCyan', 'brightWhite'
+  ]) {
+    const color = theme.terminal[name]
+    const worst = Math.min(...grounds.map((g) => contrastRatio(color, g)))
+    check(`${theme.name}: ANSI ${name} is readable`, worst >= 4.5, `${worst.toFixed(2)}:1 (${color})`)
+  }
+
   const black = theme.terminal.black
   check(
     `${theme.name}: black ANSI output is visible`,
