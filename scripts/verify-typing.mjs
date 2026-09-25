@@ -111,6 +111,27 @@ const dismiss = async () => {
 const blockCommands = () =>
   page.evaluate(() => [...document.querySelectorAll('.block .block__cmd')].map((b) => b.textContent?.trim() ?? ''))
 const panes = () => page.locator('.pane[data-integration]').count()
+/*
+ * Run again on the first block, reached the way a reader reaches it.
+ *
+ * On the runner this pane is short enough to scroll, and the first block has gone
+ * up out of view by the time it is pressed. Playwright brings a button into view
+ * by setting the scroll position, which since d83ec58 the pane rightly does not
+ * take as the reader leaving the end: measured there, the press went down on Run
+ * again at scrollTop 11, focus moving to the button put the pane back on the end
+ * at 61, and the release landed on the time beside it — so the click went to the
+ * scroller and nothing was pressed at all. A person scrolls up with the wheel,
+ * which is a gesture the pane honours; so does this.
+ */
+const runAgain = async () => {
+  const block = page.locator('.block', { hasText: 'echo first-block' }).first()
+  const scroller = block.locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " pane__scroll ")][1]')
+  await scroller.hover()
+  await page.mouse.wheel(0, -5000)
+  await sleep(300)
+  await block.hover()
+  await block.locator('button[title="Run again"]').click()
+}
 
 // --- something to run again, and something Claude proposed ------------------------
 await typeCommand('echo first-block')
@@ -129,8 +150,7 @@ await sleep(2500)
 check('the recorder is running, and has heard nothing yet', heardSoFar() === '', JSON.stringify(heardSoFar()))
 
 // Run again, on the block from before.
-await page.locator('.block', { hasText: 'echo first-block' }).first().hover()
-await page.locator('.block', { hasText: 'echo first-block' }).first().locator('button[title="Run again"]').click()
+await runAgain()
 await sleep(1200)
 check('Run again sends nothing into the program', heardSoFar() === '', JSON.stringify(heardSoFar()))
 const rerunSaid = await notice()
@@ -214,8 +234,7 @@ await dismiss()
 await page.keyboard.press('Control+Shift+I')
 await sleep(800)
 const blocksBefore = (await blockCommands()).length
-await page.locator('.block', { hasText: 'echo first-block' }).first().hover()
-await page.locator('.block', { hasText: 'echo first-block' }).first().locator('button[title="Run again"]').click()
+await runAgain()
 await sleep(800)
 const anyway = page.locator('.notice button', { hasText: /anyway/i })
 check('a refusal offers sending it to the program anyway', (await anyway.count()) === 1)
@@ -230,8 +249,7 @@ await page.locator('.pane[data-integration]').first().locator('.composer__input'
 await page.keyboard.press('Control+C')
 await sleep(2000)
 const runsBefore = (await blockCommands()).filter((c) => c === 'echo first-block').length
-await page.locator('.block', { hasText: 'echo first-block' }).first().hover()
-await page.locator('.block', { hasText: 'echo first-block' }).first().locator('button[title="Run again"]').click()
+await runAgain()
 await sleep(2200)
 check(
   'at the prompt, Run again runs',

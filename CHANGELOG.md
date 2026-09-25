@@ -5,6 +5,15 @@ newest entry sits on top.
 
 ## Unreleased
 
+### verify-typing reaches its button the way a reader would
+
+- **The check scrolled a button into view in code, and the pane took it back.** Since a
+  terminal stops following its output only for a real gesture, a scroll made in code
+  no longer holds the view, so the pane returned to the end between mouse-down and
+  mouse-up and "Run again" was missed — four runs in a row on the runner. The check
+  now scrolls with the mouse wheel, as `verify-output` already does, and asserts what
+  it always did.
+
 ### Finding a line keeps the view there while a command runs
 
 - **Only-the-reader broke the find bar.** A terminal now stops following its output only
