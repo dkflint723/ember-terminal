@@ -189,6 +189,13 @@ export class AiService {
          * larger ceiling costs nothing unless it is used.
          */
         max_tokens: thinksByDefault(model) ? 16_000 : 4096,
+        /*
+         * High, said rather than assumed. It is the default on every model that
+         * takes effort except Opus 5.5 — the default model — which starts at
+         * medium, so leaving it unsaid would have made the panel think less on the
+         * one model most people are using.
+         */
+        ...(takesEffort(model) ? { output_config: { effort: 'high' as const } } : {}),
         system,
         messages: req.messages.map((m) => ({ role: m.role, content: m.text })),
         ...fallbackFor(model)

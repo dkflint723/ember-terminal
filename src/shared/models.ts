@@ -18,14 +18,14 @@ export interface AiModelChoice {
 
 export const AI_MODELS: AiModelChoice[] = [
   {
-    id: 'claude-opus-5',
-    label: 'Opus 5',
-    note: 'The default. Strongest on hard, long-running work.'
-  },
-  {
     id: 'claude-opus-5-5',
     label: 'Opus 5.5',
-    note: 'The newest Opus, and cheaper than Opus 5. It always thinks before answering.'
+    note: 'The default. The newest Opus: strongest on hard, long-running work, and cheaper than Opus 5.'
+  },
+  {
+    id: 'claude-opus-5',
+    label: 'Opus 5',
+    note: 'The previous default, for comparing against.'
   },
   {
     id: 'claude-sonnet-5',

@@ -1079,7 +1079,7 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultProfileId: null,
   themeId: 'tidewater',
   anthropicApiKey: null,
-  aiModel: 'claude-opus-5',
+  aiModel: 'claude-opus-5-5',
   restoreSession: true,
   notifyAfterSeconds: 10,
   autoSaveAfterSeconds: 0,
