@@ -26,7 +26,7 @@ import { _electron as electron } from 'playwright-core'
 import { spawnSync } from 'node:child_process'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
-import { watchPageErrors } from './harness.mjs'
+import { closeApp, watchPageErrors, watchRunning } from './harness.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -51,6 +51,7 @@ const app = watchPageErrors(
   pageErrors
 )
 const page = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 await page.waitForSelector('.pane[data-integration]', { timeout: 40_000 })
 await sleep(1500)
@@ -254,16 +255,11 @@ if (!profiles.some((p) => p.id === 'wsl')) {
  * it closes, and nobody here answers: two of five nights this suite sat at that
  * question until the gate killed it at twenty minutes, printing nothing at all —
  * which read as the suite having hung rather than as a command that never ran.
+ * The bound this suite kept for itself is the harness's now, which also says which
+ * command it was asking about and kills the whole tree rather than Electron alone.
  */
-const closed = await Promise.race([app.close().then(() => true), sleep(20_000).then(() => false)])
-if (!closed) {
-  failures.push('the window closes when asked — still open after 20s, most likely asking about a command it thinks is running')
-  try {
-    app.process().kill()
-  } catch {
-    // Already gone.
-  }
-}
+const unclosed = await closeApp(app)
+if (unclosed) failures.push(unclosed)
 profile.cleanup()
 fs.rmSync(work, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)

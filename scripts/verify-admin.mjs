@@ -12,7 +12,7 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
-import { watchPageErrors } from './harness.mjs'
+import { closeApp, watchPageErrors, watchRunning } from './harness.mjs'
 import { spawn } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
@@ -43,6 +43,7 @@ const launch = (extra = []) =>
 // --- the ordinary window ---------------------------------------------------------
 const ordinary = await launch()
 const ordinaryPage = await ordinary.firstWindow()
+await watchRunning(ordinary)
 await placeTopRight(ordinary)
 await ordinaryPage.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
 await sleep(1500)
@@ -58,6 +59,7 @@ check(
 // --- the admin twin, alongside it -------------------------------------------------
 const admin = await launch(['--admin-window'])
 const adminPage = await admin.firstWindow()
+await watchRunning(admin)
 await adminPage.waitForSelector('.pane', { timeout: 40_000 })
 await sleep(1500)
 
@@ -193,11 +195,13 @@ await ordinaryPage.evaluate(() =>
 fs.mkdirSync(path.join(profile.dir, 'themes'), { recursive: true })
 fs.writeFileSync(path.join(profile.dir, 'themes', 'acme.json'), '{"name":"Acme"}')
 await sleep(800)
-await admin.close()
+const adminUnclosed = await closeApp(admin)
+if (adminUnclosed) failures.push(`the admin window, first launch: ${adminUnclosed}`)
 await sleep(1200)
 
 const again = await launch(['--admin-window'])
 const againPage = await again.firstWindow()
+await watchRunning(again)
 await againPage.waitForSelector('.pane', { timeout: 40_000 })
 await sleep(2000)
 const carried = await againPage.evaluate(() => window.ember.getSettings())
@@ -233,7 +237,8 @@ check(
   !JSON.stringify(adminSettings.recentFolders ?? []).includes('ordinary-window-only'),
   JSON.stringify(adminSettings.recentFolders)
 )
-await again.close()
+const againUnclosed = await closeApp(again)
+if (againUnclosed) failures.push(`the admin window, relaunched: ${againUnclosed}`)
 
 /*
  * --- what is NOT checked here, and why -------------------------------------------
@@ -255,7 +260,8 @@ await again.close()
  * harness died. That fix ships unverified and is the one to be suspicious of.
  */
 
-await ordinary.close()
+const unclosed = await closeApp(ordinary)
+if (unclosed) failures.push(`the ordinary window: ${unclosed}`)
 profile.cleanup()
 fs.rmSync(adminDir, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)

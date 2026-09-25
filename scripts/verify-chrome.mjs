@@ -39,6 +39,7 @@ import { newProfile } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { closeApp, watchRunning } from './harness.mjs'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 const profile = newProfile('chrome')
@@ -64,6 +65,7 @@ const app = await electron.launch({
   timeout: 60_000
 })
 const page = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))
@@ -352,7 +354,8 @@ if (block) {
   check('a block carries no elevation of its own', block.shadow === 'none', block.shadow.slice(0, 90))
 }
 
-await app.close()
+const unclosed = await closeApp(app)
+if (unclosed) failures.push(unclosed)
 profile.cleanup()
 fs.rmSync(work, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)

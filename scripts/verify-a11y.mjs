@@ -12,6 +12,7 @@ import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
 import * as path from 'node:path'
+import { closeApp, watchRunning } from './harness.mjs'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 const profile = newProfile('a11y')
@@ -27,6 +28,7 @@ const app = await electron.launch({
   timeout: 60_000
 })
 const page = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))
@@ -254,7 +256,8 @@ check(
   left || '(nothing focused)'
 )
 
-await app.close()
+const unclosed = await closeApp(app)
+if (unclosed) failures.push(unclosed)
 profile.cleanup()
 for (const f of failures) console.log(`  - ${f}`)
 console.log('keyboard and a11y:', failures.length === 0 ? 'PASS' : 'FAIL')

@@ -15,6 +15,7 @@ import { newProfile } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { closeApp, watchRunning } from './harness.mjs'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 const profile = newProfile('windows')
@@ -92,6 +93,7 @@ const waitForWindows = async (app, count, timeoutMs = 25_000) => {
 // --- first life: two windows, separate shells ----------------------------------
 let app = await launch()
 const one = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 await ready(one)
 
@@ -260,7 +262,8 @@ check('the emptied window closed behind its session', one.isClosed())
 
 // Both survivors get a beat to write their sessions down before the app goes.
 await sleep(3000)
-await app.close()
+const firstUnclosed = await closeApp(app)
+if (firstUnclosed) failures.push(`first life: ${firstUnclosed}`)
 await sleep(1500)
 
 // --- second life: every window comes back --------------------------------------
@@ -277,6 +280,7 @@ await sleep(1500)
  * race instead of waiting for it.
  */
 app = await launch({ EMBER_SESSION_LOAD_DELAY_MS: '4000' })
+await watchRunning(app)
 const revived = await waitForWindows(app, 2, 40_000)
 for (const page of revived) await ready(page)
 const texts = await Promise.all(revived.map((p) => paneText(p)))
@@ -290,7 +294,8 @@ check(
   texts.some((t) => t.includes('win-two-marker') && !t.includes('win-one-marker'))
 )
 
-await app.close()
+const unclosed = await closeApp(app)
+if (unclosed) failures.push(unclosed)
 profile.cleanup()
 fs.rmSync(dir, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)

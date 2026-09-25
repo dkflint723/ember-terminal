@@ -12,6 +12,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { closeApp, watchRunning } from './harness.mjs'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 const profile = newProfile('git')
@@ -61,6 +62,7 @@ const check = (label, ok, detail) => {
     timeout: 60_000
   })
   const page = await app.firstWindow()
+  await watchRunning(app)
   await placeTopRight(app)
   await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
   await sleep(1500)
@@ -97,7 +99,8 @@ const check = (label, ok, detail) => {
   check('with no folder opened to make it happen', after.workspace === false)
   await page.screenshot({ path: path.join(SHOT_DIR, '71-git-cwd-chips.png') })
 
-await app.close()
+const unclosed = await closeApp(app)
+if (unclosed) failures.push(`the launch with no folder: ${unclosed}`)
   await sleep(800)
   bare.cleanup()
 }
@@ -130,6 +133,7 @@ const errors = []
 // is already treated as benign by the editor checks for the same reason.
 const BENIGN = [/textDocument\/foldingRange failed/]
 const page = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 page.on('pageerror', (e) => {
   if (!BENIGN.some((re) => re.test(e.message))) errors.push(e.message)
@@ -837,6 +841,7 @@ git('rm', '-q', '-f', '--', 'oversize.txt')
     timeout: 60_000
   })
   const wtPage = await wtApp.firstWindow()
+  await watchRunning(wtApp)
   await placeTopRight(wtApp)
   await wtPage.waitForSelector('.monaco-editor', { timeout: 30_000 })
   wtPage.on('dialog', (d) => void d.accept())
@@ -878,14 +883,16 @@ git('rm', '-q', '-f', '--', 'oversize.txt')
     )
   }
 
-  await wtApp.close()
+  const unclosed = await closeApp(wtApp)
+  if (unclosed) failures.push(`the linked worktree’s window: ${unclosed}`)
   await sleep(800)
   wtProfile.cleanup()
   git('worktree', 'remove', '--force', linked)
   git('branch', '-q', '-D', 'sidebranch')
 }
 
-await app.close()
+const unclosed = await closeApp(app)
+if (unclosed) failures.push(unclosed)
 fs.rmSync(repo, { recursive: true, force: true })
 try {
   // The junction itself, left dangling once the folder it named is gone.

@@ -10,7 +10,7 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
-import { watchPageErrors } from './harness.mjs'
+import { closeApp, watchPageErrors, watchRunning } from './harness.mjs'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
@@ -38,6 +38,7 @@ const near = (a, b, tolerance) => Math.abs(a - b) <= tolerance
 // --- first life -----------------------------------------------------------------
 let app = await launch()
 let page = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
 await sleep(1500)
@@ -80,11 +81,13 @@ check(
     near(written.windowBounds.width, 1000, 2),
   JSON.stringify(written.windowBounds)
 )
-await app.close()
+const firstUnclosed = await closeApp(app)
+if (firstUnclosed) failures.push(`first life: ${firstUnclosed}`)
 
 // --- second life ----------------------------------------------------------------
 app = await launch()
 page = await app.firstWindow()
+await watchRunning(app)
 await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
 await sleep(1500)
 
@@ -103,7 +106,8 @@ check(
 )
 check('at the zoom it was left at', near(revived.zoom, 1.1, 0.011), String(revived.zoom))
 
-await app.close()
+const unclosed = await closeApp(app)
+if (unclosed) failures.push(unclosed)
 profile.cleanup()
 for (const f of failures) console.log(`  - ${f}`)
 if (pageErrors.length > 0) console.log('page errors:', pageErrors.slice(0, 4).join(' | '))

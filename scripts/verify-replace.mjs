@@ -11,6 +11,7 @@ import { newProfile } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { closeApp, watchRunning } from './harness.mjs'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 const profile = newProfile('replace')
@@ -52,6 +53,7 @@ const app = await electron.launch({
   timeout: 60_000
 })
 const page = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 // Replacing across files asks before writing, since there is no undo for it.
 // Recorded and accepted; Playwright would otherwise dismiss the prompt and the
@@ -169,7 +171,8 @@ check(
   JSON.stringify(read(alpha))
 )
 
-await app.close()
+const unclosed = await closeApp(app)
+if (unclosed) failures.push(unclosed)
 profile.cleanup()
 fs.rmSync(work, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)

@@ -13,6 +13,7 @@ import { execFileSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { closeApp, watchRunning } from './harness.mjs'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 const profile = newProfile('gutters')
@@ -66,6 +67,7 @@ const app = await electron.launch({
   timeout: 60_000
 })
 const page = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))
@@ -214,7 +216,8 @@ const crlfState = await page.evaluate(() => {
 check('the CRLF file opens as CRLF', crlfState?.crlf === true, JSON.stringify(crlfState))
 check('and, untouched, shows no marks', crlfState?.marks === 0, JSON.stringify(crlfState))
 
-await app.close()
+const unclosed = await closeApp(app)
+if (unclosed) failures.push(unclosed)
 profile.cleanup()
 fs.rmSync(repo, { recursive: true, force: true })
 try {

@@ -18,6 +18,7 @@ import { newProfile } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { closeApp, watchRunning } from './harness.mjs'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 const profile = newProfile('dap')
@@ -85,6 +86,7 @@ const check = (label, ok, detail) => {
 
 let app = await launch()
 let page = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))
@@ -365,10 +367,12 @@ check(
 
 // --- the posture survives a relaunch -----------------------------------------------
 await sleep(2500)
-await app.close()
+const firstUnclosed = await closeApp(app)
+if (firstUnclosed) failures.push(`before the relaunch: ${firstUnclosed}`)
 await sleep(1200)
 app = await launch()
 page = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
 await sleep(2000)
@@ -501,7 +505,8 @@ check(
 )
 const beforeQuit = fs.existsSync(dapLog) ? fs.readFileSync(dapLog, 'utf8') : ''
 
-await app.close()
+const unclosed = await closeApp(app)
+if (unclosed) failures.push(unclosed)
 await sleep(1500)
 const whole = fs.existsSync(dapLog) ? fs.readFileSync(dapLog, 'utf8') : ''
 const disconnects = whole.slice(beforeQuit.length).trim()
