@@ -116,6 +116,39 @@ check(
   mayRunIn('C:\\projects\\ember\\x.ts', { trustedFolders: TRUSTED, workspaceTrust: true }).trusted
 )
 
+/*
+ * --- a second name for the same folder --------------------------------------------
+ *
+ * The spelling cases above are the easy half: capitalisation and separators are
+ * the differences a string can forgive. An 8.3 short name and a junction are not —
+ * C:\Users\RUNNER~1 and C:\Users\runneradmin share no text to compare — so main
+ * keeps the trusted list by each folder's real name and the caller brings the real
+ * name of what it asks about. These are the rules for using it; that main actually
+ * resolves both sides is verify-scripts' to show, against a real junction.
+ */
+const REAL = ['C:\\Users\\runneradmin\\proj']
+cases += 5
+check(
+  'a folder asked about by its short name is trusted by its real one',
+  mayRunIn('C:\\Users\\RUNNER~1\\proj', { trustedFolders: REAL }, 'C:\\Users\\runneradmin\\proj').trusted
+)
+check(
+  'and so is a file inside it',
+  mayRunFolderCode('C:\\Users\\RUNNER~1\\proj\\a.ts', REAL, 'C:\\Users\\runneradmin\\proj\\a.ts').trusted
+)
+check(
+  'the name as given still counts before the real one is known',
+  mayRunIn('C:\\Users\\runneradmin\\proj', { trustedFolders: REAL }, null).trusted
+)
+check(
+  'a real name elsewhere does not borrow the trust of the spelling',
+  !mayRunIn('C:\\link', { trustedFolders: REAL }, 'D:\\elsewhere').trusted
+)
+check(
+  'and without its real name a short spelling is only its own text',
+  !mayRunIn('C:\\Users\\RUNNER~1\\proj', { trustedFolders: REAL }).trusted
+)
+
 console.log(
   failures === 0 ? `workspace trust: ${cases} cases PASS` : `workspace trust: ${failures} checks FAILED of ${cases} cases`
 )

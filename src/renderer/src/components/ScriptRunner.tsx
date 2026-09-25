@@ -3,7 +3,7 @@ import type { QuickPickItem } from './QuickPick'
 import { QuickPick } from './QuickPick'
 import { terminalPaneIdFor, useStore, workspaceRoot } from '../state/store'
 import { argumentIn, fillBlanksIn, sendOrExplain } from '../terminal/typing'
-import { explainRestricted, mayRunHere } from '../state/trust'
+import { explainRestricted, mayRunHereNow } from '../state/trust'
 
 /**
  * The scripts a project already declares, one press from running.
@@ -202,7 +202,7 @@ export function ScriptRunner(): React.JSX.Element {
    * They came from a package.json and a file walk, and went in raw: a script called
    * `say hi` ran `say` with `hi`, and a name with a `;` in it was two commands.
    */
-  const withArgument = (prefix: string, value: string): void => {
+  const withArgument = async (prefix: string, value: string): Promise<void> => {
     /*
      * The project's own command lines, which is exactly what separates these from
      * the saved commands below: `build` is whatever this project says build
@@ -211,7 +211,7 @@ export function ScriptRunner(): React.JSX.Element {
      * person, they are shown whatever folder is open, and a folder's trust has
      * nothing to say about a command someone wrote themselves.
      */
-    if (!mayRunHere().trusted) {
+    if (!(await mayRunHereNow()).trusted) {
       explainRestricted(`“${prefix} ${value}” was not run.`)
       return
     }
@@ -224,7 +224,7 @@ export function ScriptRunner(): React.JSX.Element {
     }
     send(`${prefix} ${argument}`)
   }
-  const run = (name: string): void => withArgument(runner, name)
+  const run = (name: string): void => void withArgument(runner, name)
 
   /*
    * A saved command with holes is asked about before it runs, one at a time and
@@ -326,7 +326,7 @@ export function ScriptRunner(): React.JSX.Element {
               className="scripts__item"
               type="button"
               title={`Run: ${runner} test -- ${file}`}
-              onClick={() => withArgument(`${runner} test --`, file)}
+              onClick={() => void withArgument(`${runner} test --`, file)}
             >
               <span className="scripts__play" aria-hidden="true">
                 ▸

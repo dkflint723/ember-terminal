@@ -97,6 +97,26 @@ export function longPath(p: string): string {
   return real
 }
 
+/**
+ * The filesystem's own name for a path: short names written out, junctions,
+ * substituted drives and links followed, capitalisation as it is on disk.
+ *
+ * Deliberately not what `longPath` returns. That one keeps the spelling the person
+ * chose, because it is what they are shown; this one is for asking whether two
+ * spellings are one place, which is what workspace trust has to know — a decision
+ * about a folder that a junction or an 8.3 name could get it to forget is not a
+ * decision about the folder. A path that cannot be resolved (gone, unplugged, not
+ * allowed) comes back as given, so nothing that worked by its own spelling stops.
+ */
+export function realFolder(p: string): string {
+  if (!p) return p
+  try {
+    return realpathSync.native(p)
+  } catch {
+    return p
+  }
+}
+
 export class FileService {
   /**
    * Whether a directory is still there. Used when putting a session back: a

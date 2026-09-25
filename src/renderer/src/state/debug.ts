@@ -5,7 +5,7 @@ import { existingController } from '../terminal/controller'
 import { readinessOf } from '../terminal/typing'
 import { activeDocument, paneIdsOf, useStore, workspaceRoot } from './store'
 import { mayRunIn } from '@shared/trust'
-import { explainRestricted } from './trust'
+import { explainRestricted, learnRealName } from './trust'
 
 /**
  * Debugging, from the renderer's side of the protocol.
@@ -864,7 +864,9 @@ export async function startDebugging(): Promise<void> {
    * Gated here rather than at each branch below, which is where a fourth kind of
    * launch would quietly have missed it.
    */
-  if (!mayRunIn(workspace || file, app.settings).trusted) {
+  const asked = workspace || file
+  const real = asked ? await learnRealName(asked) : null
+  if (!mayRunIn(asked, app.settings, real).trusted) {
     explainRestricted('The debugger did not start.')
     idleAgain()
     return

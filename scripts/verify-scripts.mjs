@@ -380,6 +380,132 @@ check(
   JSON.stringify(testRan.slice(-2))
 )
 
+/*
+ * --- trust belongs to the folder, not to the name it was reached by --------------
+ *
+ * Windows gives one directory several names that share no text: an 8.3 short name
+ * (C:\Users\RUNNER~1 is C:\Users\runneradmin), a junction, a substituted drive.
+ * Trust used to be written down in whichever spelling it was given and checked
+ * against whichever spelling the folder had now, so the answer depended on the
+ * route. On a runner, whose TEMP is a short path, that restricted every fixture a
+ * suite had trusted the moment Ember began writing short names out on the way in.
+ *
+ * A junction stands in for every second name here because any machine can make
+ * one without being an administrator, where 8.3 names can be switched off per
+ * volume. Both directions are checked — trusted by the other name and opened by
+ * this one, and trusted by this name and opened by the other — because only the
+ * first is fixed by writing the list down canonically.
+ */
+const aliasHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-scripts-alias-'))
+const alias = path.join(aliasHome, 'ember-alias-link')
+fs.symlinkSync(work, alias, 'junction')
+const builds = () =>
+  page.evaluate(
+    () => [...document.querySelectorAll('.block__cmd')].filter((e) => e.textContent === 'pnpm run build').length
+  )
+const trustChip = () => page.locator('[data-status="trust"]').count()
+const until = async (probe, ms = 8000) => {
+  const end = Date.now() + ms
+  for (;;) {
+    if (await probe()) return true
+    if (Date.now() > end) return false
+    await sleep(200)
+  }
+}
+const noticeText = () =>
+  page.evaluate(() => document.querySelector('.notice')?.textContent?.replace(/\s+/g, ' ').trim() ?? '')
+/*
+ * Whether a press got past trust. Either it opened a block, or it reached the
+ * typing rule, which comes after trust and refuses for its own reason — on a
+ * runner without pnpm the first press can still be waiting on corepack when the
+ * second arrives, and "still running in that terminal" is an answer about the
+ * terminal, not the folder. What must not appear is the word trust refuses with.
+ */
+const pressBuild = async () => {
+  if (await page.locator('.notice__close').count()) await page.locator('.notice__close').click()
+  // The activity bar toggles: pressed while the view is showing, it closes it.
+  const showing = await page.evaluate(() => document.querySelector('.sidebar')?.getAttribute('data-view'))
+  if (showing !== 'run') await page.click('.activity__item[data-view="run"]')
+  await page.waitForSelector('.scripts__item', { timeout: 10_000 })
+  const before = await builds()
+  await page.locator('.scripts__item', { hasText: 'build' }).first().click()
+  const answered = await until(
+    async () => (await builds()) > before || /not sent|restricted/i.test(await noticeText())
+  )
+  return answered && !/restricted/i.test(await noticeText())
+}
+
+// Trusted through the junction; open under the folder's own name.
+await page.evaluate((dir) => window.ember.setSettings({ trustedFolders: [dir] }), alias)
+check(
+  'a folder trusted by another name is not shown as restricted',
+  await until(async () => (await trustChip()) === 0),
+  `${await trustChip()} restricted chip(s); trusted as ${alias}`
+)
+check(
+  'and its scripts are not refused as restricted',
+  await pressBuild(),
+  JSON.stringify(await noticeText())
+)
+if (await page.locator('.notice__close').count()) await page.locator('.notice__close').click()
+
+// Trusted under its own name; opened through the junction.
+await page.evaluate(
+  ({ dir, link }) => window.ember.setSettings({ trustedFolders: [dir], recentFolders: [link] }),
+  { dir: work, link: alias }
+)
+await page.keyboard.press('Control+Shift+P')
+await page.waitForSelector('.qp__box', { timeout: 10_000 })
+await page.locator('.qp__box').fill('Open Recent: ember-alias-link')
+const recentRow = page.locator('.qp__item', { hasText: 'ember-alias-link' })
+const offeredRecent = await until(async () => (await recentRow.count()) > 0, 5000)
+const qpItems = await page.evaluate(() =>
+  [...document.querySelectorAll('.qp__item')].slice(0, 4).map((e) => e.textContent ?? '')
+)
+if (offeredRecent) await recentRow.first().click()
+else await page.keyboard.press('Escape')
+const rootNow = () => page.evaluate(() => document.querySelector('.tree__root')?.getAttribute('title') ?? null)
+const reopened = await until(async () => (await rootNow())?.toLowerCase() === alias.toLowerCase())
+// The precondition, said out loud: if the folder were still open under its own
+// name, the two checks below would pass on any build and prove nothing.
+check(
+  'the folder is open through the junction',
+  reopened,
+  JSON.stringify({
+    root: await rootNow(),
+    view: await page.evaluate(() => document.querySelector('.sidebar')?.getAttribute('data-view') ?? null),
+    offered: qpItems
+  })
+)
+if (reopened) {
+  check(
+    'a folder opened by another name keeps the trust given to it',
+    await until(async () => (await trustChip()) === 0),
+    `${await trustChip()} restricted chip(s)`
+  )
+  check('and its scripts are not refused as restricted', await pressBuild(), JSON.stringify(await noticeText()))
+  if (await page.locator('.notice__close').count()) await page.locator('.notice__close').click()
+
+  // And withdrawn by that other name, it is withdrawn — not left standing under
+  // the spelling it was given in.
+  await page.keyboard.press('Control+Shift+P')
+  await page.waitForSelector('.qp__box', { timeout: 10_000 })
+  await page.locator('.qp__box').fill('Stop Running Code From This Folder')
+  // Clicked rather than chosen with Enter, as the recent folder was: the row is
+  // the thing being asserted about, and it is either offered or it is not.
+  const revokeRow = page.locator('.qp__item', { hasText: 'Stop Running Code From This Folder' })
+  const offeredRevoke = await until(async () => (await revokeRow.count()) > 0, 5000)
+  check('the palette offers to stop trusting the folder, by the name it is open under', offeredRevoke)
+  if (offeredRevoke) await revokeRow.first().click()
+  else await page.keyboard.press('Escape')
+  const left = async () => page.evaluate(() => window.ember.getSettings().then((s) => s.trustedFolders))
+  check(
+    'revoked by another name, the trust is gone',
+    await until(async () => (await left()).length === 0 && (await trustChip()) === 1),
+    `${JSON.stringify(await left())}, ${await trustChip()} restricted chip(s)`
+  )
+}
+
 await app.close()
 
 /*
@@ -438,6 +564,11 @@ for (const fixture of [
 }
 
 profile.cleanup()
+// The junction first, by itself: removing it recursively could walk into the fixture.
+try {
+  fs.rmdirSync(alias)
+} catch {}
+fs.rmSync(aliasHome, { recursive: true, force: true })
 fs.rmSync(work, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)
 if (errors.length) console.log('page errors:', errors.slice(0, 3).join(' | '))

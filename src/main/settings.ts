@@ -3,6 +3,24 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from '
 import { dirname, join } from 'node:path'
 import { DEFAULT_SETTINGS, type Settings } from '../shared/types.js'
 import { withTrust, withoutTrust } from '../shared/trust.js'
+import { realFolder } from './files.js'
+
+/**
+ * A trusted list with every folder under its real name, folded through the same
+ * subsumption rule a single grant goes through — two spellings of one folder
+ * become one entry, and a child of a trusted folder is absorbed by it.
+ *
+ * `ask` says which entries are worth asking the filesystem about. Asking is not
+ * free — a folder on a share that has gone away can hold a realpath for seconds —
+ * so an entry already written by its real name is not asked about again.
+ */
+function realTrust(folders: unknown, ask: (folder: string) => boolean = () => true): string[] {
+  if (!Array.isArray(folders)) return []
+  return folders
+    .filter((f): f is string => typeof f === 'string' && f.trim().length > 0)
+    .map((f) => (ask(f) ? realFolder(f) : f))
+    .reduce<string[]>((held, f) => withTrust(held, f), [])
+}
 
 /** Marker so we can tell an encrypted key from a plaintext one on read. */
 const ENC_PREFIX = 'enc:v1:'
@@ -58,6 +76,12 @@ export class SettingsStore {
     // The second key gets the same treatment as the first. A provider key sitting
     // in plaintext beside an encrypted one is the worse kind of half-measure.
     merged.ghostApiKey = this.decryptKey(merged.ghostApiKey)
+    // A list written before trust was kept by real name is put right on the way
+    // in, so a folder trusted by its short name is still trusted by its long. Only
+    // short names are asked about here, at startup, where a stall is felt; an entry
+    // spelled through a junction still matches that same spelling, and is written
+    // by its real name the next time anything is trusted.
+    merged.trustedFolders = realTrust(merged.trustedFolders, (f) => f.includes('~'))
     this.cache = merged
     return merged
   }
@@ -81,7 +105,14 @@ export class SettingsStore {
    * next launch.
    */
   set(patch: Partial<Settings>): { settings: Settings; persisted: boolean; error?: string } {
+    const held = this.get().trustedFolders
     const next: Settings = { ...this.get(), ...patch }
+    // Whoever sends a whole list — the settings dialog, a suite — is held to the
+    // same rule as a single grant: each folder by its real name. A save that sends
+    // the list back unchanged asks about nothing.
+    if (patch.trustedFolders !== undefined) {
+      next.trustedFolders = realTrust(patch.trustedFolders, (f) => !held.includes(f))
+    }
     this.cache = next
 
     const onDisk: Settings = {
@@ -153,7 +184,17 @@ export class SettingsStore {
   noteTrust(folder: string, trusted: boolean): Settings {
     if (!folder.trim()) return this.get()
     const held = this.get().trustedFolders
-    const next = trusted ? withTrust(held, folder) : withoutTrust(held, folder)
+    /*
+     * Written down by the folder's real name rather than by the spelling it was
+     * reached through, which is the whole of what makes the answer survive a
+     * second spelling: the same folder opened as C:\Users\LONGNA~1\proj, as
+     * C:\Users\LongName\proj or through a junction is one entry and one decision.
+     * Withdrawn by both, so a revocation cannot miss an entry by spelling either.
+     */
+    const real = realFolder(folder)
+    const next = trusted
+      ? withTrust(held, real)
+      : withoutTrust(withoutTrust(held, real), folder)
     // Nothing changed — a folder already trusted, or a revocation of one that
     // never was. Writing anyway would push a settings:changed at every window.
     if (next.length === held.length && next.every((f, i) => f === held[i])) return this.get()

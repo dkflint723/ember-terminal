@@ -5,6 +5,28 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A trusted folder stays trusted under its other names
+
+- **Trust was kept by spelling, not by folder.** A folder's trust was written down in
+  whichever spelling it arrived in and checked against whichever spelling it had
+  later, and Windows gives one directory names that share no text: an 8.3 short name,
+  a junction, a substituted drive. Once short names on the command line started being
+  written out, a folder trusted as `C:\Users\LONGNA~1\proj` opened as
+  `C:\Users\LongName\proj` and was restricted again — scripts refused, the debugger
+  refused, the workspace's Prettier not run. One reached through a junction was
+  restricted whichever side had been trusted, and always had been.
+- **Both sides are now the folder's real name.** Main records each trusted folder the
+  way the filesystem finally names it — short names written out, junctions followed —
+  for a grant, a whole list, and a short-named entry in an older settings file; a
+  revocation withdraws both spellings. The window asks main for the real name of the
+  folder it is asking about, and a folder is trusted by either name. What is shown on
+  screen keeps the spelling the person chose.
+- **How it is checked:** `verify-scripts` makes a junction to its project and checks
+  trust given through it, used through it, and withdrawn through it. On the build
+  before this every one is refused as restricted, and `verify-typing` fails on the same
+  notice on the runner; with it both pass, three runs in a row. The short-name case is
+  only exercised where TEMP is a short path, as on the runner.
+
 ### verify-typing reaches its button the way a reader would
 
 - **The check scrolled a button into view in code, and the pane took it back.** Since a

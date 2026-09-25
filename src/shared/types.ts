@@ -1218,6 +1218,12 @@ export interface EmberApi {
    * whole list would send the copy it happened to be holding.
    */
   noteTrust(folder: string, trusted: boolean): Promise<Settings>
+  /**
+   * The filesystem's own name for a folder — short names written out, junctions
+   * followed — which is how trust recognises one folder under two spellings. The
+   * path comes back as given when it cannot be resolved.
+   */
+  realFolder(folder: string): Promise<string>
   /** Record that a composer chord has been used, so its hint retires. */
   noteLearnedChord(chord: string): Promise<Settings>
   /** Whether a saved API key would really be encrypted at rest. */

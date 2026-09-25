@@ -247,6 +247,7 @@ const api: EmberApi = {
     ipcRenderer.invoke('settings:noteChord', chord),
   noteTrust: (folder: string, trusted: boolean): Promise<Settings> =>
     ipcRenderer.invoke('settings:noteTrust', folder, trusted),
+  realFolder: (folder: string): Promise<string> => ipcRenderer.invoke('file:realFolder', folder),
   settingsLoadError: (): Promise<string | null> => ipcRenderer.invoke('settings:loadError'),
   reportUnsaved: (counts: { dirty: number; kept: number; running?: string[] }) =>
     ipcRenderer.send('window:unsaved', counts),

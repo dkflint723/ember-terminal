@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { modelLabel } from '@shared/models'
 import { activeDocument, useStore, workspaceRoot } from '../state/store'
 import { isTrustedPath } from '@shared/trust'
-import { setTrust } from '../state/trust'
+import { realNameOf, setTrust } from '../state/trust'
 import { QuickPick, type QuickPickItem } from './QuickPick'
 import { chordFor } from '../keys'
 
@@ -361,7 +361,8 @@ function commands(): Command[] {
      */
     ...(trustRoot
       ? [
-          isTrustedPath(trustRoot, s.settings.trustedFolders ?? [])
+          isTrustedPath(trustRoot, s.settings.trustedFolders ?? []) ||
+          isTrustedPath(realNameOf(trustRoot) ?? '', s.settings.trustedFolders ?? [])
             ? {
                 id: 'workspace.revokeTrust',
                 label: 'Workspace: Stop Running Code From This Folder',

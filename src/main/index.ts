@@ -187,7 +187,7 @@ import { SettingsStore } from './settings.js'
 import { ThemeStore } from './themes.js'
 import { CompletionService } from './completion.js'
 import { HistoryStore } from './history.js'
-import { FileService, fileArgs, isStamp, pathArgs } from './files.js'
+import { FileService, fileArgs, isStamp, pathArgs, realFolder } from './files.js'
 import { isEncodingName } from '../shared/encoding.js'
 import { hasSecret } from '../shared/secrets.js'
 import { isTrustedPath } from '../shared/trust.js'
@@ -1722,7 +1722,13 @@ function registerIpc(): void {
     'format:prettier',
     (_e, filePath: string, content: string, root?: string | null) => {
       const current = settings.get()
-      if (current.workspaceTrust !== false && !isTrustedPath(filePath, current.trustedFolders)) {
+      // By either name, for the reason shared/trust.ts gives: the list holds each
+      // folder's real name, and the file may have been reached by another one.
+      if (
+        current.workspaceTrust !== false &&
+        !isTrustedPath(filePath, current.trustedFolders) &&
+        !isTrustedPath(realFolder(filePath), current.trustedFolders)
+      ) {
         /*
          * 'restricted' only where there was something to decline. A project with
          * no prettier has stated no opinion, and warning about a formatter that
@@ -1805,6 +1811,9 @@ function registerIpc(): void {
     const win = windowFromEvent(e) ?? mainWindow
     return win ? files.openDialog(win, defaultPath) : { ok: false, error: 'No window.' }
   })
+  ipcMain.handle('file:realFolder', (_e, folder: string) =>
+    typeof folder === 'string' ? realFolder(folder) : folder
+  )
   ipcMain.handle('file:openFolderDialog', (e, defaultPath?: string) => {
     const win = windowFromEvent(e) ?? mainWindow
     return win ? files.openFolderDialog(win, defaultPath) : null

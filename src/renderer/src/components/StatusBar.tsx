@@ -1,7 +1,6 @@
 import { ENCODING_LABELS, type TextEncodingName } from '@shared/encoding'
 import { isInside, pathKey, samePath, shortenPath } from '@shared/paths'
-import { isTrustedPath } from '@shared/trust'
-import { setTrust } from '../state/trust'
+import { setTrust, useTrustedAt } from '../state/trust'
 import { activeDocument, paneIdsOf, useStore, type TerminalPaneState } from '../state/store'
 import { modelUri, monaco } from '../editor/monaco'
 import { useProblems } from './ProblemsPanel'
@@ -111,8 +110,10 @@ export function StatusBar(): React.JSX.Element | null {
   const showSidebarView = useStore((s) => s.showSidebarView)
   const setNotice = useStore((s) => s.setNotice)
   const setDirPicker = useStore((s) => s.setDirPicker)
-  const trustedFolders = useStore((s) => s.settings.trustedFolders)
-  const workspaceTrust = useStore((s) => s.settings.workspaceTrust)
+  const activeWorkspace = useStore(
+    (s) => s.tabs.find((t) => t.id === s.activeTabId)?.workspace ?? null
+  )
+  const workspaceTrusted = useTrustedAt(activeWorkspace)
   const cursorAt = useStore((s) => s.cursorAt)
   const problems = useProblems()
 
@@ -165,10 +166,7 @@ export function StatusBar(): React.JSX.Element | null {
    * somebody who has not been told that will read it as the feature being broken
    * rather than as a decision they have not made yet.
    */
-  const restricted =
-    workspaceTrust !== false &&
-    !!tab.workspace &&
-    !isTrustedPath(tab.workspace, trustedFolders ?? [])
+  const restricted = !!tab.workspace && !workspaceTrusted
 
   const copyPath = (): void => {
     if (!cwd) return

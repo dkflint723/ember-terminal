@@ -10,10 +10,17 @@
  *
  * A folder is trusted or it is not, and the answer is remembered per folder. The
  * comparison has to be canonical: Windows hands the same directory back with
- * different capitalisation, through junctions, and under 8.3 short names, and a
- * trust check that can be walked around by spelling is not a trust check. The
- * canonical form is resolved by the caller — only the main process can follow a
- * junction — and this module decides what the answer means.
+ * different capitalisation, through junctions, and under 8.3 short names. This
+ * module used to say the caller resolved that, and no caller did — trust was
+ * written down in whatever spelling the folder had when it was given and checked
+ * against whatever spelling it had now, so a folder trusted as C:\Users\RUNNER~1\…
+ * was restricted again the moment it was opened as C:\Users\runneradmin\…, which
+ * since the short names were written out on the way in is every time.
+ *
+ * Now both sides are the filesystem's own name for the folder. Main writes the
+ * trusted list that way (only main can ask the filesystem), and a caller passes
+ * the path it is asking about together with that path's real name when it has
+ * one. Capitalisation and separators are still this module's to forgive.
  *
  * Pure and free of node imports, so the rules can be exercised without a disk.
  */
@@ -51,12 +58,20 @@ export function isTrustedPath(path: string, trustedFolders: readonly string[]): 
  */
 export function mayRunFolderCode(
   path: string | null,
-  trustedFolders: readonly string[]
+  trustedFolders: readonly string[],
+  real?: string | null
 ): TrustVerdict {
   if (!path) {
     return { trusted: false, reason: 'There is no folder open to trust.' }
   }
+  /*
+   * Either name will do. The real one is how the same folder is recognised under
+   * another spelling; the one as given is kept so that a caller who has not yet
+   * heard back from the filesystem is no worse off than before, and so nothing
+   * trusted by its own spelling stops being trusted because it has another.
+   */
   if (isTrustedPath(path, trustedFolders)) return { trusted: true }
+  if (real && isTrustedPath(real, trustedFolders)) return { trusted: true }
   return {
     trusted: false,
     reason: 'This folder is restricted — nothing in it runs until you trust it.'
@@ -74,10 +89,11 @@ export function mayRunFolderCode(
  */
 export function mayRunIn(
   path: string | null,
-  settings: { trustedFolders?: readonly string[]; workspaceTrust?: boolean }
+  settings: { trustedFolders?: readonly string[]; workspaceTrust?: boolean },
+  real?: string | null
 ): TrustVerdict {
   if (settings.workspaceTrust === false) return { trusted: true }
-  return mayRunFolderCode(path, settings.trustedFolders ?? [])
+  return mayRunFolderCode(path, settings.trustedFolders ?? [], real)
 }
 
 /**
