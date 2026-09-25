@@ -177,6 +177,17 @@ export class TerminalController {
   private carry = ''
   private currentBlockId: string | null = null
   private pendingCommand: string | null = null
+  /**
+   * Whether the open block has seen its output start. A block opened by
+   * runCommand exists before the shell has read the line; it has not run anything
+   * until the shell says so with a start marker.
+   */
+  private started = false
+  /**
+   * The last block the shell put a prompt under without ever starting, kept so the
+   * line can have it back if the shell goes on to run it after all. See finishBlock.
+   */
+  private unstarted: { blockId: string; command: string } | null = null
   private sawAltScreen = false
   private disposers: (() => void)[] = []
   private spawned = false
@@ -656,9 +667,33 @@ export class TerminalController {
     // block has not been opened yet.
     if (!this.currentBlockId) {
       const command = this.pendingCommand ?? ''
-      this.currentBlockId = this.store().beginBlock(this.paneId, command)
+      this.currentBlockId = this.reopenUnstarted(command) ?? this.store().beginBlock(this.paneId, command)
     }
     this.pendingCommand = null
+    this.unstarted = null
+    this.started = true
+  }
+
+  /**
+   * The block a line was already given, if this is that line starting late.
+   *
+   * Only while it is still the last thing in the pane: nothing else can have run in
+   * between, since anything that did would have opened a block of its own after it
+   * and cleared the claim. So reopening it is not putting a new command into an old
+   * block — it is the same Enter, arriving where it was always going to.
+   */
+  private reopenUnstarted(command: string): string | null {
+    const held = this.unstarted
+    if (!held || held.command !== command.trim()) return null
+    const pane = this.store().terminalPane(this.paneId)
+    if (pane?.blocks.at(-1)?.id !== held.blockId || !commandBlock(pane, held.blockId)) return null
+    this.store().patchBlock(this.paneId, held.blockId, {
+      status: 'running',
+      exitCode: null,
+      durationMs: null,
+      output: ''
+    })
+    return held.blockId
   }
 
   /**
@@ -896,6 +931,56 @@ export class TerminalController {
     const blockId = this.currentBlockId
     this.currentBlockId = null
     if (!blockId) return
+    /*
+     * A prompt came back before this block's output started, so the shell never
+     * ran the line it was opened for.
+     *
+     * runCommand opens the block the moment Enter is pressed, and the shell has not
+     * read the line yet. PowerShell marks the start of every line it accepts — empty
+     * ones and ones that will not parse included — before running it, so a prompt
+     * with no start ahead of it is the shell giving up on reading. PSReadLine does
+     * exactly that when it throws while drawing: it prints its bug report, puts up
+     * a fresh prompt, and then runs the line under that one. Closing the block on
+     * that prompt as a success with no output, and writing it to history, turned
+     * one Enter into two rows, because the line then started under a block of its
+     * own.
+     *
+     * So the block is closed, since nothing may run at all, but it is not a
+     * command that ran: it goes to neither history nor the saved session, and if
+     * the same line does start next it gets this block back (beginOutput) rather
+     * than a second one.
+     *
+     * Nor does it take a capture. The queue holds only what came between a start
+     * and an end marker, and this block had no start, so whatever is at the head
+     * belongs to a later block that the parser has not reached. Taking it gave the
+     * empty block the late-starting line's output and left that line with none.
+     *
+     * Done here, before anything is awaited. The late start is in the next few
+     * bytes, and it has to find the claim already standing — and must not be
+     * followed by this block being marked finished over the top of it.
+     *
+     * Only for a shell running Ember's own integration, which is what makes the
+     * promise that every line run is marked as starting. A user's own OSC 133 setup
+     * may never send a start at all, and there every block would read as unstarted
+     * and history would get nothing.
+     */
+    if (!this.started && this.authenticated) {
+      const block = commandBlock(this.store().terminalPane(this.paneId), blockId)
+      this.store().patchBlock(this.paneId, blockId, {
+        output: '',
+        interactive: false,
+        status: exitCode === 0 ? 'done' : 'failed',
+        exitCode,
+        durationMs: block ? Date.now() - block.startedAt : null
+      })
+      this.unstarted = block ? { blockId, command: block.command.trim() } : null
+      queueMicrotask(() => {
+        this.term.write('\x1b[H\x1b[2J\x1b[3J')
+      })
+      return
+    }
+    this.started = false
+    this.unstarted = null
 
     const interactive = this.sawAltScreen
 
@@ -1143,6 +1228,8 @@ export class TerminalController {
     this.carry = ''
     this.currentBlockId = null
     this.pendingCommand = null
+    this.started = false
+    this.unstarted = null
     this.sawAltScreen = false
     this.tail = ''
 
@@ -1390,6 +1477,8 @@ export class TerminalController {
     // would leave it spinning forever. Just send the text.
     if (this.store().terminalPane(this.paneId)?.integration === 'ready') {
       this.currentBlockId = this.store().beginBlock(this.paneId, clean.text)
+      this.started = false
+      this.unstarted = null
     }
     this.send(`${clean.text}\r`)
   }

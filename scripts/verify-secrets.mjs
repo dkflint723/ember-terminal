@@ -177,6 +177,34 @@ check('the whole question came back echoed', answered.includes('rejected?'), ans
 check('with the key taken out of it', !answered.includes('ASKEDKEY'), answered.slice(0, 200))
 check('and something in its place', answered.includes('[redacted]'), answered.slice(0, 200))
 
+// --- one Enter is one command, the first one after the panel included --------------------------
+/*
+ * The panel takes width from the terminal, and on the elevated runner the first
+ * command after it doubled: two blocks, two history rows. The terminal was three
+ * columns narrower running than idle, so it shrank under the prompt as the command
+ * began — onto the prompt's exact width — and PSReadLine threw drawing it, printed
+ * its bug report, and put up a fresh prompt before running the line. The block
+ * opened on Enter was closed by that prompt, and the line then ran under a second.
+ *
+ * Both causes are fixed, and this one no longer happens here: the width now holds
+ * steady across a command, so nothing narrows under the prompt. What this still
+ * asks is the outcome someone would see. The sequence itself — a prompt coming
+ * back before its line starts — is made on purpose in verify-shell, which does not
+ * depend on any machine's path being the right length.
+ */
+const ONCE = 'echo once-after-the-panel-2718'
+await run(ONCE)
+const onceRows = (await found('once-after-the-panel-2718')).filter((r) => r.command === ONCE)
+check('one Enter after the panel answers is one history row', onceRows.length === 1, JSON.stringify(onceRows))
+const onceBlocks = await page.locator(`.block[aria-label^="${ONCE} "]`).count()
+check('and one block', onceBlocks === 1, `${onceBlocks} blocks`)
+const onceBody = await page
+  .locator(`.block[aria-label^="${ONCE} "] .block__body`)
+  .last()
+  .textContent()
+  .catch(() => '')
+check('holding what the command printed', (onceBody ?? '').includes('once-after-the-panel-2718'), (onceBody ?? '').slice(0, 120))
+
 // --- the two round trips withhold rather than redact ---------------------------------------
 await page.evaluate(() =>
   window.ember.setSettings({

@@ -1996,9 +1996,17 @@ button {
   font-size: 12px;
 }
 
+/*
+ * The side margins stay, deliberately: `.live` has no vertical margin, so the ones
+ * left are the only difference taking them away made. And the collapsed box is
+ * still measured — its height is zero, but xterm's padding is not — so dropping
+ * them made the idle terminal three columns wider than a running one, and every
+ * command resized the pty on the way in and again on the way out. A resize is a
+ * conpty repaint, and one landing inside an open capture costs the block the lines
+ * before it.
+ */
 .live--idle {
   height: 0;
-  margin: 0;
   opacity: 0;
   pointer-events: none;
 }
