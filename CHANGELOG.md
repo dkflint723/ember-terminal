@@ -5,6 +5,25 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A release is installed over the last one before it is drafted
+
+- **Nothing tested what most people will actually do with a release.** The release job
+  installed each build onto a clean machine, but anyone updating already has the last
+  version — settings, a history database, a saved session — and the installer goes on
+  top. An upgrade that failed to replace the app, or a build that could not read what
+  the previous one wrote, would have been drafted exactly as confidently as one that
+  worked.
+- **The release job now installs over the latest published release.** It downloads that
+  release's installer (never a draft), installs it, and drives it — a setting changed
+  and a marked command run — so it writes all three. This build then goes into the same
+  folder, and must report its own version from the executable, then read back the old
+  setting, find the old command in history, and restore the old session with it in it.
+- **How it is checked:** a dry run on the hosted runner installed v0.3.26 from its
+  release page, drove it, installed this build over it, and passed every one of those
+  checks before the usual packaged suites ran. One of them cannot bite yet: the version
+  check compares against `package.json`, which still says 0.3.26 like the release it
+  replaces, so it only distinguishes old from new once the version is bumped.
+
 ### The bash suite waits for its commands and cannot hang on close
 
 - **It read each command's block after a fixed three seconds**, so a slow runner read a

@@ -16,6 +16,7 @@
 // runner or a machine set aside for it — not for a desk.
 //
 // Run: node scripts/install-check.mjs      (after `npm run dist`; reads release/)
+import { _electron as electron } from 'playwright-core'
 import { spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
@@ -67,7 +68,81 @@ const run = (file, args, timeout) =>
     encoding: 'utf8'
   })
 
-console.log(`installing ${setupName} into ${dir}`)
+/*
+ * --- over the previous release, when there is one to go over --------------------
+ *
+ * A fresh install is not what most people will do with this build: they already
+ * have the last one, with settings, a history database and a saved session, and
+ * the installer goes on top. Nothing had ever tested that — an upgrade that failed
+ * to replace the app, or a new build that could not read what the old one wrote,
+ * would have shipped exactly as confidently as one that worked.
+ *
+ * With EMBER_PREVIOUS_SETUP naming the previous release's installer, it goes into
+ * the same folder first and is driven for real: a setting changed and a marked
+ * command run, so it writes settings, history and a session into a profile that
+ * the new build is then pointed at after it has been installed over the top.
+ */
+const previousSetup = process.env.EMBER_PREVIOUS_SETUP
+const upgradeProfile = previousSetup ? fs.mkdtempSync(path.join(os.tmpdir(), 'ember-upgrade-')) : null
+const marker = `ember-upgrade-${Date.now().toString(36)}`
+const env = { ...process.env }
+delete env.ELECTRON_RUN_AS_NODE
+
+/** Launch an installed Ember on the upgrade profile, run `body`, and close it within a bound. */
+const drive = async (label, body) => {
+  const app = await electron.launch({
+    executablePath: path.join(dir, 'Ember.exe'),
+    args: [`--user-data-dir=${upgradeProfile}`],
+    cwd: dir,
+    env,
+    timeout: 60_000
+  })
+  try {
+    const page = await app.firstWindow()
+    await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 60_000 })
+    await sleep(1500)
+    await body(page)
+  } finally {
+    // Bounded: a close that waits on a question should fail here with a reason,
+    // not stall the release job until it times out.
+    const closed = await Promise.race([
+      app.close().then(() => true),
+      sleep(20_000).then(() => false)
+    ])
+    check(`the ${label} build closes`, closed, 'still open after 20s')
+    if (!closed) app.process()?.kill()
+  }
+}
+
+if (previousSetup) {
+  console.log(`installing the previous release, ${path.basename(previousSetup)}, into ${dir}`)
+  const before = run(previousSetup, `/S /D=${dir}`, 180_000)
+  check('the previous release installs', before.status === 0, `exit ${before.status}`)
+  if (!fs.existsSync(path.join(dir, 'Ember.exe'))) finish()
+
+  await drive('previous', async (page) => {
+    await page.evaluate(() => window.ember.setSettings({ fontSize: 15 }))
+    await page.click('.composer__input')
+    await page.keyboard.type(`echo ${marker}`, { delay: 6 })
+    await page.keyboard.press('Enter')
+    const ran = await page
+      .waitForFunction(
+        (m) =>
+          [...document.querySelectorAll('.block--done .block__body')].some((b) =>
+            (b.textContent ?? '').includes(m)
+          ),
+        marker,
+        { timeout: 60_000 }
+      )
+      .then(() => true)
+      .catch(() => false)
+    check('the previous release runs a command', ran, marker)
+    // Past the autosave, so the session on disk holds it.
+    await sleep(3000)
+  })
+}
+
+console.log(`installing ${setupName} into ${dir}${previousSetup ? ', over the previous release' : ''}`)
 const installed = run(setup, `/S /D=${dir}`, 180_000)
 check('the installer exits cleanly', installed.status === 0, `exit ${installed.status}${installed.error ? `, ${installed.error.message}` : ''}`)
 
@@ -82,6 +157,43 @@ const uninstaller = fs.readdirSync(dir).find((f) => /^Uninstall .*\.exe$/i.test(
 check('and an uninstaller', uninstaller !== undefined, fs.readdirSync(dir).join(', '))
 
 if (!fs.existsSync(exe)) finish()
+
+/*
+ * What the upgrade kept. The version is read from the executable rather than
+ * trusted from the installer's exit code, since an installer that failed to
+ * replace a running or locked file can still exit 0 and leave the old build there.
+ */
+if (previousSetup) {
+  const want = JSON.parse(fs.readFileSync(path.join(APP_DIR, 'package.json'), 'utf8')).version
+  const probe = spawnSync(
+    'powershell',
+    ['-NoProfile', '-Command', `(Get-Item -LiteralPath '${exe}').VersionInfo.ProductVersion`],
+    { encoding: 'utf8' }
+  )
+  const got = (probe.stdout ?? '').trim()
+  check('the upgrade replaced the app with this version', got.startsWith(want), `Ember.exe says ${got || 'nothing'}, package.json ${want}`)
+
+  await drive('upgraded', async (page) => {
+    const settings = await page.evaluate(() => window.ember.getSettings())
+    check('a setting made in the previous release survives', settings?.fontSize === 15, `fontSize ${settings?.fontSize}`)
+    const rows = await page.evaluate((m) => window.ember.searchHistory({ text: m, limit: 5 }), marker)
+    check(
+      'and so does its command history',
+      Array.isArray(rows) && rows.some((r) => JSON.stringify(r).includes(marker)),
+      JSON.stringify(rows).slice(0, 200)
+    )
+    const restored = await page
+      .waitForFunction(
+        (m) => [...document.querySelectorAll('.block__cmd')].some((c) => (c.textContent ?? '').includes(m)),
+        marker,
+        { timeout: 15_000 }
+      )
+      .then(() => true)
+      .catch(() => false)
+    check('and its session comes back with the command in it', restored, marker)
+  })
+  fs.rmSync(upgradeProfile, { recursive: true, force: true })
+}
 
 // The installed app, through the two suites that already know how to drive a
 // packaged one. Their own output goes straight through, so a failure reads here the

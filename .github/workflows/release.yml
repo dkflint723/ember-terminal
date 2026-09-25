@@ -122,7 +122,22 @@ jobs:
           node scripts/check-release-assets.mjs | Tee-Object -FilePath "$env:RUNNER_TEMP/assets.txt"
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
-      # Installed, launched through the packaged suites, uninstalled.
+      # The release people have now — the latest published one, never a draft — so this
+      # build is installed over it rather than only onto a clean machine.
+      - name: The previous release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = gh release view --json tagName --jq .tagName
+          $into = Join-Path $env:RUNNER_TEMP 'previous'
+          New-Item -ItemType Directory -Force $into | Out-Null
+          gh release download $tag --pattern '*.exe' --dir $into
+          $setup = Get-ChildItem $into -Filter '*.exe' | Select-Object -First 1
+          if (-not $setup) { Write-Host "no installer on $tag"; exit 1 }
+          "EMBER_PREVIOUS_SETUP=$($setup.FullName)" >> $env:GITHUB_ENV
+          Write-Host "installing over $tag ($($setup.Name))"
+
       # Installed and launched by an ordinary user, the way it will be on a desk: an
       # elevated install would launch an elevated Ember, which is the administrator's
       # window and not the one this release is for.
