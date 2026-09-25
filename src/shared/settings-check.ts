@@ -93,7 +93,8 @@ const LISTS: Partial<Record<keyof Settings, EntryCheck>> = {
   ),
   trustedFolders: (e) => (isString(e) ? null : 'is not a folder name'),
   recentFolders: (e) => (isString(e) ? null : 'is not a folder name'),
-  learnedChords: (e) => (isString(e) ? null : 'is not a chord')
+  learnedChords: (e) => (isString(e) ? null : 'is not a chord'),
+  migrations: (e) => (isString(e) ? null : 'is not a migration')
 }
 
 const show = (v: unknown): string => {
@@ -218,7 +219,8 @@ export const NOT_PORTABLE: readonly (keyof Settings)[] = [
   'learnedChords',
   'pendingUpdateVersion',
   'firstRunDone',
-  'trustedFolders'
+  'trustedFolders',
+  'migrations'
 ]
 
 export function portable(settings: Settings): Partial<Settings> {

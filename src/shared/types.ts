@@ -1071,6 +1071,12 @@ export interface Settings {
    * something different, and so clearing one is possible later.
    */
   learnedChords: string[]
+  /**
+   * The one-time changes this install has had, by id — see shared/settings-migrate.
+   * Recorded so each is made once: a choice made after a migration is not undone by
+   * it again on the next launch.
+   */
+  migrations: string[]
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -1109,7 +1115,8 @@ export const DEFAULT_SETTINGS: Settings = {
   autoUpdate: false,
   pendingUpdateVersion: null,
   firstRunDone: false,
-  learnedChords: []
+  learnedChords: [],
+  migrations: []
 }
 
 /**
@@ -1412,6 +1419,8 @@ export interface EmberApi {
   historyLoadNotice(): Promise<string | null>
   /** What stored settings had changed on the way in, once. Empty when nothing. */
   settingsLoadNotes(): Promise<string[]>
+  /** What a one-time settings migration changed this launch, once. Empty when nothing. */
+  settingsMigrationNotes(): Promise<string[]>
   /** Write the preferences, without keys or this machine's state, to a chosen file. */
   exportSettings(): Promise<{ ok: boolean; path?: string; error?: string }>
   /**

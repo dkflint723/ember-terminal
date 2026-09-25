@@ -8,10 +8,16 @@ newest entry sits on top.
 ### The newest Claude models, and what they do differently
 
 - **Opus 5.5 is the default,** and first on the menu, beside Opus 5, Sonnet 5,
-  Haiku 4.5, Fable 5.1 and Opus 4.8. Any other model id can still be typed in. The
-  default is what a new install starts with: a model already saved in settings —
-  which is every install that has ever saved them — stays as it was, since a choice
-  of Opus 5 made on purpose and one inherited from the old default look the same.
+  Haiku 4.5, Fable 5.1 and Opus 4.8. Any other model id can still be typed in.
+- **Existing installs on Opus 5 move to Opus 5.5, once.** A new default only
+  reaches new installs — every install that has saved its settings has its model
+  written down — and a choice of Opus 5 made on purpose looks the same as one
+  inherited from the old default. So an install still on Opus 5 is moved at its
+  first launch after this, with a notice saying how to go back, and the move is
+  recorded in settings (`migrations`) so it is never made again: Opus 5 chosen
+  afterwards stays chosen. Installs on any other model are left alone. The record
+  is written at that first launch, which is also the one time a fresh install now
+  writes settings.json before anything is changed in it; it is not exported.
 - **The panel still thinks as hard as it did.** Opus 5.5 starts at medium effort,
   one step below the high every other model starts at, so the Claude panel now
   asks for high explicitly on every model that takes effort — on all of them but
@@ -38,7 +44,12 @@ newest entry sits on top.
   is shaped the same way as one picked from the menu.
 - **How it is checked.** *claude models* (49 cases, in the unit tables) holds which
   ids think unasked, which take effort, and which carry the fallback, across every
-  current model and near misses, and that the default is Opus 5.5 and listed first. The request shapes are type-checked against the
+  current model and near misses, and that the default is Opus 5.5 and listed first.
+  *settings migrations* (17 cases) moves Opus 5 once and records it, leaves a later
+  choice of Opus 5 and every other model alone, and survives a damaged record.
+  *model migration* (new) launches an install saved on Opus 5 twice: the first
+  launch must start on Opus 5.5, say so and write it down; after Opus 5 is chosen
+  back, the second must keep it and say nothing. The request shapes are type-checked against the
   installed SDK, whose types carry `fallbacks`, `effort` and `stop_details`; they
   have not been sent to the live API from here, since the suites run without a key.
 
