@@ -5,9 +5,8 @@
 // Run: node scripts/verify-tabs.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
-import { newProfile } from './profile.mjs'
+import { newProfile, workDir } from './profile.mjs'
 import * as fs from 'node:fs'
-import * as os from 'node:os'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
@@ -15,7 +14,7 @@ const profile = newProfile('tabs')
 const SHOT_DIR = process.env.SCREENSHOT_DIR || path.join(APP_DIR, '.shots')
 fs.mkdirSync(SHOT_DIR, { recursive: true })
 
-const work = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-tabs-'))
+const work = workDir('ember-tabs-')
 const files = ['alpha.ts', 'beta.ts', 'gamma.ts'].map((name, i) => {
   const file = path.join(work, name)
   fs.writeFileSync(file, `export const value${i} = ${i}\n`, 'utf8')

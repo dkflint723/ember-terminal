@@ -9,7 +9,7 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { watchPageErrors } from './harness.mjs'
-import { auditProfileDir, userDataOf } from './profile.mjs'
+import { auditProfileDir, userDataOf, workDir } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -18,7 +18,7 @@ const APP_DIR = path.resolve(import.meta.dirname, '..')
 const SHOT_DIR = process.env.SCREENSHOT_DIR || path.join(APP_DIR, '.shots')
 fs.mkdirSync(SHOT_DIR, { recursive: true })
 
-const work = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-session-'))
+const work = workDir('ember-session-')
 const userData = path.join(work, 'userData')
 const files = ['one.ts', 'two.ts', 'crlf.ts'].map((name, i) => {
   const file = path.join(work, name)

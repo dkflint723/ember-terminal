@@ -15,7 +15,7 @@
 // Run: node scripts/verify-conflict.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
-import { newProfile } from './profile.mjs'
+import { newProfile, workDir } from './profile.mjs'
 import { watchPageErrors } from './harness.mjs'
 import WebSocket from 'ws'
 import * as fs from 'node:fs'
@@ -30,7 +30,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
 
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-conflict-'))
+const dir = workDir('ember-conflict-')
 const FILE = path.join(dir, 'notes.ts')
 const ORIGINAL = 'export const first = 1\n'
 fs.writeFileSync(FILE, ORIGINAL, 'utf8')

@@ -5,6 +5,23 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Suites name their scratch folder the way the app does
+
+- **Eleven suites failed at once on the full gate after the long-name change**, which had
+  been checked only on the three suites it was about. Where TEMP is an 8.3 short path,
+  as on the hosted runner, `os.tmpdir()` gave each suite `RUNNER~1` and the suites
+  compared that as text with the long name the app now shows. Eight were those text
+  comparisons; the rest were real — workspace trust, and the entry below.
+- **One shared helper instead of eleven patches.** `workDir()` in `profile.mjs` makes each
+  fixture folder where it always was and names it as the filesystem does; `shortName()`
+  sits beside it for checks that want a second spelling on purpose. `verify-explorer`
+  and `verify-git` keep their deliberate short-path and junction cases.
+- **How it is checked:** on the runner the eleven fail on master and pass with only the
+  long-name change reverted, which pins the cause, and with this and the trust fix the
+  whole gate goes from fourteen failures to two — the two being the close hang, which
+  is separate. The practice this broke is now written down: an app change gets the
+  whole gate on its branch before it lands, not only the suites it was written for.
+
 ### A trusted folder stays trusted under its other names
 
 - **Trust was kept by spelling, not by folder.** A folder's trust was written down in

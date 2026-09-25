@@ -6,9 +6,8 @@
 // Run: node scripts/verify-fileops.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
-import { newProfile } from './profile.mjs'
+import { newProfile, workDir } from './profile.mjs'
 import * as fs from 'node:fs'
-import * as os from 'node:os'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
@@ -16,7 +15,7 @@ const profile = newProfile('fileops')
 const SHOT_DIR = process.env.SCREENSHOT_DIR || path.join(APP_DIR, '.shots')
 fs.mkdirSync(SHOT_DIR, { recursive: true })
 
-const work = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-fileops-'))
+const work = workDir('ember-fileops-')
 fs.writeFileSync(path.join(work, 'existing.txt'), 'hello\n', 'utf8')
 fs.mkdirSync(path.join(work, 'folder'), { recursive: true })
 

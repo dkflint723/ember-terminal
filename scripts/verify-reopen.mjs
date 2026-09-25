@@ -17,9 +17,8 @@
 // Run: node scripts/verify-reopen.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
-import { newProfile } from './profile.mjs'
+import { newProfile, workDir } from './profile.mjs'
 import * as fs from 'node:fs'
-import * as os from 'node:os'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
@@ -27,7 +26,7 @@ const profile = newProfile('reopen')
 const SHOT_DIR = process.env.SCREENSHOT_DIR || path.join(APP_DIR, '.shots')
 fs.mkdirSync(SHOT_DIR, { recursive: true })
 
-const work = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-reopen-'))
+const work = workDir('ember-reopen-')
 const note = path.join(work, 'note.ts')
 const ORIGINAL = 'export const note = 1\n'
 fs.writeFileSync(note, ORIGINAL, 'utf8')

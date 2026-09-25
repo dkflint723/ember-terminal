@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -163,6 +164,51 @@ export function seedDirs(dir) {
   const admin = path.join(dir, 'admin-window')
   fs.mkdirSync(admin, { recursive: true })
   return [dir, admin]
+}
+
+/**
+ * A suite's scratch folder, spelled the way the app will spell it.
+ *
+ * A folder or file named on the command line is opened by its long name
+ * (longPath in src/main/files.ts), and everything that asks the filesystem — the
+ * shell, git — says the long name too. os.tmpdir() does not: on a machine whose
+ * TEMP is an 8.3 short path, which the hosted runner's is (C:\Users\RUNNER~1\...),
+ * it hands back RUNNER~1, and a suite that compared what the app shows with the
+ * path it built from os.tmpdir() was comparing two spellings of one folder as
+ * text. Eleven suites failed that way at once, and none of them could fail here,
+ * where TEMP is long.
+ *
+ * So the folder is made where it always was and then named by the filesystem,
+ * which gives the suite the same text the app will show. A check whose subject
+ * is a second spelling asks for one on purpose with shortName below; verify-
+ * explorer and verify-git keep their deliberate short-path and junction cases.
+ */
+export function workDir(prefix) {
+  return fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)))
+}
+
+/**
+ * The 8.3 short spelling of an existing path, or null where it has none.
+ *
+ * The volume decides: 8.3 names can be turned off per volume, and a path whose
+ * every part already fits in eight characters has no other spelling to give. A
+ * check that needs a second spelling reports that it was not exercised rather
+ * than passing as though it had been.
+ */
+export function shortName(p) {
+  if (process.platform !== 'win32') return null
+  try {
+    const out = execFileSync('cmd.exe', ['/d', '/s', '/c', `"for %A in ("${p}") do @echo %~sA"`], {
+      encoding: 'utf8',
+      windowsVerbatimArguments: true,
+      windowsHide: true,
+      timeout: 10_000
+    }).trim()
+    if (!out || out.toLowerCase() === p.toLowerCase() || !fs.existsSync(out)) return null
+    return out
+  } catch {
+    return null
+  }
 }
 
 export function newProfile(label = 'run', { expectFaults = [] } = {}) {

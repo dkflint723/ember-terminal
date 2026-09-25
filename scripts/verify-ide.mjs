@@ -9,7 +9,7 @@
 // Run: node scripts/verify-ide.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
-import { newProfile } from './profile.mjs'
+import { newProfile, workDir } from './profile.mjs'
 import WebSocket from 'ws'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
@@ -21,7 +21,7 @@ const SHOT_DIR = process.env.SCREENSHOT_DIR || path.join(APP_DIR, '.shots')
 fs.mkdirSync(SHOT_DIR, { recursive: true })
 const LOCK_DIR = path.join(os.homedir(), '.claude', 'ide')
 
-const work = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-ide-'))
+const work = workDir('ember-ide-')
 const target = path.join(work, 'greet.ts')
 const ORIGINAL = 'export function greet(name: string): string {\n  return "hi " + name\n}\n'
 fs.writeFileSync(target, ORIGINAL, 'utf8')
