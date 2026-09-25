@@ -1,5 +1,6 @@
 import { app } from 'electron'
 import { readFileSync, renameSync, writeFileSync, existsSync, rmSync } from 'node:fs'
+import { rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { SessionSnapshot } from '../shared/types.js'
 
@@ -72,7 +73,7 @@ export class SessionStore {
   }
 
   /** One window's latest word about itself; the whole file is rewritten with it. */
-  saveFor(windowId: number, entry: StoredWindow): { ok: boolean; error?: string } {
+  saveFor(windowId: number, entry: StoredWindow): Promise<{ ok: boolean; error?: string }> {
     this.entries.set(windowId, entry)
     return this.write()
   }
@@ -95,24 +96,93 @@ export class SessionStore {
    */
   dropWindow(windowId: number): void {
     if (!this.entries.delete(windowId)) return
-    this.write()
+    void this.write()
   }
 
-  private write(): { ok: boolean; error?: string } {
-    try {
-      const body = JSON.stringify({ version: 2, windows: [...this.entries.values()] })
-      if (body.length > SessionStore.MAX_BYTES) {
-        return { ok: false, error: 'Session is too large to store.' }
+  /*
+   * Written off the main thread, one write at a time, the latest winning.
+   *
+   * It was writeFileSync on the thread that also forwards every byte of pty output,
+   * with a snapshot that carries every unsaved buffer — so a save of a few megabytes
+   * was a pause in every terminal, and saves came every few seconds while the app
+   * sat idle. Now a save that arrives while one is being written is folded into a
+   * single follow-up that writes whatever is newest by then, and each caller is
+   * answered with how the write that covered it went.
+   *
+   * The generation guards `clear()`: a write already under way when the session is
+   * cleared must not rename a file back into place after it has gone.
+   */
+  private writing: Promise<void> | null = null
+  private again = false
+  private dirty = false
+  private generation = 0
+  private last: { ok: boolean; error?: string } = { ok: true }
+
+  private body(): string {
+    return JSON.stringify({ version: 2, windows: [...this.entries.values()] })
+  }
+
+  private write(): Promise<{ ok: boolean; error?: string }> {
+    if (this.body().length > SessionStore.MAX_BYTES) {
+      return Promise.resolve({ ok: false, error: 'Session is too large to store.' })
+    }
+    this.dirty = true
+    if (this.writing) {
+      this.again = true
+    } else {
+      this.writing = this.drain().finally(() => {
+        this.writing = null
+      })
+    }
+    return this.writing!.then(() => this.last)
+  }
+
+  private async drain(): Promise<void> {
+    do {
+      this.again = false
+      const generation = this.generation
+      const body = this.body()
+      try {
+        await writeFile(this.temp, body, 'utf8')
+        if (generation !== this.generation) return
+        await rename(this.temp, this.file)
+        if (generation !== this.generation) return
+        if (!this.again) this.dirty = false
+        this.last = { ok: true }
+      } catch (err) {
+        this.last = { ok: false, error: err instanceof Error ? err.message : 'Could not save session.' }
       }
-      writeFileSync(this.temp, body, 'utf8')
-      renameSync(this.temp, this.file)
-      return { ok: true }
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : 'Could not save session.' }
+    } while (this.again)
+  }
+
+  /*
+   * The last word, written before the process goes.
+   *
+   * A write still under way when the app quits would be cut off with it, and the
+   * farewell save each window sends on its way out is exactly the one that matters.
+   * So at will-quit whatever is newest is written synchronously — through its own
+   * temporary file, so it cannot be interleaved with a write still in flight — and
+   * the generation moves on so that write, if it finishes, does not rename an older
+   * body over this one.
+   */
+  flush(): void {
+    if (!this.dirty && !this.writing) return
+    this.generation += 1
+    const body = this.body()
+    if (body.length > SessionStore.MAX_BYTES) return
+    const temp = `${this.file}.quit.tmp`
+    try {
+      writeFileSync(temp, body, 'utf8')
+      renameSync(temp, this.file)
+      this.dirty = false
+    } catch {
+      // Nothing left to tell: the windows are gone. The previous file stands.
     }
   }
 
   clear(): void {
+    this.generation += 1
+    this.dirty = false
     this.entries.clear()
     try {
       rmSync(this.file, { force: true })

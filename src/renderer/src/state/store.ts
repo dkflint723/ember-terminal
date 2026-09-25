@@ -370,6 +370,13 @@ function rememberFolder(path: string | null, apply: (next: Settings) => void): v
   void window.ember.noteRecentFolder(path).then(apply)
 }
 
+/** Whether two git answers say the same thing. Small enough to compare whole. */
+function sameGit(a: GitStatus | null, b: GitStatus | null): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
 export function workspaceRoot(s: Store): string | null {
   return s.tabs.find((t) => t.id === s.activeTabId)?.workspace ?? null
 }
@@ -942,20 +949,31 @@ export const useStore = create<Store>((set, get) => ({
       tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, workspace: path } : t))
     }))
   },
-  setGitStatus: (gitStatus) => set({ gitStatus }),
+  /*
+   * Polled every three seconds, and almost always the same answer.
+   *
+   * A new object each time told every subscriber the store had changed — every
+   * component reading state re-rendered, and the session file was rewritten, three
+   * seconds apart, for as long as the app sat idle. Compared first, and left alone
+   * when it has not changed. Returning `s` is what tells zustand nothing happened;
+   * returning `{}` still builds a new state and notifies everyone.
+   */
+  setGitStatus: (gitStatus) =>
+    set((s) => (sameGit(s.gitStatus, gitStatus) ? s : { gitStatus })),
 
   setCwdGit: (cwd, status) =>
     set((s) => {
       const key = pathKey(cwd)
       // Written only when the answer actually changed. This is polled, and a store
       // that publishes an identical object every three seconds re-renders every
-      // pane and re-schedules the session write for nothing.
+      // pane and re-schedules the session write for nothing. Returning `s`, not
+      // `{}`: an empty patch still makes a new state, and still notifies.
       const before = s.cwdGit[key]
-      if (before === status) return {}
+      if (before === status) return s
       if (before && status && before.branch === status.branch && before.root === status.root) {
         const count = (g: GitStatus): number =>
           g.staged.length + g.changes.length + g.conflicts.length
-        if (count(before) === count(status) && before.ahead === status.ahead) return {}
+        if (count(before) === count(status) && before.ahead === status.ahead) return s
       }
       return { cwdGit: { ...s.cwdGit, [key]: status } }
     }),
@@ -974,7 +992,7 @@ export const useStore = create<Store>((set, get) => ({
   setCursorAt: (at) =>
     set((s) => {
       const before = s.cursorAt
-      if (before === at) return {}
+      if (before === at) return s
       if (
         before &&
         at &&
@@ -982,7 +1000,7 @@ export const useStore = create<Store>((set, get) => ({
         before.column === at.column &&
         before.selected === at.selected
       ) {
-        return {}
+        return s
       }
       return { cursorAt: at }
     }),
@@ -1174,7 +1192,7 @@ export const useStore = create<Store>((set, get) => ({
     })),
   moveTab: (from, to) =>
     set((s) => {
-      if (from === to || from < 0 || from >= s.tabs.length) return {}
+      if (from === to || from < 0 || from >= s.tabs.length) return s
       const tabs = [...s.tabs]
       const [moved] = tabs.splice(from, 1)
       tabs.splice(Math.max(0, Math.min(to, tabs.length)), 0, moved)
@@ -1514,9 +1532,9 @@ export const useStore = create<Store>((set, get) => ({
   moveDocument: (paneId, from, to) =>
     set((s) => {
       const pane = s.panes[paneId]
-      if (pane?.kind !== 'editor') return {}
-      if (from === to || from < 0 || to < 0) return {}
-      if (from >= pane.documents.length || to >= pane.documents.length) return {}
+      if (pane?.kind !== 'editor') return s
+      if (from === to || from < 0 || to < 0) return s
+      if (from >= pane.documents.length || to >= pane.documents.length) return s
 
       const documents = [...pane.documents]
       const [moved] = documents.splice(from, 1)

@@ -5,6 +5,58 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A terminal that does not load an editor, and a window that rests when it is idle
+
+- **The editor is no longer part of starting up.** Monaco was in the entry chunk —
+  9.07 MB of what the window loaded before its first prompt — because a chain of
+  static imports reached it: the store through the model pool, the status bar, the
+  problems badge, the Claude panel, and a mount effect in the app itself that
+  fetched it just to register an opener. Each of those only asks about models or
+  markers, and there are none until the editor exists, so they now ask
+  `editor/loaded`, which knows about Monaco without importing it and hears from
+  it when it arrives. The editor and diff panes load when first drawn. The entry
+  chunk is 1.68 MB, and Monaco is a chunk of its own, fetched when the window is
+  idle after the first shell has settled into a prompt — so the first switch to
+  the IDE still does not wait on it.
+- **A window sitting still stopped writing its workspace every three seconds.** The
+  git poll replaced an identical status object each time, every store subscriber
+  heard that the store had changed, and the autosave — listening to all of it —
+  wrote the whole workspace, unsaved buffers included. Several setters returned
+  `{}` under comments saying that avoided exactly this; it does not, because an
+  empty patch still makes a new state. They return the state they were given now,
+  git status is compared before it is replaced, and the autosave listens only to
+  the eight fields the session file is made of. An edit to a buffer that was
+  already unsaved is not in the store at all, so the editor asks for the save
+  itself.
+- **And the write is off the main process's thread.** It was `writeFileSync` on the
+  thread that forwards every byte of terminal output. It is asynchronous now, one
+  write at a time with the newest winning, and at quit whatever is newest is
+  written synchronously so the last word still lands.
+- **Typing in a large file costs what typing in a small one does.** Whether a
+  buffer is unsaved was answered on every keystroke by building the whole file as
+  a string and comparing it with the saved text. It is now Monaco's version number
+  against the version at which the buffer last matched the disk; the long way is
+  taken once, when the saved text itself changes.
+- **How it is checked.** *check-bundle* weighs everything the window loads before
+  its first prompt and fails over 3 MB or if any of it is Monaco — against a build
+  of 0.4.0's code it reports 9.07 MB with Monaco's core in it — and runs in CI's
+  fast job. *idle* (new) records when the first prompt appeared and when the
+  editor was fetched, and that it was; then sits in this repository, where the git
+  poll is live, for thirty seconds counting writes to session.json, allowing one;
+  then opens a session and sees it written. On the Windows runner against the code
+  before this, the editor arrived at 563 ms and the first prompt at 1,656 ms, and
+  the idle window wrote its session ten times in thirty seconds; both pass now,
+  beside *editor*, *ide*, *session*, *save*, *keeps-work*, *conflict*, *boom*,
+  *reopen*, *lsp*, *problems*, *statusbar*, *agent* and the rest that open files.
+- **One suite's premise changed with it.** *model parking* opens twenty-two files
+  from the command line and expected each to have a model. They did, by accident:
+  each was shown in turn as it arrived. With the editor loading after startup the
+  first few arrive before it can show anything, and a tab gets its model when it
+  is looked at — as it always has. The suite now looks at each tab first.
+- **Not done here:** a typing benchmark in a 10 MB file, and the rest of R22 —
+  history suggestions still scan the table, the LSP and DAP framers still
+  concatenate, and hidden panes keep their GPU renderer.
+
 ### Settings that check what they are given, and can be undone
 
 - **Cancel undoes every preview.** Theme, interface size and block density all

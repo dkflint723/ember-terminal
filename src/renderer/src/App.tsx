@@ -23,6 +23,7 @@ import {
   useSessionAutosave
 } from './state/session'
 import { setRevealer } from './editor/navigate'
+import { loadMonaco, whenMonaco } from './editor/loaded'
 import { PanelBar } from './components/PanelBar'
 import { StatusBar } from './components/StatusBar'
 import { OutputPanel } from './components/OutputPanel'
@@ -440,11 +441,15 @@ export function App(): React.JSX.Element {
    * with no editor there is no model to ask for — so definitions, references and
    * renames that pointed anywhere else did nothing at all. An opener is how Monaco
    * asks the host to produce one; without it registered, it simply gives up.
+   *
+   * Registered when Monaco arrives rather than by fetching it: this ran on mount,
+   * so it was the line that loaded the editor at startup in a window that might
+   * never open one.
    */
   useEffect(() => {
     let disposed = false
     let opener: { dispose(): void } | null = null
-    void import('./editor/monaco').then(({ monaco }) => {
+    const stop = whenMonaco(({ monaco }) => {
       if (disposed) return
       opener = monaco.editor.registerEditorOpener({
         openCodeEditor: (_source, resource, selection) => {
@@ -463,10 +468,32 @@ export function App(): React.JSX.Element {
     })
     return () => {
       disposed = true
+      stop()
       opener?.dispose()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  /*
+   * Fetch the editor once the terminal has what it needs, and not before.
+   *
+   * It is out of the startup bundle so that the first prompt does not wait on it —
+   * but the first switch to the IDE should not wait on it either, so it is fetched
+   * as soon as some shell has settled into a prompt (or into being a plain
+   * terminal), when the window is idle. Once, however many panes settle.
+   */
+  const preloaded = useRef(false)
+  useEffect(() => {
+    if (preloaded.current) return
+    const settled = Object.values(panes).some(
+      (p) => p.kind === 'terminal' && p.integration !== 'pending'
+    )
+    if (!settled) return
+    preloaded.current = true
+    // Not cancelled when panes change, which is every few moments: the flag is
+    // already set, so a cancelled callback would be one that never comes back.
+    window.requestIdleCallback(() => void loadMonaco(), { timeout: 5000 })
+  }, [panes])
 
   // A second instance launched on a folder opens a tab there rather than stealing
   // the root from whatever the current window is already working on.

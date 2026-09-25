@@ -63,6 +63,11 @@ jobs:
       # existing on disk that nothing ever runs.
       - name: Every suite is in the gate's plan
         run: node scripts/gate.mjs --list
+      # What the window loads before its first prompt, weighed: Monaco sat in the
+      # startup bundle for months because nothing measured it. A build is a minute
+      # here and needs no Electron binary.
+      - name: Startup bundle
+        run: npx electron-vite build && node scripts/check-bundle.mjs
 
   smoke:
     name: windows smoke

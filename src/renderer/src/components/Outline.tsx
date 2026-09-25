@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { activeDocument, useStore } from '../state/store'
-import { serverFor } from '../editor/lsp'
+import { serverFor } from '../editor/servers'
 
 interface Symbol {
   name: string

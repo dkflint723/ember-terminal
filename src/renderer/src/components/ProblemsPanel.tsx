@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { pathKey } from '@shared/paths'
-import { monaco } from '../editor/monaco'
+import { whenMonaco } from '../editor/loaded'
 import { useStore, workspaceRoot } from '../state/store'
 
 interface Props {
@@ -31,33 +31,44 @@ export interface Problem {
 export function useProblems(): Problem[] {
   const [problems, setProblems] = useState<Problem[]>([])
 
+  /*
+   * Once Monaco is here, and not before: a marker belongs to a model, and there are
+   * no models until something has loaded the editor. Subscribing through `whenMonaco`
+   * keeps the badge on the rail from being the thing that loads it at startup.
+   */
   useEffect(() => {
-    const read = (): void => {
-      const markers = monaco.editor.getModelMarkers({})
-      setProblems(
-        markers
-          .filter((m) => m.resource.scheme === 'file')
-          .map((m) => ({
-            file: m.resource.fsPath,
-            line: m.startLineNumber,
-            column: m.startColumn,
-            severity: m.severity,
-            message: m.message,
-            source: m.source ?? null,
-            code: typeof m.code === 'string' ? m.code : (m.code?.value ?? null)
-          }))
-          // Worst first within a file, then by position, so the thing most worth
-          // looking at is the thing at the top.
-          .sort(
-            (a, b) =>
-              a.file.localeCompare(b.file) || b.severity - a.severity || a.line - b.line
-          )
-      )
-    }
+    let sub: { dispose(): void } | null = null
+    const stop = whenMonaco(({ monaco }) => {
+      const read = (): void => {
+        const markers = monaco.editor.getModelMarkers({})
+        setProblems(
+          markers
+            .filter((m) => m.resource.scheme === 'file')
+            .map((m) => ({
+              file: m.resource.fsPath,
+              line: m.startLineNumber,
+              column: m.startColumn,
+              severity: m.severity,
+              message: m.message,
+              source: m.source ?? null,
+              code: typeof m.code === 'string' ? m.code : (m.code?.value ?? null)
+            }))
+            // Worst first within a file, then by position, so the thing most worth
+            // looking at is the thing at the top.
+            .sort(
+              (a, b) =>
+                a.file.localeCompare(b.file) || b.severity - a.severity || a.line - b.line
+            )
+        )
+      }
 
-    read()
-    const sub = monaco.editor.onDidChangeMarkers(() => read())
-    return () => sub.dispose()
+      read()
+      sub = monaco.editor.onDidChangeMarkers(() => read())
+    })
+    return () => {
+      stop()
+      sub?.dispose()
+    }
   }, [])
 
   return problems

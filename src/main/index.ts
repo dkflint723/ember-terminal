@@ -2594,6 +2594,8 @@ process.on('unhandledRejection', (reason) => {
     }
     dap?.dispose()
     ptys?.killAll()
+    // The windows' farewell saves may still be on their way to disk.
+    session.flush()
     completion?.dispose()
     history?.close()
     for (const service of lsps.values()) service.dispose()

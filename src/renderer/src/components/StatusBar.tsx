@@ -2,7 +2,7 @@ import { ENCODING_LABELS, type TextEncodingName } from '@shared/encoding'
 import { isInside, pathKey, samePath, shortenPath } from '@shared/paths'
 import { setTrust, useTrustedAt } from '../state/trust'
 import { activeDocument, paneIdsOf, useStore, type TerminalPaneState } from '../state/store'
-import { modelUri, monaco } from '../editor/monaco'
+import { monacoIfLoaded } from '../editor/loaded'
 import { useProblems } from './ProblemsPanel'
 import { useDebugStore } from '../state/debug'
 import { ClaudeStatus } from './ClaudeChip'
@@ -62,8 +62,9 @@ function languageName(id: string): string {
  * arriving re-renders this with the model in place.
  */
 function indentOf(filePath: string | null): { spaces: boolean; width: number } | null {
-  if (!filePath) return null
-  const model = monaco.editor.getModel(modelUri(filePath))
+  const m = monacoIfLoaded()
+  if (!filePath || !m) return null
+  const model = m.monaco.editor.getModel(m.modelUri(filePath))
   if (!model) return null
   const { insertSpaces, tabSize } = model.getOptions()
   return { spaces: insertSpaces, width: tabSize }
@@ -79,7 +80,7 @@ function indentOf(filePath: string | null): { spaces: boolean; width: number } |
  * against an unfocused editor lands nowhere.
  */
 function goToLine(): void {
-  const editors = monaco.editor.getEditors()
+  const editors = monacoIfLoaded()?.monaco.editor.getEditors() ?? []
   const editor = editors.find((e) => e.hasTextFocus()) ?? editors[0]
   if (!editor) return
   editor.focus()

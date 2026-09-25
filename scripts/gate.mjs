@@ -97,7 +97,8 @@ const ORDER = [
   'verify-models',
   'verify-profiles',
   'verify-rebind',
-  'verify-window'
+  'verify-window',
+  'verify-idle'
 ]
 
 /** Suites this runner deliberately leaves to another step, each with its reason. */
