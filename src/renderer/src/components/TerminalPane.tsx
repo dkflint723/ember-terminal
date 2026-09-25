@@ -334,17 +334,41 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
    * runner, shrinking the window by 140px parked the view 114px above the end and
    * left it there, identically, every time it was tried.
    */
-  const pinnedTo = useRef(-1)
   const pin = (el: HTMLElement): void => {
     el.scrollTop = el.scrollHeight
-    // Read back rather than assumed: the assignment above is clamped to the range.
-    pinnedTo.current = el.scrollTop
+  }
+  /*
+   * Only the reader can stop it following.
+   *
+   * The latch was cleared by any scroll event that arrived while the view was not
+   * at the end, and a scroll event is not only something a reader causes. When
+   * content reflows shorter, the browser clamps scrollTop to fit and fires one
+   * itself — and during a resize that clamp happens mid-reflow, when the view is
+   * legitimately nowhere near the end. The latch cleared on that, nothing ever set
+   * it again, and the pane stopped following for the rest of its life.
+   *
+   * It is deterministic where it happens at all: on a hosted runner, shrinking the
+   * window by 140px left the pane on scrollTop 2505 — the maximum it had at the
+   * old height — and it stayed there through a further 70px of new output, which
+   * is how "it is no longer following" was told apart from "it was not told the
+   * window moved".
+   *
+   * So leaving the end counts only when a gesture just happened. Arriving at the
+   * end always counts, whoever caused it, which is what makes this self-righting
+   * rather than a second latch to get stuck in.
+   */
+  const lastGesture = useRef(0)
+  const noteGesture = (): void => {
+    lastGesture.current = Date.now()
   }
   const noteScroll = (): void => {
     const el = scroller.current
     if (!el) return
-    if (el.scrollTop === pinnedTo.current) return
-    stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 24) {
+      stuck.current = true
+      return
+    }
+    if (Date.now() - lastGesture.current < 500) stuck.current = false
   }
 
   // The size of what the newest block is holding, which is what changes when output
@@ -461,6 +485,11 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
           }`}
           ref={scroller}
           onScroll={noteScroll}
+          // What the reader does, as opposed to what the layout does to itself.
+          onWheel={noteGesture}
+          onPointerDown={noteGesture}
+          onTouchStart={noteGesture}
+          onKeyDown={noteGesture}
         >
           {/*
             An aside, not a block. These borrowed a block's chrome, which stopped

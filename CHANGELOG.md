@@ -5,6 +5,29 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Only the reader can stop a terminal following its output
+
+- **A window made smaller could stop its terminal following for good.** Following the
+  end is a latch, cleared by a scroll event that leaves the view off the bottom. When
+  content reflows shorter the browser clamps `scrollTop` and fires a scroll event of
+  its own, and during a resize that lands mid-reflow — so the latch cleared on the
+  browser's action, nothing set it again, and new output went on landing below the
+  fold. Measured before anything was changed: the pane sat on the maximum it had at
+  the old height, 114px short, and a further 70px of new output did not move it.
+- **Leaving the end now counts only right after a gesture** — a wheel, a touch, a
+  pointer or a key on the pane. Arriving at the end always re-arms it, however that
+  happened, so it cannot become a second latch to get stuck in. This supersedes the
+  narrower guard added earlier against the pane's own pinning, which it covers.
+- **A change of meaning, decided rather than slipped in.** "The reader scrolled away"
+  used to include any scroll, code-driven ones too; now it means the reader did
+  something. The output suite's check for it had been assigning `scrollTop` and now
+  uses the mouse wheel over the pane.
+- **How it is checked:** `verify-session`'s "the restored view is weighted to the
+  bottom" failed on the hosted runner every night and, since this machine's display
+  changed, here too — 113.89px on the build just before this one. It passes with
+  this change, and `verify-output`'s reader-scrolled-up check passes driven by a real
+  wheel.
+
 ### The runner tests the window people actually open
 
 - **The runner was testing the administrator's window.** A hosted Windows runner runs

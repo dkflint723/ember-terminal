@@ -391,12 +391,19 @@ const bottomGap = async () =>
 await run('1..60 | ForEach-Object { "scroll line $_" }')
 check('the newest output is in view without being dragged there', (await bottomGap()) <= 24, `${await bottomGap()}px below the fold`)
 
-// And the other half: someone who has scrolled up to read is not yanked back.
-await page.evaluate(() => {
-  const el = document.querySelector('.pane__scroll')
-  if (el) el.scrollTop = 0
-})
-await sleep(400)
+/*
+ * And the other half: someone who has scrolled up to read is not yanked back.
+ *
+ * With the wheel, over the pane, as a reader does it. This used to assign scrollTop,
+ * which is a scroll the code performed — and a pane now stops following only for a
+ * gesture, because the browser performs scrolls of its own too: it clamps scrollTop
+ * whenever the content reflows shorter, and that clamp used to be read as the reader
+ * leaving, so a window made smaller could stop its terminal following for good.
+ */
+const box = await page.locator('.pane__scroll').first().boundingBox()
+if (box) await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+await page.mouse.wheel(0, -20_000)
+await sleep(600)
 await run('1..40 | ForEach-Object { "later line $_" }')
 check(
   'but a reader who scrolled up is left where they were',
