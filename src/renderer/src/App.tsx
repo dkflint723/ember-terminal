@@ -264,6 +264,14 @@ export function App(): React.JSX.Element {
             'error'
           )
       }
+      // And a file that could be read but held values that could not be used: each
+      // was put back to its default or brought into range, and says which.
+      const adjusted = await window.ember.settingsLoadNotes()
+      if (!badSettings && adjusted.length > 0) {
+        useStore
+          .getState()
+          .setNotice(`Some settings could not be used as stored: ${adjusted.join('; ')}.`, 'error')
+      }
 
       // Theme before the first pane, so no terminal is ever created with the
       // wrong palette and then repainted.

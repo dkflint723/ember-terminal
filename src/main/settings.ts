@@ -2,6 +2,7 @@ import { app, safeStorage } from 'electron'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { DEFAULT_SETTINGS, type Settings } from '../shared/types.js'
+import { checkSettings } from '../shared/settings-check.js'
 import { withTrust, withoutTrust } from '../shared/trust.js'
 import { realFolder } from './files.js'
 
@@ -71,7 +72,18 @@ export class SettingsStore {
      */
     for (const gone of ['aiMode', 'aiEffort']) delete (stored as Record<string, unknown>)[gone]
 
-    const merged: Settings = { ...DEFAULT_SETTINGS, ...stored }
+    /*
+     * Each field read for what it is supposed to be.
+     *
+     * The spread used to take whatever the file held, so a hand edit that left a
+     * list as a string reached the shell spawner as a string. What cannot be used
+     * falls back to its default and is written down, to be said once at startup —
+     * a setting that silently stops meaning what it was set to is the other half
+     * of the problem.
+     */
+    const checked = checkSettings(stored as Record<string, unknown>)
+    this.loadNotes = checked.notes
+    const merged: Settings = { ...DEFAULT_SETTINGS, ...checked.values }
     merged.anthropicApiKey = this.decryptKey(merged.anthropicApiKey)
     // The second key gets the same treatment as the first. A provider key sitting
     // in plaintext beside an encrypted one is the worse kind of half-measure.
@@ -89,6 +101,16 @@ export class SettingsStore {
   /** Why the stored settings could not be read, if they could not. Read once. */
   private loadError: string | null = null
 
+  /** What was clamped or put back to its default on the way in. Read once. */
+  private loadNotes: string[] = []
+
+  takeLoadNotes(): string[] {
+    this.get()
+    const notes = this.loadNotes
+    this.loadNotes = []
+    return notes
+  }
+
   takeLoadError(): string | null {
     this.get()
     const error = this.loadError
@@ -104,14 +126,26 @@ export class SettingsStore {
    * the user had just typed was kept in memory, reported as saved, and gone on the
    * next launch.
    */
-  set(patch: Partial<Settings>): { settings: Settings; persisted: boolean; error?: string } {
+  set(patch: Partial<Settings>): {
+    settings: Settings
+    persisted: boolean
+    error?: string
+    notes?: string[]
+  } {
     const held = this.get().trustedFolders
-    const next: Settings = { ...this.get(), ...patch }
+    /*
+     * Held to the same rules as the file. The dialog clamps what it can, but a
+     * suite, a script or an import can send anything, and a value this store
+     * accepts is a value every shell and every window then acts on. What was
+     * changed on the way in is handed back to be said.
+     */
+    const { values, notes } = checkSettings(patch as Record<string, unknown>)
+    const next: Settings = { ...this.get(), ...values }
     // Whoever sends a whole list — the settings dialog, a suite — is held to the
     // same rule as a single grant: each folder by its real name. A save that sends
     // the list back unchanged asks about nothing.
-    if (patch.trustedFolders !== undefined) {
-      next.trustedFolders = realTrust(patch.trustedFolders, (f) => !held.includes(f))
+    if (values.trustedFolders !== undefined) {
+      next.trustedFolders = realTrust(values.trustedFolders, (f) => !held.includes(f))
     }
     this.cache = next
 
@@ -125,16 +159,22 @@ export class SettingsStore {
       mkdirSync(dirname(this.file), { recursive: true })
       writeFileSync(temp, JSON.stringify(onDisk, null, 2), 'utf8')
       renameSync(temp, this.file)
-      return { settings: next, persisted: true }
+      return { settings: next, persisted: true, ...(notes.length > 0 ? { notes } : {}) }
     } catch (err) {
       // The in-memory value stands so the session still works; the caller is told
       // that it will not outlive the window.
       return {
         settings: next,
         persisted: false,
-        error: err instanceof Error ? err.message : 'Settings could not be saved.'
+        error: err instanceof Error ? err.message : 'Settings could not be saved.',
+        ...(notes.length > 0 ? { notes } : {})
       }
     }
+  }
+
+  /** Where the file is, for "Show settings.json". */
+  get path(): string {
+    return this.file
   }
 
   /**

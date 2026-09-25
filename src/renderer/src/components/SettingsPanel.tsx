@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type {
   AiCredential,
   ClaudeAccess,
@@ -7,6 +7,8 @@ import type {
   GhostModel,
   Settings
 } from '@shared/types'
+import { DEFAULT_SETTINGS } from '@shared/types'
+import { NOT_PORTABLE } from '@shared/settings-check'
 import { chordOf, COMMANDS, resolveBindings } from '../keys'
 import { AI_MODELS, modelChoice } from '@shared/models'
 import { leadFamily, monospaceFamilies, stackFor } from '../state/fonts'
@@ -219,6 +221,17 @@ export function SettingsPanel(): React.JSX.Element | null {
   /** What the last press of Test found, if it has been pressed. */
   const [ghostTest, setGhostTest] = useState<{ good: boolean; text: string } | null>(null)
   const [ghostTesting, setGhostTesting] = useState(false)
+  /** Asking whether to throw away edits, after Escape or a click outside. */
+  const [askDiscard, setAskDiscard] = useState(false)
+  const askDiscardRef = useRef(false)
+  askDiscardRef.current = askDiscard
+  /** The second press each of these needs, since neither can be taken back. */
+  const [confirmRemoveKey, setConfirmRemoveKey] = useState(false)
+  const [confirmReset, setConfirmReset] = useState(false)
+  /** Narrows every field in the dialog by what it says; empty shows them all. */
+  const [query, setQuery] = useState('')
+  /** What the last import, export or reset did, said under the buttons that did it. */
+  const [portNote, setPortNote] = useState<{ good: boolean; text: string } | null>(null)
 
   const refreshAccess = async (): Promise<void> => {
     setProbing(true)
@@ -325,6 +338,11 @@ export function SettingsPanel(): React.JSX.Element | null {
      */
     setTypedModel(false)
     setLocalModels([])
+    setAskDiscard(false)
+    setConfirmRemoveKey(false)
+    setConfirmReset(false)
+    setQuery('')
+    setPortNote(null)
     void window.ember.getSettings().then((s) => {
       setDraft(s)
       setSaved(s)
@@ -412,18 +430,86 @@ export function SettingsPanel(): React.JSX.Element | null {
         capturingRef.current = null
         return
       }
+      // Escape answers the question it raised: keep editing.
+      if (askDiscardRef.current) {
+        setAskDiscard(false)
+        return
+      }
       closeRef.current()
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [open])
 
+  /*
+   * Search across every setting, not only the shortcuts.
+   *
+   * By what each field says — its label, its choices, its explanation — so a
+   * search for "PATH" finds the shells and "Ctrl" finds the chords, without a
+   * keyword list to keep in step with the dialog. Written onto the rendered fields
+   * after each render rather than threaded through forty JSX blocks: nothing in
+   * React owns their display, and a field that is hidden is still mounted, so its
+   * draft value is untouched.
+   */
+  useLayoutEffect(() => {
+    const body = bodyRef.current
+    if (!open || !body) return
+    const q = query.trim().toLowerCase()
+    let shown = 0
+    for (const section of Array.from(body.querySelectorAll<HTMLElement>('[data-section]'))) {
+      const title = section.querySelector('.settings__section-title')?.textContent?.toLowerCase() ?? ''
+      let inSection = 0
+      for (const field of Array.from(section.querySelectorAll<HTMLElement>(':scope > .field'))) {
+        const hit = !q || title.includes(q) || (field.textContent ?? '').toLowerCase().includes(q)
+        field.style.display = hit ? '' : 'none'
+        if (hit) inSection += 1
+      }
+      section.style.display = inSection > 0 ? '' : 'none'
+      shown += inSection
+    }
+    body.dataset.empty = shown === 0 ? 'yes' : 'no'
+  })
+
   if (!open || !draft) return null
 
-  const close = (): void => {
-    // Themes preview live, so cancelling has to put the old one back.
-    if (saved && saved.themeId !== draft.themeId) void activateTheme(saved.themeId)
+  /** The keys the draft has changed, compared the way save compares them. */
+  const changed = (Object.keys(draft) as (keyof Settings)[]).filter(
+    (key) => !saved || !Object.is(draft[key], saved[key])
+  )
+
+  /** Show what a set of values looks like, for the three that apply as they change. */
+  const preview = (from: Settings, to: Settings): void => {
+    if (from.themeId !== to.themeId) void activateTheme(to.themeId)
+    if (from.uiZoom !== to.uiZoom) window.ember.setZoom(to.uiZoom || 1)
+    if (from.blockDensity !== to.blockDensity) {
+      document.documentElement.dataset.density = to.blockDensity ?? 'normal'
+    }
+  }
+
+  /*
+   * Cancel puts back everything that was previewed, not only the theme.
+   *
+   * Zoom and density apply as they change, so they can be judged by looking — and
+   * Cancel reverted the theme alone, leaving the window at 150% after "cancelling"
+   * a change to 150%. All three go back to what is saved.
+   */
+  const discard = (): void => {
+    if (saved) preview(draft, saved)
+    setAskDiscard(false)
     toggle(false)
+  }
+
+  /*
+   * Escape and a click outside ask first when there is something to lose.
+   *
+   * Either one used to throw the draft away at once, and a click that lands a few
+   * pixels outside the dialog is the easiest mistake in the app to make. Cancel is
+   * a decision and does not ask; these two are often not.
+   */
+  const close = (): void => {
+    if (askDiscard) return
+    if (changed.length > 0) setAskDiscard(true)
+    else discard()
   }
   closeRef.current = close
 
@@ -457,6 +543,11 @@ export function SettingsPanel(): React.JSX.Element | null {
     for (const secret of SECRETS) if (patch[secret] == null) delete patch[secret]
     const res = await window.ember.setSettings(patch)
     applySettings(res.settings)
+    // What main had to change to accept it — a size brought into range, a row it
+    // could not use — said rather than left to be noticed later.
+    if (res.notes && res.notes.length > 0) {
+      useStore.getState().setNotice(`Saved, with changes: ${res.notes.join('; ')}.`, 'error')
+    }
     /*
      * A write that did not happen keeps the dialog open.
      *
@@ -517,6 +608,58 @@ export function SettingsPanel(): React.JSX.Element | null {
 
   const field = <K extends keyof Settings>(key: K, value: Settings[K]): void =>
     setDraft({ ...draft, [key]: value })
+
+  /** Settings from outside the dialog, put in the draft to be looked at and saved. */
+  const takeIn = (values: Partial<Settings>): void => {
+    const next = { ...draft, ...values }
+    preview(draft, next)
+    setDraft(next)
+  }
+
+  const importFile = async (): Promise<void> => {
+    setPortNote(null)
+    const res = await window.ember.importSettings()
+    if (!res.ok || !res.values) {
+      if (res.error) setPortNote({ good: false, text: res.error })
+      return
+    }
+    takeIn(res.values)
+    const count = Object.keys(res.values).length
+    const adjusted = res.notes && res.notes.length > 0 ? ` Adjusted: ${res.notes.join('; ')}.` : ''
+    setPortNote({
+      good: true,
+      text: `${count} settings read into this dialog — nothing is kept until you press Save.${adjusted}`
+    })
+  }
+
+  const exportFile = async (): Promise<void> => {
+    setPortNote(null)
+    const res = await window.ember.exportSettings()
+    if (res.ok && res.path) {
+      setPortNote({
+        good: true,
+        text: `Saved settings written to ${res.path}${changed.length > 0 ? ' — without the edits in this dialog, which are not saved yet' : ''}.`
+      })
+    } else if (res.error) {
+      setPortNote({ good: false, text: res.error })
+    }
+  }
+
+  /*
+   * Every preference back to its default, into the draft.
+   *
+   * Not what describes this machine — the keys, the window, the trusted folders,
+   * what has been learned — which is the same line an export draws, for the same
+   * reason: those are not preferences. And into the draft rather than straight to
+   * disk, so it can be looked at and cancelled like any other edit.
+   */
+  const resetAll = (): void => {
+    const kept: Partial<Settings> = {}
+    for (const key of NOT_PORTABLE) (kept as Record<string, unknown>)[key] = draft[key]
+    takeIn({ ...DEFAULT_SETTINGS, ...kept })
+    setConfirmReset(false)
+    setPortNote({ good: true, text: 'Every preference is back to its default in this dialog — nothing is kept until you press Save.' })
+  }
 
   const patchCustom = (i: number, part: Partial<CustomProfile>): void =>
     field(
@@ -584,6 +727,15 @@ export function SettingsPanel(): React.JSX.Element | null {
 
         <div className="settings__layout">
           <nav className="settings__nav" aria-label="Settings sections">
+            <input
+              className="settings__search"
+              type="search"
+              placeholder="Search settings…"
+              aria-label="Search settings"
+              value={query}
+              spellCheck={false}
+              onChange={(e) => setQuery(e.target.value)}
+            />
             {SECTIONS.map((s) => (
               <button
                 key={s.id}
@@ -597,6 +749,11 @@ export function SettingsPanel(): React.JSX.Element | null {
           </nav>
 
           <div className="settings__body" ref={bodyRef} onScroll={onBodyScroll}>
+            {query.trim() && (
+              <div className="settings__nomatch field__note">
+                No setting mentions &ldquo;{query.trim()}&rdquo;.
+              </div>
+            )}
             <section className="settings__section" data-section="appearance">
               <h3 className="settings__section-title">Appearance</h3>
 
@@ -930,6 +1087,12 @@ export function SettingsPanel(): React.JSX.Element | null {
                   PowerShell, nushell, ssh somewhere. Pick the dialect the shell actually speaks
                   and it gets blocks and prompt detection; plain runs it as a bare terminal.
                 </div>
+                {/* Said where the rows are, because these rows start programs and
+                    nothing about a name, a path and some arguments says so. */}
+                <div className="field__note field__note--warn">
+                  Ember runs this program with your permissions whenever a session opens
+                  with this shell.
+                </div>
               </div>
 
               <div className="field">
@@ -1055,6 +1218,10 @@ export function SettingsPanel(): React.JSX.Element | null {
                   Anything that speaks LSP over stdio: rust-analyzer, gopls, clangd. The
                   language id must be one the editor knows — most are built in — and the
                   server starts the first time a file of that language opens.
+                </div>
+                <div className="field__note field__note--warn">
+                  Ember runs this program with your permissions whenever a matching file
+                  opens.
                 </div>
               </div>
 
@@ -1355,7 +1522,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                           })()
                         }}
                       >
-                        {ghostTesting ? 'Asking…' : 'Test'}
+                        {ghostTesting ? 'Asking…' : 'Save and test'}
                       </button>
                     </div>
                     {ghostTest && (
@@ -1492,20 +1659,36 @@ export function SettingsPanel(): React.JSX.Element | null {
                   onChange={(e) => field('anthropicApiKey', e.target.value || null)}
                   spellCheck={false}
                 />
+                {/* Two presses: this one acts at once rather than at Save, and a
+                    removed key is gone — there is no copy of it to put back. */}
                 {hasApiKey && (
                   <div className="composer__proposal-actions">
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        void (async () => {
-                          const res = await window.ember.setSettings({ anthropicApiKey: null })
-                          applySettings(res.settings)
-                          setHasApiKey(false)
-                        })()
-                      }}
-                    >
-                      Remove saved key
-                    </button>
+                    {confirmRemoveKey ? (
+                      <>
+                        <span className="field__note">Remove the saved key now? It cannot be recovered.</span>
+                        <button
+                          className="btn"
+                          data-confirm="remove-key"
+                          onClick={() => {
+                            void (async () => {
+                              const res = await window.ember.setSettings({ anthropicApiKey: null })
+                              applySettings(res.settings)
+                              setHasApiKey(false)
+                              setConfirmRemoveKey(false)
+                            })()
+                          }}
+                        >
+                          Remove it
+                        </button>
+                        <button className="btn" onClick={() => setConfirmRemoveKey(false)}>
+                          Keep it
+                        </button>
+                      </>
+                    ) : (
+                      <button className="btn" onClick={() => setConfirmRemoveKey(true)}>
+                        Remove saved key…
+                      </button>
+                    )}
                   </div>
                 )}
                 <div className="field__note">
@@ -1710,6 +1893,51 @@ export function SettingsPanel(): React.JSX.Element | null {
                 {updateNote && <div className="field__note">{updateNote}</div>}
               </div>
 
+              <div className="field" role="group" aria-labelledby="settings-file">
+                <span className="field__label" id="settings-file">This file</span>
+                <div className="composer__proposal-actions">
+                  <button className="btn" onClick={() => void importFile()}>
+                    Import…
+                  </button>
+                  <button className="btn" onClick={() => void exportFile()}>
+                    Export…
+                  </button>
+                  <button className="btn" onClick={() => void window.ember.revealSettings()}>
+                    Show settings.json
+                  </button>
+                  {confirmReset ? (
+                    <>
+                      <button className="btn" data-confirm="reset-all" onClick={resetAll}>
+                        Reset every preference
+                      </button>
+                      <button className="btn" onClick={() => setConfirmReset(false)}>
+                        Keep them
+                      </button>
+                    </>
+                  ) : (
+                    <button className="btn" onClick={() => setConfirmReset(true)}>
+                      Reset all…
+                    </button>
+                  )}
+                </div>
+                {portNote && (
+                  <div
+                    className={`field__note ${portNote.good ? '' : 'field__note--bad'}`}
+                    role="status"
+                  >
+                    {portNote.text}
+                  </div>
+                )}
+                <div className="field__note">
+                  An export carries preferences only: never a key, and nothing about this
+                  machine — its window, its recent and trusted folders. An import is
+                  checked field by field and refused whole if any of it is the wrong
+                  kind of value; what it holds lands in this dialog for you to look at
+                  before Save. settings.json itself is read when Ember starts, so an
+                  edit made to it while Ember is running is replaced at the next save.
+                </div>
+              </div>
+
               <ExplorerMenuField />
             </section>
           </div>
@@ -1717,8 +1945,22 @@ export function SettingsPanel(): React.JSX.Element | null {
 
         {saveError && <div className="composer__error settings__error">{saveError}</div>}
 
+        {askDiscard && (
+          <div className="settings__discard" role="alertdialog" aria-label="Discard changes?">
+            <span>
+              Discard {changed.length === 1 ? 'your change' : `${changed.length} changes`}?
+            </span>
+            <button className="btn" autoFocus onClick={() => setAskDiscard(false)}>
+              Keep editing
+            </button>
+            <button className="btn" data-confirm="discard" onClick={discard}>
+              Discard
+            </button>
+          </div>
+        )}
+
         <div className="modal__actions">
-          <button className="btn" onClick={close}>
+          <button className="btn" onClick={discard}>
             Cancel
           </button>
           <button className="btn btn--primary" onClick={() => void save()}>

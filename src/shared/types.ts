@@ -1396,12 +1396,32 @@ export interface EmberApi {
   onAiChatEvent(cb: (e: AiChatEvent) => void): () => void
   /** `hasApiKey` says whether one is stored; the key itself never comes back. */
   getSettings(): Promise<Settings & { hasApiKey: boolean; hasGhostKey: boolean }>
-  /** `persisted` is false when the value is in memory only and will not survive. */
+  /**
+   * `persisted` is false when the value is in memory only and will not survive.
+   * `notes` says what main changed on the way in — a number brought into range, a
+   * list entry it could not use — and is absent when it changed nothing.
+   */
   setSettings(
     patch: Partial<Settings>
-  ): Promise<{ settings: Settings; persisted: boolean; error?: string }>
+  ): Promise<{ settings: Settings; persisted: boolean; error?: string; notes?: string[] }>
   /** Why stored settings could not be read, once, if they could not. */
   settingsLoadError(): Promise<string | null>
+  /** What stored settings had changed on the way in, once. Empty when nothing. */
+  settingsLoadNotes(): Promise<string[]>
+  /** Write the preferences, without keys or this machine's state, to a chosen file. */
+  exportSettings(): Promise<{ ok: boolean; path?: string; error?: string }>
+  /**
+   * Read a chosen settings file strictly. The values come back for the dialog to
+   * put in its draft; nothing is saved. A cancelled picker is `ok: false` with no error.
+   */
+  importSettings(): Promise<{
+    ok: boolean
+    values?: Partial<Settings>
+    notes?: string[]
+    error?: string
+  }>
+  /** Show settings.json in Explorer. */
+  revealSettings(): Promise<void>
   /** Keep main's count current, so closing the window can ask before discarding. */
   /**
    * What closing this window would cost, kept current rather than asked for.
