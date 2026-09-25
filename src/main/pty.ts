@@ -184,6 +184,7 @@ export class PtyManager {
       this.onData(req.paneId, d)
     })
     pty.onExit(({ exitCode }) => {
+      this.unreaped.delete(pty.pid)
       /*
        * Only if this is still the session for that pane.
        *
@@ -453,6 +454,8 @@ export class PtyManager {
     const s = this.sessions.get(paneId)
     if (!s) return
     this.sessions.delete(paneId)
+    // Remembered until its exit arrives: see endEveryShell.
+    if (s.pty.pid > 0) this.unreaped.add(s.pty.pid)
     try {
       s.pty.kill()
     } catch {
@@ -462,5 +465,51 @@ export class PtyManager {
 
   killAll(): void {
     for (const id of [...this.sessions.keys()]) this.kill(id)
+  }
+
+  /**
+   * Shells told to end whose exit has not yet arrived, by process id. An id leaves
+   * this set when the exit does, about a second after the process ends — node-pty
+   * waits that long for the last of its output.
+   */
+  private unreaped = new Set<number>()
+
+  /** How many shells are running, or were told to end and have not been heard to. */
+  get shellsLeft(): number {
+    return this.sessions.size + this.unreaped.size
+  }
+
+  /*
+   * Every shell ended, and heard to end, while there is still someone to hear it.
+   *
+   * node-pty waits for each shell on a thread of its own and reports the exit to
+   * JavaScript. Quitting ended the shells and let the process go at once, so the
+   * exits were still in flight when node tore itself down, and the runner caught
+   * both ways that goes wrong. A shell that had not died yet — Command Prompt, in
+   * one quit in eleven or so — kept main joining that thread in node's teardown for
+   * as long as it lived: the window gone, and Ember running on with nothing to
+   * show for it and the single-instance lock still held, so it could not even be
+   * opened again. A shell that died a moment too late had its exit delivered once
+   * JavaScript could no longer run, and node-pty threw from inside the delivery:
+   * about one quit in eight with bash and PowerShell open ended in a crash dump.
+   *
+   * So quitting stops here first. Every shell still running is killed, every one
+   * already told to end is ended outright, not left to its console closing, and
+   * quitting waits until each exit has arrived. Bounded, because this is the one
+   * step of quitting that must never be what waits.
+   */
+  async endEveryShell(ms = 3_000): Promise<void> {
+    this.killAll()
+    for (const pid of this.unreaped) {
+      try {
+        process.kill(pid)
+      } catch {
+        // Gone already; its exit is on the way.
+      }
+    }
+    const until = Date.now() + ms
+    while (this.unreaped.size > 0 && Date.now() < until) {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
   }
 }

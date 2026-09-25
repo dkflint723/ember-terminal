@@ -2450,7 +2450,18 @@ process.on('unhandledRejection', (reason) => {
    * had stopped answering. will-quit comes only once every window has gone, when
    * there is nothing left to cancel, and after their last writes have landed.
    */
-  app.on('will-quit', () => {
+  let shellsEnded = false
+  app.on('will-quit', (e) => {
+    /*
+     * The shells first, and their exits heard, while JavaScript can still hear
+     * them — see endEveryShell. Once, and then the quit goes on from here.
+     */
+    if (!shellsEnded && ptys && ptys.shellsLeft > 0) {
+      shellsEnded = true
+      e.preventDefault()
+      void ptys.endEveryShell().finally(() => app.quit())
+      return
+    }
     dap?.dispose()
     ptys?.killAll()
     completion?.dispose()

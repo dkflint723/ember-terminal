@@ -127,7 +127,18 @@ export async function closeApp(app, { ms = 20_000 } = {}) {
   })
   app.close().catch(() => {})
   const closed = await Promise.race([exited, pause(ms).then(() => false)])
-  if (closed) return null
+  /*
+   * And gone cleanly. Quitting could also crash on the way out — a shell's exit
+   * delivered after JavaScript had stopped, and node-pty throwing from inside it —
+   * which printed nothing and left a dump in the profile. Nothing else looks at
+   * the exit code, so it is read here.
+   */
+  if (closed) {
+    const code = proc.exitCode ?? 0
+    return code === 0
+      ? null
+      : `the app exits cleanly when asked — exit code 0x${(code >>> 0).toString(16)}${(code >>> 0) === 0xe06d7363 ? ', an uncaught C++ exception' : ''}`
+  }
   const alive = aliveUnder(pid)
   spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true })
   try {

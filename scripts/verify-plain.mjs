@@ -197,6 +197,54 @@ if ((await zshEntry.count()) === 1) {
     check('with no composer offered', (await page.locator('.composer__input').count()) === 0)
   }
 }
+
+// --- and a shell that does not go when its console does is no reason to stay -------
+//
+// Ember could close its window and not exit. The runner caught it doing so here, one
+// run in eleven or so: the window gone, main in node's teardown joining the thread
+// node-pty keeps per shell to wait for that shell to exit — and the shell, the
+// pretend zsh above, still alive. Closing a pty on Windows ends its programs later,
+// asynchronously, and at quit there is no later.
+//
+// That race is not something a check can win on demand, so this is a shell that
+// loses it every time: it lets go of its console and sleeps, so closing the console
+// cannot reach it. Ember has to end it itself before it goes, and has to go.
+const stubbornPidFile = path.join(pretend, 'stubborn.pid')
+const stubborn = [
+  "Add-Type -Namespace EmberCheck -Name Console -MemberDefinition '[DllImport(\"kernel32.dll\")] public static extern bool FreeConsole();'",
+  '[EmberCheck.Console]::FreeConsole() | Out-Null',
+  // Written only once it has let go, so the file is the proof that it has.
+  `Set-Content -LiteralPath '${stubbornPidFile}' -Value $PID`,
+  'Start-Sleep -Seconds 600'
+].join('\n')
+await page.keyboard.press('Control+,')
+await page.waitForSelector('.modal', { timeout: 8_000 })
+await page.locator('.btn', { hasText: 'Add shell…' }).click()
+await sleep(400)
+await page.locator('.shellrow__name').last().fill('Stubborn shell')
+await page.locator('.shellrow__path').last().fill('powershell.exe')
+await page
+  .locator('.shellrow__args')
+  .last()
+  .fill(`-NoLogo -NoProfile -EncodedCommand ${Buffer.from(stubborn, 'utf16le').toString('base64')}`)
+await page.locator('.shellrow__dialect').last().selectOption('none')
+await page.locator('.modal .btn', { hasText: 'Save' }).click()
+await sleep(1400)
+await page.click('.sessions__new')
+await sleep(500)
+const stubbornEntry = page.locator('.sessions__menu .titlebar__menu-item', { hasText: 'Stubborn shell' })
+check('the stubborn shell is offered', (await stubbornEntry.count()) === 1, String(await stubbornEntry.count()))
+if ((await stubbornEntry.count()) === 1) {
+  await stubbornEntry.click()
+  // Generous, because Add-Type compiles: the first Windows PowerShell on a cold
+  // runner had not got this far in thirty seconds, and the close then caught it
+  // still attached to its console, where it dies like any shell.
+  const until = Date.now() + 90_000
+  while (Date.now() < until && !fs.existsSync(stubbornPidFile)) await sleep(250)
+  check('and starts, and lets go of its console', fs.existsSync(stubbornPidFile))
+}
+
+// With the stubborn shell still running: Ember has to exit anyway, inside the bound.
 const unclosed = await closeApp(app)
 if (unclosed) failures.push(unclosed)
 // Only once the shells are dead. A running zsh.exe is a locked file, and removing

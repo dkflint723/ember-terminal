@@ -5,6 +5,26 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Ember exits when it is closed, even with a shell that has not
+
+- **The window closed and Ember kept running.** At quit the main process waited in
+  Node's shutdown for node-pty's per-shell watcher, and the shell it watched was still
+  alive: on Windows node-pty ends a console's programs later and asynchronously, and at
+  quit there is no later. On the runner, 8 closes in 91 left Ember running three and a
+  half minutes afterwards.
+- **Or it crashed on the way out.** A shell ending a moment too late had its exit
+  delivered after JavaScript had stopped, and node-pty threw from inside that delivery
+  (0xE06D7363, with a crash dump left in the profile) — 12 closes in 91.
+- **Quitting now ends every shell and waits to hear each one end**, for up to three
+  seconds, before the process goes. With shells open, the process lingers about a second
+  after its window has gone.
+- **Not proven:** that a hung instance also held the single-instance lock and would have
+  stopped Ember reopening. It follows from the code; it was not tested.
+- **How it is checked:** `verify-plain` keeps a shell that has let go of its console open
+  at close, and the bounded close fails if Ember is still running twenty seconds later or
+  exits with anything but 0. On the previous build it fails 20 of 20, and integration
+  crashes 3 of 20; with this change both pass 40 of 40.
+
 ### Suites finish their commands, and a close cannot hang the gate
 
 - **Four suites timed out at twenty minutes on most nightlies, printing nothing.**
