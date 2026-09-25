@@ -28,8 +28,13 @@ on:
 # of the day is the one that got interrupted — and a dispatch is somebody asking a
 # question on purpose, so asking a second one should not throw away the answer to
 # the first. That is not hypothetical: it is how these are run one suite at a time.
+#
+# A dispatch gets a group of its own. GitHub lets a group hold one run in progress
+# and one waiting, and a new waiting run replaces the one already waiting whatever
+# cancel-in-progress says — so four dispatches of one suite, queued to measure a
+# flake, kept the first and the last and silently cancelled the middle two.
 concurrency:
-  group: ci-${{ github.ref }}-${{ github.event_name }}
+  group: ci-${{ github.ref }}-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'shared' }}
   cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
 
 jobs:
