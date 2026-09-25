@@ -46,8 +46,16 @@ jobs:
       - run: npm ci
       - uses: ./.github/actions/electron-binary
       - run: npx electron-vite build
+      # As the nightly does it: under an ordinary user's token, so the gate a release
+      # waits on tests the window people open rather than the administrator's.
+      - name: The suites run as an ordinary user
+        shell: pwsh
+        run: pwsh -NoProfile -File .github/unelevated.ps1 'node .github/elevation.mjs --expect unelevated'
+        env:
+          EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs
       - name: The gate
-        run: node scripts/gate.mjs --hosted
+        shell: pwsh
+        run: pwsh -NoProfile -File .github/unelevated.ps1 'node scripts/gate.mjs --hosted'
         env:
           EMBER_STRICT: '1'
           EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs
@@ -115,8 +123,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       # Installed, launched through the packaged suites, uninstalled.
+      # Installed and launched by an ordinary user, the way it will be on a desk: an
+      # elevated install would launch an elevated Ember, which is the administrator's
+      # window and not the one this release is for.
       - name: The installed build works
-        run: node scripts/install-check.mjs
+        shell: pwsh
+        run: pwsh -NoProfile -File .github/unelevated.ps1 'node scripts/install-check.mjs'
         env:
           EMBER_STRICT: '1'
           EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs
