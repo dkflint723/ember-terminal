@@ -16,7 +16,7 @@
 //
 // Run: node scripts/verify-update.mjs   (needs a packaged build: npm run package)
 import { _electron as electron } from 'playwright-core'
-import { newProfile, skip } from './profile.mjs'
+import { newProfile, seedDirs, skip } from './profile.mjs'
 import * as crypto from 'node:crypto'
 import * as fs from 'node:fs'
 import * as http from 'node:http'
@@ -24,8 +24,14 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
-const UNPACKED = path.join(APP_DIR, 'release', 'win-unpacked')
-const EXE = path.join(UNPACKED, 'Ember.exe')
+/*
+ * The unpacked build by default, or any Ember.exe named by EMBER_EXE — the same
+ * override verify-packaged has, so both can be run against an app the NSIS
+ * installer actually put on disk rather than only against the folder it was made
+ * from. The release job does exactly that.
+ */
+const EXE = process.env.EMBER_EXE ?? path.join(APP_DIR, 'release', 'win-unpacked', 'Ember.exe')
+const UNPACKED = path.dirname(EXE)
 const FEED_CONFIG = path.join(UNPACKED, 'resources', 'app-update.yml')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -207,11 +213,18 @@ check(
  */
 const pendingAfterLaunch = async (stored, label) => {
   const scratch = newProfile(`pending-${label}`)
-  fs.writeFileSync(
-    path.join(scratch.dir, 'settings.json'),
-    JSON.stringify({ autoUpdate: false, pendingUpdateVersion: stored }),
-    'utf8'
-  )
+  // Into every directory the app might read from. An elevated app reads its own
+  // admin profile, which carries over only a short list of settings, and this is
+  // not on it: planted at the root alone, the promise never arrived, the "future"
+  // case came back null — and the "stale" case, which expects null, passed on a
+  // hosted runner for no better reason than that.
+  for (const dir of seedDirs(scratch.dir)) {
+    fs.writeFileSync(
+      path.join(dir, 'settings.json'),
+      JSON.stringify({ autoUpdate: false, pendingUpdateVersion: stored }),
+      'utf8'
+    )
+  }
   const scratchApp = await electron.launch({
     executablePath: EXE,
     args: [scratch.arg],

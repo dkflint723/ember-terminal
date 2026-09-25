@@ -1,0 +1,160 @@
+# The installer that ships is the installer that was tested.
+#
+# Until this existed a release was `npm run dist` on the maintainer's machine, and
+# the thing uploaded was never the thing anyone had run: every packaged check drove
+# release/win-unpacked, the folder the installer is made from. So this builds the
+# installer on a clean machine, checks the update feed against the bytes, installs
+# it, runs the packaged suites against what it installed, uninstalls it — and only
+# then, and only for a tag, makes a *draft* release out of exactly those files.
+#
+# Publishing the draft stays a person's decision, made after installing it over the
+# previous version (the audit's release ladder, R4 and R5).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  # A dry run: everything a tag does except making the release. The whole gate is
+  # optional here and required for a tag.
+  workflow_dispatch:
+    inputs:
+      gate:
+        description: 'Run the whole gate first, as a tag does'
+        type: boolean
+        default: false
+
+# Never cancelled: a release half-built is worse than one built twice.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # A green full run on this exact commit, before anything is built to ship. The
+  # runner's gate is not all green yet, so for now a tag stops here — which is the
+  # rule doing its job, not getting in the way.
+  gate:
+    name: every suite, on this commit
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.gate
+    runs-on: windows-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - uses: ./.github/actions/electron-binary
+      - run: npx electron-vite build
+      - name: The gate
+        run: node scripts/gate.mjs --hosted
+        env:
+          EMBER_STRICT: '1'
+          EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs
+      - name: Keep what the run saw
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gate-evidence
+          path: |
+            .shots/
+            ${{ runner.temp }}/ember-logs/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
+
+  release:
+    name: build, install, check, draft
+    needs: gate
+    # After a green gate; or, for anything that is not a version tag, a dry run that
+    # skipped it. Never after a red one, and never a release from a branch.
+    if: >-
+      always() &&
+      (needs.gate.result == 'success' ||
+       (!startsWith(github.ref, 'refs/tags/v') && needs.gate.result == 'skipped'))
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - uses: ./.github/actions/electron-binary
+
+      # A tag names a version, and package.json names one. A release where they
+      # differ writes a feed that says one thing and a file called another.
+      - name: The tag and package.json agree
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ("v$version" -ne $env:GITHUB_REF_NAME) {
+            Write-Host "tag $env:GITHUB_REF_NAME, package.json $version"
+            exit 1
+          }
+
+      # The debug adapter by pinned version and sha256; the script refuses anything
+      # else.
+      - run: node scripts/fetch-js-debug.mjs
+      - run: npx electron-vite build
+      # Never published from here: electron-builder would otherwise decide for itself
+      # whether a tag in CI means "publish", and the upload below is the only one.
+      - name: The installer
+        run: npx electron-builder --win --publish never
+
+      # Names, bytes and blockmap against latest.yml. Its "asset:" lines are the
+      # upload list, so nothing the updater needs can be left behind.
+      - name: The update feed matches the files
+        shell: pwsh
+        run: |
+          node scripts/check-release-assets.mjs | Tee-Object -FilePath "$env:RUNNER_TEMP/assets.txt"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      # Installed, launched through the packaged suites, uninstalled.
+      - name: The installed build works
+        run: node scripts/install-check.mjs
+        env:
+          EMBER_STRICT: '1'
+          EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs
+
+      # Always kept, so a dry run leaves the exact installer it tested behind for
+      # anyone to install by hand.
+      - name: Keep the release files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          path: |
+            release/latest.yml
+            release/*.exe
+            release/*.blockmap
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Keep what the run saw
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence
+          path: |
+            .shots/
+            ${{ runner.temp }}/ember-logs/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # A draft, from exactly the files checked above. Only for a tag.
+      - name: Draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = Get-Content "$env:RUNNER_TEMP/assets.txt" |
+            Where-Object { $_ -match '^\s*asset:\s*(.+)$' } |
+            ForEach-Object { Join-Path release $Matches[1].Trim() }
+          if (-not $assets) { Write-Host 'no asset list from the feed check'; exit 1 }
+          gh release create $env:GITHUB_REF_NAME $assets --draft --title "Ember $env:GITHUB_REF_NAME" --notes "Draft from $env:GITHUB_SHA. Install it over the previous version before publishing; see CHANGELOG.md."

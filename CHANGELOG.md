@@ -5,6 +5,41 @@ newest entry sits on top.
 
 ## Unreleased
 
+### The installer that ships is the one that was tested
+
+- **Every packaged check ran against the folder the installer is made from.** A release
+  was `npm run dist` on the maintainer's machine, and nothing had ever run what the
+  installer actually puts on a disk — which is how builds once shipped whose installed
+  app found no themes and no shell integration while the unpacked one was perfect.
+- **A release job now builds it on a clean machine and installs it.** For a version
+  tag, after a green run of the whole gate on that commit: the pinned debug adapter,
+  the NSIS build, the feed checked against the files, a silent install into a
+  throwaway folder, `verify-packaged` and `verify-update` against the installed
+  `Ember.exe`, an uninstall that has to remove it — and only then a *draft* release
+  made from exactly those files. Publishing it stays a person's decision, after
+  installing it over the previous version.
+- **The feed is checked against the bytes, not only the names.** Each file's sha512 and
+  size in `latest.yml` are compared with what is on disk, and the blockmap is
+  required. A mismatched hash gets the installer rejected inside the installed app,
+  after it has already announced an update — the same silent failure the name check
+  was written for, one step later. The check now prints the full upload list,
+  including the feed and the blockmap, which the release takes as given.
+- **A manual run is a dry run.** It does everything but make the release, and keeps
+  the installer it tested as an artifact. Only a `v` tag can draft one.
+- **`verify-update` had been passing one of its lines for the wrong reason on an
+  elevated machine.** It plants a promised update in the settings before launch; an
+  elevated app reads its own profile, which does not carry that setting over, so
+  "a version already passed stops being offered" got the `null` it expected because
+  nothing had been planted. It seeds both places now, and both lines pass on the
+  runner with the promise really there.
+- **How it is checked:** the feed check was run against a correct release folder and
+  three broken ones — wrong hash, wrong size, no blockmap — and fails each for its
+  own reason. The whole job has run as a dry run on a hosted runner: installer
+  built, feed passed, installed build passed both packaged suites, uninstall
+  removed it. It has not yet drafted a release, because the gate a tag requires is
+  not green on the runner yet — `verify-session` and the suites for the IDE bridge,
+  which an elevated window deliberately never starts, still fail there.
+
 ### The runner's screenshots reach the evidence artifact
 
 - **`.shots` starts with a dot**, and `upload-artifact` has skipped hidden files by

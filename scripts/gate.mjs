@@ -101,8 +101,8 @@ const ORDER = [
 
 /** Suites this runner deliberately leaves to another step, each with its reason. */
 const ELSEWHERE = {
-  'verify-packaged': 'drives the unpacked build — runs in verify:packaged, after electron-builder --dir',
-  'verify-update': 'needs the same unpacked build — runs in verify:packaged, after verify-packaged'
+  'verify-packaged': 'drives a packaged build — runs in verify:packaged against the unpacked one, and in the release job against the installed one',
+  'verify-update': 'needs a packaged build — runs after verify-packaged, in both of those places'
 }
 
 /*
