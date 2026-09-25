@@ -5,6 +5,116 @@ newest entry sits on top.
 
 ## Unreleased
 
+### The runner's screenshots reach the evidence artifact
+
+- **`.shots` starts with a dot**, and `upload-artifact` has skipped hidden files by
+  default since v4.4. Every screenshot a suite took on the runner was dropped, and
+  the artifact that exists to explain failures on a machine nobody can look at held
+  main-process logs and no pictures.
+- **Both upload steps now set `include-hidden-files: true`.**
+- **How it is checked:** a nightly artifact held two logs and nothing else; a dispatch
+  with the setting held all four of verify-git's screenshots.
+
+### A missing change mark is reported as missing, not as a timeout
+
+- **The click was waiting for a mark that was never drawn.** On the hosted runner the
+  editor found no committed text for its file — the short-name defect fixed above —
+  so it drew no change marks. verify-gutters then clicked the first mark, waited
+  thirty seconds for it, and threw; the three failures it had already recorded, each
+  saying plainly that there were no marks, were never printed. The nightly showed a
+  bare `locator.click: Timeout` for a fault the suite had correctly described.
+- **It clicks only a mark that is there**, so a missing one arrives as "marks exist for
+  an unsaved edit — []" rather than as a timeout.
+- **And it opens its file through a junction**, which gives the folder a second name
+  on every machine. Before this only a machine whose temp directory has a short name
+  could see the defect at all.
+- **How it is checked:** on the runner the new suite against the old app fails on the
+  missing marks and passes with the fix, twice.
+
+### A repository opened through a junction or subst drive keeps its git colours
+
+- **The explorer looked its rows up under git's name for the folder.** Git reports a
+  repository's root the way the disk finally names it, so a folder reached through a
+  junction or a `subst` drive comes back from `--show-toplevel` under the name
+  behind it. The explorer builds its rows from the folder it was given, looked each
+  one up under git's spelling, and found none: every row undecorated, while the
+  source-control panel beside it listed the changes.
+- **The root now comes back in the caller's spelling when that names the same
+  folder.** It is walked up from the folder asked about by as many levels as git says
+  that folder sits below the top, and trusted only if `realpath` agrees it is the
+  same directory; otherwise git's answer stands. When the two spellings already
+  match, nothing changes. This covers what the previous entry deliberately does not:
+  short names are written out at the command line, but a junction or a `subst`
+  drive is a place the person chose and is left as they named it.
+- **How it is checked:** verify-git now opens its repository through a junction,
+  which gives the folder a second name on every machine rather than only on one
+  whose temp directory has a short name. Against the previous build it fails here —
+  "explorer marks the untracked file — []", the line the hosted runner had failed on
+  every night — and it passes with this change.
+
+### Forgetting a command takes every copy of it off the history list
+
+- **The database lost every copy and the list lost one.** Forgetting a command in
+  Ctrl+R history deletes every row with the same text, by design. The list then
+  removed only the row that was clicked, so a command run twice left the database
+  entirely and stayed on screen once — naming a command that was no longer on disk.
+  The list now drops every row with that text, which is what main deletes.
+- **Found on the runner because it had recorded one line twice.** One typed `echo`
+  became two history rows and two blocks — one with output, one 77 ms later with
+  none — on the first command after the Claude panel had answered a question. Why
+  one Enter records twice is not established and not fixed here; it is a separate
+  fault, and it is being chased separately.
+- **How it is checked:** verify-secrets now runs the command twice on purpose, checks
+  both copies are listed, forgets one, and requires the list and the database both
+  empty of it. On the hosted runner it fails against the old list ("2 rows left") and
+  passes twice with the change. The case no longer depends on a machine happening to
+  double a line.
+
+### A folder opened by its short name is opened by its long one
+
+- **The workspace and the shell named one folder two ways.** A folder or file on the
+  command line was kept exactly as spelled, while the shell and git report the long
+  form. So the explorer lost its git marks — this is the nightly's "explorer marks the
+  untracked file — []" — and the git poll took the shell to be outside its own
+  workspace and asked about it a second time on every tick.
+- **Short names are written out, and nothing else is changed.** `longPath` expands 8.3
+  components in command-line paths using the filesystem's own answer, but keeps the
+  original if anything other than a short name would change — so a junction, a
+  `subst` drive or a mapped share stays where the person pointed, rather than being
+  swapped for the folder behind it. A path with no `~` in it is returned untouched.
+- **The suite's own line could never have passed on the runner.** It looked for the
+  short temp path inside the shell's long-form answer. It now compares with the
+  folder's long name, case-insensitively, and waits for the answer rather than
+  reading after a fixed two and a half seconds.
+- **How it is checked:** verify-explorer gains "and the workspace names it as the shell
+  does". On the hosted runner it fails against the previous build (workspace
+  `RUNNER~1`, shell `runneradmin`) and passes with this change. verify-git's untracked
+  mark went from red to green across the same pair — one run each, which is a
+  sighting, not a rate.
+
+### Gutter marks appear for a file opened by its short Windows name
+
+- **The file was measured against its repository in two different spellings.** Git
+  writes a repository's root the way the filesystem finally names it, long form. The
+  file's place inside it was worked out by comparing that root with the path the
+  editor held, so a file opened as `C:\Users\RUNNER~1\...` came out as somewhere above
+  the repository and was treated as outside it: no gutter marks on any line, however
+  much it was edited. A Windows profile with a long user name looks like that
+  whenever something hands over its short form — a TEMP variable, a tool on the
+  command line.
+- **Git is asked where the file is instead.** `--show-prefix` gives the folder's
+  place in the repository in git's own terms, so the two spellings never meet.
+- **Two checks had been passing for the wrong reason.** On a short TEMP path the lines
+  expecting *no* marks — a committed Windows-1252 file, a byte-order mark — passed
+  because a gutter that could not read the committed text drew nothing at all.
+- **Not covered: a file whose own name, rather than its folder, is spelled short.** It
+  is still not found.
+- **How it is checked:** verify-encoding's "while an edit to it is" failed every night
+  on the hosted runner, whose TEMP is an 8.3 path, and in an instrumented run that
+  read the committed text both ways — empty by the short spelling, present by the
+  long. It passes with this change. It has never failed here, where TEMP has no
+  short names.
+
 ### The nightly names what a hosted runner cannot run, instead of failing on it
 
 - **Three suites skip on a hosted runner every night, and under `EMBER_STRICT` a

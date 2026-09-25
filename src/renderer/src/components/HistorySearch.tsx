@@ -96,10 +96,16 @@ export function HistorySearch(): React.JSX.Element | null {
    * proof, and until now a command that slipped through one of them could only be
    * removed by clearing the lot. The row goes from the list as it goes from the
    * file, so the answer to "is it gone" is on screen rather than at the next search.
+   *
+   * By its text, because that is what main deletes by. The same line run twice is
+   * two rows, and forgetting one takes both out of the file; filtering the list by
+   * the id that was clicked left the twin on screen, naming a command that was no
+   * longer anywhere on disk. The list said less had been forgotten than had been.
    */
-  const forget = async (id: number): Promise<void> => {
-    await window.ember.forgetCommand(id)
-    setEntries((rows) => rows.filter((r) => r.id !== id))
+  const forget = async (entry: HistoryEntry): Promise<void> => {
+    await window.ember.forgetCommand(entry.id)
+    setEntries((rows) => rows.filter((r) => r.command !== entry.command))
+    setIndex(0)
   }
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
@@ -127,7 +133,7 @@ export function HistorySearch(): React.JSX.Element | null {
     // and which leaves Delete itself doing its ordinary job in the search box.
     if (e.shiftKey && e.key === 'Delete' && entries[index]) {
       e.preventDefault()
-      void forget(entries[index].id)
+      void forget(entries[index])
     }
   }
 
@@ -209,7 +215,7 @@ export function HistorySearch(): React.JSX.Element | null {
               onMouseDown={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
-                void forget(entry.id)
+                void forget(entry)
               }}
             >
               ×

@@ -84,16 +84,46 @@ check('the sidebar is rooted at the folder', rooted.root === path.basename(work)
 check('and lists what is in it', rooted.entries.includes('inside.txt'), JSON.stringify(rooted.entries))
 
 // The shell has to start there too, or "open here" is only half true.
+//
+// Compared with the folder's long name, not the string it was created as. On a
+// hosted runner os.tmpdir() is C:\Users\RUNNER~1\..., an 8.3 short name, and the
+// shell reports where it is the way the filesystem names it —
+// C:\Users\runneradmin\... — so this line failed every night about a shell that
+// was standing in exactly the right place.
+const longWork = fs.realpathSync.native(work)
+const sameFolder = (a, b) =>
+  typeof a === 'string' && typeof b === 'string' &&
+  a.replace(/[\\/]+$/, '').replace(/\//g, '\\').toLowerCase() ===
+    b.replace(/[\\/]+$/, '').replace(/\//g, '\\').toLowerCase()
 await page.click('.composer__input')
 await page.keyboard.type('(Get-Location).Path', { delay: 6 })
 await page.keyboard.press('Enter')
-await sleep(2500)
-const cwdShown = await page.evaluate(() =>
-  Array.from(document.querySelectorAll('.block'))
-    .map((b) => b.textContent ?? '')
-    .join(' ')
+let cwdShown = ''
+for (let waited = 0; waited < 15_000; waited += 250) {
+  await sleep(250)
+  cwdShown = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('.block'))
+      .map((b) => b.textContent ?? '')
+      .join(' ')
+  )
+  if (cwdShown.toLowerCase().includes(longWork.toLowerCase())) break
+}
+check('the shell starts in that folder', cwdShown.toLowerCase().includes(longWork.toLowerCase()), longWork)
+
+// And the workspace has to be the same folder by the same name as the shell. The
+// runner's short TEMP is what shows this up: the workspace kept the spelling it
+// was launched with and everything that asks the filesystem got the long one, so
+// the explorer's git marks and the status bar's "is this shell in the workspace"
+// both compared two spellings of one folder and found them different.
+const named = await page.evaluate(() => ({
+  root: document.querySelector('.tree__root')?.getAttribute('title') ?? null,
+  shell: document.querySelector('[data-status="cwd"]')?.getAttribute('title')?.split('\n')[0] ?? null
+}))
+check(
+  'and the workspace names it as the shell does',
+  sameFolder(named.root, named.shell),
+  `workspace ${named.root} · shell ${named.shell}`
 )
-check('the shell starts in that folder', cwdShown.includes(work), work)
 await page.screenshot({ path: path.join(SHOT_DIR, '70-opened-folder.png') })
 
 // --- the context-menu entry, checked against the registry ------------------

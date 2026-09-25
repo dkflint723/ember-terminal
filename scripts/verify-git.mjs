@@ -102,9 +102,24 @@ await app.close()
   bare.cleanup()
 }
 
+/*
+ * The window below opens the repository by a second name for the same folder.
+ *
+ * git names a repository the way the disk does, and the explorer looked its rows
+ * up under that name, so a folder opened as anything else — an 8.3 short name, a
+ * junction, a subst drive — had every row undecorated while the panel beside it
+ * listed the changes. On a hosted Windows runner that is every folder, because
+ * %TEMP% there is C:\Users\RUNNER~1\...; on a machine whose temp directory has no
+ * short name this suite could never see it. A junction gives it the same second
+ * name everywhere. Everything else here writes through the real path, which is
+ * the other name, as a terminal beside the window would.
+ */
+const link = `${repo}-link`
+fs.symlinkSync(repo, link, 'junction')
+
 const app = await electron.launch({
   executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
-  args: [APP_DIR, profile.arg, path.join(repo, 'tracked.ts')],
+  args: [APP_DIR, profile.arg, path.join(link, 'tracked.ts')],
   cwd: APP_DIR,
   env,
   timeout: 60_000
@@ -872,6 +887,12 @@ git('rm', '-q', '-f', '--', 'oversize.txt')
 
 await app.close()
 fs.rmSync(repo, { recursive: true, force: true })
+try {
+  // The junction itself, left dangling once the folder it named is gone.
+  fs.rmdirSync(link)
+} catch {
+  // A leftover link in the temp directory is not worth failing a run over.
+}
 
 profile.cleanup()
 for (const f of failures) console.log(`  - ${f}`)
