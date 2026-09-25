@@ -12,6 +12,7 @@ import {
   takesEffort,
   thinksByDefault
 } from '../src/shared/models.ts'
+import { DEFAULT_SETTINGS } from '../src/shared/types.ts'
 
 let failures = 0
 let cases = 0
@@ -51,7 +52,8 @@ check('opus-5-5 with a suffix is not given the fallback', !hasServerFallback('cl
 check('a model from elsewhere is none of these', !thinksByDefault('gpt-5') && !takesEffort('gpt-5') && !hasServerFallback('gpt-5'))
 
 // The menu.
-check('the default is listed first', AI_MODELS[0]?.id === 'claude-opus-5', AI_MODELS[0]?.id)
+check('the default is listed first', AI_MODELS[0]?.id === DEFAULT_SETTINGS.aiModel, AI_MODELS[0]?.id)
+check('and the default is Opus 5.5', DEFAULT_SETTINGS.aiModel === 'claude-opus-5-5', DEFAULT_SETTINGS.aiModel)
 check('the newest Opus is offered', modelChoice('claude-opus-5-5')?.label === 'Opus 5.5')
 check('every listed id is unique', new Set(AI_MODELS.map((m) => m.id)).size === AI_MODELS.length)
 check('every listed model has a note', AI_MODELS.every((m) => m.note.trim().length > 0))

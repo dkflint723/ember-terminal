@@ -7,8 +7,16 @@ newest entry sits on top.
 
 ### The newest Claude models, and what they do differently
 
-- **Opus 5.5 is on the menu,** beside Opus 5, Sonnet 5, Haiku 4.5, Fable 5.1 and
-  Opus 4.8. Opus 5 stays the default. Any other model id can still be typed in.
+- **Opus 5.5 is the default,** and first on the menu, beside Opus 5, Sonnet 5,
+  Haiku 4.5, Fable 5.1 and Opus 4.8. Any other model id can still be typed in. The
+  default is what a new install starts with: a model already saved in settings —
+  which is every install that has ever saved them — stays as it was, since a choice
+  of Opus 5 made on purpose and one inherited from the old default look the same.
+- **The panel still thinks as hard as it did.** Opus 5.5 starts at medium effort,
+  one step below the high every other model starts at, so the Claude panel now
+  asks for high explicitly on every model that takes effort — on all of them but
+  Opus 5.5 that is the default already, and on Opus 5.5 it keeps answers as
+  considered as they were on Opus 5.
 - **A short answer is no longer spent on thinking.** Opus 5 and Sonnet 5 think
   before they answer unless told not to, and Opus 5.5, Fable 5.1 and the Mythos
   line always do — and what they think is counted against the answer's token
@@ -28,9 +36,9 @@ newest entry sits on top.
   same call, and only a request every fallback declines reaches the message above.
 - **The rules are read from the model id,** so a model typed into Settings by hand
   is shaped the same way as one picked from the menu.
-- **How it is checked.** *claude models* (48 cases, in the unit tables) holds which
+- **How it is checked.** *claude models* (49 cases, in the unit tables) holds which
   ids think unasked, which take effort, and which carry the fallback, across every
-  current model and near misses. The request shapes are type-checked against the
+  current model and near misses, and that the default is Opus 5.5 and listed first. The request shapes are type-checked against the
   installed SDK, whose types carry `fallbacks`, `effort` and `stop_details`; they
   have not been sent to the live API from here, since the suites run without a key.
 
