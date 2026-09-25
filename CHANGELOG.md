@@ -5,6 +5,35 @@ newest entry sits on top.
 
 ## Unreleased
 
+### The newest Claude models, and what they do differently
+
+- **Opus 5.5 is on the menu,** beside Opus 5, Sonnet 5, Haiku 4.5, Fable 5.1 and
+  Opus 4.8. Opus 5 stays the default. Any other model id can still be typed in.
+- **A short answer is no longer spent on thinking.** Opus 5 and Sonnet 5 think
+  before they answer unless told not to, and Opus 5.5, Fable 5.1 and the Mythos
+  line always do — and what they think is counted against the answer's token
+  limit. The suggestion ahead of the caret and an edit to a selection ask for a
+  few lines, and on those models could spend the whole allowance thinking and come
+  back empty. They now leave room for both, and turn effort down to low where the
+  model accepts it, which also makes them quicker. The Claude panel's limit went
+  from 4096 tokens to 16,000 on the same models, for the same reason; it streams,
+  so the larger ceiling costs nothing unless it is used.
+- **A declined request says so.** Opus 5, Opus 5.5 and Fable 5.1 run safety
+  classifiers, and a request one of them declines comes back as a success with no
+  text — which showed as an empty reply. It is now an error that says Claude
+  declined and names the category when the API gives one.
+- **And is retried before it is declined.** On those three models every request
+  carries server-side fallback in its `"default"` form, so a question that trips a
+  classifier by mistake is rerun on the model's configured fallback inside the
+  same call, and only a request every fallback declines reaches the message above.
+- **The rules are read from the model id,** so a model typed into Settings by hand
+  is shaped the same way as one picked from the menu.
+- **How it is checked.** *claude models* (48 cases, in the unit tables) holds which
+  ids think unasked, which take effort, and which carry the fallback, across every
+  current model and near misses. The request shapes are type-checked against the
+  installed SDK, whose types carry `fallbacks`, `effort` and `stop_details`; they
+  have not been sent to the live API from here, since the suites run without a key.
+
 ### A damaged file is kept and recovered from, not lost
 
 - **Writes are whole or not at all.** The session file was renamed into place before
