@@ -234,8 +234,20 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
     const paneHeight = scroll.closest<HTMLElement>('.pane')?.clientHeight ?? 0
     if (paneHeight <= 0) return
     const px = Math.min((STRIP_CEILING / 100) * region, Math.max((STRIP_FLOOR / 100) * region, free))
-    setStripPct(Math.round((px / paneHeight) * 1000) / 10)
-  }, [running, pane.blocks.length])
+    const pct = Math.round((px / paneHeight) * 1000) / 10
+    setStripPct(pct)
+    /*
+     * And the pty is fitted to it now, at the prompt, so the Enter that opens the
+     * strip resizes nothing. A full-screen program has the whole pane and a size of
+     * its own. See presize.
+     *
+     * pane.integration is here because this first runs before the terminal is
+     * attached, with nothing to fit, and the shell becoming ready is the next
+     * moment there is. Without it the first command of every session resized on
+     * its Enter.
+     */
+    if (!raw) controller.presize((pct / 100) * paneHeight)
+  }, [running, pane.blocks.length, raw, controller, pane.integration])
 
   /**
    * The blocks that should say which directory they ran in.

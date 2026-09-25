@@ -234,12 +234,14 @@ const firstGap = seen.findIndex((n, i) => n !== i + 1)
  */
 const around = (i) => seen.slice(Math.max(0, i - 4), i + 5).join(',')
 /*
- * How many lines were re-sent, which is the number that names the cause.
+ * How many lines were re-sent.
  *
- * Conpty repaints a screen, so a repeat is one screenful: the two seen here were
- * six lines long against a pane six rows tall. If that holds on every future
- * occurrence then the replay height is what decides whether the re-sent rows land
- * on the originals, and if it does not, this is something else.
+ * This was written expecting one screenful every time, and it is not: the runner
+ * has since shown one line re-sent, seven against a six-row replay, and runs that
+ * came up short instead. What they shared, once their raw bytes were kept, was a
+ * pty resize inside the capture — the strip opening at a new height as the command
+ * started — so the count says how the old screen and the new one overlapped, not
+ * how tall the pane is. A repeat here now means a resize landed inside a command.
  */
 const repeatRun = (i) => (i > 0 ? seen[i - 1] - seen[i] + 1 : 0)
 check(

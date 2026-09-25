@@ -5,6 +5,39 @@ newest entry sits on top.
 
 ## Unreleased
 
+### An Enter no longer resizes the terminal
+
+- **The cause behind three faults that looked unrelated.** The live strip's height is a
+  share of the room the blocks above leave, so it changed from one command to the next,
+  and pressing Enter opened a block that squeezed it — resizing the pty under a shell
+  that was already running the line. Conpty answers a resize by repainting only its new
+  screen, inside the open capture: rows not yet sent were never sent (a six-thousand-line
+  command once began at line five), and rows sent at the old height replayed wrong, so a
+  block lost lines or showed some twice. Bash lost characters too — a resize reaching
+  readline mid-read makes it redraw its prompt and drop what arrives meanwhile, so `pwd`
+  went in as `wd` and `type` as `ype`, leaving blocks stuck at "running…" and closes
+  waiting on them for ever. And PSReadLine 2.4.5 threw when the console shrank under a
+  waiting prompt, which is what turned one Enter into two blocks.
+- **The strip is sized for the next command while the prompt is still up**, so the Enter
+  finds the pty already right and resizes nothing. What that cannot foresee — a pane
+  resized while idle — is covered by a short, bounded hold on the line: until the strip
+  is laid out and conpty has answered any resize, and after a resize under a waiting
+  prompt until the shell redraws or 400ms pass. Keys typed during the hold are queued
+  behind the line, never dropped or reordered.
+- **Each PowerShell prompt is drawn from the top of a cleared console**, so no change of
+  height can leave PSReadLine's remembered row off the screen. The first prompt is left
+  alone, so whatever a profile printed on the way in is still there.
+- **Withdrawn: "a repeat is one screenful".** An earlier entry said the duplicated runs
+  matched the pane's height and changed the replay on that basis. They were 1, 2, 3 and
+  7 lines; no single replay height can undo a capture with a resize inside it. Replaying
+  at the captured shape stays, since it is right once the resize is outside the capture.
+- **Not handled:** a resize *while* a command runs — the window dragged mid-build — still
+  lands inside that command's capture.
+- **How it is checked:** on hosted runners, 48 looped runs each against the build before
+  this: `verify-output` lost or repeated lines in 4 and `verify-bash` failed in 24. With
+  it, 0 and 0. One full smoke run in four afterwards failed Git Bash's start-up once, not
+  seen again in two reruns or 98 runs of that suite, and not yet explained.
+
 ### Only the reader can stop a terminal following its output
 
 - **A window made smaller could stop its terminal following for good.** Following the

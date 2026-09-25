@@ -68,6 +68,13 @@ function escapeHtml(s: string): string {
 const VISIBLE_ROW_FLOOR = 4
 
 /**
+ * How long after a resize at the prompt a line may wait for the shell to redraw
+ * for it. Bash does within a tenth of a second or so; PowerShell never does, and
+ * this is how long it can cost a command sent right behind a resize.
+ */
+const REDRAW_WAIT_MS = 400
+
+/**
  * The console before anything has been laid out, and the floor under a shell.
  *
  * Only ever used for the moments before the live view has had a real size — a
@@ -188,6 +195,26 @@ export class TerminalController {
    * line can have it back if the shell goes on to run it after all. See finishBlock.
    */
   private unstarted: { blockId: string; command: string } | null = null
+  /** The size the pty was last given, so a command can tell whether its strip changed it. */
+  private ptySize: { cols: number; rows: number } | null = null
+  /** Whether the pty has written anything since its size last changed. */
+  private answeredResize = true
+  /** Wakes a line waiting for the pty to answer a resize. See sendWhenSized. */
+  private onPtyData: (() => void) | null = null
+  /**
+   * Writes made while a line waits for the terminal to take its new size, kept in
+   * order behind it. Null when nothing is waiting.
+   */
+  private held: string[] | null = null
+  /** Whether the shell has put up a prompt and not yet been sent a line for it. */
+  private atPrompt = false
+  /**
+   * When the pty was resized under a waiting prompt, until the shell redraws for
+   * it. Null when no redraw is owed. See sendWhenSized.
+   */
+  private redrawOwed: number | null = null
+  /** Wakes a line waiting on that redraw. */
+  private onRedraw: (() => void) | null = null
   private sawAltScreen = false
   private disposers: (() => void)[] = []
   private spawned = false
@@ -308,7 +335,7 @@ export class TerminalController {
     this.disposers.push(
       this.term.onData((d) => {
         this.awaitingEcho = true
-        window.ember.write(this.paneId, d)
+        this.writePty(d)
       }).dispose
     )
     this.disposers.push(
@@ -316,7 +343,7 @@ export class TerminalController {
         const buf = new Uint8Array(d.length)
         for (let i = 0; i < d.length; i++) buf[i] = d.charCodeAt(i) & 0xff
         this.awaitingEcho = true
-        window.ember.write(this.paneId, String.fromCharCode(...buf))
+        this.writePty(String.fromCharCode(...buf))
       }).dispose
     )
 
@@ -822,10 +849,17 @@ export class TerminalController {
      * same thing as the live terminal now. Renders are queued, so a block can be
      * waiting behind others while the pane changes height underneath it — a split,
      * a panel opening, the window resized — and it was then replayed at whatever
-     * the pane happened to be when its turn came. Both of this suite's observed
-     * corruptions are that shape: repaint rows that failed to land on the rows
-     * they were overwriting, so the re-sent copy survives beside the original
-     * instead of covering it, or covers rows it was never meant to reach.
+     * the pane happened to be when its turn came.
+     *
+     * That is right only for a capture the pty was never resized inside, and the
+     * corruptions this was first written for were not that. Captured with their raw
+     * bytes on a runner, every one of them had a resize inside the capture: rows
+     * written for one height, then conpty's repaint for another. No single height
+     * replays both — the end-of-capture height misplaced the rows before the resize
+     * as surely as the render-time height had. So a command's line is no longer sent
+     * until the pty has its running size (sendWhenSized), and there is one shape to
+     * replay at. A resize while a command runs — the window dragged — still has
+     * nowhere right to be replayed, and conpty may not send every row across it.
      */
     this.renderTerm.resize(Math.max(cols, 20), Math.max(rows, 2))
 
@@ -1404,6 +1438,24 @@ export class TerminalController {
 
   /** Called from the pane's pty data subscription. */
   write(data: string): void {
+    // Whatever conpty says first after a resize is its repaint for the new size.
+    this.answeredResize = true
+    // The end of a prompt, the shell's own or its redraw of one after a resize.
+    if (data.includes('\x1b]133;B')) {
+      this.atPrompt = true
+      this.redrawOwed = null
+      if (this.onRedraw) {
+        const wake = this.onRedraw
+        this.onRedraw = null
+        wake()
+      }
+    }
+    if (data.includes('\x1b]133;C')) this.atPrompt = false
+    if (this.onPtyData) {
+      const wake = this.onPtyData
+      this.onPtyData = null
+      wake()
+    }
     // Order matters: the capture must be sliced before xterm parses the markers
     // and fires finishBlock.
     this.feedCapture(data)
@@ -1442,14 +1494,124 @@ export class TerminalController {
    */
   sendSecret(value: string): void {
     this.awaitingEcho = true
-    window.ember.write(this.paneId, `${value}\r`)
+    this.writePty(`${value}\r`)
     this.tail = ''
     this.store().patchPane(this.paneId, { awaitingSecret: false })
   }
 
   send(data: string): void {
     this.awaitingEcho = true
-    window.ember.write(this.paneId, data)
+    this.writePty(data)
+  }
+
+  /** Everything bound for the shell goes through here, so nothing overtakes a waiting line. */
+  private writePty(data: string): void {
+    if (this.held) this.held.push(data)
+    else window.ember.write(this.paneId, data)
+  }
+
+  /**
+   * Send a line once the terminal is the size it will run at.
+   *
+   * Opening a command's block opens its strip of live terminal, and the strip's
+   * height is a share of whatever room the blocks leave, so it is a different
+   * height from one command to the next until the pane fills. The pty follows the
+   * strip, which made every such Enter a resize, and it reached conpty a few
+   * milliseconds after the line did: while the shell was already printing. A
+   * resize is a conpty repaint, and one landing inside an open capture spoils it
+   * both ways. Conpty repaints only its new, shorter screen, so rows that scrolled
+   * past before it caught up are never sent at all — a six-thousand-line command
+   * came back beginning at line five, with nothing in the bytes for one to four.
+   * And the rows it did send before the resize were written for the old height,
+   * so no single height replays both halves: the repaint either lands short of the
+   * rows it rewrites, and they survive twice, or past them.
+   *
+   * The resize is normally over before the Enter: the pane fits the pty to the
+   * next strip while the shell sits at its prompt (presize), and the strip opens at
+   * the size the pty already has. This is for when that guess was wrong — the pane
+   * resized while idle, the strip squeezed by the composer — and it is only a
+   * backstop. Waiting out a resize is not the same as not having one: Git Bash
+   * redraws its prompt for SIGWINCH on its own schedule, and a line sent after
+   * conpty's repaint but before that redraw still lost its first character on the
+   * runner, `pwd` running as `wd` in three of twenty.
+   *
+   * So the size is settled first: the strip is laid out, the pty told, and conpty
+   * given the chance to answer with its repaint while the shell is still at its
+   * prompt, where a repaint is nobody's output. Only then does the line go. Both
+   * waits are bounded — a hidden window has no animation frames and a pty need not
+   * answer — and when the size did not change there is nothing to wait for.
+   */
+  private async sendWhenSized(line: string): Promise<void> {
+    this.awaitingEcho = true
+    // Already waiting: this line queues behind that one rather than waiting twice.
+    if (this.held) {
+      this.held.push(line)
+      return
+    }
+    const held: string[] = []
+    this.held = held
+    const before = this.ptySize
+    try {
+      await new Promise<void>((resolve) => {
+        const timer = window.setTimeout(resolve, 100)
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            window.clearTimeout(timer)
+            resolve()
+          })
+        )
+      })
+      this.refit()
+      const after = this.ptySize
+      const changed =
+        !!before && !!after && (before.cols !== after.cols || before.rows !== after.rows)
+      if (changed && !this.answeredResize) {
+        await new Promise<void>((resolve) => {
+          const timer = window.setTimeout(() => {
+            this.onPtyData = null
+            resolve()
+          }, 250)
+          this.onPtyData = () => {
+            window.clearTimeout(timer)
+            resolve()
+          }
+        })
+      }
+      /*
+       * And a resize under a waiting prompt is answered twice: conpty's repaint,
+       * then the shell's redraw of its prompt, whenever it gets to it.
+       *
+       * Bash's readline redraws for SIGWINCH on its own schedule, and a line that
+       * lands in the middle of that redraw loses characters. Presize makes this
+       * rare, since its resize normally reaches bash between the end marker and
+       * the next prompt, before readline is reading at all. But it is decided in a
+       * render, and a render that comes late puts it under the prompt instead: on
+       * the runner, typing the next command as soon as the last had finished, one
+       * run in forty-eight sent `type` as `ype`. So a line sent while that
+       * redraw is owed waits for it, which is a fresh prompt-end marker, or for
+       * REDRAW_WAIT_MS since the resize for a shell that does not redraw at all.
+       */
+      const owed = this.redrawOwed
+      const left = owed === null ? 0 : owed + REDRAW_WAIT_MS - Date.now()
+      if (left > 0) {
+        await new Promise<void>((resolve) => {
+          const timer = window.setTimeout(() => {
+            this.onRedraw = null
+            resolve()
+          }, left)
+          this.onRedraw = () => {
+            window.clearTimeout(timer)
+            resolve()
+          }
+        })
+      }
+    } finally {
+      this.held = null
+      this.atPrompt = false
+      this.redrawOwed = null
+      window.ember.write(this.paneId, line)
+      for (const data of held) window.ember.write(this.paneId, data)
+    }
   }
 
   /** Run a command from the input editor, opening its block up front. */
@@ -1479,6 +1641,9 @@ export class TerminalController {
       this.currentBlockId = this.store().beginBlock(this.paneId, clean.text)
       this.started = false
       this.unstarted = null
+      // The block opens the strip, which may resize the pty; see sendWhenSized.
+      void this.sendWhenSized(`${clean.text}\r`)
+      return
     }
     this.send(`${clean.text}\r`)
   }
@@ -1489,6 +1654,43 @@ export class TerminalController {
    * prompt at that size, which silently breaks command submission. So the
    * measured size is clamped to something a shell can actually work with.
    */
+  /**
+   * Fit the pty now to the strip the next command will open, while nobody is
+   * typing into the shell.
+   *
+   * The strip's height is a share of the room the blocks above it leave, so it is
+   * a different height from one command to the next until the pane fills, and
+   * fitting it only once it opened made every such Enter a resize. That cost a
+   * capture its rows (see sendWhenSized), and in Git Bash it cost the line itself:
+   * on the runner, ten of twenty-two resized Enters never reached bash, or reached
+   * it cut short — `echo ember-bash-marker` arriving as `ech` and running joined to
+   * the next line as `echfalse` — while every Enter with no resize arrived whole.
+   * The block for a line that never arrived sat at "running…" for good, and the
+   * window then would not close without asking about it.
+   *
+   * So the resize moves to where it is harmless: the idle prompt, when the pane
+   * decides the next strip's size. The shell redraws its prompt for it with nothing
+   * in flight, and the Enter finds the pty already the size its strip will be.
+   *
+   * `height` is the strip's box in pixels. The rows are the ones the fit addon will
+   * propose when the strip is laid out: the box less xterm's own padding, in whole
+   * cells. The cell height is read off the screen element, which keeps its rows ×
+   * cell height while the strip is collapsed.
+   */
+  presize(height: number): void {
+    const el = this.term.element
+    const screen = el?.querySelector<HTMLElement>('.xterm-screen')
+    if (!el || !screen || this.term.rows <= 0) return
+    const cell = screen.getBoundingClientRect().height / this.term.rows
+    if (!(cell > 0)) return
+    const style = window.getComputedStyle(el)
+    const padding = (parseInt(style.paddingTop) || 0) + (parseInt(style.paddingBottom) || 0)
+    const rows = Math.floor((Math.floor(height) - padding) / cell)
+    if (!(rows >= VISIBLE_ROW_FLOOR) || rows === this.lastVisibleRows) return
+    this.lastVisibleRows = rows
+    this.refit()
+  }
+
   refit(): void {
     try {
       const dims = this.fit.proposeDimensions()
@@ -1563,6 +1765,11 @@ export class TerminalController {
        * discards it, and only the repaint delivers it a second time. Guarding
        * this call left `Read-Host` unmasked and the typed secret in the DOM.
        */
+      if (this.ptySize?.cols !== cols || this.ptySize?.rows !== rows) this.answeredResize = false
+      if (this.atPrompt && (this.ptySize?.cols !== cols || this.ptySize?.rows !== rows)) {
+        this.redrawOwed = Date.now()
+      }
+      this.ptySize = { cols, rows }
       window.ember.resize(this.paneId, cols, rows)
     } catch {
       // The pane can be measured before layout settles; the next resize wins.

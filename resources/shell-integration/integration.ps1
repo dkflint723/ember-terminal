@@ -98,7 +98,8 @@ function Global:Prompt {
 
   $out = ''
   # Close the previous command, unless this is the very first prompt.
-  if ($Global:__EmberFirstPrompt -ne $false) {
+  $first = $Global:__EmberFirstPrompt -ne $false
+  if ($first) {
     $Global:__EmberFirstPrompt = $false
   } else {
     $out += "$__EmberESC]133;D;$lastExit$__EmberBEL"
@@ -106,6 +107,26 @@ function Global:Prompt {
   }
 
   $out += "$__EmberESC]133;A$__EmberBEL"
+
+  <#
+    Draw the prompt from the top of an empty console.
+
+    PSReadLine remembers the row its prompt started on and never asks again, so a
+    console made shorter under a waiting prompt leaves that row past the bottom:
+    the next key it draws throws, prints PSReadLine's bug report, and puts up a
+    fresh prompt before it runs the line. Ember changes the console's height
+    between commands — the live strip is a share of the room the blocks leave —
+    and after anything long the prompt sits on the last row, so the first few
+    commands in a pane did exactly that. From the top row, no height can strand it.
+
+    Nothing is lost by it. The console is cleared again when the next line is
+    accepted, Ember has already emptied its own view, and the command before this
+    prompt was captured by its end marker above. The very first prompt is left
+    alone, so whatever a profile printed on the way in is still there to be seen.
+  #>
+  if (-not $first) {
+    $out += "$__EmberESC[H$__EmberESC[2J$__EmberESC[3J"
+  }
 
   $cwd = (Get-Location).Path
   $out += (__Ember-Mark "P;Cwd=$(__Ember-Escape $cwd)")
