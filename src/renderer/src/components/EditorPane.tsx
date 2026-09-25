@@ -126,6 +126,12 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
   const theme = useStore((s) => s.theme)
   const fontFamily = useStore((s) => s.settings.fontFamily)
   const fontSize = useStore((s) => s.settings.fontSize)
+  /*
+   * Monaco decides for itself whether a screen reader is running, and inside
+   * Electron it decides no — so the line under the caret is never put where one
+   * can read it. The setting says yes on the reader's behalf; off, Monaco guesses.
+   */
+  const screenReaderMode = useStore((s) => s.settings.screenReaderMode)
   const patchDocument = useStore((s) => s.patchDocument)
   const setActiveDocument = useStore((s) => s.setActiveDocument)
   const closeDocument = useStore((s) => s.closeDocument)
@@ -284,6 +290,8 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
     const editor = monaco.editor.create(host.current, {
       model: modelFor(document),
       theme: MONACO_THEME_ID,
+      accessibilitySupport: screenReaderMode ? 'on' : 'auto',
+      ariaLabel: `Editor: ${document.title}`,
       fontFamily,
       fontSize,
       lineHeight: lineHeightFor(fontSize),
@@ -650,6 +658,15 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
   useEffect(() => {
     editorRef.current?.updateOptions({ fontFamily, fontSize, lineHeight: lineHeightFor(fontSize) })
   }, [fontFamily, fontSize])
+
+  useEffect(() => {
+    editorRef.current?.updateOptions({ accessibilitySupport: screenReaderMode ? 'on' : 'auto' })
+  }, [screenReaderMode])
+
+  // Named for the file it is showing, which changes under the same editor.
+  useEffect(() => {
+    editorRef.current?.updateOptions({ ariaLabel: `Editor: ${document.title}` })
+  }, [document.title])
 
   useEffect(() => {
     if (active) editorRef.current?.focus()

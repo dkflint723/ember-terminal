@@ -25,6 +25,7 @@ export function DiffPane({ pane, active, onFocus }: Props): React.JSX.Element {
   const theme = useStore((s) => s.theme)
   const fontFamily = useStore((s) => s.settings.fontFamily)
   const fontSize = useStore((s) => s.settings.fontSize)
+  const screenReaderMode = useStore((s) => s.settings.screenReaderMode)
 
   const close = (): void => {
     const state = useStore.getState()
@@ -43,6 +44,7 @@ export function DiffPane({ pane, active, onFocus }: Props): React.JSX.Element {
       automaticLayout: true,
       readOnly: true,
       originalEditable: false,
+      accessibilitySupport: screenReaderMode ? 'on' : 'auto',
       renderSideBySide: true,
       ignoreTrimWhitespace: false,
       renderOverviewRuler: false,
@@ -89,6 +91,10 @@ export function DiffPane({ pane, active, onFocus }: Props): React.JSX.Element {
   useEffect(() => {
     editorRef.current?.updateOptions({ fontFamily, fontSize })
   }, [fontFamily, fontSize])
+
+  useEffect(() => {
+    editorRef.current?.updateOptions({ accessibilitySupport: screenReaderMode ? 'on' : 'auto' })
+  }, [screenReaderMode])
 
   return (
     <div

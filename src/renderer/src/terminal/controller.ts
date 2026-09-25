@@ -1782,6 +1782,17 @@ export class TerminalController {
     this.refit()
   }
 
+  /**
+   * The rows as a tree a screen reader can walk, beside the canvas that draws them.
+   *
+   * Only the live terminal: the offscreen one exists to be serialized and is never
+   * read by anybody.
+   */
+  setScreenReaderMode(on: boolean): void {
+    if (this.term.options.screenReaderMode === on) return
+    this.term.options.screenReaderMode = on
+  }
+
   setPalette(palette: TerminalPalette): void {
     this.palette = palette
     const theme = toXtermTheme(palette)
