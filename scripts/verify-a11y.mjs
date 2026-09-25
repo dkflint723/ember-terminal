@@ -232,6 +232,146 @@ const motion = await page.evaluate(() => {
 check('the stylesheet answers prefers-reduced-motion', motion)
 
 /*
+ * --- a screen reader can hear where Enter goes, and what came of it -----------
+ *
+ * The composer had no name — its placeholder is empty in the shell reading — and
+ * the word saying where Enter goes was a plain span beside it, so a screen reader
+ * announced "edit text, blank" and nothing about whether Enter would run the line
+ * or send it to Claude. And nothing announced a finished command at all: a block
+ * is drawn, and a reader who cannot see it has no way to know it is there, or
+ * that it failed.
+ */
+const composerSays = () =>
+  page.evaluate(() => {
+    const el = document.querySelector('.composer__input')
+    const ids = (el?.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean)
+    return {
+      label: el?.getAttribute('aria-label') ?? null,
+      described: ids.map((id) => document.getElementById(id)?.textContent ?? '').join(' ').trim()
+    }
+  })
+
+await page.click('.composer__input')
+await page.keyboard.press('Control+a')
+await page.keyboard.press('Delete')
+await page.keyboard.type('git status', { delay: 5 })
+await sleep(400)
+const asCommand = await composerSays()
+check('the composer has a name', (asCommand.label ?? '').trim().length > 0, JSON.stringify(asCommand))
+check(
+  'and says that Enter runs a command, and in which shell',
+  /Enter runs/.test(asCommand.described) && /PowerShell/i.test(asCommand.described),
+  JSON.stringify(asCommand)
+)
+
+await page.keyboard.press('Control+a')
+await page.keyboard.press('Delete')
+await page.keyboard.type('how do I find the biggest files in this folder', { delay: 5 })
+await sleep(400)
+const asQuestion = await composerSays()
+check(
+  'and that Enter asks Claude when the line reads as a question',
+  /Enter asks Claude/.test(asQuestion.described),
+  JSON.stringify(asQuestion)
+)
+await page.keyboard.press('Control+a')
+await page.keyboard.press('Delete')
+
+/** What the pane's status region has said most recently. */
+const announced = () =>
+  page.evaluate(() =>
+    (document.querySelector('.pane [role="status"][aria-live="polite"]')?.textContent ?? '').trim()
+  )
+
+await page.keyboard.type('cmd /c exit 3', { delay: 5 })
+await page.keyboard.press('Enter')
+const heardFailure = await page
+  .waitForFunction(
+    () =>
+      /exit 3/.test(
+        document.querySelector('.pane [role="status"][aria-live="polite"]')?.textContent ?? ''
+      ),
+    null,
+    { timeout: 20_000 }
+  )
+  .then(() => true)
+  .catch(() => false)
+const failureSaid = await announced()
+check('a failed command is announced with its exit code', heardFailure, failureSaid || '(nothing announced)')
+check('and by name', failureSaid.includes('cmd /c exit 3'), failureSaid || '(nothing announced)')
+
+await page.click('.composer__input')
+await page.keyboard.type('echo said-aloud', { delay: 5 })
+await page.keyboard.press('Enter')
+const heardSuccess = await page
+  .waitForFunction(
+    () =>
+      /echo said-aloud/.test(
+        document.querySelector('.pane [role="status"][aria-live="polite"]')?.textContent ?? ''
+      ),
+    null,
+    { timeout: 20_000 }
+  )
+  .then(() => true)
+  .catch(() => false)
+check('and so is one that succeeded', heardSuccess, (await announced()) || '(nothing announced)')
+
+/*
+ * The Claude panel's thread is a log: new turns are announced as they arrive, and
+ * held while an answer is still streaming so it is read once rather than as a
+ * run of fragments.
+ */
+await page.keyboard.press('Control+Shift+B')
+const panelOpened = await page
+  .waitForSelector('.agent__scroll', { timeout: 10_000 })
+  .then(() => true)
+  .catch(() => false)
+const thread = await page.evaluate(() => {
+  const el = document.querySelector('.agent__scroll')
+  return {
+    role: el?.getAttribute('role') ?? null,
+    label: el?.getAttribute('aria-label') ?? null,
+    busy: el?.getAttribute('aria-busy') ?? null
+  }
+})
+check(
+  'the Claude thread is a log, and named',
+  panelOpened && thread.role === 'log' && (thread.label ?? '').length > 0,
+  JSON.stringify(thread)
+)
+check('and is not busy while nothing is streaming', thread.busy !== 'true', JSON.stringify(thread))
+if (panelOpened) {
+  await page.keyboard.press('Control+Shift+B')
+  await sleep(400)
+}
+
+/*
+ * Screen reader mode. xterm draws into a canvas, which a screen reader cannot
+ * read; its screen-reader mode keeps a parallel tree of the rows that one can.
+ * It costs rendering speed, so it is a setting rather than always on — and it has
+ * to take in a terminal that is already open, not only in the next one.
+ */
+const treeIn = () =>
+  page.evaluate(() => document.querySelectorAll('.pane .xterm-accessibility').length)
+check('screen reader mode is off by default', (await treeIn()) === 0, `${await treeIn()} trees`)
+await page.evaluate(() => window.ember.setSettings({ screenReaderMode: true }))
+const treeCameUp = await page
+  .waitForFunction(() => document.querySelectorAll('.pane .xterm-accessibility').length > 0, null, {
+    timeout: 5_000
+  })
+  .then(() => true)
+  .catch(() => false)
+check('turning it on gives the open terminal a tree a screen reader can read', treeCameUp)
+await page.evaluate(() => window.ember.setSettings({ screenReaderMode: false }))
+const treeWent = await page
+  .waitForFunction(() => document.querySelectorAll('.pane .xterm-accessibility').length === 0, null, {
+    timeout: 5_000
+  })
+  .then(() => true)
+  .catch(() => false)
+check('and turning it off takes the tree away again', treeWent)
+
+/*
  * --- Shift+Tab keeps leaving, all the way out ---------------------------------
  *
  * xterm consumes every key, so focus that entered a terminal pane could never leave

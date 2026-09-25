@@ -993,6 +993,17 @@ export interface Settings {
    */
   blockDensity: BlockDensity
   /**
+   * Draw terminals and editors for a screen reader as well as for the eye.
+   *
+   * xterm paints into a canvas, which a screen reader cannot read, and Monaco
+   * guesses at whether one is running and in Electron guesses no. This turns on
+   * xterm's parallel tree of rows and Monaco's full accessibility support. Off by
+   * default because both cost rendering speed — the tree is rebuilt as output
+   * arrives — and nothing else depends on it: the composer's name and the
+   * announcements of finished commands are there either way.
+   */
+  screenReaderMode: boolean
+  /**
    * Whether a suggestion is offered ahead of the caret as you type.
    *
    * Off, for everybody, until it is asked for. Every way of answering costs
@@ -1084,6 +1095,7 @@ export const DEFAULT_SETTINGS: Settings = {
   keybindings: {},
   uiZoom: 1,
   blockDensity: 'normal',
+  screenReaderMode: false,
   ghostEnabled: false,
   ghostProvider: 'local',
   // Ollama's OpenAI-compatible port, which is the likeliest thing already listening

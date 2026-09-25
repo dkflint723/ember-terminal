@@ -728,6 +728,24 @@ export function SettingsPanel(): React.JSX.Element | null {
                   Compact fits about half again as many commands on a screen as Comfortable.
                 </div>
               </div>
+
+              <div className="field">
+                <label>Screen reader</label>
+                <label className="field__check">
+                  <input
+                    type="checkbox"
+                    checked={draft.screenReaderMode}
+                    onChange={(e) => field('screenReaderMode', e.target.checked)}
+                  />
+                  <span>Optimize terminals and editors for a screen reader</span>
+                </label>
+                <div className="field__note">
+                  Terminals keep their rows where NVDA or Narrator can read them, and the
+                  editor reads the line under the caret. It slows drawing a little while
+                  output is streaming, so it is off unless you turn it on. Finished
+                  commands and Claude&rsquo;s answers are announced either way.
+                </div>
+              </div>
             </section>
 
             <section className="settings__section" data-section="terminal">

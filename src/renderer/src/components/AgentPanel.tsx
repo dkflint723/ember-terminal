@@ -265,7 +265,19 @@ export function AgentPanel(): React.JSX.Element | null {
         </button>
       </div>
 
-      <div className="agent__scroll" ref={scroll}>
+      {/*
+        A log: turns are appended and never reordered, so a screen reader announces
+        each as it arrives. Busy while an answer streams, which holds the
+        announcement until the answer is whole — otherwise every token that lands
+        is read out as its own fragment.
+      */}
+      <div
+        className="agent__scroll"
+        ref={scroll}
+        role="log"
+        aria-label="Conversation with Claude"
+        aria-busy={streaming}
+      >
         {thread.length === 0 && (
           <div className="agent__empty">
             A conversation for this session. Ask here, or send the composer&rsquo;s text

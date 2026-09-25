@@ -112,6 +112,7 @@ const SHARED_SETTINGS = [
   'keybindings',
   'defaultProfileId',
   'blockDensity',
+  'screenReaderMode',
   'restoreSession',
   'ghostEnabled',
   'ghostProvider',

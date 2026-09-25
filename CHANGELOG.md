@@ -3,6 +3,52 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
+## Unreleased
+
+### A screen reader hears where Enter goes, and what came of it
+
+- **The composer had no name.** Its placeholder is empty while it is reading the
+  line as a command, so a screen reader landed on "edit text, blank". It is called
+  *Command or question* now, and it is described by a sentence the screen never
+  shows — "Enter runs in PowerShell 7 (autodetected)", or "Enter asks Claude" — so
+  the choice between running a line and sending it away is heard on focus, not
+  only seen in the small word beside the input. The two inputs a running program
+  gets are named for what they are, the masked one included.
+- **Nothing announced a finished command.** A block is drawn and that is all, so
+  someone who cannot see it had no way to know it had arrived, or that it had
+  failed. Each terminal pane has a polite status region that says
+  "npm test failed, exit 1", or "git status finished, exit 0", or what Claude
+  answered. A block is announced the first time the pane sees it finished, rather
+  than when running turns into done: a command quick enough to start and finish
+  in one chunk of output reaches the pane already finished. What a pane holds when
+  it first appears — restored blocks, or a session switched back to — is not
+  announced, and nor are blocks an Undo after Clear puts back, because none of it
+  is news.
+- **The Claude panel's thread is a log**, named, and busy while an answer streams,
+  so the answer is read once, whole, rather than as a run of fragments.
+- **Screen reader mode.** A setting, under Appearance, that turns on xterm's
+  screen-reader tree — its rows are otherwise pixels in a canvas — and tells
+  Monaco a screen reader is running, which inside Electron it otherwise guesses is
+  not. It takes in terminals and editors that are already open. Off by default,
+  because the tree is rebuilt as output arrives; the name, the description and
+  the announcements above do not depend on it. Editors are named for the file
+  they show, whichever mode.
+- **How it is checked.** *keyboard and a11y* reads the composer's name and follows
+  its `aria-describedby` for both readings of a line; runs `cmd /c exit 3` and
+  waits for the pane to say "exit 3" and the command, then a command that
+  succeeds; opens the Claude panel and reads the thread's role, name and busy
+  state; and turns screen reader mode on and off under an open terminal, waiting
+  for xterm's tree to appear and to go. Run on the Windows runner against 0.4.0
+  before any of this was written, eight of them failed — the name, both
+  descriptions, all three announcement checks, the log, and the tree. The three that passed there say what should be *absent* (no tree by
+  default, none after turning it off, no busy thread at rest), and could not
+  have failed on code that has no tree and no log at all.
+- **Not done here, and still owed from the audit's R18:** Windows contrast themes,
+  dialog semantics for the palette and pickers, labels paired in Settings, and
+  ghost suggestions, which stay silent to a screen reader while Right and End
+  accept them. How NVDA treats xterm's tree inside Electron 43 has not been tried
+  by hand.
+
 ## 0.4.0 — 2026-09-25
 
 The largest release so far, and the first built, installed and tested on a machine

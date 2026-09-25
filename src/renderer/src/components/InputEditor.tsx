@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { CompletionItem, CompletionResult } from '@shared/types'
 import { commonPrefix } from '@shared/completion'
 import type { TerminalController } from '../terminal/controller'
@@ -245,6 +245,16 @@ export function InputEditor({ pane, controller }: Props): React.JSX.Element {
 
   const ghostEnabled = useStore((s) => s.settings.ghostEnabled)
   const debounceMs = useStore((s) => s.settings.ghostDebounceMs)
+  /*
+   * Where Enter goes, as a sentence rather than as a word beside the input.
+   *
+   * The intent label is a span a sighted reader glances at; a screen reader never
+   * reaches it from the input, so the choice between running a line and sending it
+   * to Claude was invisible to exactly the person who could not check the label.
+   * Pointed at by aria-describedby, it is read on focus.
+   */
+  const profileName = useStore((s) => s.profiles.find((p) => p.id === pane.profileId)?.name)
+  const enterGoesId = useId()
   /*
    * What the model is being asked to write, in the dialect of the pane's shell.
    *
@@ -930,6 +940,8 @@ ${c.output}`
           placeholder={
             intent === 'agent' ? 'describe what you want to do…' : pane.exited ? 'shell exited' : ''
           }
+          aria-label="Command or question"
+          aria-describedby={enterGoesId}
           onChange={(e) => {
             setValue(e.target.value)
             // Any edit invalidates an open list; its replacement span is stale.
@@ -965,6 +977,14 @@ ${c.output}`
           {intent}
         </span>
         {override === null && <span className="composer__auto">autodetected</span>}
+        <span id={enterGoesId} className="sr-only">
+          {intent === 'agent'
+            ? 'Enter asks Claude'
+            : pane.exited
+              ? 'The shell has exited'
+              : `Enter runs in ${profileName ?? 'the shell'}`}
+          {intent === 'shell' && pane.exited ? '.' : override === null ? ' (autodetected).' : '.'}
+        </span>
       </div>
 
       {/*
@@ -1186,6 +1206,7 @@ function RunningInput({ pane, controller }: Props): React.JSX.Element {
             ref={secretRef}
             className="composer__input"
             type="password"
+            aria-label="Hidden input for the running program"
             autoFocus
             autoComplete="off"
             spellCheck={false}
@@ -1200,6 +1221,7 @@ function RunningInput({ pane, controller }: Props): React.JSX.Element {
             rows={1}
             spellCheck={false}
             placeholder="send to process…"
+            aria-label="Input for the running program"
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={onKeyDown}

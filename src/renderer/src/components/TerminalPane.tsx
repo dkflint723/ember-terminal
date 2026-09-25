@@ -66,6 +66,57 @@ function Chord({ id }: { id: string }): React.JSX.Element | null {
   )
 }
 
+/** A command line or an answer, cut to what is worth hearing. */
+function spoken(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  return flat.length > max ? `${flat.slice(0, max)}…` : flat
+}
+
+/** The sentence a finished block is announced with. */
+function announce(b: Block): string {
+  if (b.kind === 'conversation') {
+    if (b.error) return `Claude could not answer: ${spoken(b.error, 200)}`
+    // Long enough to be the answer to most questions; past that, the block has
+    // the rest and the reader knows where it is.
+    return `Claude answered: ${spoken(b.answer, 600)}`
+  }
+  const command = spoken(b.command, 200) || 'The command'
+  const exit = b.exitCode === null ? '' : `, exit ${b.exitCode}`
+  return b.status === 'failed' ? `${command} failed${exit}` : `${command} finished${exit}`
+}
+
+/**
+ * The latest block to finish, as a sentence, and a count that moves every time.
+ *
+ * Judged by whether this pane has ever seen the block finished, not by watching
+ * running turn into done: a command quick enough to start and finish in one chunk
+ * of output reaches the store already finished, and React renders only that. The
+ * memory is kept for every block ever seen rather than the ones on screen now, so
+ * an Undo after Clear, which puts old blocks back, is not read out as news. Blocks
+ * present on the first render are the pane's history — restored, or on screen
+ * before a session switch remounted the pane — and are not news either.
+ */
+function useFinishedAnnouncement(blocks: Block[]): { text: string; n: number } | null {
+  const [announcement, setAnnouncement] = useState<{ text: string; n: number } | null>(null)
+  const heardOf = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    const finished = (b: Block): boolean =>
+      b.kind === 'command' ? b.status !== 'running' : !b.streaming
+    const first = heardOf.current === null
+    const known = (heardOf.current ??= new Set())
+    let latest: Block | null = null
+    for (const b of blocks) {
+      if (!finished(b) || known.has(b.id)) continue
+      known.add(b.id)
+      if (!first && !b.restored) latest = b
+    }
+    if (!latest) return
+    const text = announce(latest)
+    setAnnouncement((a) => ({ text, n: (a?.n ?? 0) + 1 }))
+  }, [blocks])
+  return announcement
+}
+
 export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Element {
   const termHost = useRef<HTMLDivElement>(null)
   const liveWrap = useRef<HTMLDivElement>(null)
@@ -75,6 +126,7 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
   const patchPane = useStore((s) => s.patchPane)
   const fontFamily = useStore((s) => s.settings.fontFamily)
   const fontSize = useStore((s) => s.settings.fontSize)
+  const screenReaderMode = useStore((s) => s.settings.screenReaderMode)
   const palette = useStore((s) => s.theme.terminal)
   const mode = useStore((s) => s.mode)
   const profileName = useStore((s) => s.profiles.find((p) => p.id === pane.profileId)?.name)
@@ -288,6 +340,10 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
   }, [controller, fontFamily, fontSize])
 
   useEffect(() => {
+    controller.setScreenReaderMode(screenReaderMode)
+  }, [controller, screenReaderMode])
+
+  useEffect(() => {
     controller.refit()
     if (raw) controller.focus()
     // Reachable by Tab exactly while it is visible: raw takes the whole pane, and
@@ -484,6 +540,7 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
   const setFind = useStore((s) => s.setFind)
 
   const geometry = useBlockGeometry(scroller, pane.blocks)
+  const announcement = useFinishedAnnouncement(pane.blocks)
 
   return (
     <div
@@ -500,6 +557,18 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
       // it rather than counted among every other pane's.
       data-pane={pane.id}
     >
+      {/*
+        What a reader who cannot see the blocks is told about them.
+
+        Outside the `!raw` branches so it is the same element for the pane's whole
+        life: a live region is only listened to once it exists, and one mounted in
+        the same render as its first sentence is often not heard at all. Each
+        sentence is keyed by its count, so running the same command twice is a
+        second addition and is said twice.
+      */}
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {announcement && <span key={announcement.n}>{announcement.text}</span>}
+      </div>
       {!raw && findOpen && (
         <FindBar
           paneId={pane.id}
