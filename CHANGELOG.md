@@ -5,6 +5,19 @@ newest entry sits on top.
 
 ## Unreleased
 
+### The bash suite waits for its commands and cannot hang on close
+
+- **It read each command's block after a fixed three seconds**, so a slow runner read a
+  block still "running…" and reported a fault in the shell; and closing the window could
+  wait for ever on the "still running" question such a block raised, which surfaced as a
+  twenty-minute gate timeout rather than as a reason. Commands are now waited for, up to
+  twenty seconds each, and the close is bounded and says what it was waiting on.
+- **WSL with no distribution installed is a skip that names itself**, which is what a
+  hosted runner has. `gate.mjs --hosted` sets `EMBER_HOSTED` so that skip is allowed
+  there under `EMBER_STRICT`, the same way the suites that need VS Code or a login are.
+- **How it is checked:** with the app change above it passes 48 of 48 on the runner;
+  without it the same suite fails 24 of 48 on the faults it exists to catch.
+
 ### An Enter no longer resizes the terminal
 
 - **The cause behind three faults that looked unrelated.** The live strip's height is a

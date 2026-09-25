@@ -133,6 +133,9 @@ jobs:
         env:
           SUITES: ${{ inputs.only || 'settings,output,shell,history,flood,lsp,boom' }}
           EMBER_STRICT: '1'
+          # A hosted runner, so what only a real machine has is excused by name. The
+          # full job says the same with gate --hosted, which sets it for each suite.
+          EMBER_HOSTED: '1'
           EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs
       # The screenshots and the main-process logs are the only way to read a
       # failure that happened on a machine nobody can look at. This collected

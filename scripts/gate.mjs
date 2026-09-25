@@ -175,6 +175,10 @@ if (from) {
 
 const hosted = args.includes('--hosted')
 if (hosted) plan = plan.filter((s) => !(s in NEEDS_A_REAL_MACHINE))
+// And said to every suite, for the finer grain: a suite that runs here but finds one
+// thing a runner cannot have — verify-bash and a WSL with no distribution in it —
+// skips that much and says so, rather than failing strict for it.
+if (hosted) process.env.EMBER_HOSTED = '1'
 
 if (args.includes('--list')) {
   console.log(`${plan.length} suites, in order:`)

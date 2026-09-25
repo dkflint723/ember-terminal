@@ -14,8 +14,16 @@
 // looked identical from outside. `data-authenticated` is the difference, and every
 // check here that matters reads it rather than `data-integration`.
 //
+// Every command is waited for rather than given three seconds. The fixed wait was
+// read as "running…" and as a missing exit code on the runner, and neither was
+// slowness: the line had never reached bash, because the pty was resized on the
+// same Enter (see runCommand). A command that never arrives still never finishes,
+// so the wait fails it exactly as before; what it no longer does is fail a command
+// that took three seconds and a tenth.
+//
 // Run: node scripts/verify-bash.mjs
 import { _electron as electron } from 'playwright-core'
+import { spawnSync } from 'node:child_process'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
 import { watchPageErrors } from './harness.mjs'
@@ -96,20 +104,33 @@ const settle = async (ms = 60_000) => {
   })
 }
 
-const run = async (command, wait = 3000) => {
-  await page.locator('.composer__input').first().focus()
-  await page.keyboard.type(command, { delay: 8 })
-  await page.keyboard.press('Enter')
-  await sleep(wait)
-}
-
 const blocks = () =>
   page.evaluate(() =>
     [...document.querySelectorAll('.pane__scroll .block')].map((b) => ({
       cmd: (b.querySelector('.block__cmd')?.textContent ?? '').trim(),
-      body: (b.querySelector('.block__body')?.textContent ?? '').trim().slice(0, 200)
+      body: (b.querySelector('.block__body')?.textContent ?? '').trim().slice(0, 200),
+      running: b.classList.contains('block--running')
     }))
   )
+
+/**
+ * Type a command, and wait until its block has finished — or until it plainly is
+ * not going to. Twenty seconds is several hundred times what any of these takes; a
+ * block still running at the end of it is reported by the checks that follow, in
+ * their own words, as it always was.
+ */
+const run = async (command, limit = 20_000) => {
+  const before = (await blocks()).length
+  await page.locator('.composer__input').first().focus()
+  await page.keyboard.type(command, { delay: 8 })
+  await page.keyboard.press('Enter')
+  const until = Date.now() + limit
+  while (Date.now() < until) {
+    const now = await blocks()
+    if (now.length > before && !now.at(-1).running) return
+    await sleep(100)
+  }
+}
 
 /**
  * Everything that has to be true of a bash pane, whichever bash it is.
@@ -186,7 +207,7 @@ const assertBashPane = async (label, { expectWindowsCwd }) => {
 
 // --- Git Bash ------------------------------------------------------------------
 if (!profiles.some((p) => p.id === 'git-bash')) {
-  skipped.push('Git Bash')
+  skipped.push({ shell: 'Git Bash', why: 'not installed' })
 } else if (await openSession('Git Bash')) {
   await assertBashPane('Git Bash', { expectWindowsCwd: true })
 }
@@ -196,19 +217,60 @@ if (!profiles.some((p) => p.id === 'git-bash')) {
 // The directory is asserted only where it can be true. A distro standing in /mnt
 // reports a drive path, which this side can open; standing anywhere else it reports
 // a \\wsl.localhost UNC, which is refused on purpose and is a separate question.
+//
+// wsl.exe being there is not WSL being there. A hosted Windows runner has WSL 2.7
+// installed and no distribution in it, so the profile is offered, the pane starts,
+// wsl.exe prints "has no installed distributions" and exits -1 — and this suite
+// reported that as integration that never arrived, every night. So the distros are
+// asked for first, and a machine with none is a machine without this shell: skipped
+// with what wsl.exe said, and fatal under EMBER_STRICT like any other missing shell,
+// unless EMBER_HOSTED says this is a runner that cannot have one.
+const wslDistros = () => {
+  const r = spawnSync('wsl.exe', ['--list', '--quiet'], {
+    encoding: 'utf8',
+    timeout: 30_000,
+    env: { ...process.env, WSL_UTF8: '1' },
+    windowsHide: true
+  })
+  // Without WSL_UTF8 honoured the listing is UTF-16LE, which reads as NULs between letters.
+  const said = `${r.stdout ?? ''}\n${r.stderr ?? ''}`.replace(/\0/g, '')
+  const lines = said.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  // It can also succeed and list nothing, which is the same answer with nothing to quote.
+  return r.status === 0 ? { names: lines, said: lines.length ? '' : 'the list was empty' } : { names: [], said: lines[0] ?? String(r.error ?? r.status) }
+}
 if (!profiles.some((p) => p.id === 'wsl')) {
-  skipped.push('WSL')
-} else if (await openSession('WSL')) {
-  await assertBashPane('WSL', { expectWindowsCwd: false })
+  skipped.push({ shell: 'WSL', why: 'wsl.exe is not installed' })
+} else {
+  const distros = wslDistros()
+  if (distros.names.length === 0) {
+    skipped.push({ shell: 'WSL', why: `no distribution installed (wsl --list: ${distros.said})`, hostedOk: true })
+  } else if (await openSession('WSL')) {
+    await assertBashPane('WSL', { expectWindowsCwd: false })
+  }
 }
 
-await app.close()
+/*
+ * Closed with a bound. A window with a command it believes is running asks before
+ * it closes, and nobody here answers: two of five nights this suite sat at that
+ * question until the gate killed it at twenty minutes, printing nothing at all —
+ * which read as the suite having hung rather than as a command that never ran.
+ */
+const closed = await Promise.race([app.close().then(() => true), sleep(20_000).then(() => false)])
+if (!closed) {
+  failures.push('the window closes when asked — still open after 20s, most likely asking about a command it thinks is running')
+  try {
+    app.process().kill()
+  } catch {
+    // Already gone.
+  }
+}
 profile.cleanup()
 fs.rmSync(work, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)
 if (pageErrors.length > 0) console.log('page errors:', pageErrors.slice(0, 4).join(' | '))
-if (skipped.length > 0) console.log(`shells not installed, not asked: ${skipped.join(', ')}`)
-const strictSkip = skipped.length > 0 && !!process.env.EMBER_STRICT
+for (const s of skipped) console.log(`not asked: ${s.shell} — ${s.why}`)
+const excused = (s) => s.hostedOk && !!process.env.EMBER_HOSTED
+const strictSkip = !!process.env.EMBER_STRICT && skipped.some((s) => !excused(s))
 const passed = failures.length === 0 && pageErrors.length === 0 && !strictSkip
 console.log('bash on both sides:', passed ? 'PASS' : 'FAIL')
 process.exit(passed ? 0 : 1)
