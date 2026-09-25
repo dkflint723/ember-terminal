@@ -193,6 +193,18 @@ export class FileService {
       if ('binary' in decoded) return { ok: false, error: 'That looks like a binary file.' }
 
       /*
+       * Named by its long name, whatever it was asked by. Every opener takes the
+       * path it gets back here as the document's identity, and an editor already
+       * showing a file is found by comparing that identity as text — so the same
+       * file reached once as C:\Users\RUNNER~1\...\a.ts (a link in a tool's
+       * output, a path the CLI sent) and once as C:\Users\runneradmin\...\a.ts
+       * (the explorer, the command line) opened twice, as two buffers that could
+       * each be saved over the other. longPath is what the command line already
+       * goes through, so every way in agrees.
+       */
+      const named = longPath(filePath)
+
+      /*
        * The byte-order mark is taken off here and put back on write.
        *
        * Monaco strips a leading U+FEFF when it builds a model, so leaving it in the
@@ -203,8 +215,8 @@ export class FileService {
        */
       return {
         ok: true,
-        path: filePath,
-        name: basename(filePath),
+        path: named,
+        name: basename(named),
         content: decoded.text,
         // Detected so a save can preserve the file's existing convention — from the
         // text, since in UTF-16 a line ending is not the bytes of "\r\n".

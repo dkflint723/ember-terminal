@@ -9,7 +9,7 @@
 // Run: node scripts/verify-ide.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
-import { newProfile, workDir } from './profile.mjs'
+import { newProfile, shortName, workDir } from './profile.mjs'
 import WebSocket from 'ws'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
@@ -169,6 +169,40 @@ await sleep(600)
 const selection = parse(await client.call('getCurrentSelection'))
 check('reports the selection', selection.success === true && selection.text.includes('greet'), JSON.stringify(selection).slice(0, 100))
 check('selection was pushed as a notification', client.notes.some((n) => n.method === 'selection_changed'), client.notes.map((n) => n.method).join(','))
+
+/*
+ * --- the same file by its other name -----------------------------------------
+ *
+ * The CLI names a file however its own working directory is spelled. Where TEMP
+ * is an 8.3 short path, which the hosted runner's is, that is
+ * C:\Users\RUNNER~1\... while the editor holds the file as
+ * C:\Users\runneradmin\..., because a file on the command line is opened by its
+ * long name. The renderer matched the two as text, so a question about the file
+ * on screen was answered "Document not open in the editor." and openFile opened a
+ * second copy beside it. Asked for here on purpose, by the short name of the file
+ * this suite opened, so it is exercised on any volume that keeps 8.3 names and
+ * not only where TEMP happens to be one.
+ */
+const short = shortName(target)
+if (!short) {
+  console.log('note: this volume gives greet.ts no short name, so the second-spelling checks did not run')
+} else {
+  const dirty = parse(await client.call('checkDocumentDirty', { filePath: short }))
+  check('asked about by its short name, the open file is found', dirty.success === true, JSON.stringify(dirty))
+  await client.call('openFile', { filePath: short })
+  await sleep(800)
+  const reopened = parse(await client.call('getOpenEditors'))
+  const copies = (reopened.tabs ?? []).filter((t) => /greet\.ts$/i.test(t.path ?? ''))
+  check(
+    'and opening it by that name does not open a second copy',
+    copies.length === 1,
+    JSON.stringify(copies.map((t) => t.path))
+  )
+  // The same rule for every other way in — a link in a tool's output, the palette:
+  // each opens what readFile names, and readFile names the long one.
+  const read = await page.evaluate((p) => window.ember.readFile(p), short)
+  check('a file read by its short name comes back by its long one', read.ok && read.path === target, read.path)
+}
 
 // --- openDiff, rejected -----------------------------------------------------
 const REJECTED = 'export function greet(): void {}\n'

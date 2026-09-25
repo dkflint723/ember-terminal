@@ -187,7 +187,7 @@ import { SettingsStore } from './settings.js'
 import { ThemeStore } from './themes.js'
 import { CompletionService } from './completion.js'
 import { HistoryStore } from './history.js'
-import { FileService, fileArgs, isStamp, pathArgs, realFolder } from './files.js'
+import { FileService, fileArgs, isStamp, longPath, pathArgs, realFolder } from './files.js'
 import { isEncodingName } from '../shared/encoding.js'
 import { hasSecret } from '../shared/secrets.js'
 import { isTrustedPath } from '../shared/trust.js'
@@ -749,7 +749,37 @@ function settleIdeCallsFor(windowId: number): void {
   }
 }
 
-function callRenderer(name: string, args: Record<string, unknown>): Promise<unknown> {
+/** The arguments a Claude Code tool call names a file by. */
+const IDE_PATH_ARGS = ['filePath', 'old_file_path', 'new_file_path'] as const
+
+/**
+ * A tool call's file arguments with their 8.3 short names written out.
+ *
+ * The editor holds a file under the name it was opened by, and since a folder or
+ * file on the command line is opened by its long name, that is the long one. The
+ * CLI names files however its own working directory is spelled — a session started
+ * in C:\Users\RUNNER~1\... asks about C:\Users\RUNNER~1\...\note.ts — and the
+ * renderer matched the two as text. saveDocument then answered "Document not open
+ * in the editor." about the file on screen, and the conflict check that was meant
+ * to stop a session's own edit being saved over never ran; checkDocumentDirty
+ * said the same, and openFile opened a second copy of a file already open, with a
+ * buffer of its own to diverge from the first.
+ *
+ * Written out here, once, in the one place every call passes through, by the same
+ * rule the command line uses — short names only; a junction or a substituted
+ * drive is a spelling the person chose and is left as it is.
+ */
+function withLongPaths(args: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...args }
+  for (const key of IDE_PATH_ARGS) {
+    const value = out[key]
+    if (typeof value === 'string' && value) out[key] = longPath(value)
+  }
+  return out
+}
+
+function callRenderer(name: string, given: Record<string, unknown>): Promise<unknown> {
+  const args = withLongPaths(given)
   // The window the user is looking at: a CLI asking about "the editor" means the
   // one in front of them, which with several windows is not always the primary.
   const target = focusedEmberWindow()

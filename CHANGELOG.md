@@ -5,6 +5,26 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A file Claude Code names by its short name is the one already open
+
+- **The editor matched a file's path as text.** A file on the command line is opened by
+  its long name, so a Claude Code session asking about it by its short one was told
+  "Document not open in the editor." about the file on screen: `saveDocument` never
+  reached its save-conflict check, and `checkDocumentDirty` said the same.
+- **And `openFile` opened a second copy** of a file that was already open, with its own
+  buffer that could be saved over the first. Any other way of reaching a file by its
+  short name took the same route.
+- **Short names are written out on the way in.** Every tool call's file arguments, and
+  every file read, now name the file by its long name, by the rule the command line
+  already follows. Junctions and substituted drives keep the spelling the person chose.
+- **Not covered:** a file reached through a junction is still a second spelling, on
+  purpose; `getDiagnostics` still matches a URI as text; and whether a CLI started in
+  a short-named directory finds the window has not been checked.
+- **How it is checked:** `verify-ide` asks by the file's 8.3 name on purpose: the open
+  file must be found, no second copy may open, and a read must come back long. All
+  three fail against the previous build on the runner and pass with this change. On a
+  volume that keeps no short names the suite says so rather than passing.
+
 ### Suites name their scratch folder the way the app does
 
 - **Eleven suites failed at once on the full gate after the long-name change**, which had
