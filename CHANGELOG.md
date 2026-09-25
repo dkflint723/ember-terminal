@@ -5,6 +5,22 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Source control's suite waits for git rather than for the clock
+
+- **Four checks in `verify-git` read the result of a git operation after a fixed pause**:
+  staging, push, pull and switching branches. On a hosted runner each outlasted its
+  pause at least once. The worst was the push: the remote did not have `main` yet, so
+  the push check failed, and the clone further down that needs `main` threw and took
+  the suite with it before any results were printed.
+- **Each now waits, for up to twenty seconds, for git or the panel to show the thing is
+  done**: the file in the index, the commit in the remote and the upstream in the panel,
+  the pull's commit checked out with the index released, the branch switched. A step
+  that never finishes still fails, and the staged-section check says how long it waited.
+- **A rewrite of a 33 MB file just after committing it retries** for up to ten seconds.
+  It failed once with `UNKNOWN` from `open`, most likely a scanner holding the new file.
+- **How it is checked:** on the runner, where `verify-git` passed 5 runs of 5 with all
+  four waits in place. Nothing here changes the app.
+
 ### A line typed into a running program is kept when the program ends
 
 - **Half a line typed while a command ran was lost if the command finished first.**

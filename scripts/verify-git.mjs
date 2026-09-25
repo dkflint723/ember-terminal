@@ -205,8 +205,24 @@ await sleep(1200)
 const stagedByGit = git('diff', '--cached', '--name-only')
 check('staging reached the index', stagedByGit === 'tracked.ts', JSON.stringify(stagedByGit))
 
-const sections = await page.locator('.scm__section-head').allTextContents()
-check('staged section appears', sections.some((s) => s.includes('Staged')), sections.join(' | '))
+/*
+ * Waited for rather than read after a fixed pause. The index had the file on a
+ * hosted runner every time, and in one run of four the panel had not redrawn
+ * 1200ms later — so the check was timing the runner, not the panel. A panel
+ * that never shows the section still fails, and how long it took is reported.
+ */
+let sections = []
+const stagedFrom = Date.now()
+for (let i = 0; i < 40; i += 1) {
+  sections = await page.locator('.scm__section-head').allTextContents()
+  if (sections.some((s) => s.includes('Staged'))) break
+  await sleep(250)
+}
+check(
+  'staged section appears',
+  sections.some((s) => s.includes('Staged')),
+  `${sections.join(' | ')} (${Date.now() - stagedFrom + 1200}ms after the click)`
+)
 
 // --- commit, confirmed against git ----------------------------------------
 await page.fill('.scm__message', 'verify: stage and commit from the panel')
@@ -330,6 +346,27 @@ await sleep(2500)
  * push has no upstream and must publish the branch, the pull must bring back a
  * commit made elsewhere, and every claim is checked against git itself.
  */
+/**
+ * Until git says the thing is done, for up to twenty seconds.
+ *
+ * What follows pushes, pulls and switches branches, and each was read back after
+ * a fixed pause that a loaded runner outlasted: a push not yet in the remote
+ * failed its check and then crashed the clone that needed it. Anything git never
+ * finishes still fails, just no sooner than it has to.
+ */
+const settled = async (done, ms = 20_000) => {
+  const from = Date.now()
+  while (Date.now() - from < ms) {
+    try {
+      if (await done()) return true
+    } catch {
+      // Not there yet — a ref that does not exist is an error to git.
+    }
+    await sleep(250)
+  }
+  return false
+}
+
 const remoteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-git-remote-'))
 const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-git-elsewhere-'))
 const gitAt = (dir, ...args) =>
@@ -338,27 +375,28 @@ gitAt(remoteDir, 'init', '-q', '--bare')
 git('remote', 'add', 'origin', remoteDir)
 
 await page.locator('.scm [aria-label="Push"]').click()
-await sleep(3000)
+// By ref, not by HEAD: a fresh bare's HEAD names an unborn default branch,
+// and `git log` with no ref dies on it even after a successful push of main.
+let pushedLog = '(remote has no main after 20s)'
+await settled(() => (pushedLog = gitAt(remoteDir, 'log', '--oneline', '-1', 'main')))
 const scmSays = await page.evaluate(() => ({
   error: document.querySelector('.scm__error')?.textContent ?? null,
   note: document.querySelector('.scm__note')?.textContent ?? null
 }))
-// By ref, not by HEAD: a fresh bare's HEAD names an unborn default branch,
-// and `git log` with no ref dies on it even after a successful push of main.
-let pushedLog = ''
-try {
-  pushedLog = gitAt(remoteDir, 'log', '--oneline', '-1', 'main')
-} catch {
-  pushedLog = '(remote has no main)'
-}
 check(
   'push publishes the branch to origin',
   pushedLog.includes('finish the merge'),
   `${pushedLog} | panel: ${JSON.stringify(scmSays)}`
 )
-const upstreamNow = await page.evaluate(
-  () => document.querySelector('button.scm__branch')?.getAttribute('title') ?? ''
-)
+// The remote has the commit before the push has finished: `-u` records the
+// upstream after, and the panel redraws after that. Waited for in the panel.
+let upstreamNow = ''
+await settled(async () => {
+  upstreamNow = await page.evaluate(
+    () => document.querySelector('button.scm__branch')?.getAttribute('title') ?? ''
+  )
+  return upstreamNow.includes('origin/')
+})
 check('and the branch now has an upstream', upstreamNow.includes('origin/'), upstreamNow)
 
 // Someone else moves the remote on; the panel pulls it back.
@@ -374,7 +412,14 @@ gitAt(there, 'push', '-q')
 await page.locator('.scm [title="Refresh"]').click()
 await sleep(2000)
 await page.locator('.scm [aria-label="Pull"]').click()
-await sleep(3000)
+// Finished, not merely begun: the file lands before the pull has let go of the
+// index, and the next thing done here is switch branches.
+await settled(
+  () =>
+    fs.existsSync(path.join(repo, 'from-elsewhere.txt')) &&
+    !fs.existsSync(path.join(repo, '.git', 'index.lock')) &&
+    git('rev-parse', 'HEAD') === git('rev-parse', 'origin/main')
+)
 check(
   'pull brings the elsewhere commit home',
   fs.existsSync(path.join(repo, 'from-elsewhere.txt'))
@@ -386,7 +431,7 @@ await page.waitForSelector('.qp__box', { timeout: 8_000 })
 await page.locator('.qp__box').fill('feature-verify')
 await sleep(500)
 await page.keyboard.press('Enter')
-await sleep(2000)
+await settled(() => git('branch', '--show-current') === 'feature-verify')
 check(
   'typing a new name creates and switches',
   git('branch', '--show-current') === 'feature-verify',
@@ -398,7 +443,7 @@ await page.waitForSelector('.qp__box', { timeout: 8_000 })
 await page.locator('.qp__box').fill('main')
 await sleep(500)
 await page.keyboard.press('Enter')
-await sleep(2000)
+await settled(() => git('branch', '--show-current') === 'main')
 check('picking an existing branch switches back', git('branch', '--show-current') === 'main', git('branch', '--show-current'))
 
 /*
@@ -755,7 +800,20 @@ const oversize = path.join(repo, 'oversize.txt')
 fs.writeFileSync(oversize, Buffer.alloc(33 * 1024 * 1024, 'x'))
 git('add', '--', 'oversize.txt')
 git('commit', '-qm', 'a file past what a diff will buffer')
-fs.writeFileSync(oversize, Buffer.alloc(33 * 1024 * 1024, 'y'))
+// The rewrite straight after the commit is the one write here that meets a file
+// something else still has open. On a hosted runner it failed once with UNKNOWN
+// from `open` — most likely Windows refusing a share while a scanner reads thirty-three
+// fresh megabytes. That is not what this checks, so it waits for the file rather
+// than failing the suite on it. A lock that lasts ten seconds still throws.
+for (let tries = 0; ; tries++) {
+  try {
+    fs.writeFileSync(oversize, Buffer.alloc(33 * 1024 * 1024, 'y'))
+    break
+  } catch (e) {
+    if (tries >= 40 || !['UNKNOWN', 'EBUSY', 'EPERM', 'EACCES'].includes(e.code)) throw e
+    await new Promise((r) => setTimeout(r, 250))
+  }
+}
 git('add', '--', 'oversize.txt')
 
 // Staged, so both sides are read with `git show` and both meet the cap.
