@@ -61,6 +61,22 @@ const modelNames = () =>
 
 check('all twenty-two files opened', (await openTabs()) === 22, `${await openTabs()} tabs`)
 
+/*
+ * Look at each one, so each has a model to park.
+ *
+ * A tab gets a model when it is shown, not when it is opened. Opening these from
+ * the command line used to show each in turn as it arrived, so all twenty-two had
+ * models by accident — until the editor stopped being part of startup, and the
+ * first files arrived while it was still loading and were never shown. That is
+ * the design working; the precondition this check depends on is now made rather
+ * than assumed.
+ */
+for (let i = 0; i < 22; i++) {
+  await page.locator('.etab').nth(i).click()
+  await sleep(60)
+}
+await sleep(400)
+
 // Close the first twenty-one, oldest first: mod00 is the first into the lot
 // and therefore the one the twenty-first arrival must push out.
 for (let i = 0; i < 21; i++) {

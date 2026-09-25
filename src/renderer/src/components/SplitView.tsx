@@ -1,8 +1,21 @@
-import { Fragment, useRef } from 'react'
+import { Fragment, lazy, Suspense, useRef } from 'react'
 import { useStore, type LayoutNode } from '../state/store'
 import { TerminalPane } from './TerminalPane'
-import { EditorPane } from './EditorPane'
-import { DiffPane } from './DiffPane'
+
+/*
+ * The two panes that are Monaco, loaded the first time one is drawn.
+ *
+ * Imported statically they put the whole editor in the startup bundle, and a
+ * session that is a terminal and nothing else paid for it on every launch. The
+ * preload after the first prompt usually has them ready before anyone asks.
+ */
+const EditorPane = lazy(() => import('./EditorPane').then((m) => ({ default: m.EditorPane })))
+const DiffPane = lazy(() => import('./DiffPane').then((m) => ({ default: m.DiffPane })))
+
+/** What stands in a pane's place for the moment its editor is loading. */
+function Loading(): React.JSX.Element {
+  return <div className="pane pane--loading" aria-busy="true" />
+}
 
 interface Props {
   tabId: string
@@ -25,21 +38,25 @@ export function SplitView({ tabId, region, node, path, activePaneId }: Props): R
     if (!pane) return null
     if (pane.kind === 'editor') {
       return (
-        <EditorPane
-          pane={pane}
-          tabId={tabId}
-          active={pane.id === activePaneId}
-          onFocus={() => setActivePane(tabId, pane.id)}
-        />
+        <Suspense fallback={<Loading />}>
+          <EditorPane
+            pane={pane}
+            tabId={tabId}
+            active={pane.id === activePaneId}
+            onFocus={() => setActivePane(tabId, pane.id)}
+          />
+        </Suspense>
       )
     }
     if (pane.kind === 'diff') {
       return (
-        <DiffPane
-          pane={pane}
-          active={pane.id === activePaneId}
-          onFocus={() => setActivePane(tabId, pane.id)}
-        />
+        <Suspense fallback={<Loading />}>
+          <DiffPane
+            pane={pane}
+            active={pane.id === activePaneId}
+            onFocus={() => setActivePane(tabId, pane.id)}
+          />
+        </Suspense>
       )
     }
     /*

@@ -76,7 +76,6 @@ const SWATCH_TOKENS = ['bg', 'fg', 'accent', 'ok', 'fail', 'info', 'bg-elevated'
 
 import { useStore } from '../state/store'
 import { activateTheme, refreshThemeList } from '../state/theming'
-import { ensureSnippets, forgetSnippets } from '../editor/snippets'
 
 /*
  * The dialog grew past one screen long before it grew past one topic, and a
@@ -597,6 +596,9 @@ export function SettingsPanel(): React.JSX.Element | null {
      * file the user is looking at keeps offering the snippets they just replaced,
      * which reads as the import having failed.
      */
+    // Fetched here rather than imported: the snippet module brings Monaco, and the
+    // dialog is opened far more often than a snippet file is imported.
+    const { ensureSnippets, forgetSnippets } = await import('../editor/snippets')
     forgetSnippets()
     const open = new Set(
       Object.values(useStore.getState().panes).flatMap((p) =>

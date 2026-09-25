@@ -60,6 +60,31 @@ function collect(node: SessionLayout, out: string[] = []): string[] {
   return out
 }
 
+/** The store fields `snapshot` reads. A change to anything else is not a reason to save. */
+const PERSISTED = [
+  'tabs',
+  'panes',
+  'activeTabId',
+  'sidebarOpen',
+  'sessionsOpen',
+  'agentOpen',
+  'agentWidth',
+  'sidebarView'
+] as const satisfies readonly (keyof ReturnType<typeof useStore.getState>)[]
+
+let requestSave: (() => void) | null = null
+
+/**
+ * Ask for the workspace to be written, soon.
+ *
+ * For what the store does not hold: an edit to a buffer that was already unsaved
+ * changes the text in Monaco and nothing in the store, so the autosave would never
+ * hear of it. Debounced with every other reason, so a burst of typing is one write.
+ */
+export function requestSessionSave(): void {
+  requestSave?.()
+}
+
 export function snapshot(): SessionSnapshot {
   const state = useStore.getState()
   const keep = (paneId: string): boolean => state.panes[paneId]?.kind !== 'diff'
@@ -872,7 +897,20 @@ export function useSessionAutosave(enabled: boolean): void {
       timer = window.setTimeout(() => void save(), SAVE_DEBOUNCE_MS)
     }
 
-    const unsubscribe = useStore.subscribe(schedule)
+    /*
+     * Only for the parts of the store the snapshot is made of.
+     *
+     * It listened to everything, so the caret moving, a git poll, the palette
+     * opening — anything at all — re-armed a write of the whole workspace, and it
+     * was written every few seconds while the app sat idle. What changes the file
+     * is what is in it: these fields, the breakpoints below, and unsaved text,
+     * which lives in Monaco rather than here and asks for itself through
+     * `requestSessionSave`.
+     */
+    const unsubscribe = useStore.subscribe((now, before) => {
+      if (PERSISTED.some((key) => now[key] !== before[key])) schedule()
+    })
+    requestSave = schedule
     // Breakpoints live in their own store, and a new one deserves writing down.
     const unsubscribeDebug = useDebugStore.subscribe(schedule)
     // The last word, and the only one guaranteed to include a final edit: the
@@ -888,6 +926,7 @@ export function useSessionAutosave(enabled: boolean): void {
 
     return () => {
       if (timer) window.clearTimeout(timer)
+      requestSave = null
       unsubscribe()
       unsubscribeDebug()
       window.removeEventListener('beforeunload', onLeave)

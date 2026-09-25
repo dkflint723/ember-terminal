@@ -1,5 +1,8 @@
 import { monaco, languageForPath } from './monaco'
 import { useStore } from '../state/store'
+import { SERVER_FOR, serverFor, taughtServerFor } from './servers'
+
+export { serverFor }
 
 /**
  * Connects Monaco's bundled LSP client to a language server running in the main
@@ -196,22 +199,6 @@ class IpcTransport {
 
 const started = new Map<string, Promise<boolean>>()
 
-/**
- * Monaco language ids that have a server, mapped to the server's id. Several
- * Monaco languages share one server, and some need none: Monaco's bundled
- * TypeScript worker already covers javascript.
- */
-const SERVER_FOR: Record<string, string> = {
-  typescript: 'typescript',
-  javascript: 'typescript',
-  typescriptreact: 'typescript',
-  javascriptreact: 'typescript',
-  python: 'python',
-  // Monaco calls this 'shell'; VS Code calls it 'shellscript'. The key is Monaco's.
-  shell: 'shell',
-  yaml: 'yaml',
-  powershell: 'powershell'
-}
 
 /**
  * Silence the bundled TypeScript worker's providers once the language server is up.
@@ -336,21 +323,6 @@ function fileUriToPath(uri: string): string {
   return /^\/[a-zA-Z]:/.test(withoutScheme) ? withoutScheme.slice(1) : withoutScheme
 }
 
-/**
- * A server taught in settings answers for its languageId directly — the id is
- * both the Monaco language and the main-process server key. Consulted after
- * the bundled table so the built-in four keep their shared-server mappings.
- */
-function taughtServerFor(language: string): string | null {
-  const taught = useStore
-    .getState()
-    .settings.languageServers?.some((c) => c.languageId === language)
-  return taught ? language : null
-}
-
-export function serverFor(language: string): string | null {
-  return SERVER_FOR[language] ?? taughtServerFor(language)
-}
 
 /**
  * Make Monaco recognise the taught languages' files. An id Monaco already

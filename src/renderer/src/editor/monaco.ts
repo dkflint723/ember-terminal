@@ -13,6 +13,7 @@
  */
 import * as monaco from 'monaco-editor'
 import { pathKey } from '@shared/paths'
+import { announceMonaco } from './loaded'
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
 import TsWorker from 'monaco-editor/languages/features/typescript/ts.worker?worker'
 import JsonWorker from 'monaco-editor/languages/features/json/json.worker?worker'
@@ -84,3 +85,8 @@ export { monaco }
  * neither can import a module. Read-only by convention.
  */
 ;(window as unknown as { monaco: typeof monaco }).monaco = monaco
+
+// Last, once every export above exists: whatever reached this module — a lazy
+// pane, a dynamic import, the preload after the first prompt — code that must not
+// load Monaco itself can now find it. See editor/loaded.ts.
+announceMonaco({ languageForPath, modelUri, monaco })

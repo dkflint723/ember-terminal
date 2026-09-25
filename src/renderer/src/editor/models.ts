@@ -1,5 +1,5 @@
 import { pathKey } from '@shared/paths'
-import { monaco, modelUri } from './monaco'
+import { monacoIfLoaded } from './loaded'
 import { forgetSynced } from './synced'
 
 /**
@@ -56,7 +56,9 @@ export function parkModel(filePath: string | null, stillOpenElsewhere: boolean):
     const [oldestKey, oldest] = parked.entries().next().value as [string, string]
     parked.delete(oldestKey)
     if (stillShown(oldest)) continue
-    monaco.editor.getModel(modelUri(oldest))?.dispose()
+    // Nothing to dispose unless Monaco is here: a model cannot exist without it.
+    const m = monacoIfLoaded()
+    m?.monaco.editor.getModel(m.modelUri(oldest))?.dispose()
     forgetSynced(oldest)
   }
 }

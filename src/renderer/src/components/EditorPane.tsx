@@ -11,11 +11,12 @@ import { openAt } from '../editor/navigate'
 import { lastSynced, noteSynced } from '../editor/synced'
 import { replaceBuffer } from '../editor/reload'
 import { recordSelection } from '../state/ide'
-import { pendingUnsaved, setBufferReader } from '../state/session'
+import { pendingUnsaved, requestSessionSave, setBufferReader } from '../state/session'
 import { isInside, samePath } from '@shared/paths'
 import { computeGutters, gutterDecorations, hunkAtLine, revertHunk, type GutterHunk } from '../editor/gutters'
 import { wireDebugging } from '../editor/debugging'
 import { formatDocument } from '../editor/formatting'
+import { isModified } from '../editor/baseline'
 
 interface Props {
   pane: EditorPaneState
@@ -464,9 +465,16 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
       const doc = current.documents[index]
       if (!doc) return
       // A file that is gone from disk leaves the buffer as the only copy, which is
-      // unsaved whatever it matches.
-      const dirty = editor.getValue() !== doc.savedContent || doc.conflict === 'deleted'
+      // unsaved whatever it matches. Asked of the model's version rather than of its
+      // text — see editor/baseline.ts — so a keystroke costs the same in a 16 MB
+      // file as in a one-liner.
+      const model = editor.getModel()
+      if (!model) return
+      const dirty = isModified(model, doc.savedContent) || doc.conflict === 'deleted'
       if (dirty !== doc.dirty) patchDocument(pane.id, { dirty }, index)
+      // The text itself is not in the store, so a buffer that was already unsaved
+      // changing again is news only this handler has.
+      if (dirty) requestSessionSave()
 
       // Auto-save, when it is switched on. Restarted on every edit so it saves
       // once after typing stops rather than repeatedly in the middle of a word,
@@ -637,7 +645,9 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
      * editor showed that unsaved text with no unsaved marker, which is the one state
      * where someone reasonably believes their work is on disk when it is not.
      */
-    const dirty = model.getValue() !== document.savedContent || document.conflict === 'deleted'
+    // The long way when the saved text has moved — which is also when the baseline
+    // the keystroke check relies on is taken again.
+    const dirty = isModified(model, document.savedContent) || document.conflict === 'deleted'
     if (dirty !== document.dirty) patchDocument(pane.id, { dirty }, pane.activeIndex)
 
     const treeRoot = workspaceRoot(useStore.getState())
