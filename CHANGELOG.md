@@ -6,7 +6,7 @@ newest entry sits on top.
 ## 0.4.0 — 2026-09-25
 
 The largest release so far, and the first built, installed and tested on a machine
-that is not the maintainer's. Eighty-one entries follow; this is what they add up
+that is not the maintainer's. Eighty-two entries follow; this is what they add up
 to.
 
 **Safer by default.** Opening a repository no longer runs it — a folder's scripts,
@@ -52,6 +52,21 @@ git and the terminal agree about which folder you are in.
 - The update feed is not signed, as in every previous release.
 - A found line can drift out of view when the command after it finishes; the view no
   longer jumps to the end, but it does not yet hold the match exactly.
+
+### The release job gives an installer ten minutes
+
+- **Installing over the previous release was killed at three minutes, four times.**
+  When it finished, it took 60 to 131 seconds. Three of the four that did not were
+  watched, and in each the Volume Shadow Copy service and its software provider started
+  while the installer was writing; from that moment its writes fell from about 76 MB/s
+  to about 0.3 MB/s. In none of the seven watched installs that finished did they start.
+  Nothing points at Ember asking for the shadow copy: the stalled installer had no child
+  process, and no application event was logged.
+- **Each installer and the uninstaller now get ten minutes, and say how long they
+  took.** An installer that never finishes still fails the release.
+- **Not proven:** that ten minutes is enough for an install slowed that way. The six
+  release runs since the change finished every install within 142 seconds, so the longer
+  limit has not yet been needed.
 
 ### Every suite's close is bounded, and says what held it open
 

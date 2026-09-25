@@ -60,13 +60,32 @@ if (/\s/.test(dir)) {
  * Verbatim, because Node quotes any argument it thinks needs it, and NSIS reads a
  * quoted /D= as part of the path.
  */
-const run = (file, args, timeout) =>
-  spawnSync(`"${file}" ${args}`, {
+const run = (file, args, timeout) => {
+  const from = Date.now()
+  const r = spawnSync(`"${file}" ${args}`, {
     shell: true,
     windowsVerbatimArguments: true,
     timeout,
     encoding: 'utf8'
   })
+  console.log(`${path.basename(file)} ${args.split(' ')[0]} took ${Math.round((Date.now() - from) / 1000)}s`)
+  return r
+}
+
+/*
+ * Ten minutes for an installer, where three was the limit.
+ *
+ * Measured on hosted runners, installing over the previous release took 60 to 131
+ * seconds when it finished, and three times it was killed at 180. All three times
+ * the Volume Shadow Copy service and its software provider started while the
+ * installer was writing, and from that moment its writes fell from about 76 MB/s
+ * to about 0.3 MB/s; in none of the seven that finished did they start. Nothing
+ * of Ember's asked for the shadow copy — the installer had no child process and
+ * no application event was logged — so it is the runner, and the limit is sized
+ * for a disk that has slowed down rather than for one that has not. An installer
+ * that never finishes still fails here.
+ */
+const INSTALLER_LIMIT = 600_000
 
 /*
  * --- over the previous release, when there is one to go over --------------------
@@ -116,7 +135,7 @@ const drive = async (label, body) => {
 
 if (previousSetup) {
   console.log(`installing the previous release, ${path.basename(previousSetup)}, into ${dir}`)
-  const before = run(previousSetup, `/S /D=${dir}`, 180_000)
+  const before = run(previousSetup, `/S /D=${dir}`, INSTALLER_LIMIT)
   check('the previous release installs', before.status === 0, `exit ${before.status}`)
   if (!fs.existsSync(path.join(dir, 'Ember.exe'))) finish()
 
@@ -143,7 +162,7 @@ if (previousSetup) {
 }
 
 console.log(`installing ${setupName} into ${dir}${previousSetup ? ', over the previous release' : ''}`)
-const installed = run(setup, `/S /D=${dir}`, 180_000)
+const installed = run(setup, `/S /D=${dir}`, INSTALLER_LIMIT)
 check('the installer exits cleanly', installed.status === 0, `exit ${installed.status}${installed.error ? `, ${installed.error.message}` : ''}`)
 
 const exe = path.join(dir, 'Ember.exe')
@@ -218,7 +237,7 @@ for (const suite of ['verify-packaged', 'verify-update']) {
  * behind, which is why the uninstaller is not among the things required to go.
  */
 if (uninstaller) {
-  const removed = run(path.join(dir, uninstaller), `/S _?=${dir}`, 180_000)
+  const removed = run(path.join(dir, uninstaller), `/S _?=${dir}`, INSTALLER_LIMIT)
   check('the uninstaller exits cleanly', removed.status === 0, `exit ${removed.status}`)
   let gone = false
   for (let waited = 0; waited < 60_000; waited += 1000) {
