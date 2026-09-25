@@ -5,6 +5,26 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Finding a line keeps the view there while a command runs
+
+- **Only-the-reader broke the find bar.** A terminal now stops following its output only
+  for a gesture, because the browser scrolls in code too. But the find bar jumping to
+  a match, and the overview ruler jumping to a block, are the reader asking to move —
+  and both move the view by scrolling in code. So a line found in an earlier block
+  while a command was running was lost the moment that command finished, when the
+  view was pinned straight back to the end.
+- **Those two now say so before they move.** Each sends an `ember:reader-moved` event
+  to the pane, which takes it exactly as it takes a wheel. The browser's own clamps
+  send nothing and still change nothing, so the fix the earlier rule was for stands.
+- **Not settled by this:** the match itself can drift a long way above the view as the
+  finished command's block is laid out again. The view stays in the right block and
+  off the end; exactly where the match sits afterwards is a separate effect, measured
+  and not yet fixed.
+- **How it is checked:** `verify-shell` finds a line in a 150-line block while a slower
+  command runs, lets that command finish, and requires the view to still be inside
+  the first block and not at the end. On the build before this it was pinned to the
+  end (`fromEnd: 0`) and failed; with this it passes.
+
 ### A release is installed over the last one before it is drafted
 
 - **Nothing tested what most people will actually do with a release.** The release job

@@ -132,7 +132,11 @@ export function OverviewRuler({
           className={`ruler__mark ${m.failed ? 'ruler__mark--failed' : ''}`}
           style={{ top: `${m.top * 100}%` }}
           onMouseDown={() => {
-            if (scroller.current) scroller.current.scrollTop = m.offset
+            const el = scroller.current
+            if (!el) return
+            // The reader chose this block, so the pane stops following the end.
+            el.dispatchEvent(new CustomEvent('ember:reader-moved'))
+            el.scrollTop = m.offset
           }}
         />
       ))}

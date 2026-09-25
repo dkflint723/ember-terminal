@@ -383,6 +383,27 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
     if (Date.now() - lastGesture.current < 500) stuck.current = false
   }
 
+  /*
+   * The app moving the view because the reader asked it to counts as the reader.
+   *
+   * The find bar jumps to a match and the overview ruler jumps to a block, and both
+   * do it by scrolling the pane in code — which the rule above deliberately does
+   * not count, because the browser scrolls in code too. Left there, finding a line
+   * in a running build's output lasted only until the next line of output, which
+   * pinned the view straight back to the end. So those two say so first: an
+   * `ember:reader-moved` event on the scroller, taken exactly like a wheel. The
+   * browser's own clamps send nothing, and still change nothing.
+   */
+  useEffect(() => {
+    const el = scroller.current
+    if (!el) return
+    const moved = (): void => {
+      lastGesture.current = Date.now()
+    }
+    el.addEventListener('ember:reader-moved', moved)
+    return () => el.removeEventListener('ember:reader-moved', moved)
+  }, [raw])
+
   // The size of what the newest block is holding, which is what changes when output
   // lands in a block that already existed. `last` is read further up the component.
   const lastSize = last ? (last.kind === 'command' ? last.output.length : last.answer.length) : 0

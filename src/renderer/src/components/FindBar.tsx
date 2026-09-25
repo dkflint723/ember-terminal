@@ -133,7 +133,11 @@ export function FindBar({ paneId, scroller, revision, onClose }: Props): React.J
     highlights.set('ember-find', new Ctor(...ranges))
     const here = ranges[current]
     highlights.set('ember-find-current', here ? new Ctor(here) : new Ctor())
-    here?.startContainer.parentElement?.scrollIntoView({ block: 'center' })
+    const target = here?.startContainer.parentElement
+    // Said before moving, so the pane takes this as the reader's doing and stops
+    // following rather than pinning the view straight back to the end.
+    target?.dispatchEvent(new CustomEvent('ember:reader-moved', { bubbles: true }))
+    target?.scrollIntoView({ block: 'center' })
 
     return () => {
       highlights.delete('ember-find')

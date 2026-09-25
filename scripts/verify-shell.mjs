@@ -293,6 +293,56 @@ await sleep(500)
 check('Escape closes it', (await page.locator('.find__input').count()) === 0)
 
 /*
+ * --- and a match found stays found when more output arrives --------------------
+ *
+ * The pane stops following its output only for something the reader did, and the
+ * find bar jumping to a match is the reader asking for it — but the jump is a
+ * scroll made in code, which that rule does not count by itself. So a line found
+ * in an earlier block while a command was still running lasted until that command
+ * finished, when the view was pinned straight back to the end.
+ */
+await run('1..150 | ForEach-Object { "early-$_" }', 3200)
+await page.click('.composer__input')
+await page.keyboard.type('1..6 | ForEach-Object { "late-$_"; Start-Sleep -Milliseconds 500 }', { delay: 4 })
+await page.keyboard.press('Enter')
+await sleep(400)
+await page.keyboard.press('Control+f')
+await sleep(500)
+await page.locator('.find__input').fill('early-3')
+await sleep(700)
+for (let waited = 0; waited < 20_000; waited += 250) {
+  if ((await page.locator('.block--running').count()) === 0) break
+  await sleep(250)
+}
+await sleep(1500)
+/*
+ * What is asserted is the part this fixes: the view is still in the block the match
+ * was found in, and was not pinned back to the end. Where exactly the match sits
+ * afterwards is not — measured, it drifts well above the view as the finished
+ * command re-lays the blocks out, which is a separate effect from following and is
+ * written down as such rather than hidden inside a looser check.
+ */
+const found = await page.evaluate(() => {
+  const scroller = document.querySelector('.pane__scroll')
+  if (!scroller) return { ok: false, why: 'no scroller' }
+  const s = scroller.getBoundingClientRect()
+  const early = [...document.querySelectorAll('.block')].find((b) =>
+    (b.querySelector('.block__cmd')?.textContent ?? '').includes('"early-')
+  )
+  const r = early?.getBoundingClientRect()
+  const fromEnd = Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight)
+  const inEarly = !!r && r.top < s.top && r.bottom > s.bottom
+  return { ok: inEarly && fromEnd > 24, inEarly, fromEnd }
+})
+check(
+  'a match found while a command runs is not pinned away when it finishes',
+  found.ok,
+  JSON.stringify(found)
+)
+await page.locator('.find__input').press('Escape')
+await sleep(400)
+
+/*
  * --- walking the directory from the path -----------------------------------------
  *
  * The bar said where the shell was standing and offered nothing to do about it, so
