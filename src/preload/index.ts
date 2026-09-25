@@ -249,6 +249,10 @@ const api: EmberApi = {
     ipcRenderer.invoke('settings:noteTrust', folder, trusted),
   realFolder: (folder: string): Promise<string> => ipcRenderer.invoke('file:realFolder', folder),
   settingsLoadError: (): Promise<string | null> => ipcRenderer.invoke('settings:loadError'),
+  settingsLoadNotes: (): Promise<string[]> => ipcRenderer.invoke('settings:loadNotes'),
+  exportSettings: () => ipcRenderer.invoke('settings:export'),
+  importSettings: () => ipcRenderer.invoke('settings:import'),
+  revealSettings: () => ipcRenderer.invoke('settings:reveal'),
   reportUnsaved: (counts: { dirty: number; kept: number; running?: string[] }) =>
     ipcRenderer.send('window:unsaved', counts),
   setZoom: (factor: number) => ipcRenderer.send('window:zoom', factor),

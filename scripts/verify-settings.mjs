@@ -505,7 +505,194 @@ check(
   JSON.stringify(afterRetype)
 )
 
+/*
+ * --- a changed draft is not thrown away by accident ---------------------------
+ *
+ * The address above is an unsaved edit. Escape — and a click a few pixels outside
+ * the dialog — used to discard it at once. Now they ask, Escape again answers
+ * "keep editing", and only Discard (or Cancel, which is a decision) closes.
+ */
 await page.keyboard.press('Escape')
+await sleep(400)
+check(
+  'Escape on a changed draft asks before discarding',
+  (await page.locator('.modal').count()) === 1 && (await page.locator('.settings__discard').count()) === 1,
+  `modals ${await page.locator('.modal').count()}, questions ${await page.locator('.settings__discard').count()}`
+)
+// On a version that closed straight away, reopen with a change so the rest can run.
+if ((await page.locator('.modal').count()) === 0) {
+  await page.keyboard.press('Control+Comma')
+  await page.waitForSelector('.modal', { timeout: 10_000 })
+  await page.locator('.field__unit input').first().fill('15')
+  await page.keyboard.press('Escape')
+  await sleep(300)
+}
+await page.keyboard.press('Escape')
+await sleep(300)
+check(
+  'and Escape again means keep editing',
+  (await page.locator('.modal').count()) === 1 && (await page.locator('.settings__discard').count()) === 0
+)
+// On the scrim itself, below the dialog: the window's top edge is the title bar,
+// which is a drag region and takes no clicks at all.
+const scrim = (await page.locator('.modal-scrim').count()) ? await page.locator('.modal-scrim').boundingBox() : null
+if (scrim) await page.mouse.click(scrim.x + 12, scrim.y + scrim.height - 12)
+await sleep(400)
+check(
+  'a click outside asks as well',
+  (await page.locator('.modal').count()) === 1 && (await page.locator('.settings__discard').count()) === 1,
+  `modals ${await page.locator('.modal').count()}, questions ${await page.locator('.settings__discard').count()}`
+)
+if (await page.locator('[data-confirm="discard"]').count()) {
+  await page.locator('[data-confirm="discard"]').click()
+  await sleep(400)
+}
+check('and Discard closes', (await page.locator('.modal').count()) === 0)
+// Whatever happened above, the checks below start from a closed dialog.
+if (await page.locator('.modal').count()) {
+  await page.locator('.modal__actions .btn', { hasText: 'Cancel' }).click()
+  await sleep(400)
+}
+
+/*
+ * --- Cancel undoes every preview, not only the theme ---------------------------
+ *
+ * Zoom and density apply as they change so they can be judged by looking, and
+ * Cancel put back the theme alone — a window zoomed to 150% and "cancelled" stayed
+ * at 150%.
+ */
+const ratio = () => page.evaluate(() => window.devicePixelRatio)
+const density = () => page.evaluate(() => document.documentElement.dataset.density ?? 'normal')
+const ratioBefore = await ratio()
+const densityBefore = await density()
+await page.keyboard.press('Control+Comma')
+await page.waitForSelector('.modal', { timeout: 10_000 })
+await sleep(600)
+// By the dialog's own labels, so a version whose controls have no ids is reported
+// as that rather than timing out here.
+const zoomField = page.getByLabel('Interface size', { exact: true })
+const densityField = page.getByLabel('Block density', { exact: true })
+const labelled = (await zoomField.count()) === 1 && (await densityField.count()) === 1
+check('zoom and density are found by their labels', labelled)
+if (labelled) {
+  await zoomField.fill('150')
+  await densityField.selectOption(densityBefore === 'compact' ? 'comfortable' : 'compact')
+}
+await sleep(600)
+const ratioPreviewed = await ratio()
+check('zoom previews as it changes', ratioPreviewed > ratioBefore * 1.3, `${ratioBefore} -> ${ratioPreviewed}`)
+await page.locator('.modal__actions .btn', { hasText: 'Cancel' }).click()
+await sleep(700)
+check(
+  'and Cancel puts the zoom back',
+  Math.abs((await ratio()) - ratioBefore) < 0.01,
+  `${ratioBefore} -> ${ratioPreviewed} -> ${await ratio()}`
+)
+check('and the density', (await density()) === densityBefore, `${densityBefore} -> ${await density()}`)
+
+/*
+ * --- main reads what it is sent for what it should be --------------------------
+ *
+ * The dialog clamps what it can, but anything can call setSettings — and main used
+ * to take a font size of 400, or a list of shells that was a string, as it stood.
+ */
+const clamped = await page.evaluate(() => window.ember.setSettings({ fontSize: 400 }))
+check(
+  'a font size of 400 is brought into range',
+  clamped.settings.fontSize === 32,
+  String(clamped.settings.fontSize)
+)
+check(
+  'and main says it did',
+  (clamped.notes ?? []).some((n) => n.includes('fontSize')),
+  JSON.stringify(clamped.notes)
+)
+const refused = await page.evaluate(() => window.ember.setSettings({ customProfiles: 'wsl.exe' }))
+check(
+  'shells sent as a string are not taken',
+  Array.isArray(refused.settings.customProfiles),
+  JSON.stringify(refused.settings.customProfiles)
+)
+check('and main says why', (refused.notes ?? []).some((n) => n.includes('customProfiles')), JSON.stringify(refused.notes))
+await page.evaluate(() => window.ember.setSettings({ fontSize: 13 }))
+
+/*
+ * --- search finds any setting, not only a shortcut ----------------------------
+ */
+await page.keyboard.press('Control+Comma')
+await page.waitForSelector('.modal', { timeout: 10_000 })
+await sleep(600)
+const search = page.locator('.settings__search')
+const canSearch = (await search.count()) > 0
+check('there is a search over every setting', canSearch)
+if (canSearch) await search.fill('notify')
+await sleep(300)
+const visible = (sel) => page.evaluate((s) => {
+  const el = document.querySelector(s)
+  return !!el && el.getClientRects().length > 0
+}, sel)
+check('searching finds the setting it names', canSearch && (await visible('#settings-notify')))
+check('and puts away the ones it does not', canSearch && !(await visible('#settings-theme')))
+if (canSearch) await search.fill('no setting is called this')
+await sleep(300)
+check('and says when nothing matches', canSearch && (await visible('.settings__nomatch')))
+if (canSearch) await search.fill('')
+
+/*
+ * --- import and export --------------------------------------------------------
+ *
+ * The native file dialogs are answered from main, where they live: each is stubbed
+ * to hand back a path in the profile's scratch folder, and everything after that —
+ * the reading, the checking, the draft — is the app's own.
+ */
+const scratch = fs.mkdtempSync(path.join(profile.dir ?? APP_DIR, 'port-'))
+const answerDialogs = (file) =>
+  app.evaluate(({ dialog }, f) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [f] })
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath: f })
+  }, file)
+
+await page.evaluate(() => window.ember.setSettings({ anthropicApiKey: 'sk-ant-verify-export-leak' }))
+const exported = path.join(scratch, 'out.json')
+await answerDialogs(exported)
+const porting = (await page.locator('.btn', { hasText: 'Export…' }).count()) > 0
+check('there are import and export buttons', porting)
+if (porting) await page.locator('.btn', { hasText: 'Export…' }).click()
+await sleep(800)
+const written = fs.existsSync(exported) ? fs.readFileSync(exported, 'utf8') : ''
+check('export writes a file', written.length > 0)
+check('with the preferences in it', /"fontSize"/.test(written), written.slice(0, 120))
+check('and never the key', !written.includes('sk-ant-verify-export-leak') && !/anthropicApiKey/.test(written))
+await page.evaluate(() => window.ember.setSettings({ anthropicApiKey: null }))
+
+const broken = path.join(scratch, 'broken.json')
+fs.writeFileSync(broken, JSON.stringify({ settings: { fontSize: 15, customProfiles: 'wsl.exe' } }))
+await answerDialogs(broken)
+if (porting) await page.locator('.btn', { hasText: 'Import…' }).click()
+await sleep(800)
+const brokenNote = porting
+  ? ((await page.locator('.field__note--bad').last().textContent({ timeout: 2000 }).catch(() => '')) ?? '')
+  : ''
+check(
+  'an import with a string where a list belongs is refused, and says why',
+  /Nothing was imported/.test(brokenNote) && /customProfiles/.test(brokenNote),
+  brokenNote
+)
+const fontSizeNow = async () =>
+  (await page.locator('#settings-font-size').count())
+    ? await page.locator('#settings-font-size').inputValue()
+    : '(no labelled font size)'
+check('and changes nothing', (await fontSizeNow()) !== '15', await fontSizeNow())
+
+const good = path.join(scratch, 'good.json')
+fs.writeFileSync(good, JSON.stringify({ schemaVersion: 1, settings: { fontSize: 15 } }))
+await answerDialogs(good)
+if (porting) await page.locator('.btn', { hasText: 'Import…' }).click()
+await sleep(800)
+check('a good import lands in the dialog', (await fontSizeNow()) === '15', await fontSizeNow())
+const storedSize = await page.evaluate(() => window.ember.getSettings().then((s) => s.fontSize))
+check("and is not saved until Save", storedSize !== 15, String(storedSize))
+await page.locator('.modal__actions .btn', { hasText: 'Cancel' }).click()
 await sleep(400)
 
 const unclosed = await closeApp(app)

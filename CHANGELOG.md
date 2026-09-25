@@ -5,6 +5,67 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Settings that check what they are given, and can be undone
+
+- **Cancel undoes every preview.** Theme, interface size and block density all
+  apply as they change, so they can be judged by looking — and Cancel put back the
+  theme alone, leaving a window zoomed to 150% and "cancelled" at 150%. All three
+  go back to what is saved.
+- **Edits are not thrown away by accident.** Escape and a click outside the dialog
+  discarded every unsaved change at once, and a click a few pixels wide of the
+  dialog is the easiest mistake in the app to make. With something changed, both
+  ask — "Discard 3 changes?" — and Escape again means keep editing. Cancel is a
+  decision and still does not ask.
+- **Buttons that act before Save say so, or ask.** *Test* saves the suggestion
+  settings it tests, and is now called *Save and test*. *Remove saved key* acts at
+  once and cannot be undone, and now takes a second press.
+- **Main checks every value it is given.** It used to spread settings.json over the
+  defaults and trust whatever it held, so a hand edit that left the list of shells
+  as a string reached the shell spawner as a string, and a font size of 400 reached
+  the terminal. Each field is now read for what it should be — numbers brought
+  into the range the dialog offers, choices held to the ones there are, list
+  entries that are missing a program or have their arguments as one string left
+  out — at startup, on every save, and from any caller rather than only the
+  dialog. What was changed is said: at startup once, and after a save that had to
+  adjust something. Two fields the dialog used to write back into settings.json
+  and never read, `hasApiKey` and `hasGhostKey`, are no longer kept.
+- **Search finds any setting**, by what the field says — its label, its choices,
+  its explanation — rather than only among the shortcuts.
+- **Import, export and reset.** An export is the preferences only: never a key, and
+  nothing that describes this machine rather than a taste — its window, its recent
+  and trusted folders, what it has learned. An import is checked the same way, but
+  strictly: a file with a string where a list belongs is refused whole, with the
+  reasons, rather than taken in the parts that happen to fit. What it holds lands
+  in the dialog to be looked at, and nothing is kept until Save. *Reset all…* asks
+  first and does the same. *Show settings.json* opens its folder, with a note that
+  the file is read at startup.
+- **Rows that start programs say so.** Under custom shells and language servers:
+  Ember runs this program with your permissions whenever a session or a matching
+  file opens.
+- **How it is checked.** A new unit table, *settings check*, holds 42 cases: the
+  defaults pass untouched; ranges clamp and say so without refusing; nine kinds of
+  wrong value are left out and refused on import; list entries are kept or left
+  out one by one; and an export carries no key, no trusted folder and no window,
+  and reads back through the import check without a word. *settings* now asks
+  before discarding on Escape and on a click outside, checks that Cancel puts back
+  zoom and density, sends main a font size of 400 and a list of shells as a
+  string, searches, and — with the native file dialogs answered from main —
+  exports without the key, refuses a broken import and takes a good one into the
+  draft without saving it. Green on the Windows runner beside *rebind*, *keys*,
+  *a11y*, *profiles* and *admin*, which also drive the dialog.
+- **What was and was not watched failing.** Against the dialog as it was, on the
+  Windows runner, *settings* never got past its first new check: Escape discarded
+  the edited draft at once, so there was no dialog left to ask a question in, and
+  the run ended there — three times, at three different steps, as the check was
+  made to survive one more of them. That is the defect, seen; but the checks after
+  it (Cancel and the previews, main's clamping, search, import and export) were
+  seen passing on the fix and not seen failing on the old dialog. The validation
+  underneath them was: its unit table fails when a range or the list check is
+  broken on purpose.
+- **Not done here:** a settings UI for debug adapters, which can still only be
+  added by editing the file; the file itself carries no schema version, though an
+  export does.
+
 ### Contrast themes, dialogs that keep focus, and Settings that says what each box is
 
 - **A Windows contrast theme erased every selection.** It repaints the colours an

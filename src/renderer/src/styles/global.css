@@ -3103,6 +3103,45 @@ kbd {
   margin: 8px 20px 0;
 }
 
+/* The search sits at the head of the rail, above the sections it narrows. */
+.settings__search {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+}
+
+/* Said only when the search has hidden everything. */
+.settings__body[data-empty='no'] .settings__nomatch {
+  display: none;
+}
+
+/*
+ * "Discard your changes?" — beside the buttons it is an alternative to, and in the
+ * failure colour's quiet border rather than its fill: it is a question, not an
+ * error.
+ */
+.settings__discard {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 20px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--fail-border);
+  border-radius: 6px;
+  color: var(--fg);
+  font-size: 12.5px;
+}
+
+.settings__discard span {
+  flex: 1 1 auto;
+}
+
 /* The footer stops floating once the body scrolls on its own. */
 .modal--settings .modal__actions {
   position: static;
@@ -6538,6 +6577,14 @@ label.field__check {
 /* A note that reports a failure reads as one, rather than as more explanation. */
 .field__note--bad {
   color: var(--fail);
+}
+
+/* A note that says what a setting will do on your behalf — start a program — in
+   full-strength text with a rule beside it, so it is not read past as more help. */
+.field__note--warn {
+  color: var(--fg);
+  border-left: 2px solid var(--border-strong);
+  padding-left: 8px;
 }
 
 /* The two halves of the Scripts view: what a person saved, what a project declares. */

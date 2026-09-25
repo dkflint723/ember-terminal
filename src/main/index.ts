@@ -96,6 +96,48 @@ if (process.platform === 'win32') {
 }
 
 /**
+ * An exported settings file, read strictly.
+ *
+ * Refused whole on the first thing that is the wrong kind of thing: a file with a
+ * string where a list belongs was written by something with a different idea of
+ * what these settings are, and taking the parts that happen to fit would be
+ * importing half of somebody else's guess. Numbers out of range are brought in and
+ * reported instead, since a font size of 40 is a preference, not a mistake about
+ * the format. Either shape is accepted — the export's envelope, or a bare
+ * settings.json copied from another machine.
+ */
+function importSettingsFrom(file: string): {
+  ok: boolean
+  values?: Record<string, unknown>
+  notes?: string[]
+  error?: string
+} {
+  let raw: unknown
+  try {
+    raw = JSON.parse(readFileSync(file, 'utf8'))
+  } catch (err) {
+    return { ok: false, error: `Not a settings file: ${err instanceof Error ? err.message : 'unreadable'}` }
+  }
+  const body =
+    typeof raw === 'object' && raw !== null && 'settings' in raw
+      ? (raw as { settings: unknown }).settings
+      : raw
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return { ok: false, error: 'Not a settings file: it does not hold any settings.' }
+  }
+  const checked = checkSettings(body as Record<string, unknown>)
+  if (checked.refusals.length > 0) {
+    return { ok: false, error: `Nothing was imported. ${checked.refusals.join('; ')}.` }
+  }
+  const values: Record<string, unknown> = { ...checked.values }
+  for (const key of NOT_PORTABLE) delete values[key]
+  if (Object.keys(values).length === 0) {
+    return { ok: false, error: 'Not a settings file: none of it is a setting this version has.' }
+  }
+  return { ok: true, values, notes: checked.notes }
+}
+
+/**
  * The preferences the two windows share, and only those.
  *
  * Deliberately not the whole file. `windowBounds`, `windowMaximized`,
@@ -192,6 +234,7 @@ import { FileService, fileArgs, isStamp, longPath, pathArgs, realFolder } from '
 import { isEncodingName } from '../shared/encoding.js'
 import { hasSecret } from '../shared/secrets.js'
 import { isTrustedPath } from '../shared/trust.js'
+import { checkSettings, NOT_PORTABLE, portable } from '../shared/settings-check.js'
 import { unsupportedShellOf } from '../shared/quote.js'
 import { LspService } from './lsp.js'
 import { GitService } from './git.js'
@@ -2259,6 +2302,51 @@ function registerIpc(): void {
     forRenderer(settings.noteTrust(folder, trusted))
   )
   ipcMain.handle('settings:loadError', () => settings.takeLoadError())
+  ipcMain.handle('settings:loadNotes', () => settings.takeLoadNotes())
+
+  /*
+   * Settings to and from a file, for a second machine or a fresh install.
+   *
+   * The export is the preferences and nothing else: no key, and nothing that
+   * describes this machine rather than a taste — see NOT_PORTABLE. The import is
+   * read strictly and handed back to the dialog rather than saved, so it lands in
+   * the draft like any other edit: looked at, and kept or cancelled.
+   */
+  ipcMain.handle('settings:export', async (e) => {
+    const win = windowFromEvent(e) ?? mainWindow
+    if (!win) return { ok: false, error: 'No window.' }
+    const res = await dialog.showSaveDialog(win, {
+      title: 'Export settings',
+      defaultPath: 'ember-settings.json',
+      filters: [{ name: 'Settings', extensions: ['json'] }]
+    })
+    if (res.canceled || !res.filePath) return { ok: false }
+    try {
+      const body = { schemaVersion: 1, settings: portable(settings.get()) }
+      writeFileSync(res.filePath, JSON.stringify(body, null, 2), 'utf8')
+      return { ok: true, path: res.filePath }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'The file could not be written.' }
+    }
+  })
+  ipcMain.handle('settings:import', async (e) => {
+    const win = windowFromEvent(e) ?? mainWindow
+    if (!win) return { ok: false, error: 'No window.' }
+    const res = await dialog.showOpenDialog(win, {
+      title: 'Import settings',
+      properties: ['openFile'],
+      filters: [{ name: 'Settings', extensions: ['json'] }]
+    })
+    const file = res.filePaths[0]
+    if (res.canceled || !file) return { ok: false }
+    return importSettingsFrom(file)
+  })
+  ipcMain.handle('settings:reveal', () => {
+    // Revealed rather than opened: the file is read once, at launch, so editing it
+    // in place while Ember runs is edited-and-then-overwritten by the next save.
+    if (existsSync(settings.path)) shell.showItemInFolder(settings.path)
+    else void shell.openPath(join(settings.path, '..'))
+  })
   ipcMain.on('window:zoom', (e, factor: number) => {
     // Clamped: a zoom of 0 leaves an invisible window with no way back to the
     // control that set it.
