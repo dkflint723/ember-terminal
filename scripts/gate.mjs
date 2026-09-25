@@ -52,6 +52,7 @@ const ORDER = [
   'verify-follow',
   'verify-typing',
   'verify-keeps-work',
+  'verify-close',
   'verify-encoding',
   'verify-secrets',
   'verify-paste',

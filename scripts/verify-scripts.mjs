@@ -16,6 +16,7 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
+import { closeApp, untilNothingRuns, watchRunning } from './harness.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -56,6 +57,7 @@ const app = await electron.launch({
   timeout: 60_000
 })
 const page = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))
@@ -506,7 +508,22 @@ if (reopened) {
   )
 }
 
-await app.close()
+/*
+ * The last press finished first, and the close bounded.
+ *
+ * This suite pressed build and closed the window a few hundred milliseconds later,
+ * while PowerShell was still a quarter of a second from saying it had no pnpm. The
+ * window asked about that command — rightly, at that instant — and the question
+ * stopped main, so the command's end never arrived and it asked forever: on the
+ * maintainer's machine, and on the runner in fifteen closes of a hundred and ten,
+ * with two `pnpm run build` blocks on screen and the second stuck at "running…".
+ * Those were the two presses above, one for each direction of the junction.
+ * The app no longer asks that way (see verify-close); the suite waits all the same,
+ * since closing on top of a command it started is not what this suite is about.
+ */
+await untilNothingRuns(app, 15_000)
+const unclosed = await closeApp(app)
+if (unclosed) failures.push(unclosed)
 
 /*
  * Two more projects, each in its own run, because the lockfile is read once when
@@ -546,6 +563,7 @@ for (const fixture of [
     timeout: 60_000
   })
   const other = await second.firstWindow()
+  await watchRunning(second)
   await other.waitForSelector('.pane', { timeout: 40_000 })
   await sleep(2500)
   await other.keyboard.press('Control+Shift+R')
@@ -558,7 +576,8 @@ for (const fixture of [
     titles.includes(fixture.expect),
     JSON.stringify({ titles, wanted: fixture.expect })
   )
-  await second.close()
+  const secondUnclosed = await closeApp(second)
+  if (secondUnclosed) failures.push(`${fixture.lock}: ${secondUnclosed}`)
   own.cleanup()
   fs.rmSync(dir, { recursive: true, force: true })
 }

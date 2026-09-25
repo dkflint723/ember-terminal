@@ -99,6 +99,15 @@ await app.evaluate(({ dialog }) => {
     globalThis.__asked.push(String(options?.message ?? ''))
     return globalThis.__answer
   }
+  // The window's own close asks without blocking now; the install prompt still blocks.
+  // Only the close question: the renderer's own confirm() arrives through this same
+  // call, and answering it here took it away from the page's handler below.
+  const real = dialog.showMessageBox.bind(dialog)
+  dialog.showMessageBox = async (win, options) => {
+    if (!String(options?.detail ?? '').startsWith('Closing now')) return real(win, options)
+    globalThis.__asked.push(String(options?.message ?? ''))
+    return { response: globalThis.__answer, checkboxChecked: false }
+  }
 })
 const asked = () => app.evaluate(() => globalThis.__asked)
 

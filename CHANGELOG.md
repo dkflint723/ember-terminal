@@ -5,6 +5,22 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A window's close question no longer freezes Ember, and withdraws itself
+
+- **The question stopped the main process until somebody answered it.** It was a
+  synchronous dialog, so while it was up no shell output reached any window: a command
+  that finished a moment after the question appeared could never be seen to finish, and
+  its block said "running…" behind a dialog asking whether to end it. Every other
+  window's terminals stopped with it. Pressing a script whose command fails at once —
+  `pnpm run build` without pnpm — and closing straight after was enough.
+- **Now Ember keeps working while it asks.** When the command ends and nothing would be
+  lost, the question withdraws itself and the window closes. Cancel still means Cancel;
+  a command that does not end, or unsaved work, keeps the question up.
+- **How it is checked:** the new `verify-close` suite runs against the real dialog. With
+  a four-second sleep running the window must be asked, then close once the sleep ends;
+  with `ping -t` running it must still be asking eight seconds later. The first half
+  fails 3 of 3 on the previous build and passes 9 of 9 with this change.
+
 ### Ember exits when it is closed, even with a shell that has not
 
 - **The window closed and Ember kept running.** At quit the main process waited in

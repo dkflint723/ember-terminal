@@ -586,6 +586,11 @@ const unsavedCounts = new Map<number, { dirty: number; kept: number }>()
  * because "2 commands are still running" is not enough to choose with.
  */
 const runningCommands = new Map<number, string[]>()
+/**
+ * The close question each window has up, if it has one: what withdraws it when
+ * the reason for asking goes away while it waits. See the window's close handler.
+ */
+const closeQuestions = new Map<number, AbortController>()
 
 /**
  * What closing costs, said once.
@@ -1130,6 +1135,8 @@ function createWindow(seed: WindowSeed = {}): number {
     const running = runningCommands.get(id) ?? []
     if ((unsaved === 0 && running.length === 0) || closingConfirmed) return
     event.preventDefault()
+    // Already asking: a second close while the question is up is the same request.
+    if (closeQuestions.has(id)) return
 
     /*
      * One question, however many reasons there are to ask it.
@@ -1143,22 +1150,50 @@ function createWindow(seed: WindowSeed = {}): number {
       unsaved > 0 ? 'discards them' : null,
       running.length > 0 ? `ends ${running.length === 1 ? 'it' : 'them'}` : null
     ].filter((part): part is string => part !== null)
-    const choice = dialog.showMessageBoxSync(win, {
-      type: 'warning',
-      buttons: ['Cancel', unsaved > 0 ? 'Close without saving' : 'End them and close'],
-      defaultId: 0,
-      cancelId: 0,
-      message: whatWouldBeLost(unsaved, running),
-      detail: `Closing now ${cost.join(' and ')}.`
-    })
-    if (choice === 1) {
-      closingConfirmed = true
-      win.close()
-    } else {
-      // Kept open, so a quit that was on its way stops here and is no longer one:
-      // the next close of this window is the person closing it, not the app.
-      quitting = false
-    }
+    /*
+     * Asked without stopping the app, and withdrawn when its reason goes.
+     *
+     * It was asked synchronously, which stops main dead until it is answered: no
+     * shell's output reaches any window, so a command that finished a moment after
+     * the question went up could never be seen to — its block said "running…"
+     * behind a dialog asking whether to end it, for as long as nobody answered.
+     * That is how a close was found hanging on the maintainer's machine, over a
+     * `pnpm run build` whose error was already on the screen, and the runner caught
+     * the same thing in fifteen closes of a hundred and ten: a script pressed, the
+     * window closed a few hundred milliseconds later, PowerShell a quarter of a
+     * second from saying it had no pnpm. Every other window's terminals stopped
+     * with it, since their output comes through main too.
+     *
+     * Now main goes on while it asks. The command's end arrives, the renderer
+     * reports nothing running, and if that leaves nothing to lose the question is
+     * withdrawn and the window closes, which is what was asked for. Cancel still
+     * means Cancel.
+     */
+    const question = new AbortController()
+    closeQuestions.set(id, question)
+    void dialog
+      .showMessageBox(win, {
+        type: 'warning',
+        buttons: ['Cancel', unsaved > 0 ? 'Close without saving' : 'End them and close'],
+        defaultId: 0,
+        cancelId: 0,
+        message: whatWouldBeLost(unsaved, running),
+        detail: `Closing now ${cost.join(' and ')}.`,
+        signal: question.signal
+      })
+      .then(({ response }) => {
+        closeQuestions.delete(id)
+        if (win.isDestroyed()) return
+        // Withdrawn reads as Cancel to the dialog; it is the opposite here.
+        if (response === 1 || question.signal.aborted) {
+          closingConfirmed = true
+          win.close()
+        } else {
+          // Kept open, so a quit that was on its way stops here and is no longer
+          // one: the next close of this window is the person closing it, not the app.
+          quitting = false
+        }
+      })
   })
 
   /*
@@ -1221,6 +1256,7 @@ function createWindow(seed: WindowSeed = {}): number {
     // With it, or a window that closed holding a `ping -t` would go on being
     // counted as running work by every prompt that asks afterwards.
     runningCommands.delete(id)
+    closeQuestions.delete(id)
     keepSets.delete(id)
     parkedSnapshots.delete(id)
     parkedTransfers.delete(id)
@@ -2236,6 +2272,8 @@ function registerIpc(): void {
       ? (reported.running as unknown[]).filter((c): c is string => typeof c === 'string').slice(0, 20)
       : []
     runningCommands.set(id, running)
+    // A close question whose reason has just gone is withdrawn, and the close goes on.
+    if (running.length === 0 && unsavedLostOnClose(id) === 0) closeQuestions.get(id)?.abort()
   })
   ipcMain.handle('settings:encryption', () => settings.encryptionAvailable())
 
