@@ -22,7 +22,7 @@
 // Run: node scripts/verify-blocks.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
-import { watchPageErrors } from './harness.mjs'
+import { closeApp, watchPageErrors, watchRunning } from './harness.mjs'
 import { auditProfileDir, userDataOf } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as http from 'node:http'
@@ -138,6 +138,7 @@ let liveUserData = userData
 {
   const app = await launch([work])
   const page = await app.firstWindow()
+  await watchRunning(app)
   liveUserData = await userDataOf(app)
   await placeTopRight(app)
   await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
@@ -314,7 +315,8 @@ let liveUserData = userData
   // The session file has to land before the window goes, or the panes themselves
   // will not come back and the blocks would have nowhere to be.
   await sleep(2500)
-  await app.close()
+  const unclosed = await closeApp(app)
+  if (unclosed) failures.push(`the launch that kept a session: ${unclosed}`)
   await sleep(1200)
 }
 
@@ -323,6 +325,7 @@ let liveUserData = userData
   const started = Date.now()
   const app = await launch()
   const page = await app.firstWindow()
+  await watchRunning(app)
   await placeTopRight(app)
   await page.waitForSelector('.pane', { timeout: 30_000 })
   await sleep(4000)
@@ -396,7 +399,8 @@ let liveUserData = userData
   check('and clears again', (await blocks(page)).length === 0, JSON.stringify(await blocks(page)))
 
   await sleep(2500)
-  await app.close()
+  const unclosed = await closeApp(app)
+  if (unclosed) failures.push(`the relaunch that cleared it: ${unclosed}`)
   await sleep(1200)
 }
 
@@ -404,6 +408,7 @@ let liveUserData = userData
 {
   const app = await launch()
   const page = await app.firstWindow()
+  await watchRunning(app)
   await placeTopRight(app)
   await page.waitForSelector('.pane', { timeout: 30_000 })
   await sleep(4000)
@@ -426,7 +431,8 @@ let liveUserData = userData
   await run(page, 'echo after-the-question')
 
   await sleep(2500)
-  await app.close()
+  const unclosed = await closeApp(app)
+  if (unclosed) failures.push(`the launch that checked what was cleared: ${unclosed}`)
   await sleep(1200)
 }
 
@@ -437,6 +443,7 @@ let liveUserData = userData
   const paneId = snap.panes.find((entry) => entry.kind === 'terminal')?.id
   const app = await launch()
   const page = await app.firstWindow()
+  await watchRunning(app)
   await placeTopRight(app)
   await page.waitForSelector('.pane', { timeout: 30_000 })
   await sleep(3000)
@@ -463,7 +470,8 @@ let liveUserData = userData
     { paneId }
   )
   await sleep(1000)
-  await app.close()
+  const unclosed = await closeApp(app)
+  if (unclosed) failures.push(`the launch that planted the exchange: ${unclosed}`)
   await sleep(1200)
 }
 
@@ -471,6 +479,7 @@ let liveUserData = userData
 {
   const app = await launch()
   const page = await app.firstWindow()
+  await watchRunning(app)
   await placeTopRight(app)
   await page.waitForSelector('.pane', { timeout: 30_000 })
   await sleep(4000)
@@ -518,7 +527,8 @@ let liveUserData = userData
   )
   await page.screenshot({ path: path.join(SHOT_DIR, '71-blocks-conversation.png') })
 
-  await app.close()
+  const unclosed = await closeApp(app)
+  if (unclosed) failures.push(`the last launch: ${unclosed}`)
   await sleep(600)
 }
 

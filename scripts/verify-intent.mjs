@@ -31,6 +31,7 @@ import * as fs from 'node:fs'
 import * as http from 'node:http'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { closeApp, watchRunning } from './harness.mjs'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 const SHOT_DIR = process.env.SCREENSHOT_DIR || path.join(APP_DIR, '.shots')
@@ -92,6 +93,7 @@ const app = await electron.launch({
   timeout: 60_000
 })
 const page = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 
 const errors = []
@@ -690,7 +692,8 @@ check(
  * step, so this is read from a second launch on the same profile rather than from
  * the window that did the learning.
  */
-await app.close()
+const firstUnclosed = await closeApp(app)
+if (firstUnclosed) failures.push(`the launch that learned: ${firstUnclosed}`)
 await sleep(1500)
 
 const again = await electron.launch({
@@ -701,6 +704,7 @@ const again = await electron.launch({
   timeout: 60_000
 })
 const back = await again.firstWindow()
+await watchRunning(again)
 await placeTopRight(again)
 back.on('pageerror', (e) => errors.push(e.message))
 await back.waitForSelector('.pane[data-integration="ready"]', { timeout: 45_000 })
@@ -722,7 +726,8 @@ check(
   JSON.stringify(legendReturned)
 )
 
-await again.close()
+const unclosed = await closeApp(again)
+if (unclosed) failures.push(unclosed)
 profile.cleanup()
 fs.rmSync(work, { recursive: true, force: true })
 server.close()

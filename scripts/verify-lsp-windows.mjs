@@ -24,6 +24,7 @@ import { execFileSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { closeApp, watchRunning } from './harness.mjs'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 const profile = newProfile('lsp-windows')
@@ -70,6 +71,7 @@ const app = await electron.launch({
   timeout: 60_000
 })
 const first = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 const errors = []
 first.on('pageerror', (e) => errors.push(e.message))
@@ -162,7 +164,8 @@ for (let i = 0; i < 40 && left > 1; i += 1) {
 }
 check('closing a window takes its server with it', left === 1, `${left} servers left`)
 
-await app.close()
+const unclosed = await closeApp(app)
+if (unclosed) failures.push(unclosed)
 await sleep(1500)
 let after = ours().length
 for (let i = 0; i < 20 && after > 0; i += 1) {

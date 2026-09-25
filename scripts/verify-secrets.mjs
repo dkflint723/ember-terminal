@@ -18,7 +18,7 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile, seedDirs, userDataOf } from './profile.mjs'
-import { watchPageErrors } from './harness.mjs'
+import { closeApp, watchPageErrors, watchRunning } from './harness.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
@@ -90,6 +90,7 @@ const app = watchPageErrors(
   pageErrors
 )
 const page = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 page.on('dialog', (d) => void d.accept())
 // Ready, not merely present: a command becomes a block — and so a history row —
@@ -339,7 +340,8 @@ check(
 // --- what is actually on disk, with the app shut --------------------------------------------
 // Asked while the app is still up, because the files are read after it closes.
 const userData = await userDataOf(app)
-await app.close()
+const unclosed = await closeApp(app)
+if (unclosed) failures.push(unclosed)
 await sleep(1200)
 
 const onDisk = []

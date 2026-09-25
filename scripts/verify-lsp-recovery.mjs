@@ -14,6 +14,7 @@ import { execFileSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { closeApp, watchRunning } from './harness.mjs'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 const profile = newProfile('lsp-recovery')
@@ -39,6 +40,7 @@ const app = await electron.launch({
   timeout: 60_000
 })
 const page = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))
@@ -112,7 +114,8 @@ await page.keyboard.type('\nconst alsoWrong: string = 42\n', { delay: 10 })
 const after = await waitForSquiggles(2, 45_000)
 check('and it underlines new mistakes in the same buffer', after >= 2, `${after} squiggles`)
 
-await app.close()
+const unclosed = await closeApp(app)
+if (unclosed) failures.push(unclosed)
 profile.cleanup()
 fs.rmSync(work, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)

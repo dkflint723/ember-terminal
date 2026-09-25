@@ -8,7 +8,7 @@
 // Run: node scripts/verify-session.mjs
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
-import { watchPageErrors } from './harness.mjs'
+import { closeApp, watchPageErrors, watchRunning } from './harness.mjs'
 import { auditProfileDir, userDataOf, workDir } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
@@ -89,6 +89,7 @@ let liveUserData = userData
 {
   const app = await launch(files)
   const page = await app.firstWindow()
+  await watchRunning(app)
   liveUserData = await userDataOf(app)
   await placeTopRight(app)
   await page.waitForSelector('.monaco-editor', { timeout: 30_000 })
@@ -128,7 +129,8 @@ let liveUserData = userData
 
   // The debounce has to be allowed to fire before the window goes.
   await sleep(2500)
-  await app.close()
+  const unclosed = await closeApp(app)
+  if (unclosed) failures.push(`the launch that built the workspace: ${unclosed}`)
   await sleep(1200)
 }
 
@@ -163,6 +165,7 @@ fs.writeFileSync(crlf, CRLF_TEXT, 'utf8')
 {
   const app = await launch([])
   const page = await app.firstWindow()
+  await watchRunning(app)
   await placeTopRight(app)
   await page.waitForSelector('.pane', { timeout: 30_000 })
   await sleep(4000)
@@ -349,7 +352,8 @@ fs.writeFileSync(crlf, CRLF_TEXT, 'utf8')
   )
 
   await page.screenshot({ path: path.join(SHOT_DIR, '91-session-after.png') })
-  await app.close()
+  const unclosed = await closeApp(app)
+  if (unclosed) failures.push(`the relaunch with no arguments: ${unclosed}`)
   await sleep(800)
 }
 
@@ -367,6 +371,7 @@ fs.writeFileSync(crlf, CRLF_TEXT, 'utf8')
 {
   const app = await launch([work])
   const page = await app.firstWindow()
+  await watchRunning(app)
   await placeTopRight(app)
   await page.waitForSelector('.pane', { timeout: 30_000 })
   await sleep(4500)
@@ -398,7 +403,8 @@ fs.writeFileSync(crlf, CRLF_TEXT, 'utf8')
   // The debounce has to fire before the window goes, so the next block reads a
   // session file this launch actually wrote.
   await sleep(2500)
-  await app.close()
+  const unclosed = await closeApp(app)
+  if (unclosed) failures.push(`the launch on a folder: ${unclosed}`)
   await sleep(1000)
 }
 
@@ -439,6 +445,7 @@ check(
 
   const app = await launch([])
   const page = await app.firstWindow()
+  await watchRunning(app)
   await placeTopRight(app)
   await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
   await sleep(2500)
@@ -465,7 +472,8 @@ check(
     rootLabel !== null && rootLabel !== path.basename(vanished),
     rootLabel
   )
-  await app.close()
+  const unclosed = await closeApp(app)
+  if (unclosed) failures.push(`the launch with a missing root: ${unclosed}`)
   await sleep(600)
 }
 

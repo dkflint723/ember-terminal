@@ -17,6 +17,7 @@ import { execFileSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { closeApp, watchRunning } from './harness.mjs'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 const profile = newProfile('github')
@@ -65,6 +66,7 @@ const app = await electron.launch({
   timeout: 60_000
 })
 const page = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 
 const errors = []
@@ -124,7 +126,8 @@ await page.screenshot({ path: path.join(SHOT_DIR, '61-github-issues.png') })
 const prNumbers = prs.map((p) => p.num).join(',')
 check('issues are not the pull request list again', issues.join(',') !== prNumbers)
 
-await app.close()
+const unclosed = await closeApp(app)
+if (unclosed) failures.push(unclosed)
 fs.rmSync(repo, { recursive: true, force: true })
 
 profile.cleanup()

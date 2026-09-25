@@ -6,6 +6,7 @@ import { placeTopRight } from './place-window.mjs'
 import { newProfile, workDir } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { closeApp, watchRunning } from './harness.mjs'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 const profile = newProfile('editor')
@@ -49,6 +50,7 @@ const record = (message) => {
   if (!KNOWN_BENIGN.some((re) => re.test(message))) errors.push(message)
 }
 const page = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 page.on('pageerror', (e) => record(e.message))
 page.on('console', (m) => {
@@ -153,10 +155,12 @@ const pass =
   saved.dirty === 'false' &&
   onDisk.includes('const edited = true')
 
-log('editor pane:', pass ? 'PASS' : 'FAIL')
+// Closed before the verdict, so a close that does not finish is part of it.
+const unclosed = await closeApp(app)
+if (unclosed) log(`  - ${unclosed}`)
+log('editor pane:', pass && !unclosed ? 'PASS' : 'FAIL')
 log('page errors:', errors.length === 0 ? '(none)' : errors.slice(0, 5))
 
-await app.close()
 fs.rmSync(path.dirname(FILE), { recursive: true, force: true })
 profile.cleanup()
-process.exit(pass && errors.length === 0 ? 0 : 1)
+process.exit(pass && !unclosed && errors.length === 0 ? 0 : 1)

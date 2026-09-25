@@ -7,7 +7,7 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
-import { watchPageErrors } from './harness.mjs'
+import { closeApp, watchPageErrors, watchRunning } from './harness.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -180,6 +180,7 @@ async function run(language) {
   )
 
   const page = await app.firstWindow()
+  await watchRunning(app)
   await placeTopRight(app)
   await page.waitForSelector('.monaco-editor', { timeout: 30_000 })
 
@@ -298,15 +299,17 @@ async function run(language) {
     }
   }
 
-  await app.close()
+  const unclosed = await closeApp(app)
 
   const lines = readLines(logPath)
   fs.rmSync(work, { recursive: true, force: true })
-  return { spec, ui, lines, rename }
+  return { spec, ui, lines, rename, unclosed }
 }
 
-function check(language, { spec, ui, lines, rename }) {
+function check(language, { spec, ui, lines, rename, unclosed }) {
   const failures = []
+  // A language with no server is skipped, but a window that would not close is not.
+  if (unclosed) failures.push(unclosed)
   const traffic = parseTraffic(lines)
   const sent = traffic.filter((t) => t.fromClient).map((t) => t.msg)
   const received = traffic.filter((t) => !t.fromClient).map((t) => t.msg)
@@ -326,7 +329,7 @@ function check(language, { spec, ui, lines, rename }) {
    */
   const noServer =
     lines.length === 0 || lines.every((line) => /no server available/i.test(line))
-  if (noServer && spec.optional) return ['SKIP: no server installed on this machine']
+  if (noServer && spec.optional) return unclosed ? failures : ['SKIP: no server installed on this machine']
   if (noServer) failures.push('no traffic at all — the server never started')
   if (ui.language !== language) failures.push(`pane language is ${ui.language}, expected ${language}`)
 

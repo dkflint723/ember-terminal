@@ -14,6 +14,7 @@ import { newProfile } from './profile.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { closeApp, watchRunning } from './harness.mjs'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 const profile = newProfile('agent')
@@ -33,6 +34,7 @@ const launch = () =>
 
 let app = await launch()
 let page = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))
@@ -253,10 +255,12 @@ check(
 await otherWindow.evaluate(() => window.close())
 await sleep(1500)
 
-await app.close()
+const firstUnclosed = await closeApp(app)
+if (firstUnclosed) failures.push(`before the restart: ${firstUnclosed}`)
 await sleep(1000)
 app = await launch()
 page = await app.firstWindow()
+await watchRunning(app)
 await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
 await sleep(2000)
 check('the panel comes back standing', (await page.locator('.agent').count()) === 1)
@@ -267,7 +271,8 @@ const restored = await page.evaluate(() =>
 )
 check('with the conversation it held', restored)
 
-await app.close()
+const unclosed = await closeApp(app)
+if (unclosed) failures.push(unclosed)
 profile.cleanup()
 fs.rmSync(work, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)

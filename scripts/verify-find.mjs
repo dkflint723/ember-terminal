@@ -10,6 +10,7 @@ import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
 import * as path from 'node:path'
+import { closeApp, watchRunning } from './harness.mjs'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 const profile = newProfile('find')
@@ -25,6 +26,7 @@ const app = await electron.launch({
   timeout: 60_000
 })
 const page = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))
@@ -86,7 +88,8 @@ const visible = (await page.locator('.find__count').textContent()) ?? ''
 check('a visible match is still found', /of \d+/.test(visible), visible)
 await page.keyboard.press('Escape')
 
-await app.close()
+const unclosed = await closeApp(app)
+if (unclosed) failures.push(unclosed)
 profile.cleanup()
 for (const f of failures) console.log(`  - ${f}`)
 console.log('find in output:', failures.length === 0 ? 'PASS' : 'FAIL')
