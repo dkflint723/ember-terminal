@@ -3,7 +3,55 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
-## Unreleased
+## 0.4.0 — 2026-09-25
+
+The largest release so far, and the first built, installed and tested on a machine
+that is not the maintainer's. Eighty-one entries follow; this is what they add up
+to.
+
+**Safer by default.** Opening a repository no longer runs it — a folder's scripts,
+debugger and formatter wait until you trust it, and trust follows the folder under any
+of its names. Shell integration can no longer be forged by a program's output.
+Pasting into a terminal asks before anything runs. Credentials are kept out of history
+and out of what is sent to a model. Commands typed on your behalf only ever go to a
+prompt.
+
+**Your work is harder to lose.** A save never writes over a newer file on disk, and
+open editors follow changes made outside. Files that are not UTF-8 open and save as
+what they are. Closing asks before it ends a running command, the question no longer
+freezes Ember while it waits, and it steps aside if the command finishes. A crash puts
+the workspace back.
+
+**The terminal does what it shows.** An Enter no longer resizes the terminal, which
+was behind lost and doubled output lines, one command appearing as two blocks, and Git
+Bash dropping the first letters of a command. Half a line typed into a running
+program is no longer lost when the program ends first, and the first Tab in a new pane
+completes. Ember exits when its window closes, instead of occasionally running on or
+crashing on the way out. bash and WSL report the exit codes, timings and directories
+they had been claiming to.
+
+**The editor and git.** Rename works — it never had. TypeScript diagnostics appear in a
+folder whose name has a space. Commits wait for their hooks and can be stopped; a
+half-finished merge or rebase can be finished from the panel; blame follows the line
+on screen; stashing takes untracked files; discarding one file no longer deletes others
+with similar names. Short Windows path names are written out in full, so the explorer,
+git and the terminal agree about which folder you are in.
+
+**Things that behave differently.**
+- A terminal stops following its output only when you scroll, click or type in it —
+  or ask the find bar or the ruler to take you somewhere. Scrolls made by the page on
+  its own no longer count.
+- A line typed into a running program and not yet sent moves to the composer when the
+  program ends, and waits there for Enter.
+- PowerShell prompts are drawn from the top of a cleared console.
+- A command can wait a fraction of a second after the pane is resized before it is sent.
+- Folders and files opened by an 8.3 short name are shown by their full name.
+
+**Known limitations.**
+- Resizing the window while a command runs can still disturb that command's block.
+- The update feed is not signed, as in every previous release.
+- A found line can drift out of view when the command after it finishes; the view no
+  longer jumps to the end, but it does not yet hold the match exactly.
 
 ### Every suite's close is bounded, and says what held it open
 
