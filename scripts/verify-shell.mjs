@@ -183,9 +183,18 @@ await page.keyboard.press('Enter')
 await sleep(1500)
 const whileRunning = await liveWidth()
 const stillRunning = (await page.locator('.block--running').count()) > 0
-await sleep(3500)
+// Read again only once the command has finished: under load a fixed wait could
+// read a strip still running, and "idle again" would equal "running" for nothing.
+const finished = await page
+  .waitForFunction(() => document.querySelectorAll('.block--running').length === 0, undefined, {
+    timeout: 20_000
+  })
+  .then(() => true)
+  .catch(() => false)
+await sleep(800)
 const idleAfter = await liveWidth()
 check('the width was read while the command was still running', stillRunning)
+check('and read again after it had finished', finished)
 check(
   'a running command has the width the idle terminal had',
   idleBefore !== '' && whileRunning === idleBefore,
