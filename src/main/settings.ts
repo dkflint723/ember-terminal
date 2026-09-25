@@ -1,5 +1,6 @@
 import { app, safeStorage } from 'electron'
-import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
+import { readRecoverable, writeAtomic } from './atomic.js'
 import { dirname, join } from 'node:path'
 import { DEFAULT_SETTINGS, type Settings } from '../shared/types.js'
 import { checkSettings } from '../shared/settings-check.js'
@@ -38,28 +39,25 @@ export class SettingsStore {
   get(): Settings {
     if (this.cache) return this.cache
 
-    let stored: Partial<Settings> = {}
-    try {
-      stored = JSON.parse(readFileSync(this.file, 'utf8')) as Partial<Settings>
-      if (typeof stored !== 'object' || stored === null) throw new Error('not an object')
-    } catch (err) {
-      /*
-       * There is a difference between no settings and unreadable settings.
-       *
-       * Both used to fall back to defaults in silence, so a file that failed to
-       * parse looked like a first run — and the next write replaced it, taking the
-       * API key and every preference with it. A file that exists but cannot be read
-       * is put aside under .bad instead, which keeps it recoverable and says so.
-       */
-      if ((err as { code?: string }).code !== 'ENOENT' && existsSync(this.file)) {
-        this.loadError = err instanceof Error ? err.message : 'Settings could not be read.'
-        try {
-          renameSync(this.file, `${this.file}.bad`)
-        } catch {
-          // Keeping the original is better than losing it; the notice still goes out.
-        }
-      }
-      stored = {}
+    /*
+     * There is a difference between no settings and unreadable settings.
+     *
+     * Both used to fall back to defaults in silence, so a file that failed to
+     * parse looked like a first run — and the next write replaced it, taking the
+     * API key and every preference with it. A file that exists but cannot be read
+     * is put aside under .bad, and the previous generation — kept as .bak by every
+     * write — is read instead, so a torn write costs the last change rather than
+     * all of them. Either way it is said once, at startup.
+     */
+    const read = readRecoverable(
+      this.file,
+      (v): v is Partial<Settings> => typeof v === 'object' && v !== null && !Array.isArray(v)
+    )
+    const stored: Partial<Settings> = read.value ?? {}
+    if (read.recovered === 'backup') {
+      this.loadError = `Ember could not read its settings (${read.problem}), so it restored the previous copy. The damaged file was kept as settings.json.bad.`
+    } else if (read.recovered === 'lost') {
+      this.loadError = `Your settings could not be read and have been reset. The old file was kept as settings.json.bad. (${read.problem})`
     }
 
     /*
@@ -154,11 +152,11 @@ export class SettingsStore {
       anthropicApiKey: this.encryptKey(next.anthropicApiKey),
       ghostApiKey: this.encryptKey(next.ghostApiKey)
     }
-    const temp = `${this.file}.tmp`
     try {
       mkdirSync(dirname(this.file), { recursive: true })
-      writeFileSync(temp, JSON.stringify(onDisk, null, 2), 'utf8')
-      renameSync(temp, this.file)
+      // Flushed before it replaces the old file, and the old file kept as .bak —
+      // which is what the read above falls back to.
+      writeAtomic(this.file, JSON.stringify(onDisk, null, 2), { backup: true })
       return { settings: next, persisted: true, ...(notes.length > 0 ? { notes } : {}) }
     } catch (err) {
       // The in-memory value stands so the session still works; the caller is told

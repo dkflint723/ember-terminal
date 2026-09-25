@@ -1404,8 +1404,12 @@ export interface EmberApi {
   setSettings(
     patch: Partial<Settings>
   ): Promise<{ settings: Settings; persisted: boolean; error?: string; notes?: string[] }>
-  /** Why stored settings could not be read, once, if they could not. */
+  /** Why stored settings could not be read, once, if they could not — as a sentence. */
   settingsLoadError(): Promise<string | null>
+  /** What happened to a session file that could not be read, once, as a sentence. */
+  sessionLoadNotice(): Promise<string | null>
+  /** What happened to a history database that could not be opened, once, as a sentence. */
+  historyLoadNotice(): Promise<string | null>
   /** What stored settings had changed on the way in, once. Empty when nothing. */
   settingsLoadNotes(): Promise<string[]>
   /** Write the preferences, without keys or this machine's state, to a chosen file. */

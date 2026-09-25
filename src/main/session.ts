@@ -1,6 +1,6 @@
 import { app } from 'electron'
-import { readFileSync, renameSync, writeFileSync, existsSync, rmSync } from 'node:fs'
-import { rename, writeFile } from 'node:fs/promises'
+import { rmSync } from 'node:fs'
+import { readRecoverable, writeAtomic, writeAtomicAsync } from './atomic.js'
 import { join } from 'node:path'
 import type { SessionSnapshot } from '../shared/types.js'
 
@@ -29,7 +29,6 @@ export interface StoredWindow {
  */
 export class SessionStore {
   private file = join(app.getPath('userData'), 'session.json')
-  private temp = `${this.file}.tmp`
 
   /** Unsaved buffers live in here, so it has to be bounded somewhere. */
   private static readonly MAX_BYTES = 24 * 1024 * 1024
@@ -37,24 +36,47 @@ export class SessionStore {
   /** The windows as they last reported themselves, keyed by ember window id. */
   private entries = new Map<number, StoredWindow>()
 
-  load(): StoredWindow[] {
-    try {
-      if (!existsSync(this.file)) return []
-      const parsed = JSON.parse(readFileSync(this.file, 'utf8')) as {
-        version?: number
-        windows?: unknown
-        tabs?: unknown
-      }
+  /** What happened to a session file that could not be read, said once. */
+  private loadNotice: string | null = null
 
+  takeLoadNotice(): string | null {
+    const notice = this.loadNotice
+    this.loadNotice = null
+    return notice
+  }
+
+  load(): StoredWindow[] {
+    /*
+     * A session that cannot be read is kept, and the one before it is tried.
+     *
+     * Any parse error, or a version this build does not know, used to return
+     * nothing — and the first save after that replaced the file, so a torn write or
+     * a session written by a newer Ember lost every window in it without a word.
+     * The damaged file goes to session.json.bad, the previous generation kept as
+     * .bak by every write is read instead, and either way the window says so.
+     */
+    const read = readRecoverable(
+      this.file,
+      (v): v is { version?: number; windows?: unknown; tabs?: unknown } =>
+        typeof v === 'object' && v !== null && ((v as { version?: unknown }).version === 1 || (v as { version?: unknown }).version === 2)
+    )
+    if (read.recovered === 'backup') {
+      this.loadNotice = `Ember couldn't read its saved workspace (${read.problem}), so it restored the previous copy. The damaged file was kept as session.json.bad.`
+    } else if (read.recovered === 'lost') {
+      this.loadNotice = `Ember couldn't read its saved workspace (${read.problem}), and there was no earlier copy to fall back to. The file was kept as session.json.bad.`
+    }
+    const parsed = read.value
+    if (!parsed) return []
+    try {
       // A version-1 file is one window's bare snapshot; it comes back as a list
       // of one so nothing upstream has to know the file was ever shaped that way.
-      if (parsed?.version === 1) {
+      if (parsed.version === 1) {
         const snapshot = parsed as unknown as SessionSnapshot
         if (!Array.isArray(snapshot.tabs) || !wellFormed(snapshot)) return []
         return [{ bounds: null, maximized: false, snapshot }]
       }
 
-      if (parsed?.version !== 2 || !Array.isArray(parsed.windows)) return []
+      if (!Array.isArray(parsed.windows)) return []
       const out: StoredWindow[] = []
       for (const raw of parsed.windows as StoredWindow[]) {
         const snapshot = raw?.snapshot
@@ -143,9 +165,10 @@ export class SessionStore {
       const generation = this.generation
       const body = this.body()
       try {
-        await writeFile(this.temp, body, 'utf8')
+        // Flushed before it is renamed into place, and the previous file kept as
+        // .bak — the generation `load` falls back to when this one is damaged.
         if (generation !== this.generation) return
-        await rename(this.temp, this.file)
+        await writeAtomicAsync(this.file, body, { backup: true })
         if (generation !== this.generation) return
         if (!this.again) this.dirty = false
         this.last = { ok: true }
@@ -170,10 +193,8 @@ export class SessionStore {
     this.generation += 1
     const body = this.body()
     if (body.length > SessionStore.MAX_BYTES) return
-    const temp = `${this.file}.quit.tmp`
     try {
-      writeFileSync(temp, body, 'utf8')
-      renameSync(temp, this.file)
+      writeAtomic(this.file, body, { backup: true })
       this.dirty = false
     } catch {
       // Nothing left to tell: the windows are gone. The previous file stands.
@@ -186,6 +207,9 @@ export class SessionStore {
     this.entries.clear()
     try {
       rmSync(this.file, { force: true })
+      // The previous generation too: it holds the same unsaved buffers, and a
+      // session somebody asked not to keep should not survive as a backup.
+      rmSync(`${this.file}.bak`, { force: true })
     } catch {
       // Nothing to do about it, and nothing worth failing for.
     }

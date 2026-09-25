@@ -253,26 +253,27 @@ export function App(): React.JSX.Element {
       setProfiles(profiles)
       applySettings(settings)
 
-      // Settings that existed but could not be read were replaced with defaults in
-      // silence, which is indistinguishable from a first run right up until the
-      // next write makes it permanent.
+      /*
+       * What was found damaged at startup, and what was done about it.
+       *
+       * Settings, the saved workspace and the history database can each be torn by
+       * a crash or written by a newer Ember; each is now set aside and recovered
+       * rather than silently replaced, and each says so here. Said together, in one
+       * notice: there is one notice line, and a second would hide the first.
+       */
       const badSettings = await window.ember.settingsLoadError()
-      if (badSettings) {
-        useStore
-          .getState()
-          .setNotice(
-            `Your settings could not be read and have been reset. The old file was kept as settings.json.bad. (${badSettings})`,
-            'error'
-          )
-      }
       // And a file that could be read but held values that could not be used: each
       // was put back to its default or brought into range, and says which.
       const adjusted = await window.ember.settingsLoadNotes()
-      if (!badSettings && adjusted.length > 0) {
-        useStore
-          .getState()
-          .setNotice(`Some settings could not be used as stored: ${adjusted.join('; ')}.`, 'error')
-      }
+      const damage = [
+        badSettings,
+        !badSettings && adjusted.length > 0
+          ? `Some settings could not be used as stored: ${adjusted.join('; ')}.`
+          : null,
+        await window.ember.sessionLoadNotice(),
+        await window.ember.historyLoadNotice()
+      ].filter((line): line is string => !!line)
+      if (damage.length > 0) useStore.getState().setNotice(damage.join(' '), 'error')
 
       // Theme before the first pane, so no terminal is ever created with the
       // wrong palette and then repainted.

@@ -1,6 +1,7 @@
 import { decodeText, encodeText } from '../shared/encoding.js'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
+import { writeDocument } from './atomic.js'
 import type {
   FileListResult,
   ReplaceOutcome,
@@ -314,7 +315,8 @@ export function applyReplacement(request: ReplaceRequest): ReplaceOutcome {
       continue
     }
     try {
-      writeFileSync(path, encoded.bytes)
+      // Whole or not at all, as a save is: see main/atomic.ts.
+      writeDocument(path, encoded.bytes)
       replaced += replacedHere
       files += 1
     } catch (err) {

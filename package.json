@@ -14,7 +14,7 @@
     "start": "electron-vite preview",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "test:units": "node scripts/test-secret-prompt.mjs && node scripts/test-chat-context.mjs && node scripts/test-elevate-command.mjs && node scripts/test-profile-faults.mjs && node --no-warnings scripts/test-quote.mjs && node --no-warnings --max-old-space-size=512 scripts/test-line-diff.mjs && node --no-warnings scripts/test-encoding.mjs && node --no-warnings scripts/test-secrets.mjs && node --no-warnings scripts/test-intent.mjs && node --no-warnings scripts/test-paste.mjs && node --no-warnings scripts/test-integration.mjs && node --no-warnings scripts/test-trust.mjs && node --no-warnings scripts/test-settings-check.mjs",
+    "test:units": "node scripts/test-secret-prompt.mjs && node scripts/test-chat-context.mjs && node scripts/test-elevate-command.mjs && node scripts/test-profile-faults.mjs && node --no-warnings scripts/test-quote.mjs && node --no-warnings --max-old-space-size=512 scripts/test-line-diff.mjs && node --no-warnings scripts/test-encoding.mjs && node --no-warnings scripts/test-secrets.mjs && node --no-warnings scripts/test-intent.mjs && node --no-warnings scripts/test-paste.mjs && node --no-warnings scripts/test-integration.mjs && node --no-warnings scripts/test-trust.mjs && node --no-warnings scripts/test-settings-check.mjs && node --no-warnings scripts/test-atomic.mjs",
     "verify": "npm run test:units && electron-vite build && node scripts/verify.mjs",
     "fetch:js-debug": "node scripts/fetch-js-debug.mjs",
     "package": "node scripts/fetch-js-debug.mjs && electron-vite build && electron-builder --win --dir",

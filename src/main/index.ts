@@ -2302,6 +2302,9 @@ function registerIpc(): void {
     forRenderer(settings.noteTrust(folder, trusted))
   )
   ipcMain.handle('settings:loadError', () => settings.takeLoadError())
+  // The other two files that can be found damaged at startup, each said once.
+  ipcMain.handle('session:loadNotice', () => session.takeLoadNotice())
+  ipcMain.handle('history:loadNotice', () => history.takeNotice())
   ipcMain.handle('settings:loadNotes', () => settings.takeLoadNotes())
 
   /*
