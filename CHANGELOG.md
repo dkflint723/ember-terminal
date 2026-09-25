@@ -5,6 +5,33 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Every suite's close is bounded, and says what held it open
+
+- **Sixty-six suites still closed with no time limit.** Six suites used the bounded
+  close; every other gated suite ended with a bare `app.close()`, some once per
+  relaunch. Any of them that left a command running, or hit a close that stalled, sat
+  until the gate killed it at twenty minutes and printed nothing, not even the checks it
+  had already failed.
+- **Every close in the gate is bounded now.** Each launch watches what is running from
+  its first window, and each close goes through `closeApp`: twenty seconds, then a
+  failure that names the command the window was asking about, or what was still alive
+  under it, with the process tree killed. A close that ends with a non-zero exit code
+  fails too. A suite that launches more than once says which launch would not close.
+- **Each suite keeps its own reporting.** `verify-editor` closes before it gives its
+  verdict and includes the close in it. In `verify-lsp` a language skipped for having no
+  server still fails if its window would not close. `verify-bash`'s own bound now kills
+  the whole tree, not only Electron. `verify-keeps-work`'s deliberate quit-and-Cancel is
+  unchanged; only its last close is bounded.
+- **Not proven:** `verify-vsix`, `verify-github` and `verify-claude-login` are changed the
+  same way, but the hosted runner skips all three. `verify-packaged` and `verify-update`
+  still close with no time limit.
+- **How it is checked:** with `ping -t` left running at the close on purpose,
+  `verify-find`, `verify-editor`, `verify-bash` and `verify-lsp` each fail in about half
+  a minute naming the command, where master's `verify-find` sits for the full twenty
+  minutes. The full gate on the branch had no timeouts and 69 of 70 passing; the one
+  failure was `verify-git`'s fixed-pause push check, which the source-control entry below
+  replaces.
+
 ### Source control's suite waits for git rather than for the clock
 
 - **Four checks in `verify-git` read the result of a git operation after a fixed pause**:
