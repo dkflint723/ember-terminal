@@ -198,6 +198,40 @@ check(
 )
 
 /*
+ * --- a prompt that comes back before the line starts ----------------------------
+ *
+ * PSReadLine, when it throws while drawing, prints its bug report, puts up a fresh
+ * prompt, and only then runs the line it was sent under that one. So the shell
+ * says "finished" for a line it has not started, then starts it. The block opened
+ * on Enter used to be closed as a command that succeeded with no output, and the
+ * late start got a second block: one Enter, two blocks, two history rows.
+ *
+ * What provoked it on the runner was the terminal narrowing under the prompt as a
+ * command began, which the width check above now keeps from happening — so the
+ * sequence is made here on purpose instead. A one-shot Enter handler writes the
+ * end marker a prompt would, signed as the integration signs it, and then accepts
+ * the line the ordinary way.
+ */
+const LATE = 'echo late-start-5150'
+await run(
+  "Set-PSReadLineKeyHandler -Chord Enter -ScriptBlock { $Host.UI.Write((__Ember-Mark 'D;0')); " +
+    'Set-PSReadLineKeyHandler -Chord Enter -ScriptBlock { __Ember-AcceptLine }; __Ember-AcceptLine }'
+)
+await run(LATE, 3000)
+const lateRows = (
+  await page.evaluate(async () => {
+    const rows = await window.ember.searchHistory({ text: 'late-start-5150', limit: 50 })
+    return rows.map((r) => ({ id: r.id, command: r.command }))
+  })
+).filter((r) => r.command === LATE)
+check('a line that starts after its prompt came back is one history row', lateRows.length === 1, JSON.stringify(lateRows))
+const lateBlocks = page.locator(`.block[aria-label^="${LATE} "]`)
+const lateCount = await lateBlocks.count()
+check('and one block', lateCount === 1, `${lateCount} blocks`)
+const lateBody = (await lateBlocks.last().locator('.block__body').textContent().catch(() => '')) ?? ''
+check('holding what the line printed', lateBody.includes('late-start-5150'), lateBody.slice(0, 120))
+
+/*
  * --- the clipboard is reachable from the renderer -------------------------------
  *
  * Pasting needs to READ the clipboard, which a sandboxed renderer may not do — the

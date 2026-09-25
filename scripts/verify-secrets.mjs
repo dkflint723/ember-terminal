@@ -179,15 +179,18 @@ check('and something in its place', answered.includes('[redacted]'), answered.sl
 
 // --- one Enter is one command, the first one after the panel included --------------------------
 /*
- * The panel takes width from the terminal, and on the elevated runner that left the
- * prompt exactly as wide as the console. PSReadLine throws drawing the first key
- * typed after a prompt like that, prints its bug report, and puts up a fresh prompt
- * before running the line it was sent — so the block opened for the line was closed
- * by a prompt it never started under, and the line then ran under a block of its
- * own. One Enter, two blocks, two history rows. Whether a given machine meets that
- * width is down to how long its temp path is, so this cannot promise to provoke it
- * everywhere, and a pass on a machine whose prompt is some other width says
- * nothing about the fault either way. The hosted runner's does meet it.
+ * The panel takes width from the terminal, and on the elevated runner the first
+ * command after it doubled: two blocks, two history rows. The terminal was three
+ * columns narrower running than idle, so it shrank under the prompt as the command
+ * began — onto the prompt's exact width — and PSReadLine threw drawing it, printed
+ * its bug report, and put up a fresh prompt before running the line. The block
+ * opened on Enter was closed by that prompt, and the line then ran under a second.
+ *
+ * Both causes are fixed, and this one no longer happens here: the width now holds
+ * steady across a command, so nothing narrows under the prompt. What this still
+ * asks is the outcome someone would see. The sequence itself — a prompt coming
+ * back before its line starts — is made on purpose in verify-shell, which does not
+ * depend on any machine's path being the right length.
  */
 const ONCE = 'echo once-after-the-panel-2718'
 await run(ONCE)
