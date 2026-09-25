@@ -5,6 +5,35 @@ newest entry sits on top.
 
 ## Unreleased
 
+### One Enter is one block, and a command no longer resizes the terminal twice
+
+- **A prompt came back before the line had started.** The idle terminal strip was three
+  columns wider than a running one, so every command resized the pty as it began and
+  again as it ended. After the Claude panel had taken width, that shrink put the
+  terminal on the prompt's exact width, and PSReadLine 2.4.5 threw while drawing it:
+  it printed its bug report, put up a fresh prompt without marking the line as
+  started, and then ran the line. The prompt closed the block opened on Enter as a
+  success with no output and wrote it to history; the late start opened a second.
+  One Enter, two blocks, two history rows.
+- **A block that reaches its prompt without starting is a line the shell has not
+  run.** It is closed but kept out of history and the saved session, takes no capture
+  — the head of the queue belongs to a later block — and is handed back if the same
+  line starts next. Only under Ember's own integration, which marks every line it
+  accepts; a user's own OSC 133 setup may never send a start at all.
+- **The collapsed strip keeps the running strip's side margins**, so the width holds
+  across a command and the pty is no longer resized on the way in or out.
+- **Not settled by this, and the commit said otherwise.** It claimed that with the
+  resize gone no conpty repaint lands inside a capture. verify-output's long command
+  still lost its first two lines once in five runs on the runner with this change in
+  place, so the resize was not the whole of that fault.
+- **How it is checked:** verify-secrets asks for one row and one block for the first
+  command after the panel answers; verify-shell reads the width idle, running and
+  idle again — the last only once the command has finished, rather than after a fixed
+  three and a half seconds that could read a strip still running — and makes the
+  prompt-before-start sequence on purpose. On the runner the old app failed all three
+  five times in five and the new one passed every run. Here, shell, secrets, output,
+  blocks, history and boom all pass with it.
+
 ### The installer that ships is the one that was tested
 
 - **Every packaged check ran against the folder the installer is made from.** A release
