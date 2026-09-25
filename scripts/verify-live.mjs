@@ -26,6 +26,7 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
+import { closeApp, untilNothingRuns, watchRunning } from './harness.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -44,6 +45,7 @@ const app = await electron.launch({
   timeout: 60_000
 })
 const page = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))
@@ -913,11 +915,20 @@ check(
   rawSplit.raw && rawSplit.count === 1 && rawSplit.mine && rawSplit.screenPx > 0,
   JSON.stringify(rawSplit)
 )
-await settleBlocks(20_000)
+/*
+ * Waited out by what main is told is running, not by the DOM. A program on the
+ * alternate screen takes the whole pane and its block is not drawn, so
+ * `.block--running` finds nothing and settleBlocks returned at once — with the
+ * command above still a second or two from done. The close then asked whether
+ * to end it, nobody answered, and every run on the runner sat there until the
+ * gate killed it at twenty minutes with none of these checks printed. It ends
+ * by itself in five seconds; this waits for that, and the close is bounded in
+ * case it ever does not.
+ */
+await untilNothingRuns(app, 20_000)
 
-
-
-await app.close()
+const unclosed = await closeApp(app)
+if (unclosed) failures.push(unclosed)
 profile.cleanup()
 for (const f of failures) console.log(`  - ${f}`)
 if (errors.length) console.log('page errors:', errors.slice(0, 4).join(' | '))

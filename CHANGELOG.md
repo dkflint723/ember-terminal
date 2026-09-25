@@ -5,6 +5,25 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Suites finish their commands, and a close cannot hang the gate
+
+- **Four suites timed out at twenty minutes on most nightlies, printing nothing.**
+  `verify-dirpicker` and `verify-live` left a command running — a program holding the
+  terminal, and a full-screen one that a DOM-based wait could not see — and sat at the
+  close question every time. `verify-integration`'s timeouts were the older garbled-line
+  bug fixed by "An Enter no longer resizes the terminal", sitting behind a close with no
+  time limit.
+- **Each now ends its own work before closing, and the close is bounded.** A shared
+  `closeApp` in `harness.mjs` waits up to twenty seconds for Ember to exit, fails on a
+  non-zero exit code, and otherwise kills the process tree and fails with a reason: the
+  command the window was asking about, or the processes still alive. Integration, plain,
+  live, dirpicker, scripts and the new close suite use it; the rest of the suites still
+  close with no time limit, and moving them over is outstanding.
+- **How it is checked:** with the commands left running on purpose, `live` and
+  `dirpicker` now fail in under a minute naming the command, rather than sitting silent
+  for twenty. The full gate passes seventy of seventy in 38 minutes, against fourteen
+  failures and 74 minutes before.
+
 ### A file Claude Code names by its short name is the one already open
 
 - **The editor matched a file's path as text.** A file on the command line is opened by

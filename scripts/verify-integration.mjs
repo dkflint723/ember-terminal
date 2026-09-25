@@ -16,7 +16,7 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
-import { watchPageErrors } from './harness.mjs'
+import { closeApp, watchPageErrors, watchRunning } from './harness.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -54,6 +54,7 @@ const app = watchPageErrors(
   pageErrors
 )
 const page = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 }).catch(() => {})
 await sleep(1500)
@@ -270,7 +271,8 @@ if ((await fallbackEntry.count()) > 0) {
 }
 await page.evaluate(() => window.ember.setSettings({ integrationTypedFallback: false }))
 
-await app.close()
+const unclosed = await closeApp(app)
+if (unclosed) failures.push(unclosed)
 profile.cleanup()
 fs.rmSync(work, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)

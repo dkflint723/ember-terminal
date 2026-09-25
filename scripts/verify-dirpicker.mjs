@@ -16,7 +16,7 @@
 import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
-import { watchPageErrors } from './harness.mjs'
+import { closeApp, untilNothingRuns, watchPageErrors, watchRunning } from './harness.mjs'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -55,6 +55,7 @@ const app = watchPageErrors(
   pageErrors
 )
 const page = await app.firstWindow()
+await watchRunning(app)
 await placeTopRight(app)
 await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
 await sleep(1500)
@@ -170,7 +171,18 @@ check('with a program holding the terminal, the move is not typed into it', hear
 const said = await page.evaluate(() => document.querySelector('.notice')?.textContent ?? '')
 check('and the person is told why', /not sent/i.test(said) && /running/i.test(said), said)
 
-await app.close()
+/*
+ * The program is ended before the window is closed. It was left holding the
+ * terminal, so the close asked whether to end it — and nobody here answers that:
+ * every run on the runner sat at the question until the gate killed it at twenty
+ * minutes, printing none of the checks above. hold.js leaves Ctrl+C alone, so it
+ * goes like any ordinary program; if it does not, the close below says so by name.
+ */
+await page.locator('.composer__input').first().focus()
+await page.keyboard.press('Control+C')
+await untilNothingRuns(app, 15_000)
+const unclosed = await closeApp(app)
+if (unclosed) failures.push(unclosed)
 profile.cleanup()
 fs.rmSync(base, { recursive: true, force: true })
 for (const f of failures) console.log(`  - ${f}`)
