@@ -6,7 +6,7 @@ newest entry sits on top.
 ## 0.4.0 — 2026-09-25
 
 The largest release so far, and the first built, installed and tested on a machine
-that is not the maintainer's. Eighty-two entries follow; this is what they add up
+that is not the maintainer's. Eighty-three entries follow; this is what they add up
 to.
 
 **Safer by default.** Opening a repository no longer runs it — a folder's scripts,
@@ -43,6 +43,8 @@ git and the terminal agree about which folder you are in.
   its own no longer count.
 - A line typed into a running program and not yet sent moves to the composer when the
   program ends, and waits there for Enter.
+- The font list in Settings fills in a moment after the dialog opens, rather than the
+  dialog waiting for it.
 - PowerShell prompts are drawn from the top of a cleared console.
 - A command can wait a fraction of a second after the pane is resized before it is sent.
 - Folders and files opened by an 8.3 short name are shown by their full name.
@@ -52,6 +54,25 @@ git and the terminal agree about which folder you are in.
 - The update feed is not signed, as in every previous release.
 - A found line can drift out of view when the command after it finishes; the view no
   longer jumps to the end, but it does not yet hold the match exactly.
+
+### Settings opens at once, instead of freezing the window the first time
+
+- **The first open of Settings in a session froze the whole window.** The font picker
+  offers only monospace faces, and it finds them by measuring every installed family on
+  a canvas. That ran in one piece: on a hosted runner, 89 families in a single task of
+  1.7 to 5.6 seconds, and once Settings took 27 seconds to appear. The dialog was built
+  within a quarter of a second but could not be drawn until the last face had been
+  measured. This has been so since 0.3.1; it came to light because the v0.4.0 release
+  job waited ten seconds for Settings, and one time it took longer.
+- **Now the measuring stops every sixteen milliseconds to let the window draw.** Settings
+  appears straight away with the current font in the picker, and the rest of the list
+  arrives when the measuring is done. It is the same list as before.
+- **How it is checked:** `verify-update`, run against the installed build in the release
+  job, times Ctrl+, until Settings is on screen and fails past one second. The previous
+  build failed it in 3 release runs of 3: once past ten seconds, and at 5.3 and 6.3
+  seconds, each time behind a single task of more than five seconds. This change passed
+  it in 3 of 3. `verify-settings` now waits for the font list rather than for a fixed
+  pause that was only ever long enough because of the freeze.
 
 ### The release job gives an installer ten minutes
 

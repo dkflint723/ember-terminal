@@ -64,6 +64,37 @@ function makeMeasurer(): ((family: string) => boolean) | null {
   }
 }
 
+/**
+ * The families that measure as monospace, a slice at a time.
+ *
+ * Setting a canvas font makes Chromium load that face there and then, and the
+ * whole list used to be measured in one go. On a hosted runner that was 89
+ * families held in a single task for 1.7 to 4.6 seconds, and past 27 once — and
+ * it starts on the keypress that opens Settings, so the dialog, already built,
+ * could not be painted until the last face was measured. Every first open of
+ * Settings froze the window for that long.
+ *
+ * So the work stops every sixteen milliseconds and lets the page have a frame.
+ * The dialog paints at once with the current font in the picker, and the rest of
+ * the list arrives when the measuring is done — the same list, just not in the
+ * way.
+ */
+async function monospaceOnly(
+  families: string[],
+  measure: (family: string) => boolean
+): Promise<string[]> {
+  const kept: string[] = []
+  let sliceFrom = performance.now()
+  for (const family of families) {
+    if (measure(family)) kept.push(family)
+    if (performance.now() - sliceFrom > 16) {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      sliceFrom = performance.now()
+    }
+  }
+  return kept
+}
+
 let cached: Promise<string[]> | null = null
 
 /** Monospace families on this machine, sorted, computed once per session. */
@@ -72,7 +103,7 @@ export function monospaceFamilies(): Promise<string[]> {
     cached = (async () => {
       const measure = makeMeasurer()
       const families = await allFamilies()
-      const mono = measure ? families.filter(measure) : families
+      const mono = measure ? await monospaceOnly(families, measure) : families
       return (mono.length > 0 ? mono : families).sort((a, b) => a.localeCompare(b))
     })()
   }

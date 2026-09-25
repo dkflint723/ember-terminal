@@ -115,6 +115,8 @@ delete env.ELECTRON_RUN_AS_NODE
 let statuses = []
 let note = ''
 let installButton = false
+let longestTask = -1
+let settingsShownMs = -1
 const errors = []
 try {
   const app = await electron.launch({
@@ -148,8 +150,37 @@ try {
    * button was rendered, because its visibility was matched against the
    * message's wording and the wording had changed.
    */
+  /*
+   * And Settings opens without freezing the window first.
+   *
+   * The font picker's list was made by measuring every installed family on a
+   * canvas in one task. In this build, installed on a hosted runner, that was 89
+   * families and a single task of 1.7 to 4.6 seconds, and 27 once. The dialog
+   * was built within a fifth of a second but could not be painted until the task
+   * ended, so the wait below timed out whenever it ran past ten seconds — which
+   * is how the v0.4.0 release job failed. The first open of a session is the one
+   * that does the measuring, and this is this session's first open.
+   *
+   * Judged by when the dialog can be seen, which is what failed, with the longest
+   * task reported beside it. The old build took 1.8 seconds at the least.
+   */
+  await page.evaluate(() => {
+    window.__longTasks = []
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) window.__longTasks.push(Math.round(e.duration))
+    }).observe({ type: 'longtask' })
+  })
+  const pressedAt = Date.now()
   await page.keyboard.press('Control+Comma')
   await page.waitForSelector('.modal--settings', { timeout: 10_000 })
+  settingsShownMs = Date.now() - pressedAt
+  await page
+    .waitForFunction(() => document.querySelectorAll('.settings__font option').length > 1, null, {
+      timeout: 60_000
+    })
+    .catch(() => {})
+  await sleep(300)
+  longestTask = await page.evaluate(() => Math.max(0, ...(window.__longTasks ?? [])))
   await sleep(900)
   installButton = await page.evaluate(() =>
     [...document.querySelectorAll('.modal--settings .btn')].some((b) =>
@@ -188,6 +219,11 @@ check(
 check('nothing reported a failure', !statuses.some((s) => s.stage === 'error'), JSON.stringify(statuses))
 
 check('Settings offers Install now once an update is ready', installButton)
+check(
+  'and Settings is on screen within a second of Ctrl+,',
+  settingsShownMs >= 0 && settingsShownMs <= 1000,
+  `${settingsShownMs}ms; the longest task in the window while it opened was ${longestTask}ms`
+)
 
 // Staged under the feed's own spelling, ready for the quit that installs it.
 const staged = fs.existsSync(cache) ? fs.readdirSync(cache, { recursive: true }).map(String) : []

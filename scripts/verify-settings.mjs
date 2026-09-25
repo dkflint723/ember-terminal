@@ -166,7 +166,21 @@ check(
  */
 await page.keyboard.press('Control+Comma')
 await page.waitForSelector('.modal', { timeout: 10_000 })
-await sleep(800)
+/*
+ * Filled while the dialog is already up, so waited for rather than assumed.
+ *
+ * The list used to be complete before the dialog could be seen, because working
+ * it out held the window until it was done; a fixed pause here was only ever
+ * enough because of that. It arrives afterwards now.
+ */
+await page
+  .waitForFunction(
+    () => document.querySelectorAll('.settings__font option').length > 1,
+    null,
+    { timeout: 60_000 }
+  )
+  .catch(() => {})
+await sleep(300)
 const fontOptions = await page.evaluate(() =>
   [...document.querySelectorAll('.settings__font option')].map((o) => o.value)
 )
