@@ -1376,6 +1376,9 @@ function registerIpc(): void {
       ptys.spawn(req, profile, {
         typedFallback: settings.get().integrationTypedFallback === true
       })
+      // Start this shell's completion helper now, while the pane is still coming up,
+      // so the first Tab finds it warm rather than paying for its start-up.
+      completion?.prewarm(profile)
       return { ok: true, nonce: ptys.nonceFor(req.paneId) ?? undefined, unsupported }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : 'Failed to start shell.' }

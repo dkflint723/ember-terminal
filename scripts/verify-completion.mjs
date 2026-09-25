@@ -221,6 +221,19 @@ if (!rootHasWindows) {
   // indistinguishable from one that passes.
   check('the drive root has Windows to complete against', false, systemDrive)
 } else {
+  /*
+   * An ordinary command first, and required to complete, so the engine is known to
+   * be answering before the next check is read. That check passes on an empty
+   * answer — it asserts something is *not* offered — and on a cold start the helper
+   * used to give exactly that empty answer, so it passed for a build whose
+   * completion had not come up at all.
+   */
+  const ordinary = await ask('windows-powershell', systemDrive, 'Get-ChildIt')
+  check(
+    'an ordinary command name completes',
+    ordinary.items.some((i) => i.text === 'Get-ChildItem'),
+    JSON.stringify(ordinary.items.slice(0, 4))
+  )
   const nativeSwitch = await ask('windows-powershell', systemDrive, 'dism /Wi')
   check(
     'a switch after a native command is not completed as a path',
@@ -237,13 +250,6 @@ if (!rootHasWindows) {
     'while the same token after a cmdlet still completes',
     cmdletSwitch.items.some((i) => /Windows/i.test(i.text)),
     JSON.stringify(cmdletSwitch.items.slice(0, 4))
-  )
-  // And an ordinary command still completes, so nothing was turned off wholesale.
-  const ordinary = await ask('windows-powershell', systemDrive, 'Get-ChildIt')
-  check(
-    'and an ordinary command name is unaffected',
-    ordinary.items.some((i) => i.text === 'Get-ChildItem'),
-    JSON.stringify(ordinary.items.slice(0, 4))
   )
 }
 

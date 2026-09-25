@@ -23,6 +23,12 @@ function Write-Response($payload) {
   [Console]::Out.Flush()
 }
 
+# Warm the engine before saying so. The first CompleteInput in a fresh process
+# loads PowerShell's command table, which on a slow machine takes longer than a
+# Tab can wait — the first completion of a session then came back empty. Done
+# here, "ready" means the next answer will be quick.
+try { [void][System.Management.Automation.CommandCompletion]::CompleteInput('Get-ChildIt', 11, $null) } catch { }
+
 # Announce readiness so the host does not send queries into a starting process.
 Write-Response @{ type = 'ready' }
 

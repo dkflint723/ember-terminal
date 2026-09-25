@@ -5,6 +5,21 @@ newest entry sits on top.
 
 ## Unreleased
 
+### The first Tab in a new pane completes
+
+- **The first completion asked of a pane could come back empty.** The PowerShell that
+  answers completions was started on the first Tab, and PowerShell's completion engine
+  loads its command tables the first time it is asked anything. That first answer could
+  take longer than the second and a half a completion is given, so the Tab that was
+  pressed first got nothing, and the same Tab a moment later worked. On a hosted runner
+  `verify-completion` failed 2 runs in 6 for exactly this.
+- **Now the completer starts with the pane**, and asks itself for `Get-ChildIt` before
+  it says it is ready, so the engine's first load is spent before anyone is waiting on
+  it. It gets ten seconds to become ready rather than four.
+- **How it is checked:** `verify-completion` now asks for an ordinary command name first,
+  which is the case that was failing. Ten runs on the runner with this change, ten
+  passes; six on the previous build, two failures.
+
 ### A window's close question no longer freezes Ember, and withdraws itself
 
 - **The question stopped the main process until somebody answered it.** It was a

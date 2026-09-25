@@ -150,13 +150,24 @@ class PowerShellCompleter {
     })
   }
 
+  /** Start the helper ahead of the first query, if it is not already running. */
+  warm(): void {
+    this.start()
+  }
+
   async complete(req: CompletionRequest): Promise<CompletionResult> {
     this.start()
     if (!this.child || this.failed) return EMPTY
 
-    // The helper announces readiness; wait briefly on a cold start.
+    /*
+     * The helper announces readiness only once its engine is warm (see the script),
+     * so a cold start can take a while on a slow machine — longer than the four
+     * seconds this used to allow, after which the first Tab of a session silently
+     * completed nothing. The helper is normally started when the pane opens
+     * (prewarm), so this wait is only paid by a Tab pressed in the first seconds.
+     */
     if (!this.ready) {
-      const readyAt = Date.now() + 4000
+      const readyAt = Date.now() + 10_000
       while (!this.ready && Date.now() < readyAt && this.child) {
         await new Promise((r) => setTimeout(r, 40))
       }
@@ -392,6 +403,21 @@ export class CompletionService {
    * panes would quietly complete as strangers.
    */
   constructor(private profiles: () => ShellProfile[]) {}
+
+  /**
+   * Start a PowerShell profile's helper before anyone presses Tab. One helper per
+   * profile, the same one complete() would create, so this only moves its start-up
+   * earlier and never adds a process.
+   */
+  prewarm(profile: ShellProfile): void {
+    if (profile.integration !== 'powershell') return
+    let completer = this.powershell.get(profile.id)
+    if (!completer) {
+      completer = new PowerShellCompleter(profile.path)
+      this.powershell.set(profile.id, completer)
+    }
+    completer.warm()
+  }
 
   async complete(req: CompletionRequest): Promise<CompletionResult> {
     const profile = this.profiles().find((p) => p.id === req.profileId)
