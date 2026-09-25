@@ -163,6 +163,41 @@ check(
 )
 
 /*
+ * --- a command does not change the terminal's width -----------------------------
+ *
+ * The strip a running command gets had eight pixels of margin each side, and the
+ * collapsed one had none. The collapsed box still gets measured — its height is
+ * zero, but xterm's own padding is not — so the pty was three columns wider idle
+ * than running, and every command resized it twice: narrower as it started and
+ * wider as it finished. Each resize is a conpty repaint, and a repaint inside an
+ * open capture costs the block what came before it. The screen's width is the
+ * terminal's column count times a cell, and the column count is what the pty is
+ * sent, so the three readings below have to agree.
+ */
+const liveWidth = () =>
+  page.evaluate(() => document.querySelector('.live .xterm-screen')?.style.width ?? '')
+const idleBefore = await liveWidth()
+await page.click('.composer__input')
+await page.keyboard.type('Start-Sleep -Seconds 3', { delay: 6 })
+await page.keyboard.press('Enter')
+await sleep(1500)
+const whileRunning = await liveWidth()
+const stillRunning = (await page.locator('.block--running').count()) > 0
+await sleep(3500)
+const idleAfter = await liveWidth()
+check('the width was read while the command was still running', stillRunning)
+check(
+  'a running command has the width the idle terminal had',
+  idleBefore !== '' && whileRunning === idleBefore,
+  `idle ${idleBefore}, running ${whileRunning}`
+)
+check(
+  'and the terminal keeps it once the command finishes',
+  idleAfter === whileRunning,
+  `running ${whileRunning}, idle again ${idleAfter}`
+)
+
+/*
  * --- the clipboard is reachable from the renderer -------------------------------
  *
  * Pasting needs to READ the clipboard, which a sandboxed renderer may not do — the
