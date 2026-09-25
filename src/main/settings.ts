@@ -4,6 +4,7 @@ import { readRecoverable, writeAtomic } from './atomic.js'
 import { dirname, join } from 'node:path'
 import { DEFAULT_SETTINGS, type Settings } from '../shared/types.js'
 import { checkSettings } from '../shared/settings-check.js'
+import { migrateStored } from '../shared/settings-migrate.js'
 import { withTrust, withoutTrust } from '../shared/trust.js'
 import { realFolder } from './files.js'
 
@@ -70,6 +71,11 @@ export class SettingsStore {
      */
     for (const gone of ['aiMode', 'aiEffort']) delete (stored as Record<string, unknown>)[gone]
 
+    // One-time changes this install has not had yet — see shared/settings-migrate.
+    // On the file as it was, before the defaults are laid under it.
+    const migrated = migrateStored(stored as Record<string, unknown>)
+    this.migrationNotes = migrated.notes
+
     /*
      * Each field read for what it is supposed to be.
      *
@@ -93,11 +99,25 @@ export class SettingsStore {
     // by its real name the next time anything is trusted.
     merged.trustedFolders = realTrust(merged.trustedFolders, (f) => f.includes('~'))
     this.cache = merged
+    // Written now, so each migration is recorded as done before anything else can
+    // ask: a launch that migrated and then crashed would otherwise migrate again,
+    // over whatever was chosen in between.
+    if (migrated.recorded) this.set({ aiModel: merged.aiModel, migrations: merged.migrations })
     return merged
   }
 
   /** Why the stored settings could not be read, if they could not. Read once. */
   private loadError: string | null = null
+
+  /** What a one-time migration changed, to be said once. */
+  private migrationNotes: string[] = []
+
+  takeMigrationNotes(): string[] {
+    this.get()
+    const notes = this.migrationNotes
+    this.migrationNotes = []
+    return notes
+  }
 
   /** What was clamped or put back to its default on the way in. Read once. */
   private loadNotes: string[] = []

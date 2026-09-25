@@ -274,6 +274,15 @@ export function App(): React.JSX.Element {
         await window.ember.historyLoadNotice()
       ].filter((line): line is string => !!line)
       if (damage.length > 0) useStore.getState().setNotice(damage.join(' '), 'error')
+      /*
+       * A setting changed for everyone on purpose — a new default model — is said
+       * once, with how to undo it. Behind any damage notice rather than over it:
+       * there is one notice line, and a lost workspace matters more.
+       */
+      const migrated = await window.ember.settingsMigrationNotes()
+      if (damage.length === 0 && migrated.length > 0) {
+        useStore.getState().setNotice(migrated.join(' '), 'info')
+      }
 
       // Theme before the first pane, so no terminal is ever created with the
       // wrong palette and then repainted.

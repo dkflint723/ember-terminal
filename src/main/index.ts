@@ -2306,6 +2306,7 @@ function registerIpc(): void {
   ipcMain.handle('session:loadNotice', () => session.takeLoadNotice())
   ipcMain.handle('history:loadNotice', () => history.takeNotice())
   ipcMain.handle('settings:loadNotes', () => settings.takeLoadNotes())
+  ipcMain.handle('settings:migrationNotes', () => settings.takeMigrationNotes())
 
   /*
    * Settings to and from a file, for a second machine or a fresh install.

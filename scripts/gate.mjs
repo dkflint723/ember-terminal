@@ -99,7 +99,8 @@ const ORDER = [
   'verify-rebind',
   'verify-window',
   'verify-idle',
-  'verify-damaged'
+  'verify-damaged',
+  'verify-migrate'
 ]
 
 /** Suites this runner deliberately leaves to another step, each with its reason. */

@@ -252,6 +252,7 @@ const api: EmberApi = {
   sessionLoadNotice: (): Promise<string | null> => ipcRenderer.invoke('session:loadNotice'),
   historyLoadNotice: (): Promise<string | null> => ipcRenderer.invoke('history:loadNotice'),
   settingsLoadNotes: (): Promise<string[]> => ipcRenderer.invoke('settings:loadNotes'),
+  settingsMigrationNotes: (): Promise<string[]> => ipcRenderer.invoke('settings:migrationNotes'),
   exportSettings: () => ipcRenderer.invoke('settings:export'),
   importSettings: () => ipcRenderer.invoke('settings:import'),
   revealSettings: () => ipcRenderer.invoke('settings:reveal'),
