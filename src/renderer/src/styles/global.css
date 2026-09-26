@@ -6616,6 +6616,15 @@ label.field__check {
   min-width: 0;
 }
 
+/* The opacity slider: the field's box is for text, and a slider in it is a slider
+   in a box. The track and thumb take the accent rather than the system blue. */
+.field input.settings__opacity {
+  padding: 0;
+  border: none;
+  background: none;
+  accent-color: var(--accent);
+}
+
 /* ---------- the look: glass, frost and accents ---------- */
 
 /*
