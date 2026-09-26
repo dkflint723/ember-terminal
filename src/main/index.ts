@@ -154,6 +154,10 @@ const SHARED_SETTINGS = [
   'keybindings',
   'defaultProfileId',
   'blockDensity',
+  'windowBackdrop',
+  'windowOpacity',
+  'frostedPanels',
+  'accentEffects',
   'screenReaderMode',
   'restoreSession',
   'ghostEnabled',
@@ -228,6 +232,7 @@ import { PtyManager } from './pty.js'
 import { detectProfiles } from './profiles.js'
 import { SettingsStore } from './settings.js'
 import { ThemeStore } from './themes.js'
+import { applyLook, constructionLook, lookOf } from './look.js'
 import { CompletionService } from './completion.js'
 import { HistoryStore } from './history.js'
 import { FileService, fileArgs, isStamp, longPath, pathArgs, realFolder } from './files.js'
@@ -708,6 +713,25 @@ function sendToAll(channel: string, payload: unknown): void {
   for (const id of windows.keys()) sendToWindow(id, channel, payload)
 }
 
+/**
+ * Give a window its backdrop and opacity, and tell its page what it actually got.
+ *
+ * The page tints its ground and takes the glass palette on this word alone. It
+ * used to be imaginable to have the page follow the setting instead, and on a
+ * system without Mica that is a translucent page over a black window.
+ */
+function lookWindow(win: BrowserWindow, backdrop: unknown, opacity: unknown): void {
+  const look = applyLook(win, backdrop, opacity)
+  if (!win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send('window:look', look)
+}
+/*
+ * What each window was given, where a harness can read it. Electron has no getter
+ * for a backdrop material, and `app.evaluate` reaches main's globals but nothing
+ * main imports — so scripts/verify-look.mjs asks this rather than trusting the
+ * page's account of it.
+ */
+;(globalThis as { emberLookOf?: typeof lookOf }).emberLookOf = lookOf
+
 /** A pane's messages go to the window that holds it; the primary is the fallback. */
 function sendToPaneOwner(paneId: string, channel: string, payload: unknown): void {
   const owner = paneOwners.get(paneId)
@@ -984,12 +1008,15 @@ function createWindow(seed: WindowSeed = {}): number {
   }
   if (seed.transfer) parkedTransfers.set(id, seed.transfer)
 
+  const chosen = settings.get()
   const win = new BrowserWindow({
     ...opening,
     minWidth: 520,
     minHeight: 360,
     show: false,
-    backgroundColor: '#0c0c0c',
+    // The background colour, the Windows 11 material behind the page, and the
+    // window's opacity — see main/look.ts. Solid #0c0c0c wherever no material is.
+    ...constructionLook(chosen.windowBackdrop, chosen.windowOpacity),
     // Set explicitly rather than left to the packager: without it the window and
     // taskbar show Electron's own icon in development, and the Explorer context
     // menu entry — which reads its icon from this executable — would too. The
@@ -1031,6 +1058,8 @@ function createWindow(seed: WindowSeed = {}): number {
 
   windows.set(id, win)
   if (primary) mainWindow = win
+  // Recorded before the page loads, so its first question about it has an answer.
+  lookWindow(win, chosen.windowBackdrop, chosen.windowOpacity)
 
   /*
    * A window that never paints is worse than a window with nothing in it: it is
@@ -1362,6 +1391,11 @@ function registerIpc(): void {
   })
   ipcMain.on('app:isAdmin', (event) => {
     event.returnValue = isAdminWindow
+  })
+  // What the window was given before its page loaded; later changes arrive as
+  // `window:look`. Synchronous for the same reason as the two above.
+  ipcMain.on('window:appliedLook', (event) => {
+    event.returnValue = lookOf(BrowserWindow.fromWebContents(event.sender))
   })
   const detected = detectProfiles()
 
@@ -2159,6 +2193,13 @@ function registerIpc(): void {
     const redacted = forRenderer(res.settings)
     sendToAll('settings:changed', redacted)
 
+    // The window's own paint, which the page cannot reach: every window, as saved.
+    if (patch.windowBackdrop !== undefined || patch.windowOpacity !== undefined) {
+      for (const win of windows.values()) {
+        lookWindow(win, res.settings.windowBackdrop, res.settings.windowOpacity)
+      }
+    }
+
     /*
      * Choosing a local model starts loading it.
      *
@@ -2356,6 +2397,16 @@ function registerIpc(): void {
     // control that set it.
     const clamped = Math.min(Math.max(Number.isFinite(factor) ? factor : 1, 0.6), 2.5)
     windowFromEvent(e)?.webContents.setZoomFactor(clamped)
+  })
+  /*
+   * A backdrop and an opacity for the asking window alone, unsaved: the Settings
+   * dialog's preview, and its Cancel. Checked in applyLook — an unknown material is
+   * none, and the opacity is held to 60-100% — since this is a string off the wire.
+   */
+  ipcMain.on('window:setLook', (e, look: unknown) => {
+    const win = windowFromEvent(e)
+    const asked = (typeof look === 'object' && look !== null ? look : {}) as Record<string, unknown>
+    if (win) lookWindow(win, asked.backdrop, asked.opacity)
   })
   ipcMain.on('window:unsaved', (e, counts: unknown) => {
     const id = windowIdOf(e.sender)

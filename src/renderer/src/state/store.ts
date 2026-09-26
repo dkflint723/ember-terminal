@@ -399,6 +399,12 @@ interface Store {
   profiles: ShellProfile[]
   settings: Settings
   theme: ResolvedTheme
+  /**
+   * Whether main is drawing a backdrop material behind this window, so the ground is
+   * translucent and the theme's glass palette is the one in use. Main's word, not
+   * the setting's: see window:look.
+   */
+  glass: boolean
   themes: ThemeSummary[]
   settingsOpen: boolean
   historyOpen: boolean
@@ -495,6 +501,7 @@ interface Store {
   applySettings(s: Settings): void
   setThemes(list: ThemeSummary[]): void
   setTheme(theme: ResolvedTheme): void
+  setGlass(glass: boolean): void
   toggleSettings(open?: boolean): void
   /**
    * Say something once. Passing null clears it. Actions are the ways forward from
@@ -850,6 +857,7 @@ export const useStore = create<Store>((set, get) => ({
   profiles: [],
   settings: DEFAULT_SETTINGS,
   theme: DEFAULT_THEME,
+  glass: false,
   themes: [],
   settingsOpen: false,
   historyOpen: false,
@@ -881,6 +889,7 @@ export const useStore = create<Store>((set, get) => ({
   applySettings: (settings) => set({ settings }),
   setThemes: (themes) => set({ themes }),
   setTheme: (theme) => set({ theme }),
+  setGlass: (glass) => set({ glass }),
   toggleSettings: (open) => set((s) => ({ settingsOpen: open ?? !s.settingsOpen })),
 
   setNotice: (text, tone = 'info', actions) =>

@@ -231,16 +231,23 @@ export class TerminalController {
   /** Rolling tail of recent output, used only for secret-prompt detection. */
   private tail = ''
   private palette: TerminalPalette
+  /** Whether the window's ground is translucent, so the terminal draws no background. */
+  private glass: boolean
 
   constructor(
     private paneId: string,
     fontFamily: string,
     fontSize: number,
-    palette: TerminalPalette = DEFAULT_THEME.terminal
+    palette: TerminalPalette = DEFAULT_THEME.terminal,
+    glass = false
   ) {
     this.palette = palette
+    this.glass = glass
     this.term = new Terminal({
       allowProposedApi: true,
+      // Only on glass: it costs xterm its subpixel text, and a solid window gains
+      // nothing from it. See toXtermTheme.
+      allowTransparency: glass,
       cursorBlink: true,
       cursorStyle: 'bar',
       fontFamily,
@@ -255,7 +262,7 @@ export class TerminalController {
        */
       rescaleOverlappingGlyphs: true,
       scrollback: 5000,
-      theme: toXtermTheme(palette),
+      theme: toXtermTheme(palette, glass),
       // Reported to programs so they enable colour and mouse handling.
       windowsPty: { backend: 'conpty' }
     })
@@ -1793,13 +1800,17 @@ export class TerminalController {
     this.term.options.screenReaderMode = on
   }
 
-  setPalette(palette: TerminalPalette): void {
+  setPalette(palette: TerminalPalette, glass = this.glass): void {
     this.palette = palette
-    const theme = toXtermTheme(palette)
-    this.term.options.theme = theme
+    this.glass = glass
+    // Transparency before the theme that needs it: the renderers rebuild their glyph
+    // atlas on either change, and a transparent background without it is drawn opaque.
+    this.term.options.allowTransparency = glass
+    this.term.options.theme = toXtermTheme(palette, glass)
     // The offscreen terminal must match, or already-captured blocks would be
-    // serialized with the previous theme's colours.
-    this.renderTerm.options.theme = theme
+    // serialized with the previous theme's colours. Always opaque: it is never
+    // drawn, only read back as colours.
+    this.renderTerm.options.theme = toXtermTheme(palette)
     this.markPalette()
   }
 
@@ -1816,7 +1827,14 @@ export class TerminalController {
    */
   private markPalette(): void {
     const bg = this.term.options.theme?.background
-    if (typeof bg === 'string') this.term.element?.setAttribute('data-term-bg', bg)
+    if (typeof bg !== 'string') return
+    /*
+     * The colour and its opacity, separately: on glass xterm holds the background
+     * with an alpha of zero, and the colour is still the theme's. `data-term-alpha`
+     * says which it is drawing — 0 on glass, 1 solid.
+     */
+    this.term.element?.setAttribute('data-term-bg', bg.slice(0, 7))
+    this.term.element?.setAttribute('data-term-alpha', bg.length === 9 && bg.endsWith('00') ? '0' : '1')
   }
 
   focus(): void {
@@ -1896,11 +1914,12 @@ export function getController(
   paneId: string,
   fontFamily: string,
   fontSize: number,
-  palette?: TerminalPalette
+  palette?: TerminalPalette,
+  glass = false
 ): TerminalController {
   let c = registry.get(paneId)
   if (!c) {
-    c = new TerminalController(paneId, fontFamily, fontSize, palette)
+    c = new TerminalController(paneId, fontFamily, fontSize, palette, glass)
     registry.set(paneId, c)
   }
   return c

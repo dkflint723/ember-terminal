@@ -22,6 +22,9 @@ type Issue = { key: string; message: string; kind: 'clamped' | 'wrong' }
 const RANGES: Partial<Record<keyof Settings, [number, number]>> = {
   fontSize: [8, 32],
   uiZoom: [0.6, 2.5],
+  // Below 60% a window is easy to lose on a busy desktop, and the control that
+  // brings it back is inside it.
+  windowOpacity: [0.6, 1],
   notifyAfterSeconds: [0, 3600],
   autoSaveAfterSeconds: [0, 600],
   ghostDebounceMs: [0, 2000]
@@ -29,6 +32,7 @@ const RANGES: Partial<Record<keyof Settings, [number, number]>> = {
 
 const ONE_OF: Partial<Record<keyof Settings, readonly string[]>> = {
   blockDensity: ['compact', 'normal', 'comfortable'],
+  windowBackdrop: ['none', 'mica', 'acrylic', 'tabbed'],
   ghostProvider: ['local', 'openai', 'claude']
 }
 

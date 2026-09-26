@@ -52,6 +52,9 @@
   --raise: #3d3d3d;
   --settle: #0d0d0d;
   --shade: #050505;
+  /* GLASS in shared/theme.ts, as percentages; theme.ts writes the real ones. */
+  --glass-ground: 92%;
+  --glass-panel: 90%;
   /* No --radius. It was 10px and it was what made a block a card, an input a
      search box and the composer a widget. Corners are now one of two values,
      stated where they are used: 0 for anything that frames content, 2px for the
@@ -6611,4 +6614,164 @@ label.field__check {
 
 .savedrow input {
   min-width: 0;
+}
+
+/* ---------- the look: glass, frost and accents ---------- */
+
+/*
+ * All of it is drawn only when the system is not forcing its own colours.
+ *
+ * Under a Windows contrast theme the palette is the user's, backgrounds and
+ * shadows are theirs to remove, and a translucent ground or a blurred panel would
+ * be exactly the kind of decoration the forcing is there to take away. So every
+ * rule below sits inside `forced-colors: none`, and the contrast rules further up
+ * the file are untouched.
+ */
+
+/*
+ * Glass: the ground lets the backdrop through.
+ *
+ * Only while main reports a material drawn (`data-backdrop`, from takeLook) — a
+ * page that went translucent on the setting alone would be drawn over black on a
+ * system without Mica. The ground keeps --glass-ground of its own colour at every
+ * stop, and the text on it is the theme's glass palette, which was lifted to clear
+ * 4.5:1 over a black desktop and a white one at exactly that alpha. Editors keep
+ * their own solid background: code is read too closely to share it with a wallpaper.
+ */
+@media (forced-colors: none) {
+  :root:not([data-backdrop='none'])[data-backdrop],
+  :root:not([data-backdrop='none'])[data-backdrop] body {
+    background: transparent;
+  }
+
+  :root:not([data-backdrop='none'])[data-backdrop] .titlebar {
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--grad-crown) var(--glass-ground), transparent) 0%,
+      color-mix(in srgb, var(--grad-top) var(--glass-ground), transparent) 100%
+    );
+  }
+
+  :root:not([data-backdrop='none'])[data-backdrop] .workspace {
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--grad-top) var(--glass-ground), transparent) 0%,
+      color-mix(in srgb, var(--bg) var(--glass-ground), transparent) 46%,
+      color-mix(in srgb, var(--grad-bottom) var(--glass-ground), transparent) 100%
+    );
+  }
+}
+
+/*
+ * Frost: overlays read as layers.
+ *
+ * A dialog, the palette, a menu, a notice: --glass-panel of the elevated surface,
+ * with what it covers blurred behind it, a soft two-step shadow and a one-pixel lit
+ * top edge. The blur is what makes the translucency safe — what shows through
+ * arrives averaged, not as a second layer of text — and the contrast suite measures
+ * the panel over every ground it can be opened on, scrim included.
+ *
+ * The sidebar, the session list, the rail and the Claude panel sit on the ground,
+ * with nothing behind them but the ground itself, so a blur there would have
+ * nothing to blur. They cast a soft shadow over the content beside them instead,
+ * which is what says they are a layer above it. No backdrop-filter on them for a
+ * second reason: it makes an element the containing block for its fixed
+ * descendants, and the file tree's and the session list's context menus are fixed
+ * elements inside them, placed at the pointer.
+ */
+@media (forced-colors: none) {
+  :root[data-frosted='on']
+    :is(.modal, .modal__actions, .qp, .hist, .menu, .titlebar__menu, .claude__menu, .notice, .complete) {
+    background: color-mix(in srgb, var(--bg-elevated) var(--glass-panel), transparent);
+  }
+
+  :root[data-frosted='on'] :is(.modal, .qp, .hist, .menu, .titlebar__menu, .claude__menu, .notice, .complete) {
+    backdrop-filter: blur(18px);
+    box-shadow:
+      0 18px 44px -12px color-mix(in srgb, var(--shade) 55%, transparent),
+      0 3px 10px color-mix(in srgb, var(--shade) 22%, transparent),
+      inset 0 1px 0 color-mix(in srgb, var(--fg) 7%, transparent);
+  }
+
+  /* The sticky footer frosts what scrolls under it, rather than hiding it. */
+  :root[data-frosted='on'] .modal__actions {
+    backdrop-filter: blur(18px);
+  }
+
+  :root[data-frosted='on'] :is(.activity, .sidebar, .sessions) {
+    box-shadow: 8px 0 22px -16px color-mix(in srgb, var(--shade) 70%, transparent);
+  }
+
+  :root[data-frosted='on'] .agent {
+    box-shadow: -8px 0 22px -16px color-mix(in srgb, var(--shade) 70%, transparent);
+  }
+}
+
+/*
+ * Accents: where you are, what is working, and where one thing ends.
+ *
+ * The ring is the accent, because the accent means focus here and nothing else; it
+ * is drawn inside the pane, since the pane clips, and only on the pane the
+ * keyboard is actually in. A running command glows in the info colour rather than
+ * the accent — "busy" and "focused" were one colour once, in a window that often
+ * has both, and were separated on purpose. Panel headers catch a wash of the hover
+ * fill, which lies between two grounds the palette is already measured on.
+ */
+@media (forced-colors: none) {
+  :root[data-accents='on'] .pane--active:focus-within {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent),
+      inset 0 0 26px -14px color-mix(in srgb, var(--accent) 60%, transparent);
+  }
+
+  :root[data-accents='on'] .block--running {
+    border-left-color: color-mix(in srgb, var(--info) 70%, transparent);
+    box-shadow: inset 6px 0 12px -10px color-mix(in srgb, var(--info) 55%, transparent);
+  }
+
+  :root[data-accents='on']
+    :is(.sidebar__title, .agent__head, .tree__head, .scm__head, .outline__head, .dbg__head, .gh__head, .hist__head) {
+    background-image: linear-gradient(180deg, color-mix(in srgb, var(--bg-hover) 60%, transparent), transparent);
+  }
+}
+
+/*
+ * And movement, only for people who have not asked for less of it.
+ *
+ * Overlays rise a few pixels and fade in; hovers ease rather than snap. Nothing
+ * scales — a dialog's size is measured by the suites and by eyes, and neither
+ * should have to wait for it. Under reduced motion none of these rules exist, so
+ * nothing animates at all, rather than animating in a hundredth of a millisecond.
+ * Closing is not animated: an overlay unmounts the moment it is dismissed.
+ */
+@media (forced-colors: none) and (prefers-reduced-motion: no-preference) {
+  :root[data-accents='on'] :is(.modal, .qp, .hist, .menu, .titlebar__menu, .claude__menu, .notice) {
+    animation: look-rise 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  :root[data-accents='on'] :is(.modal-scrim, .qp__scrim) {
+    animation: look-fade 140ms ease-out;
+  }
+
+  :root[data-accents='on']
+    :is(button, .qp__item, .menu__item, .titlebar__menu-item, .block, .sessions__card, .tree__row, .activity__item) {
+    transition:
+      background-color 120ms ease,
+      color 120ms ease,
+      border-color 120ms ease,
+      box-shadow 160ms ease;
+  }
+}
+
+@keyframes look-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes look-fade {
+  from {
+    opacity: 0;
+  }
 }

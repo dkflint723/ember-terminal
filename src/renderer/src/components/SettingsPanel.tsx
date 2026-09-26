@@ -476,12 +476,26 @@ export function SettingsPanel(): React.JSX.Element | null {
     (key) => !saved || !Object.is(draft[key], saved[key])
   )
 
-  /** Show what a set of values looks like, for the three that apply as they change. */
+  /** Show what a set of values looks like, for the ones that apply as they change. */
   const preview = (from: Settings, to: Settings): void => {
     if (from.themeId !== to.themeId) void activateTheme(to.themeId)
     if (from.uiZoom !== to.uiZoom) window.ember.setZoom(to.uiZoom || 1)
     if (from.blockDensity !== to.blockDensity) {
       document.documentElement.dataset.density = to.blockDensity ?? 'normal'
+    }
+    /*
+     * The look, which is judged by looking or not at all. The backdrop and the
+     * opacity belong to the window, so main puts them on this one alone until Save
+     * puts them on every window; the page follows what main reports back.
+     */
+    if (from.windowBackdrop !== to.windowBackdrop || from.windowOpacity !== to.windowOpacity) {
+      window.ember.setLook({ backdrop: to.windowBackdrop, opacity: to.windowOpacity })
+    }
+    if (from.frostedPanels !== to.frostedPanels) {
+      document.documentElement.dataset.frosted = to.frostedPanels ? 'on' : 'off'
+    }
+    if (from.accentEffects !== to.accentEffects) {
+      document.documentElement.dataset.accents = to.accentEffects ? 'on' : 'off'
     }
   }
 
@@ -490,7 +504,7 @@ export function SettingsPanel(): React.JSX.Element | null {
    *
    * Zoom and density apply as they change, so they can be judged by looking — and
    * Cancel reverted the theme alone, leaving the window at 150% after "cancelling"
-   * a change to 150%. All three go back to what is saved.
+   * a change to 150%. All of them go back to what is saved, the look included.
    */
   const discard = (): void => {
     if (saved) preview(draft, saved)
@@ -889,6 +903,88 @@ export function SettingsPanel(): React.JSX.Element | null {
                   How much air a command block gets in the terminal. Blocks stay flat and
                   separated by a rule at every setting; this is the spacing inside them.
                   Compact fits about half again as many commands on a screen as Comfortable.
+                </div>
+              </div>
+
+              {/* The look: four switches, each previewed as it changes and put back by
+                  Cancel, because none of them can be judged by reading about it. */}
+              <div className="field">
+                <label htmlFor="settings-backdrop">Window backdrop</label>
+                <select
+                  id="settings-backdrop"
+                  className="settings__backdrop"
+                  value={draft.windowBackdrop ?? 'mica'}
+                  onChange={(e) => takeIn({ windowBackdrop: e.target.value as Settings['windowBackdrop'] })}
+                >
+                  <option value="mica">Mica</option>
+                  <option value="tabbed">Mica Alt</option>
+                  <option value="acrylic">Acrylic</option>
+                  <option value="none">None (solid)</option>
+                </select>
+                <div className="field__note field__note--lead">
+                  {window.ember.appliedLook.supported
+                    ? 'What Windows 11 draws behind the window, seen faintly through it. Mica takes its colour from your wallpaper and stays put; Mica Alt is a stronger tint of it; Acrylic blurs whatever is behind the window.'
+                    : 'This system cannot draw one — it needs Windows 11 22H2 or later — so the window stays solid whatever is chosen here.'}
+                </div>
+                <div className="field__note">
+                  Where text would be harder to read over a light or dark desktop, it is
+                  brightened just enough that it is not.
+                </div>
+              </div>
+
+              <div className="field">
+                <label htmlFor="settings-opacity">Window opacity</label>
+                <div className="field__unit">
+                  <input
+                    id="settings-opacity"
+                    className="settings__opacity"
+                    type="range"
+                    min={60}
+                    max={100}
+                    step={5}
+                    value={Math.round((draft.windowOpacity ?? 1) * 100)}
+                    onChange={(e) => takeIn({ windowOpacity: Math.min(Math.max(Number(e.target.value) || 100, 60), 100) / 100 })}
+                  />
+                  <span className="field__unit-label">{Math.round((draft.windowOpacity ?? 1) * 100)}%</span>
+                </div>
+                <div className="field__note">
+                  The whole window, text included, so the desktop shows through
+                  everything. 100% is solid.
+                </div>
+              </div>
+
+              <div className="field" role="group" aria-labelledby="settings-frosted">
+                <span className="field__label" id="settings-frosted">Frosted panels</span>
+                <label className="field__check">
+                  <input
+                    type="checkbox"
+                    checked={draft.frostedPanels ?? true}
+                    onChange={(e) => takeIn({ frostedPanels: e.target.checked })}
+                  />
+                  <span>Frost dialogs, the palette, menus and notices</span>
+                </label>
+                <div className="field__note">
+                  Overlays let a little of what they cover through, blurred, with a soft
+                  shadow and a fine edge, so what is on top reads as on top. The sidebar
+                  and the rail get the edge and the shadow.
+                </div>
+              </div>
+
+              <div className="field" role="group" aria-labelledby="settings-accents">
+                <span className="field__label" id="settings-accents">Accent touches</span>
+                <label className="field__check">
+                  <input
+                    type="checkbox"
+                    checked={draft.accentEffects ?? true}
+                    onChange={(e) => takeIn({ accentEffects: e.target.checked })}
+                  />
+                  <span>Glows, light on headers, and dialogs that ease in</span>
+                </label>
+                <div className="field__note">
+                  A ring on the pane you are typing in, a glow on a command while it
+                  runs, a wash of light on panel headers, and overlays that ease in.
+                  With reduced motion on, nothing moves; under a Windows contrast theme,
+                  none of it is drawn.
                 </div>
               </div>
 

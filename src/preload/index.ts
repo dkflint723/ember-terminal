@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { GhostModel,
+  AppliedLook,
   AiChatEvent,
   AiChatRequest,
   CommandNotice,
@@ -259,6 +260,13 @@ const api: EmberApi = {
   reportUnsaved: (counts: { dirty: number; kept: number; running?: string[] }) =>
     ipcRenderer.send('window:unsaved', counts),
   setZoom: (factor: number) => ipcRenderer.send('window:zoom', factor),
+  setLook: (look: { backdrop: string; opacity: number }) => ipcRenderer.send('window:setLook', look),
+  appliedLook: ipcRenderer.sendSync('window:appliedLook') as AppliedLook,
+  onLook: (cb: (look: AppliedLook) => void) => {
+    const listener = (_: unknown, look: AppliedLook): void => cb(look)
+    ipcRenderer.on('window:look', listener)
+    return () => ipcRenderer.removeListener('window:look', listener)
+  },
   setSettings: (patch: Partial<Settings>) =>
     ipcRenderer.invoke('settings:set', patch),
 

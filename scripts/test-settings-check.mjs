@@ -48,6 +48,35 @@ const shell = { id: 's1', name: 'Ubuntu', path: 'wsl.exe', args: ['-d', 'Ubuntu'
 check('a zoom of 0 becomes 60%', checkSettings({ uiZoom: 0 }).values.uiZoom === 0.6)
 check('a negative wait becomes none', checkSettings({ notifyAfterSeconds: -5 }).values.notifyAfterSeconds === 0)
 
+// --- the look: a window that cannot be lost, and materials Windows has -------
+check('an opacity of 10% becomes 60%', checkSettings({ windowOpacity: 0.1 }).values.windowOpacity === 0.6)
+check('an opacity over 100% becomes 100%', checkSettings({ windowOpacity: 1.5 }).values.windowOpacity === 1)
+check('an opacity in range is kept', checkSettings({ windowOpacity: 0.8 }).values.windowOpacity === 0.8)
+check(
+  'every material Windows offers is kept',
+  ['none', 'mica', 'acrylic', 'tabbed'].every((m) => checkSettings({ windowBackdrop: m }).values.windowBackdrop === m)
+)
+check(
+  'the look is on by default, with the window fully opaque',
+  DEFAULT_SETTINGS.windowBackdrop === 'mica' &&
+    DEFAULT_SETTINGS.windowOpacity === 1 &&
+    DEFAULT_SETTINGS.frostedPanels === true &&
+    DEFAULT_SETTINGS.accentEffects === true
+)
+{
+  // Unknown values fall back: the field is left out, and the default stands.
+  const r = checkSettings({ windowBackdrop: 'glass', frostedPanels: 'on', accentEffects: 1, windowOpacity: 'half' })
+  check(
+    'a material Windows does not have, and switches that are not switches, are left out',
+    !('windowBackdrop' in r.values) &&
+      !('frostedPanels' in r.values) &&
+      !('accentEffects' in r.values) &&
+      !('windowOpacity' in r.values),
+    show(r)
+  )
+  check('and each one says so', r.refusals.length === 4, show(r))
+}
+
 // --- the wrong kind of thing is dropped, and is a refusal --------------------
 for (const [label, raw, key] of [
   ['a font size in quotes', { fontSize: '12' }, 'fontSize'],
