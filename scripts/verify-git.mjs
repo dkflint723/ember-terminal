@@ -290,7 +290,24 @@ try {
 }
 
 await page.locator('.icon-btn[title="Refresh"]').click()
-await sleep(2500)
+/*
+ * Waited for, with how long it took reported, rather than read once at 2.5 s.
+ *
+ * Twice on hosted runners the panel had not yet shown the merge at that moment —
+ * no operation, no conflict rows, no button — in full gates where nothing else about
+ * git was wrong. A panel that never shows it still fails after fifteen seconds.
+ */
+const mergeFrom = Date.now()
+for (let i = 0; i < 60; i += 1) {
+  const shown = await page.evaluate(() =>
+    (document.querySelector('.scm__operation')?.textContent ?? '').includes('Merge')
+  )
+  if (shown) break
+  await sleep(250)
+}
+const mergeShownMs = Date.now() - mergeFrom
+console.log(`the merge showed ${mergeShownMs}ms after Refresh`)
+await sleep(300)
 
 const merging = await page.evaluate(() => ({
   operation: document.querySelector('.scm__operation')?.textContent ?? null,
@@ -299,7 +316,7 @@ const merging = await page.evaluate(() => ({
   ),
   resolveButton: !!document.querySelector('[title="Mark resolved and stage"]')
 }))
-check('a merge in progress is reported', merging.operation?.includes('Merge') === true, JSON.stringify(merging))
+check('a merge in progress is reported', merging.operation?.includes('Merge') === true, `${JSON.stringify(merging)} after ${mergeShownMs}ms`)
 check('the conflict is listed', merging.conflictRows, JSON.stringify(merging))
 check('and can be marked resolved from the panel', merging.resolveButton, JSON.stringify(merging))
 

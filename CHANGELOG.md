@@ -5,6 +5,19 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Source control's merge check waits for the merge to show
+
+- **It read the panel once, 2.5 seconds after Refresh.** Twice in full gates on a
+  hosted runner the merge had not shown by then, with nothing else about git wrong.
+  Measured since, the merge shows 255 to 268 ms after Refresh in six runs of six, so
+  those two were rare slow ones, not a slower panel.
+- **It now waits up to fifteen seconds and reports how long it took.** A panel that
+  never shows the merge still fails.
+- **Not proven:** why those two were slow. A likely reason, read from the code and
+  unchanged since 0.4.0, is that Refresh is skipped while a status read is already
+  running, which leaves the next three-second poll to show it.
+- **How it is checked:** `verify-git`, six runs of six on this branch.
+
 ### A language server that goes mid-write no longer throws in main
 
 - **Writing to a server that had just exited raised an uncaught exception in the main
