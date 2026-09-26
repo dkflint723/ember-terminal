@@ -46,18 +46,41 @@ export function watchPageErrors(app, sink, { ignore = [] } = {}) {
  * cannot outlive its suite and sit under the next one.
  */
 
+/*
+ * Asked again when the answer was lost, and set up once however often it is asked.
+ *
+ * This is the first thing a suite asks of main after launch, and on hosted runners
+ * it began failing with "electronApplication.evaluate: Resulting promise was
+ * garbage collected" — five and six times a full gate, always here, only once main
+ * had stopped rewriting the session file every few seconds while idle. Measured:
+ * with a 100ms timer running in main the same build failed 0 times in two full
+ * gates, and without it 5 times in two; master, which still wrote constantly, never
+ * did. Main being quiet is the point of that change, so the answer is not to keep it
+ * busy: the question is asked again when this error says it was lost, and what it
+ * installs is guarded, so asking twice listens once.
+ */
+const LOST = /Resulting promise was garbage collected/
+
 /** Listen to what main is told is running, from now on. Call right after launch. */
 export async function watchRunning(app) {
-  await app.evaluate(({ ipcMain }) => {
-    const byWindow = new Map()
-    globalThis.__emberRunning = () => [...byWindow.values()].flat()
-    ipcMain.on('window:unsaved', (e, counts) => {
-      const id = e.sender.id
-      if (!byWindow.has(id)) e.sender.once('destroyed', () => byWindow.delete(id))
-      byWindow.set(id, Array.isArray(counts?.running) ? counts.running.map(String) : [])
-    })
-  })
-  return app
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await app.evaluate(({ ipcMain }) => {
+        if (globalThis.__emberRunning) return
+        const byWindow = new Map()
+        globalThis.__emberRunning = () => [...byWindow.values()].flat()
+        ipcMain.on('window:unsaved', (e, counts) => {
+          const id = e.sender.id
+          if (!byWindow.has(id)) e.sender.once('destroyed', () => byWindow.delete(id))
+          byWindow.set(id, Array.isArray(counts?.running) ? counts.running.map(String) : [])
+        })
+      })
+      return app
+    } catch (err) {
+      if (attempt >= 4 || !LOST.test(String(err?.message ?? err))) throw err
+      await new Promise((r) => setTimeout(r, 250))
+    }
+  }
 }
 
 const pause = (ms) => new Promise((r) => setTimeout(r, ms))
