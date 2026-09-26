@@ -384,6 +384,18 @@ export class LspService {
     this.servers.set(language, child)
     this.buffers.set(language, Buffer.alloc(0))
 
+    /*
+     * A write to a server that has just gone fails later, not here.
+     *
+     * The try/catch in write() only sees a pipe that is already known to be closed;
+     * one closing under the write reports EPIPE afterwards, as an 'error' event on
+     * stdin, and with nothing listening Node raises it as an uncaught exception in
+     * main. verify-lsp-recovery kills a server on purpose and hit exactly that on a
+     * hosted runner, "uncaught exception in main: Error: write EPIPE", twice in eight
+     * runs. The exit handler below is what deals with a server that has gone, so the
+     * error is only noted.
+     */
+    child.stdin.on('error', (err) => trace('<--', language, `stdin: ${err.message}`))
     child.stdout.on('data', (chunk: Buffer) => this.onData(language, chunk))
     // A server that rejects the handshake often explains itself here and nowhere else.
     if (LOG_PATH) child.stderr.on('data', (c: Buffer) => trace('<--', language, `stderr: ${c}`))

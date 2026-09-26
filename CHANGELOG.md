@@ -5,6 +5,35 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A language server that goes mid-write no longer throws in main
+
+- **Writing to a server that had just exited raised an uncaught exception in the main
+  process.** The write is wrapped in a try/catch, but a pipe that closes under it
+  reports `EPIPE` afterwards, as an `'error'` event on the server's stdin, and nothing
+  listened for it. `verify-lsp-recovery` kills a server on purpose and failed with
+  "uncaught exception in main: Error: write EPIPE" in 2 of 8 runs on a hosted runner.
+  The code is the same on 0.4.0.
+- **The error is now listened for and noted.** Cleaning up after a server that has
+  gone was already the exit handler's job, and still is.
+- **Not proven:** that this was the only way that suite could fail like that. Two
+  failures in eight runs is not enough to show it has stopped; the runs since are.
+
+### The test harness asks again when main loses its first answer
+
+- **Suites began dying two seconds in with "electronApplication.evaluate: Resulting
+  promise was garbage collected".** Always at the harness's first question to main
+  after launch, five and six times a full gate, and only once main had stopped
+  rewriting the session file every few seconds while idle. Measured: with a 100 ms
+  timer running in main, the same build failed 0 times in two full gates; without
+  it, 5 times in two; master, which still wrote constantly, had none.
+- **Nothing a person using Ember sees.** A quiet main process is what the idle
+  change was for; the lost answer is between the test driver and the inspector.
+  The question is asked again when that error says its answer was lost, up to five
+  times, and what it installs is guarded so asking twice listens once.
+- **Not proven:** why an idle main loses the answer. The timer comparison shows it
+  depends on main being woken, not what inside the inspector drops it.
+- **How it is checked:** the full gate, where it happened five and six times a run.
+
 ### A jump to a line waits by the clock, and the unsaved rule has a table
 
 - **The wait for an editor was a count, not a deadline.** The jump to a line waits
