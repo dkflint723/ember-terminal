@@ -77,7 +77,29 @@ export interface AtomicOptions {
  * Throws if the new bytes could not be put in place; the original is then exactly
  * as it was, and the temporary file is removed.
  */
+// DEBUG: how long each synchronous write held this thread, in a file the runner keeps.
+function stallLog(line: string): void {
+  const dir = process.env.EMBER_KEEP_LOGS
+  if (!dir) return
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    fs.appendFileSync(join(dir, `stall-${process.pid}.log`), `${new Date().toISOString()} ${line}\n`)
+  } catch {
+    // Diagnostics only.
+  }
+}
+export { stallLog }
+
 export function writeAtomic(file: string, data: string | Uint8Array, options: AtomicOptions = {}): void {
+  const startedAt = Date.now()
+  try {
+    writeAtomicInner(file, data, options)
+  } finally {
+    stallLog(`writeAtomic ${basename(file)} ${Date.now() - startedAt}ms`)
+  }
+}
+
+function writeAtomicInner(file: string, data: string | Uint8Array, options: AtomicOptions = {}): void {
   const ops = options.ops ?? real
   const bytes = typeof data === 'string' ? Buffer.from(data, 'utf8') : data
   // Named for the target and this process, so two windows writing two files never
