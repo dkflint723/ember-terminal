@@ -5,6 +5,96 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A window with a Mica backdrop, frosted overlays and a few accents
+
+- **The window read as flat.** One opaque ground; dialogs, the palette and menus
+  the same grey slab as what they covered; nothing to say which pane had the
+  keyboard or which command was still working. Four settings in Appearance change
+  that, each on its own and each previewed as it changes and put back by Cancel,
+  like the theme, the interface size and the density.
+- **Window backdrop: Mica by default** (or Mica Alt, Acrylic, None). On Windows 11
+  22H2 and later the window is made transparent with Electron's
+  `backgroundMaterial`, and changed live with `setBackgroundMaterial`; the ground
+  keeps 92% of its colour and the material shows through the rest. Mica rather than
+  Acrylic because it is sampled from the wallpaper once and does not move as other
+  windows pass behind, which is what a window left open all day wants. Editors keep
+  a solid background.
+- **Text stays readable over any desktop.** Nobody knows what is behind the window,
+  so it is measured at both ends, over pure black and pure white — and at any
+  translucency that shows anything the ordinary palettes fail that: at 92% every
+  theme's faint text and several ANSI colours land between 3.59:1 and 4.11:1. So
+  each theme has a second derivation for glass, whose text, borders and ANSI colours
+  are lifted until they clear 4.5:1 (3:1 for borders) on those composites too, and
+  the window uses it only while a material is drawn. Lifted toward white or black
+  rather than toward the theme's foreground, which keeps each colour's hue; the
+  furthest any colour moves is 46 of 255 on one channel (Solar Dusk's bright
+  yellow), and most move less than 25. At 88% a dark theme's reds went half-way to
+  pink, which is why the ground is not thinner.
+- **A system that cannot draw one stays solid.** Main decides support (build 22621
+  or later), applies the material, and tells the page what it applied; the page
+  goes translucent and takes the glass palette on that word alone, never on the
+  setting, so Windows 10 keeps a solid window, the ordinary palette, and a line in
+  Settings saying why.
+- **The terminal draws on the same ground.** On glass xterm has
+  `allowTransparency` and a background with no alpha, so a running command and a
+  full-screen program sit on the translucent ground like the blocks do. xterm's
+  own stylesheet paints its viewport black under a canvas that is normally opaque;
+  the first build drew every running command on a black slab, and the viewport is
+  transparent on glass now. Text drawn by xterm with transparency on loses subpixel
+  antialiasing, which is why it is only on while a material is drawn.
+- **Window opacity: 100% by default,** 60% to 100% on a slider, the whole window
+  and its text together through `setOpacity`. No contrast can be promised against
+  a desktop nobody can see, so it is a choice and not a default; below 60% it is
+  held at 60%, since the control that brings a window back is inside it.
+- **Frosted panels: on.** Dialogs, the palette, menus, notices and the completion
+  list are 90% of the elevated surface with what they cover blurred behind them, a
+  soft two-step shadow and a lit top edge. Every theme's ordinary text clears 4.5:1
+  on that panel over every ground and scrim it can be opened on. The sidebar, the
+  session list, the rail and the Claude panel cast a shadow over the content beside
+  them but are not blurred: nothing moves behind them, and `backdrop-filter` would
+  make them the containing block for the context menus they hold.
+- **Accent touches: on.** A ring on the pane the keyboard is in, in the accent; a
+  glow on a running command, in the info colour rather than the accent, which
+  means focus and was kept apart from "busy" on purpose; a wash of light on panel
+  headers; overlays that rise and fade in; hovers that ease. Closing is not
+  animated — an overlay unmounts the moment it is dismissed.
+- **Reduced motion and contrast themes.** Under reduced motion none of the
+  movement exists (nothing animates in, rather than animating in a hundredth of a
+  millisecond) and the rings and frost stay; under a Windows contrast theme none of
+  it is drawn — no translucent ground, no blur, no glow — and the contrast rules
+  that were already there are unchanged.
+- **Settings are checked.** The opacity is clamped to 60–100% and a material
+  Windows does not have falls back to the default, like every other field.
+- **Not proven:** how any of it looks on a real desktop. A Playwright screenshot
+  is the page, not the window, so the material DWM draws behind the page is in
+  none of the screenshots, and neither is the window's opacity; what is checked is
+  what main handed to Windows and `getOpacity()`. The runner (Windows Server 2025)
+  counts as supported and nothing refused the material there, but whether Mica,
+  Mica Alt and Acrylic render on a frameless Electron 43 window has not been seen.
+  Where the page is glass, the screenshots show it over the white Chromium puts
+  behind a transparent page. Old blocks keep the colours they were captured with,
+  so blocks restored from a session saved without the backdrop use the ordinary
+  ANSI colours on the translucent ground.
+- **How it is checked:** `verify-contrast` now measures every theme's glass palette
+  over black and white desktops (text, borders, ANSI, black) and text on a frosted
+  panel over every ground and scrim, and prints the worst ratio and the
+  furthest-moved colour for each theme; with the glass palette replaced by the
+  ordinary one, those checks fail on all ten themes. `verify-look` (new, in the
+  gate) launches on defaults and reads the material main applied and the window's
+  opacity from main, the page's glass, palette and terminal from the page, and the
+  frost, ring, glow and easing from computed styles; drives each setting through
+  Settings and checks each applies live and Cancel reverts all four; saves each
+  material, 80% opacity and a 30% that is held at 60%; checks reduced motion and
+  forced colours with `page.emulateMedia`; relaunches as a system without Mica
+  (`EMBER_BACKDROP=unsupported`); and screenshots each state into `.shots/`.
+  Against the build before this it fails 44 checks, with the Settings steps it
+  cannot drive there counted as one; the checks that assert
+  something is absent (no ring with the accents off, nothing animating under
+  reduced motion) pass there too, by their nature, and are paired with the
+  checks that the same thing is present otherwise. *settings check* has the new
+  fields (49 cases). With it, `settings`, `titlebar`, `a11y`, `keys`, `chrome`,
+  `modes`, `palette`, `output`, `blocks` and `contrast` pass on the runner.
+
 ### A link opens at its line again, and redo back to the saved text is saved
 
 - **A link to a line opened the file at line 1.** Opening at a position waited a
