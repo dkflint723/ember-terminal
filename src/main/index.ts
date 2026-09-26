@@ -197,6 +197,26 @@ import { GitService } from './git.js'
 import { GhostService } from './ghost.js'
 import type { GhostRequest } from '../shared/types.js'
 import { buildAdminCommand } from '../shared/elevate.js'
+// DEBUG: every stall of the main thread past 300ms, in a file the runner keeps.
+{
+  const dir = process.env.EMBER_KEEP_LOGS
+  const note = (line: string): void => {
+    if (!dir) return
+    try {
+      mkdirSync(dir, { recursive: true })
+      appendFileSync(join(dir, `stall-${process.pid}.log`), `${new Date().toISOString()} ${line}${String.fromCharCode(10)}`)
+    } catch {
+      // Diagnostics only.
+    }
+  }
+  note(`main started pid ${process.pid}`)
+  let last = Date.now()
+  setInterval(() => {
+    const now = Date.now()
+    if (now - last > 400) note(`main blocked ~${now - last - 100}ms`)
+    last = now
+  }, 100).unref()
+}
 import { IdeServer } from './ide.js'
 import { GitHubService } from './github.js'
 import { ExplorerMenu } from './explorer.js'
