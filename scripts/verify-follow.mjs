@@ -127,6 +127,7 @@ check(
 await page.keyboard.press('Control+Y')
 await sleep(500)
 check('and Ctrl+Y the change again', (await onScreen()).includes('fromClaude'), await onScreen())
+console.log('DEBUG baseline ' + JSON.stringify(await page.evaluate(() => (window.__baselineLog ?? []).slice(-8))))
 check('which is clean again', (await dirty()) === 0)
 
 // --- an edited buffer is told, and not touched ---------------------------------------

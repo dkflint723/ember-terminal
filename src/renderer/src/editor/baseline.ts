@@ -28,6 +28,16 @@ export function markClean(model: Model, saved: string): void {
 
 export function isModified(model: Model, saved: string): boolean {
   const baseline = baselines.get(model)
+  // DEBUG: every decision, for verify-follow to print.
+  const w = window as unknown as { __baselineLog?: unknown[] }
+  ;(w.__baselineLog ??= []).push({
+    alt: model.getAlternativeVersionId(),
+    base: baseline?.version ?? null,
+    sameSaved: baseline ? baseline.saved === saved : null,
+    len: model.getValueLength(),
+    savedLen: saved.length,
+    textEqual: model.getValue() === saved
+  })
   if (baseline && baseline.saved === saved) {
     return model.getAlternativeVersionId() !== baseline.version
   }
