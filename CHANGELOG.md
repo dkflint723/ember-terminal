@@ -5,6 +5,30 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A link opens at its line again, and redo back to the saved text is saved
+
+- **A link to a line opened the file at line 1.** Opening at a position waited a
+  fixed 220 milliseconds for an editor to be showing the file and then moved the
+  cursor; with none there by then, it did nothing and said nothing. The editor pane
+  is fetched on demand now that it is out of the startup bundle, so on a hosted
+  runner it was never there in time: `verify-links` opened `verify-links.mjs:31` at
+  Ln 1, Col 1 in every run from that change on.
+- **It now waits for the editor that holds the file**, looking every 50 ms for up
+  to five seconds, and then moves to the line.
+- **Undo and redo back to the text on disk left the file marked unsaved.** Unsaved
+  is decided by comparing Monaco's version number with the one written down when the
+  buffer last matched the disk, on the premise that undoing and redoing returns to
+  that number. Measured after a change followed from disk: the baseline was version
+  3; Ctrl+Z gave 4 and Ctrl+Y gave 5, with the buffer matching the file exactly.
+- **When the numbers differ but the length matches, the text is compared.** An edit
+  that changes anything nearly always changes the length, so a keystroke is still
+  answered by the numbers; the rare equal length pays one comparison and takes a new
+  baseline when it matches.
+- **How it is checked:** `verify-links` and `verify-follow` failed in every run from
+  the change that made the editor load on demand (five of five) and passed at every
+  step before it; with this, both pass, with `editor`, `save`, `keeps-work` and
+  `conflict`, in 2 runs of 2.
+
 ### The newest Claude models, and what they do differently
 
 - **Opus 5.5 is the default,** and first on the menu, beside Opus 5, Sonnet 5,

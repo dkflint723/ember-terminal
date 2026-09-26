@@ -29,7 +29,16 @@ export function markClean(model: Model, saved: string): void {
 export function isModified(model: Model, saved: string): boolean {
   const baseline = baselines.get(model)
   if (baseline && baseline.saved === saved) {
-    return model.getAlternativeVersionId() !== baseline.version
+    if (model.getAlternativeVersionId() === baseline.version) return false
+    /*
+     * A different version is not proof of a different text. Undo and redo back to
+     * the saved state do not always land on the version written down — a change
+     * followed from disk and then undone and redone came back unsaved while the
+     * buffer matched the file exactly. So when the length agrees, which an edit
+     * that changed anything nearly always breaks, the text is compared and the
+     * baseline taken afresh; a different length is still answered by the numbers.
+     */
+    if (model.getValueLength() !== saved.length) return true
   }
   const modified = model.getValue() !== saved
   if (!modified) markClean(model, saved)

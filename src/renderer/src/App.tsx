@@ -601,12 +601,26 @@ export function App(): React.JSX.Element {
   const revealAt = async (filePath: string, line: number, column: number): Promise<void> => {
     await openPaths([filePath])
     const { modelUri, monaco } = await import('./editor/monaco')
-    // A couple of frames is enough for the pane to mount and claim the model.
-    window.setTimeout(() => {
+    /*
+     * Waited for, not guessed at. A couple of frames used to be enough for the
+     * pane to mount and claim the model, and the move to the line was made after
+     * 220ms. The editor pane is loaded on demand now, so it can arrive later than
+     * that, and the jump was dropped without a word: a link to line 31 opened the
+     * file at line 1. So it looks every 50ms, for up to five seconds, for an
+     * editor that holds this file.
+     */
+    const holding = (): MonacoEditors => {
       const model = monaco.editor.getModel(modelUri(filePath))
-      if (!model) return
-      for (const editor of monaco.editor.getEditors()) {
-        if (editor.getModel() !== model) continue
+      return model ? monaco.editor.getEditors().filter((e) => e.getModel() === model) : []
+    }
+    type MonacoEditors = ReturnType<typeof monaco.editor.getEditors>
+    let editors = holding()
+    for (let waited = 0; editors.length === 0 && waited < 5000; waited += 50) {
+      await new Promise((resolve) => window.setTimeout(resolve, 50))
+      editors = holding()
+    }
+    {
+      for (const editor of editors) {
         const position = { lineNumber: line, column: column + 1 }
         editor.setSelection({
           startLineNumber: line,
@@ -617,7 +631,7 @@ export function App(): React.JSX.Element {
         editor.revealPositionInCenter(position)
         editor.focus()
       }
-    }, 220)
+    }
   }
 
   const openFile = async (): Promise<void> => {
