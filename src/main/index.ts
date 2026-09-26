@@ -242,16 +242,7 @@ import { GhostService } from './ghost.js'
 import type { GhostRequest } from '../shared/types.js'
 import { buildAdminCommand } from '../shared/elevate.js'
 import { stallLog } from './atomic.js'
-// DEBUG: every stall of the main thread past 300ms, from the first line of main.
-{
-  stallLog(`main started pid ${process.pid}`)
-  let last = Date.now()
-  setInterval(() => {
-    const now = Date.now()
-    if (now - last > 400) stallLog(`main blocked ~${now - last - 100}ms`)
-    last = now
-  }, 100).unref()
-}
+stallLog(`main started pid ${process.pid}`)
 import { IdeServer } from './ide.js'
 import { GitHubService } from './github.js'
 import { ExplorerMenu } from './explorer.js'
