@@ -51,6 +51,7 @@
     "verify:output": "electron-vite build && node scripts/verify-output.mjs",
     "verify:navigate": "electron-vite build && node scripts/verify-navigate.mjs",
     "verify:contrast": "node scripts/verify-contrast.mjs",
+    "verify:look": "electron-vite build && node scripts/verify-look.mjs",
     "verify:a11y": "electron-vite build && node scripts/verify-a11y.mjs",
     "verify:reopen": "electron-vite build && node scripts/verify-reopen.mjs",
     "verify:blocks": "electron-vite build && node scripts/verify-blocks.mjs",

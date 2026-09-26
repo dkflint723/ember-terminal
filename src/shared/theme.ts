@@ -66,6 +66,47 @@ export interface ResolvedTheme {
   vars: Record<string, string>
   terminal: TerminalPalette
   tokenColors: TokenColor[]
+  /**
+   * The same theme for a window the desktop shows through: see GLASS. Used in
+   * place of `vars` and `terminal` while a backdrop material is actually drawn.
+   */
+  glass: { vars: Record<string, string>; terminal: TerminalPalette }
+}
+
+/**
+ * How much of the window's own colour is kept where something else shows through.
+ *
+ * `ground` is the window's ground — the title bar, the workspace, and so the ground
+ * every command block and the terminal are drawn on — while a Windows backdrop
+ * material is on. `panel` is a frosted overlay (a dialog, the palette, a menu) over
+ * whatever it covers, with or without a backdrop.
+ *
+ * Nobody can know what the desktop behind a window looks like, so the ground is
+ * measured at both ends: over pure black and over pure white. At any ground below
+ * about 0.98 the ordinary palettes fail that measurement — they are lifted only as
+ * far as their own surfaces need, so a few per cent of white desktop behind a dark
+ * theme is enough to sink its faint text under 4.5:1. So a translucent window gets
+ * its own derivation of each theme (`ResolvedTheme.glass`), whose text and ANSI
+ * colours are lifted against those black and white composites as well, and uses it
+ * for as long as the material is drawn.
+ *
+ * 0.92 is a trade measured rather than picked. The lift grows quickly as the
+ * ground thins: at 0.88 a dark theme's reds went half-way to pink and a teal lost
+ * a third of its depth (up to 64 of 255 on one channel); at 0.92 the furthest any
+ * colour moves is 46, and most move under 25, so each theme stays recognisably
+ * itself while eight per cent of the backdrop — mostly the wallpaper's hue, since
+ * Mica is dark or light grey before anything else — comes through. The contrast
+ * suite prints how far each theme's colours moved, every run.
+ *
+ * The panel is not re-derived. Its blur means what is behind it arrives averaged,
+ * and at 0.9 every theme's ordinary text still clears 4.5:1 over the worst ground
+ * it can be opened on, scrim included — which the contrast suite also measures.
+ */
+export const GLASS = { ground: 0.92, panel: 0.9 }
+
+/** The surfaces a translucent ground can become, over a black and a white desktop. */
+export function glassGrounds(stops: string[], alpha: number = GLASS.ground): string[] {
+  return ['#000000', '#ffffff'].flatMap((desk) => stops.map((stop) => mix(stop, desk, alpha)))
 }
 
 /* ------------------------------------------------------------------ colours */
@@ -251,6 +292,68 @@ const ANSI_TEXT = [
 ] as const
 
 export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
+  const plain = resolvePlain(id, file)
+  return { ...plain, glass: onGlass(plain, GLASS.ground) }
+}
+
+/** The text tokens a translucent ground re-lifts; the same list the contrast suite reads. */
+const GLASS_TEXT = ['fg', 'fg-dim', 'fg-faint', 'accent', 'ok', 'fail', 'info', 'info-fg'] as const
+const GLASS_MARKS = ['border', 'border-strong'] as const
+
+/**
+ * A theme for a window whose ground is kept at `alpha` over a desktop nobody can see.
+ *
+ * Every stop of the ground, over black and over white; the translucent chrome
+ * that stands on it (the sidebar and the session list are 78% chrome); and a
+ * frosted panel opened over it. Text, marks and ANSI colours are lifted until they
+ * clear their floors on all of those as well as on the theme's own surfaces.
+ *
+ * Lifted from the finished palette and toward white or black, not re-derived and
+ * lifted toward the theme's foreground the way the palette itself is. That is
+ * about keeping the theme's colours: mixing toward the foreground is right for a
+ * palette being built, and on a theme whose foreground is itself barely readable
+ * — Solar Dusk's — it runs a green all the way into that foreground and then out
+ * towards white as grey. Moving the finished colour straight toward the light (or
+ * the dark) keeps its hue, and moves it only as far as the glass requires.
+ */
+function onGlass(plain: Omit<ResolvedTheme, 'glass'>, alpha: number): ResolvedTheme['glass'] {
+  const v = plain.vars
+  const through = glassGrounds([v.bg, v['grad-crown'], v['grad-top'], v['grad-bottom']], alpha)
+  const surfaces = [
+    v.bg,
+    v['bg-chrome'],
+    v['bg-elevated'],
+    v['bg-hover'],
+    v['bg-block'],
+    v['grad-crown'],
+    v['grad-top'],
+    v['grad-bottom'],
+    v.card,
+    v['card-top'],
+    v['card-bottom'],
+    ...through,
+    ...through.map((ground) => mix(v['bg-chrome'], ground, 0.78)),
+    ...through.map((ground) => mix(v['bg-elevated'], ground, GLASS.panel))
+  ]
+  const light = plain.type === 'dark' ? '#ffffff' : '#000000'
+  const vars = { ...v }
+  for (const token of GLASS_TEXT) vars[token] = readable(v[token], surfaces, 4.5, light)
+  for (const token of GLASS_MARKS) vars[token] = readable(v[token], surfaces, 3, light)
+
+  /*
+   * The terminal's own background is transparent on glass — xterm draws over the
+   * same ground the blocks do — so a program's colours land on the translucent
+   * ground, and are held to text's floor there. Black keeps its gentler one.
+   */
+  const terminal = { ...plain.terminal }
+  const grounds = [terminal.background, v.bg, v['bg-block'], v['bg-hover'], ...through]
+  for (const name of ANSI_TEXT) terminal[name] = readable(terminal[name], grounds, 4.5, light)
+  terminal.black = readable(terminal.black, [v.bg, ...through], 1.6, v.fg)
+  return { vars, terminal }
+}
+
+/** A theme for a solid window: the palette as it has always been derived. */
+function resolvePlain(id: string, file: ThemeFile): Omit<ResolvedTheme, 'glass'> {
   const colors = file.colors ?? {}
   const type: 'dark' | 'light' =
     file.type === 'light' || file.type === 'hcLight' ? 'light' : 'dark'
@@ -535,7 +638,13 @@ export function resolveTheme(id: string, file: ThemeFile): ResolvedTheme {
     'close-hover': dark ? '#c42b1c' : '#e11d48',
     selection: terminal.selectionBackground,
     // A heavy black scrim reads as muddy over a light theme, so lighten it there.
-    scrim: dark ? 'rgba(0, 0, 0, 0.58)' : 'rgba(24, 24, 27, 0.28)'
+    scrim: dark ? 'rgba(0, 0, 0, 0.58)' : 'rgba(24, 24, 27, 0.28)',
+    /*
+     * The two alphas of GLASS, as the percentages `color-mix()` takes, so the
+     * stylesheet tints with exactly the numbers the palette was measured at.
+     */
+    'glass-ground': `${Math.round(GLASS.ground * 100)}%`,
+    'glass-panel': `${Math.round(GLASS.panel * 100)}%`
   }
 
   return {

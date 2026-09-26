@@ -127,7 +127,9 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
   const fontFamily = useStore((s) => s.settings.fontFamily)
   const fontSize = useStore((s) => s.settings.fontSize)
   const screenReaderMode = useStore((s) => s.settings.screenReaderMode)
-  const palette = useStore((s) => s.theme.terminal)
+  // The glass palette while a backdrop is drawn: see state/theming's takeLook.
+  const glass = useStore((s) => s.glass)
+  const palette = useStore((s) => (s.glass ? s.theme.glass.terminal : s.theme.terminal))
   const mode = useStore((s) => s.mode)
   const profileName = useStore((s) => s.profiles.find((p) => p.id === pane.profileId)?.name)
   const firstRunDone = useStore((s) => s.settings.firstRunDone)
@@ -168,7 +170,7 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
 
   // The controller is created once per pane; later font and theme changes go
   // through setFont/setPalette rather than recreating the terminal.
-  const controller = getController(pane.id, fontFamily, fontSize, palette)
+  const controller = getController(pane.id, fontFamily, fontSize, palette, glass)
 
   // Two separate reasons to hand the whole pane to the terminal: a full-screen
   // program has taken over, or this shell never reports command boundaries and so

@@ -11,7 +11,7 @@ import { Sidebar } from './components/Sidebar'
 import { Palette } from './components/Palette'
 import { disposeController } from './terminal/controller'
 import { forgetDraft } from './components/InputEditor'
-import { activateTheme, refreshThemeList } from './state/theming'
+import { activateTheme, refreshThemeList, takeLook } from './state/theming'
 import { refreshGitStatus, useGitStatusPolling } from './state/git'
 import { useDiskChecking } from './state/disk'
 import { useIdeBridge } from './state/ide'
@@ -51,6 +51,8 @@ export function App(): React.JSX.Element {
   const fontSize = useStore((s) => s.settings.fontSize)
   const fontFamily = useStore((s) => s.settings.fontFamily)
   const blockDensity = useStore((s) => s.settings.blockDensity)
+  const frostedPanels = useStore((s) => s.settings.frostedPanels)
+  const accentEffects = useStore((s) => s.settings.accentEffects)
   const keyOverrides = useStore((s) => s.settings.keybindings)
   const learnedChords = useStore((s) => s.settings.learnedChords)
   const bindings = useMemo(() => resolveBindings(keyOverrides ?? {}), [keyOverrides])
@@ -90,6 +92,18 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     document.documentElement.dataset.density = blockDensity ?? 'normal'
   }, [blockDensity])
+  /*
+   * The two look switches, on the root for the same reason: each is a family of
+   * rules in the stylesheet, not a value. The backdrop is not here — it is main's
+   * to report, since only main knows whether it could draw one (takeLook).
+   */
+  useEffect(() => {
+    document.documentElement.dataset.frosted = frostedPanels === false ? 'off' : 'on'
+  }, [frostedPanels])
+  useEffect(() => {
+    document.documentElement.dataset.accents = accentEffects === false ? 'off' : 'on'
+  }, [accentEffects])
+  useEffect(() => window.ember.onLook(takeLook), [])
   /*
    * The terminal the browser belongs to: the active pane when that is one, else the
    * tab's first. The same rule the status bar uses to decide whose directory it is
@@ -285,7 +299,9 @@ export function App(): React.JSX.Element {
       }
 
       // Theme before the first pane, so no terminal is ever created with the
-      // wrong palette and then repainted.
+      // wrong palette and then repainted — and whether the window is glass before
+      // the theme, since that decides which of the theme's two palettes it is.
+      takeLook(window.ember.appliedLook)
       await Promise.all([activateTheme(settings.themeId), refreshThemeList()])
 
       if (profiles.length === 0) return

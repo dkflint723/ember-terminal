@@ -100,7 +100,8 @@ const ORDER = [
   'verify-window',
   'verify-idle',
   'verify-damaged',
-  'verify-migrate'
+  'verify-migrate',
+  'verify-look'
 ]
 
 /** Suites this runner deliberately leaves to another step, each with its reason. */

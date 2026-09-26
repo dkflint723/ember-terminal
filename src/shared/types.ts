@@ -868,6 +868,31 @@ export interface LspEvent {
 export type BlockDensity = 'compact' | 'normal' | 'comfortable'
 
 /**
+ * What Windows draws behind the window, where the window lets it through.
+ *
+ * The names are Electron's `backgroundMaterial` values. `mica` is sampled from the
+ * wallpaper once and does not move as other windows do, which is why it is the one
+ * meant for a window people keep open all day; `acrylic` blurs whatever is behind
+ * the window live; `tabbed` is Mica Alt, a stronger wallpaper tint meant for a
+ * window whose title bar holds tabs. Windows 11 22H2 and later only — anywhere
+ * else the window stays solid, whatever this says.
+ */
+export type WindowBackdrop = 'none' | 'mica' | 'acrylic' | 'tabbed'
+
+/** What main actually did to a window's backdrop and opacity. See main/look.ts. */
+export interface AppliedLook {
+  /** The setting as it was asked for. */
+  requested: WindowBackdrop
+  /** What was handed to Windows: `none` wherever it cannot draw one. */
+  applied: WindowBackdrop
+  opacity: number
+  /** Whether this system can draw a material at all: Windows 11 22H2 or later. */
+  supported: boolean
+  /** Set when Electron refused the material; the window was left solid. */
+  error?: string
+}
+
+/**
  * Who writes the suggestion that appears ahead of the caret.
  *
  * `local` and `openai` are the same protocol — an OpenAI-compatible HTTP endpoint —
@@ -993,6 +1018,39 @@ export interface Settings {
    */
   blockDensity: BlockDensity
   /**
+   * The Windows 11 material drawn behind the window.
+   *
+   * Mica by default. The window's own ground is tinted rather than painted when a
+   * material is on, so the desktop shows through it a little — and every theme is
+   * derived a second time for that case, with its text lifted until it clears the
+   * same 4.5:1 over a black desktop and over a white one (see GLASS in
+   * shared/theme.ts, and scripts/verify-contrast.mjs, which measures it). A system
+   * that cannot draw a material keeps the solid window and the ordinary palette.
+   */
+  windowBackdrop: WindowBackdrop
+  /**
+   * The whole window's opacity, 0.6 to 1. One by default.
+   *
+   * Everything goes translucent together, text included, which is what makes it a
+   * choice rather than a default: no contrast can be promised against a desktop
+   * nobody can see. Kept at or above 60% so the window cannot be lost.
+   */
+  windowOpacity: number
+  /**
+   * Overlays — dialogs, the palette, menus, notices — drawn as frosted panes over
+   * what they cover: slightly translucent, the content behind blurred, a soft
+   * shadow and a hairline edge. The sidebar and the rail get the tint, edge and
+   * shadow but no blur, because nothing moves behind them to blur. On by default.
+   */
+  frostedPanels: boolean
+  /**
+   * The small touches: a ring on the pane the keyboard is in, a glow on a running
+   * command, a wash of light on panel headers, and overlays that ease in. On by
+   * default. Reduced motion keeps the rings and drops every animation; a Windows
+   * contrast theme drops all of it.
+   */
+  accentEffects: boolean
+  /**
    * Draw terminals and editors for a screen reader as well as for the eye.
    *
    * xterm paints into a canvas, which a screen reader cannot read, and Monaco
@@ -1101,6 +1159,10 @@ export const DEFAULT_SETTINGS: Settings = {
   keybindings: {},
   uiZoom: 1,
   blockDensity: 'normal',
+  windowBackdrop: 'mica',
+  windowOpacity: 1,
+  frostedPanels: true,
+  accentEffects: true,
   screenReaderMode: false,
   ghostEnabled: false,
   ghostProvider: 'local',
@@ -1447,6 +1509,20 @@ export interface EmberApi {
   reportUnsaved(counts: { dirty: number; kept: number; running?: string[] }): void
   /** Scale the whole interface. Clamped in main to something usable. */
   setZoom(factor: number): void
+  /**
+   * Put a backdrop and an opacity on this window only, unsaved — what the Settings
+   * dialog previews with, and what its Cancel puts back. A save applies them to
+   * every window from main.
+   */
+  setLook(look: { backdrop: WindowBackdrop; opacity: number }): void
+  /** What main had applied to this window when the page loaded. */
+  appliedLook: AppliedLook
+  /**
+   * What main applies to this window from now on, each time it does. The page
+   * goes translucent, and takes the glass palette, only on this word — never on the
+   * setting alone, which a system without Mica cannot honour.
+   */
+  onLook(fn: (look: AppliedLook) => void): () => void
   windowAction(action: 'minimize' | 'maximize' | 'close'): void
   onWindowState(cb: (s: { maximized: boolean }) => void): () => void
   platform: string
