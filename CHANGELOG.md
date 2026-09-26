@@ -65,14 +65,14 @@ newest entry sits on top.
   that were already there are unchanged.
 - **Settings are checked.** The opacity is clamped to 60–100% and a material
   Windows does not have falls back to the default, like every other field.
-- **Not proven:** how any of it looks on a real desktop. A Playwright screenshot
-  is the page, not the window, so the material DWM draws behind the page is in
-  none of the screenshots, and neither is the window's opacity; what is checked is
-  what main handed to Windows and `getOpacity()`. The runner (Windows Server 2025)
-  counts as supported and nothing refused the material there, but whether Mica,
-  Mica Alt and Acrylic render on a frameless Electron 43 window has not been seen.
-  Where the page is glass, the screenshots show it over the white Chromium puts
-  behind a transparent page. Old blocks keep the colours they were captured with,
+- **Seen once, on one desktop:** Mica, Mica Alt, Acrylic and the opacity slider
+  were looked at on the maintainer's Windows 11 (build 26200) and kept as they are.
+  No suite can see them: a Playwright screenshot is the page, not the window, so
+  the material DWM draws behind it is in none of the screenshots, and neither is the
+  window's opacity; what is checked is what main handed to Windows and
+  `getOpacity()`. Where the page is glass, the screenshots show it over the white
+  Chromium puts behind a transparent page.
+- **Not proven:** how it looks on any other machine or wallpaper. Old blocks keep the colours they were captured with,
   so blocks restored from a session saved without the backdrop use the ordinary
   ANSI colours on the translucent ground.
 - **How it is checked:** `verify-contrast` now measures every theme's glass palette
