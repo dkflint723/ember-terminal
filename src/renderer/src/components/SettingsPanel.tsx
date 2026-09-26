@@ -927,8 +927,8 @@ export function SettingsPanel(): React.JSX.Element | null {
                     : 'This system cannot draw one — it needs Windows 11 22H2 or later — so the window stays solid whatever is chosen here.'}
                 </div>
                 <div className="field__note">
-                  Where text would be harder to read over a light or dark desktop, it is
-                  brightened just enough that it is not.
+                  Text that would be hard to read over a very light or very dark desktop
+                  is made a little stronger, just enough that it is not.
                 </div>
               </div>
 
