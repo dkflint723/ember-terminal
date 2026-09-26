@@ -5,6 +5,55 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A jump to a line waits by the clock, and the unsaved rule has a table
+
+- **The wait for an editor was a count, not a deadline.** The jump to a line waits
+  for an editor to hold the file, and stopped after a hundred 50 ms timeouts —
+  five seconds only while timers run on time, and a window in the background has
+  them slowed to one a second. It is measured by the clock now.
+- **It still gave up without a word.** When no editor showed the file in time, the
+  cursor stayed at line 1 and nothing said so, which is how the first version of
+  this fault went unnoticed. It now says the file opened but not at the line.
+- **And it waited for the wrong spelling of the path.** Files open under their long
+  name (`C:\Users\runneradmin\…`), whatever they were asked for by
+  (`C:\Users\RUNNER~1\…`), and the model is keyed by the name they opened under; the
+  jump looked for the name it was given. It now waits for the path that opened, and
+  returns at once when the file did not open at all rather than waiting five
+  seconds for an editor that is not coming.
+- **Search said it checked where a result lands, and did not.** `verify-search`
+  read the line into a field nothing looked at, so a result that opened its file at
+  line 1 passed — and a search run from a terminal with no editor open is exactly
+  where the jump was being dropped. It now checks the cursor is on the matched line.
+  `verify-links` slept a fixed 2.6 s before reading the position while the app may
+  take up to five to move there; both now wait for the line with a deadline.
+- **The rest of the renderer was read for the same assumption** — an editor there
+  after a fixed pause, or straight after loading Monaco or opening a file. Every
+  jump to a position (links, search, problems, debugger frames and breakpoints, Go
+  to Definition into another file) goes through the one path fixed here. The
+  outline's own jump gives up if no editor holds the file, but it only lists symbols
+  for a document the mounted editor opened; the palette's and status bar's editor
+  actions act on an editor that already has focus; the code that reconciles
+  accepted diffs, follows the disk, renames and saves handles a missing model.
+- **Whether a buffer is unsaved has a unit table** (`test-baseline`, 24 cases): at
+  its baseline, an edit, an ordinary undo, undo and redo onto a new version with the
+  saved text, a same-length edit, the saved text changing underneath, and a restored
+  buffer that never matched — with a count of how often the text was read, since not
+  reading it is the point.
+- **Not proven:** the long-name fix has no suite behind it — every suite's paths
+  are already long names, so a link spelled with `RUNNER~1` has not been clicked.
+  The notice on timeout has not been seen, since nothing here is slow enough to
+  reach it.
+- **How it is checked:** `test-baseline` fails 4 of 24 with `baseline.ts` as it was
+  before the redo fix ("redone to the saved text on a new id, it is not modified —
+  true") and passes with it. With the unfixed app, the new `verify-search` check
+  failed 3 runs of 3 ("at the line of the match it named — Ln 1, Col 1"), beside
+  `verify-links` failing the same way; on this branch `links`, `search`, `follow`,
+  `navigate`, `problems`, `dap` and `editor` passed in 3 runs, except one
+  `verify-editor` that died two seconds in with "Resulting promise was garbage
+  collected" in the harness, before it checked anything. The fix below was run
+  again for this: `follow` and `links` passed 3 of 3 with it and failed 3 of 3
+  without it.
+
 ### A link opens at its line again, and redo back to the saved text is saved
 
 - **A link to a line opened the file at line 1.** Opening at a position waited a

@@ -532,8 +532,10 @@ export function App(): React.JSX.Element {
     }
   }, [panes])
 
-  const openPaths = async (paths: string[]): Promise<void> => {
-    if (paths.length === 0) return
+  /** Opens each file, and answers with the paths that did open, as opened. */
+  const openPaths = async (paths: string[]): Promise<string[]> => {
+    const opened: string[] = []
+    if (paths.length === 0) return opened
     // A file named on the command line says more about where the user is working
     // than the shell's start directory does, so it seeds the workspace root.
     const s0 = useStore.getState()
@@ -561,7 +563,7 @@ export function App(): React.JSX.Element {
       }
       const s = useStore.getState()
       const tab = s.tabs.find((t) => t.id === s.activeTabId)
-      if (!tab) return
+      if (!tab) return opened
       s.openFileInSplit(tab.id, {
         path: res.path,
         name: res.name,
@@ -571,7 +573,9 @@ export function App(): React.JSX.Element {
         stamp: res.stamp,
         encoding: res.encoding
       })
+      opened.push(res.path)
     }
+    return opened
   }
 
   /**
@@ -599,7 +603,11 @@ export function App(): React.JSX.Element {
   })
 
   const revealAt = async (filePath: string, line: number, column: number): Promise<void> => {
-    await openPaths([filePath])
+    // The path as it was opened, which is the one its model is keyed by. A file that
+    // did not open (binary, too large, gone) has said so already, and no editor is
+    // coming for it.
+    const [target] = await openPaths([filePath])
+    if (!target) return
     const { modelUri, monaco } = await import('./editor/monaco')
     /*
      * Waited for, not guessed at. A couple of frames used to be enough for the
@@ -610,27 +618,36 @@ export function App(): React.JSX.Element {
      * editor that holds this file.
      */
     const holding = (): MonacoEditors => {
-      const model = monaco.editor.getModel(modelUri(filePath))
+      const model = monaco.editor.getModel(modelUri(target))
       return model ? monaco.editor.getEditors().filter((e) => e.getModel() === model) : []
     }
     type MonacoEditors = ReturnType<typeof monaco.editor.getEditors>
+    // Measured by the clock rather than by counting ticks: a window in the
+    // background has its timers slowed to one a second, and a hundred of those is
+    // not five seconds.
+    const deadline = performance.now() + 5000
     let editors = holding()
-    for (let waited = 0; editors.length === 0 && waited < 5000; waited += 50) {
+    while (editors.length === 0 && performance.now() < deadline) {
       await new Promise((resolve) => window.setTimeout(resolve, 50))
       editors = holding()
     }
-    {
-      for (const editor of editors) {
-        const position = { lineNumber: line, column: column + 1 }
-        editor.setSelection({
-          startLineNumber: line,
-          startColumn: column + 1,
-          endLineNumber: line,
-          endColumn: column + 1
-        })
-        editor.revealPositionInCenter(position)
-        editor.focus()
-      }
+    if (editors.length === 0) {
+      // Not silently: the file is open and the cursor is not where it was sent.
+      useStore
+        .getState()
+        .setNotice(`${target.split(/[\\/]/).pop()} opened, but not at line ${line}: no editor showed it in time.`, 'error')
+      return
+    }
+    for (const editor of editors) {
+      const position = { lineNumber: line, column: column + 1 }
+      editor.setSelection({
+        startLineNumber: line,
+        startColumn: column + 1,
+        endLineNumber: line,
+        endColumn: column + 1
+      })
+      editor.revealPositionInCenter(position)
+      editor.focus()
     }
   }
 

@@ -80,7 +80,20 @@ check('and the cursor says it will open', url.cursor === 1, JSON.stringify(url))
 // --- a path with a position opens the editor there ----------------------------
 const target = page.locator('.block__body .row', { hasText: 'verify-links.mjs:31' }).first()
 await target.click({ position: { x: 28, y: 9 } })
-await sleep(2600)
+/*
+ * Waited for, up to ten seconds, rather than slept on. This was a fixed 2.6s, and
+ * the app itself now waits up to five for its editor to arrive before it moves the
+ * cursor — so a slow runner would have read "Ln 1" here while the jump was still on
+ * its way. A jump that was dropped never arrives, and still fails below with what
+ * the status bar said.
+ */
+await page
+  .waitForFunction(
+    () => document.querySelector('[data-status="position"]')?.textContent?.includes('Ln 31') ?? false,
+    null,
+    { timeout: 10_000 }
+  )
+  .catch(() => {})
 
 const landed = await page.evaluate(() => ({
   mode: document.querySelector('.workspace')?.getAttribute('data-mode') ?? null,
