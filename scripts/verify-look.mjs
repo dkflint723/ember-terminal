@@ -153,6 +153,47 @@ const panelOf = (page, selector) =>
     return { filter: c.backdropFilter, colour: c.backgroundColor, animation: c.animationName, shadow: c.boxShadow }
   }, selector)
 
+/*
+ * What paints an opaque fill over the ground in the live terminal, while it shows.
+ *
+ * Every element of the terminal big enough to matter (half its area or more), and
+ * every element between it and the ground. Null when the terminal is not showing —
+ * an idle live view is zero pixels tall, and an empty list from it would prove
+ * nothing. Canvas pixels are not in here; their clear colour is xterm's theme
+ * background, which the page's own check reads as `data-term-alpha`.
+ */
+const liveFills = (page) =>
+  page.evaluate(() => {
+    const term = document.querySelector('.live .xterm')
+    const ground = document.querySelector('.workspace')
+    if (!term || !ground) return null
+    const box = term.getBoundingClientRect()
+    const area = box.width * box.height
+    if (area < 1000) return null
+    const alpha = (colour) => {
+      const slashed = /\/\s*([0-9.]+)\s*\)/.exec(colour)
+      if (slashed) return parseFloat(slashed[1])
+      const fn = /rgba?\(([^)]+)\)/.exec(colour)
+      if (fn) {
+        const parts = fn[1].split(',').map((p) => parseFloat(p))
+        return parts.length > 3 ? parts[3] : 1
+      }
+      return colour === 'transparent' ? 0 : 1
+    }
+    const opaque = []
+    const look = (el) => {
+      const c = getComputedStyle(el)
+      if (c.display === 'none' || c.visibility === 'hidden') return
+      if (alpha(c.backgroundColor) > 0) opaque.push(`${el.className || el.tagName}: ${c.backgroundColor}`)
+    }
+    for (const el of [term, ...term.querySelectorAll('*')]) {
+      const r = el.getBoundingClientRect()
+      if (r.width * r.height >= area * 0.5) look(el)
+    }
+    for (let el = term.parentElement; el && el !== ground; el = el.parentElement) look(el)
+    return opaque
+  })
+
 const ringOf = (page) =>
   page.evaluate(() => {
     const pane = document.querySelector('.pane--active')
@@ -215,6 +256,17 @@ const running = await until(
   10_000
 )
 check('a running command has a glow', running !== null && running.shadow !== 'none', JSON.stringify(running))
+if (start.look?.applied !== 'none') {
+  /*
+   * The running command is drawn by xterm, over the ground, and on glass nothing
+   * in it may paint a fill of its own. The first build of this drew it on black:
+   * xterm's stylesheet gives its viewport `#000` under a canvas that is normally
+   * opaque, and on glass the canvas is not.
+   */
+  const fills = await until(() => liveFills(page), (f) => f !== null, 5_000)
+  check('the live terminal is showing, to be looked at', fills !== null)
+  check('and on glass nothing in it paints over the ground', fills !== null && fills.length === 0, JSON.stringify(fills))
+}
 await sleep(400)
 await shot(page, 'look-01-default-blocks.png')
 await until(() => page.locator('.block--running').count(), (n) => n === 0, 20_000)
@@ -250,59 +302,61 @@ const labelled = {
   frosted: await page.getByLabel('Frost dialogs, the palette, menus and notices').count(),
   accents: await page.getByLabel('Glows, light on headers, and dialogs that ease in').count()
 }
-check(
-  'Appearance offers the four look settings, each found by its label',
-  Object.values(labelled).every((n) => n === 1),
-  JSON.stringify(labelled)
-)
-await page.getByLabel('Window backdrop', { exact: true }).scrollIntoViewIfNeeded()
+// Without the four there is nothing below to drive, and each step would wait out a
+// locator timeout and throw before any failure was reported.
+const ui = Object.values(labelled).every((n) => n === 1)
+check('Appearance offers the four look settings, each found by its label', ui, JSON.stringify(labelled))
+if (ui) await page.getByLabel('Window backdrop', { exact: true }).scrollIntoViewIfNeeded()
 await sleep(300)
 await shot(page, 'look-03-settings.png')
+if (!ui) await cancelSettings()
 
 // --- each previews as it changes ---------------------------------------------------
-await page.getByLabel('Window backdrop', { exact: true }).selectOption('acrylic')
-const acrylic = await until(() => mainLook(app), (m) => m.look?.requested === 'acrylic')
-check('choosing Acrylic applies it to the window at once', acrylic.look?.requested === 'acrylic', JSON.stringify(acrylic))
-check(
-  'as Acrylic where it can be drawn',
-  acrylic.look?.applied === (supported ? 'acrylic' : 'none'),
-  JSON.stringify(acrylic)
-)
-check('before anything is saved', (await stored()).windowBackdrop === 'mica')
+if (ui) {
+  await page.getByLabel('Window backdrop', { exact: true }).selectOption('acrylic')
+  const acrylic = await until(() => mainLook(app), (m) => m.look?.requested === 'acrylic')
+  check('choosing Acrylic applies it to the window at once', acrylic.look?.requested === 'acrylic', JSON.stringify(acrylic))
+  check(
+    'as Acrylic where it can be drawn',
+    acrylic.look?.applied === (supported ? 'acrylic' : 'none'),
+    JSON.stringify(acrylic)
+  )
+  check('before anything is saved', (await stored()).windowBackdrop === 'mica')
 
-const slider = page.getByLabel('Window opacity', { exact: true })
-await slider.focus()
-await page.keyboard.press('Home')
-for (let i = 0; i < 4; i += 1) await page.keyboard.press('ArrowRight')
-const faded = await until(() => mainLook(app), (m) => Math.abs((m.opacity ?? 1) - 0.8) < 0.01)
-check('sliding the opacity to 80% applies it to the window at once', Math.abs((faded.opacity ?? 1) - 0.8) < 0.01, String(faded.opacity))
-check('and says so beside the slider', (await page.locator('.settings__opacity + .field__unit-label').textContent())?.trim() === '80%')
+  const slider = page.getByLabel('Window opacity', { exact: true })
+  await slider.focus()
+  await page.keyboard.press('Home')
+  for (let i = 0; i < 4; i += 1) await page.keyboard.press('ArrowRight')
+  const faded = await until(() => mainLook(app), (m) => Math.abs((m.opacity ?? 1) - 0.8) < 0.01)
+  check('sliding the opacity to 80% applies it to the window at once', Math.abs((faded.opacity ?? 1) - 0.8) < 0.01, String(faded.opacity))
+  check('and says so beside the slider', (await page.locator('.settings__opacity + .field__unit-label').textContent())?.trim() === '80%')
 
-await page.getByLabel('Frost dialogs, the palette, menus and notices').uncheck()
-await page.getByLabel('Glows, light on headers, and dialogs that ease in').uncheck()
-const offLook = await pageLook(page)
-check('unticking frost takes it off at once', offLook.frosted === 'off', JSON.stringify(offLook))
-check('and the open dialog stops blurring', (await panelOf(page, '.modal'))?.filter === 'none', JSON.stringify(await panelOf(page, '.modal')))
-check('unticking the accents takes them off at once', offLook.accents === 'off', JSON.stringify(offLook))
+  await page.getByLabel('Frost dialogs, the palette, menus and notices').uncheck()
+  await page.getByLabel('Glows, light on headers, and dialogs that ease in').uncheck()
+  const offLook = await pageLook(page)
+  check('unticking frost takes it off at once', offLook.frosted === 'off', JSON.stringify(offLook))
+  check('and the open dialog stops blurring', (await panelOf(page, '.modal'))?.filter === 'none', JSON.stringify(await panelOf(page, '.modal')))
+  check('unticking the accents takes them off at once', offLook.accents === 'off', JSON.stringify(offLook))
 
-// --- and Cancel puts every one of them back ----------------------------------------
-await cancelSettings()
-const back = await until(() => mainLook(app), (m) => m.look?.requested === 'mica' && m.opacity === 1)
-check('Cancel puts the backdrop back', back.look?.requested === 'mica', JSON.stringify(back))
-check('and the opacity', back.opacity === 1, String(back.opacity))
-const backPage = await pageLook(page)
-check('and the frost', backPage.frosted === 'on', JSON.stringify(backPage))
-check('and the accents', backPage.accents === 'on', JSON.stringify(backPage))
-check('and the page is glass again exactly where it was', backPage.backdrop === start.look?.applied, JSON.stringify(backPage))
-const afterCancel = await stored()
-check(
-  'and nothing was saved',
-  afterCancel.windowBackdrop === 'mica' &&
-    afterCancel.windowOpacity === 1 &&
-    afterCancel.frostedPanels === true &&
-    afterCancel.accentEffects === true,
-  JSON.stringify(afterCancel)
-)
+  // --- and Cancel puts every one of them back ----------------------------------------
+  await cancelSettings()
+  const back = await until(() => mainLook(app), (m) => m.look?.requested === 'mica' && m.opacity === 1)
+  check('Cancel puts the backdrop back', back.look?.requested === 'mica', JSON.stringify(back))
+  check('and the opacity', back.opacity === 1, String(back.opacity))
+  const backPage = await pageLook(page)
+  check('and the frost', backPage.frosted === 'on', JSON.stringify(backPage))
+  check('and the accents', backPage.accents === 'on', JSON.stringify(backPage))
+  check('and the page is glass again exactly where it was', backPage.backdrop === start.look?.applied, JSON.stringify(backPage))
+  const afterCancel = await stored()
+  check(
+    'and nothing was saved',
+    afterCancel.windowBackdrop === 'mica' &&
+      afterCancel.windowOpacity === 1 &&
+      afterCancel.frostedPanels === true &&
+      afterCancel.accentEffects === true,
+    JSON.stringify(afterCancel)
+  )
+}
 
 // --- each backdrop, saved (the dialog is not the point here) -----------------------
 for (const material of ['mica', 'tabbed', 'acrylic', 'none']) {
@@ -334,12 +388,14 @@ check('an opacity below 60% is held at 60%', Math.abs((floor.opacity ?? 1) - 0.6
 await page.evaluate(() => window.ember.setSettings({ windowOpacity: 1 }))
 
 // --- everything off, through the dialog, saved -------------------------------------
-await openSettings()
-await page.getByLabel('Window backdrop', { exact: true }).selectOption('none')
-await page.getByLabel('Frost dialogs, the palette, menus and notices').uncheck()
-await page.getByLabel('Glows, light on headers, and dialogs that ease in').uncheck()
-await page.locator('.modal__actions .btn', { hasText: 'Save' }).click()
-await until(() => page.locator('.modal').count(), (n) => n === 0, 5_000)
+if (ui) {
+  await openSettings()
+  await page.getByLabel('Window backdrop', { exact: true }).selectOption('none')
+  await page.getByLabel('Frost dialogs, the palette, menus and notices').uncheck()
+  await page.getByLabel('Glows, light on headers, and dialogs that ease in').uncheck()
+  await page.locator('.modal__actions .btn', { hasText: 'Save' }).click()
+  await until(() => page.locator('.modal').count(), (n) => n === 0, 5_000)
+}
 const saved = await stored()
 check(
   'Save keeps all three',
@@ -424,7 +480,10 @@ check('with the solid palette', solidPage.palette === 'plain', JSON.stringify(so
 check('and the terminal paints its own background', solidPage.termAlpha === '1', JSON.stringify(solidPage))
 await page.locator('.activity__item[data-view="settings"]').click()
 await page.waitForSelector('.modal', { timeout: 10_000 })
-const note = await page.locator('#settings-backdrop ~ .field__note--lead').textContent()
+const note = await page
+  .locator('#settings-backdrop ~ .field__note--lead')
+  .textContent({ timeout: 3_000 })
+  .catch(() => null)
 check('and Settings says why', /cannot draw one/.test(note ?? ''), note)
 await sleep(300)
 await shot(page, 'look-08-unsupported.png')
