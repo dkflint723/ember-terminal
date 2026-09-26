@@ -6660,6 +6660,15 @@ label.field__check {
       color-mix(in srgb, var(--grad-bottom) var(--glass-ground), transparent) 100%
     );
   }
+
+  /*
+   * xterm's own stylesheet paints its viewport black, under a canvas that is opaque
+   * everywhere else — so it never showed. On glass the canvas is clear, and a
+   * running command sat on a black slab in the middle of the ground until this.
+   */
+  :root:not([data-backdrop='none'])[data-backdrop] .xterm .xterm-viewport {
+    background-color: transparent;
+  }
 }
 
 /*
