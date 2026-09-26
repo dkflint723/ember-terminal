@@ -111,17 +111,32 @@ await sleep(1200)
 // --- clicking a result opens the file at the match ---------------------------
 await page.locator('.find__group', { hasText: 'alpha.ts' }).locator('.find__hit').nth(1).click()
 await page.waitForSelector('.pane.editor', { timeout: 20_000 })
-await sleep(1800)
+/*
+ * "At the match" was the heading here and never a check: the line was read into a
+ * field nothing looked at, so a result that opened its file at line 1 passed. That
+ * is exactly what happened once the editor pane was loaded on demand — the jump to
+ * the line was made 220ms after the open and dropped when no editor was there yet —
+ * and this search, run from a terminal with no editor open, is the first-editor
+ * path where it happens. The second hit in alpha.ts is on line 3. Waited for with a
+ * deadline, since the app waits for its editor too.
+ */
+await page
+  .waitForFunction(
+    () => /\bLn 3,/.test(document.querySelector('[data-status="position"]')?.textContent ?? ''),
+    null,
+    { timeout: 10_000 }
+  )
+  .catch(() => {})
 
 const landed = await page.evaluate(() => {
   const pane = document.querySelector('.pane.editor')
   return {
     path: pane?.getAttribute('data-editor-path') ?? null,
-    // The line the cursor sits on, as Monaco reports it in the status of the view.
-    highlighted: document.querySelector('.pane.editor .current-line') !== null
+    position: document.querySelector('[data-status="position"]')?.textContent ?? ''
   }
 })
 check('clicking a result opens that file', landed.path?.endsWith('alpha.ts') === true, landed.path)
+check('at the line of the match it named', /\bLn 3,/.test(landed.position), landed.position || '(no position)')
 
 // --- no results is an answer, not an error -----------------------------------
 await page.locator('.find__box').first().fill('zzz-definitely-not-here-zzz')
