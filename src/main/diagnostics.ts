@@ -24,6 +24,8 @@ export interface Environment {
   node: string
   os: string
   userData: string
+  /** The home folder, which names the person: written as %USERPROFILE% instead. */
+  home: string
 }
 
 /** Fields that name a choice from a list, and are copied as they are. */
@@ -53,10 +55,37 @@ export function settingsSummary(settings: Settings): Record<string, unknown> {
     else if (typeof value === 'string') out[key] = NAMES.has(key) ? value : value ? '(set)' : '(empty)'
     else if (Array.isArray(value))
       out[key] = NAME_LISTS.has(key) ? value.filter((v) => typeof v === 'string') : `${value.length} items`
-    // Chord to command id: both are the app's own names, and a clash is a common bug.
-    else if (key === 'keybindings') out[key] = value
+    // Command id to chord: both the app's own names, and a clash is a common bug —
+    // but the file is hand-editable and the check only asks for strings, so only
+    // entries shaped like a command and a chord are copied, and the rest counted.
+    else if (key === 'keybindings') out[key] = bindingsSummary(value)
     else if (key === 'windowBounds') out[key] = value
     else out[key] = '(set)'
+  }
+  return out
+}
+
+const COMMAND_ID = /^[a-z][A-Za-z0-9]*(?:\.[A-Za-z0-9]+)+$/
+const CHORD = /^(?:(?:Ctrl|Alt|Shift|Meta)\+)*[^\s+]{1,12}$/
+
+function bindingsSummary(value: unknown): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  let other = 0
+  for (const [id, chord] of Object.entries(value as Record<string, unknown>)) {
+    if (COMMAND_ID.test(id) && typeof chord === 'string' && (chord === '' || CHORD.test(chord))) out[id] = chord
+    else other += 1
+  }
+  if (other > 0) out['(other entries)'] = other
+  return out
+}
+
+/** Every spelling of the home folder, as it appears in paths and stacks. */
+function maskHome(text: string, home: string): string {
+  if (!home) return text
+  const forward = home.replace(/\\/g, '/')
+  let out = text
+  for (const h of new Set([home, forward, home.replace(/\\/g, '\\\\')])) {
+    out = out.replace(new RegExp(h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '%USERPROFILE%')
   }
   return out
 }
@@ -66,6 +95,9 @@ export function diagnosticsReport(
   settings: Settings,
   logTail: string[]
 ): string {
+  // Redacted as one text, not line by line: a private key block spans lines, and
+  // only whole can the rule for it match.
+  const tail = logTail.length > 0 ? redactSecrets(logTail.join('\n')) : ''
   const lines = [
     `Ember ${env.version}`,
     `Electron ${env.electron}, Chromium ${env.chrome}, Node ${env.node}`,
@@ -78,7 +110,7 @@ export function diagnosticsReport(
     logTail.length > 0
       ? `ember.log, last ${logTail.length} lines:`
       : 'ember.log: empty — nothing has gone wrong that main noticed.',
-    ...logTail.map((l) => redactSecrets(l))
+    ...(tail ? [tail] : [])
   ]
-  return lines.join('\n')
+  return maskHome(lines.join('\n'), env.home)
 }

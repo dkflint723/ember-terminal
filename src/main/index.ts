@@ -1396,10 +1396,11 @@ function registerIpc(): void {
     chrome: process.versions.chrome,
     node: process.versions.node,
     os: `Windows ${release()} ${arch()}`,
-    userData: app.getPath('userData')
+    userData: app.getPath('userData'),
+    home: app.getPath('home')
   })
   ipcMain.handle('app:about', () => {
-    const { version: _version, ...about } = environment()
+    const { version: _version, home: _home, ...about } = environment()
     return about
   })
   ipcMain.handle('app:copyDiagnostics', () => {

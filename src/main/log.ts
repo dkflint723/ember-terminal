@@ -119,14 +119,27 @@ export function createLog(dirOf: () => string, rotateAt = ROTATE_AT): Log {
   return {
     line: write,
     fault: (label, detail) => write(label, textOf(detail)),
+    // Reaching back a generation when the current file is short: just after a
+    // rotation it holds a line or two, and the lines that matter are in the last.
     tail(n) {
+      const linesOf = (file: string): string[] => {
+        try {
+          const lines = readFileSync(file, 'utf8').split(/\r?\n/)
+          if (lines.at(-1) === '') lines.pop()
+          return lines
+        } catch {
+          return []
+        }
+      }
+      let dir: string
       try {
-        const lines = readFileSync(generation(dirOf(), 0), 'utf8').split(/\r?\n/)
-        if (lines.at(-1) === '') lines.pop()
-        return lines.slice(-n)
+        dir = dirOf()
       } catch {
         return []
       }
+      const current = linesOf(generation(dir, 0))
+      if (current.length >= n) return current.slice(-n)
+      return [...linesOf(generation(dir, 1)), ...current].slice(-n)
     },
     path: () => generation(dirOf(), 0)
   }

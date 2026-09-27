@@ -20,12 +20,16 @@ newest entry sits on top.
   copied, a short list of fields known to be names is copied, keys say only whether
   one is set, and everything else — including any field added later — is a count or
   "set". The log lines are redacted again, since a log from an older build was not.
-  The report is built and copied by main; the window never holds the settings it
-  summarises.
-- **How it is checked:** *diagnostics* (14 cases, in the unit tables) seeds a marker
-  into every place a key, command, argument or folder can live, and an unredacted key
-  into the log, and none may come out. With `EMBER_OLD_RULE=1` it runs the obvious
-  rule — keys removed, everything else copied — and fails 7 of 14: the key leaks
+  The home folder, which names the person, is written as `%USERPROFILE%`
+  throughout, stacks included; keybindings are copied only where they are shaped
+  like a command and a chord; and the log's tail is redacted as one text, so a
+  private key spread over several lines is caught whole. The report is built and
+  copied by main; the window never holds the settings it summarises.
+- **How it is checked:** *diagnostics* (19 cases, in the unit tables) seeds a marker
+  into every place a key, command, argument or folder can live — a keybinding among
+  them — an unredacted key and a private key into the log, and a home folder into
+  the paths, and none may come out. With `EMBER_OLD_RULE=1` it runs the obvious
+  rule — keys removed, everything else copied — and fails 11 of 19: the key leaks
   through a shell's arguments. `verify-settings` stores a key, presses the button,
   and reads the system clipboard: the version is there, the key is said to be set,
   and the key is not. There was no button to press before this.

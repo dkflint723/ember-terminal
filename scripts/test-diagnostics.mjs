@@ -44,7 +44,8 @@ const env = {
   chrome: '140.0.0.0',
   node: '22.19.0',
   os: 'Windows 10.0.26200 x64',
-  userData: 'C:\\Users\\someone\\AppData\\Roaming\\ember'
+  userData: 'C:\\Users\\someone\\AppData\\Roaming\\ember',
+  home: 'C:\\Users\\someone'
 }
 const settings = {
   ...DEFAULT_SETTINGS,
@@ -64,6 +65,8 @@ const settings = {
   trustedFolders: ['D:\\marker-trusted-folder'],
   recentFolders: ['D:\\marker-recent-folder'],
   migrations: ['m1'],
+  // A chord is copied; a hand-edited value that is not one is not.
+  keybindings: { 'session.new': 'Ctrl+Shift+T', 'palette.open': '', 'marker-junk': 'ssh deploy@prod marker-binding-text' },
   // A field added after diagnostics.ts was written, holding text: summarised, not copied.
   someFutureField: 'marker-future-text',
   someFutureObject: { inner: 'marker-future-object' }
@@ -71,7 +74,11 @@ const settings = {
 const log = [
   '[2026-09-20T10:00:00.000Z] update failed: Error: 401 for x-api-key sk-ant-api03-OldLogNotRedacted0123456789',
   '[2026-09-27T10:00:00.000Z] renderer error: Error: boom',
-  '    at App (app.js:1:2)'
+  '    at App (app.js:1:2)',
+  '    at file:///C:/Users/someone/AppData/Local/ember/resources/app.asar/out/main/index.js:12:3',
+  '[2026-09-21T10:00:00.000Z] a fault: -----BEGIN RSA PRIVATE KEY-----',
+  'MIIEmarkerPrivateKeyBody0123456789',
+  '-----END RSA PRIVATE KEY-----'
 ]
 const report = diagnosticsReport(env, settings, log)
 
@@ -94,6 +101,20 @@ check('a key in a log line from an older build is redacted here', report.include
 check('a text field added later is summarised rather than copied', settingsSummary(settings).someFutureField === '(set)')
 check('an object field added later is summarised too', settingsSummary(settings).someFutureObject === '(set)')
 check('a key that is not set says so', settingsSummary({ ...settings, anthropicApiKey: null }).anthropicApiKey === 'not set')
+
+// --- nothing that names the person, or that was typed into a binding ----------------
+check('the home folder, which names the person, is not in it', !/someone/i.test(report), (report.match(/.{0,30}someone.{0,20}/i) ?? [''])[0])
+check(
+  'it is written as %USERPROFILE%, in a path and in a stack',
+  report.includes('%USERPROFILE%\\AppData\\Roaming\\ember') && report.includes('file:///%USERPROFILE%/AppData')
+)
+check('a keybinding shaped like a chord is copied', /"session\.new": "Ctrl\+Shift\+T"/.test(report))
+check('one that is not is counted instead', !report.includes('marker-binding-text') && /"\(other entries\)": 1/.test(report))
+check(
+  'a private key across several log lines is redacted whole',
+  !report.includes('MIIEmarkerPrivateKeyBody'),
+  (report.match(/.*MIIE.*/) ?? [''])[0]
+)
 
 // --- an empty log says what that means ---------------------------------------------
 check('an empty log is said to be empty', diagnosticsReport(env, settings, []).includes('ember.log: empty'))
