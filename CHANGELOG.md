@@ -5,6 +5,22 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A crash on the runner leaves its stack behind
+
+- **A native crash in a suite left an exit code and nothing else.** Ember starts
+  Electron's crash reporter, which writes the dump into the profile, and every suite
+  deletes its profile when it ends. The quit crash that still happens now and then
+  (exit 0xe06d7363, twice in about a dozen full gates since the fix for it) could
+  only ever be counted, never read.
+- **Any dump in a suite's profile is now kept beside its logs**, and CI prints each
+  one's native stack with Electron's and Microsoft's symbols. Proven with a
+  deliberate crash on the runner: the dump was kept in 4 runs of 4, and its stack
+  came back to the source line.
+- **Not proven:** anything about the quit crash itself. It did not happen in about
+  760 closes since, so it is caught for the next time rather than explained.
+- **How it is checked:** the full gate, where `verify-boom`'s deliberate freeze leaves
+  a dump every run and its stack is printed.
+
 ### Refresh in Source Control is never ignored
 
 - **Pressing Refresh while a status read was under way did nothing.** A flag turned

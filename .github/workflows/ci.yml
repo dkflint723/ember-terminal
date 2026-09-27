@@ -159,6 +159,27 @@ jobs:
       # leaves none, and only some suites take screenshots. What it is here for is
       # the other kind — a crash, a stack trace, a window that never appeared —
       # where the suite's own output in this log does not say enough.
+      # A crash on the runner used to leave an exit code and nothing else: Ember's
+      # crash reporter writes its dump into the profile, and the profile is gone when
+      # the suite ends. profile.mjs now keeps any dump beside the logs, and this reads
+      # each one's native stack, with Electron's and Microsoft's symbols, into the log.
+      # verify-boom freezes a window on purpose, so a "hung input thread" dump from it
+      # is expected there.
+      - name: Crash stacks
+        if: always()
+        shell: pwsh
+        run: |
+          $kept = Join-Path $env:RUNNER_TEMP 'ember-logs'
+          $dumps = @(Get-ChildItem $kept -Filter *.dmp -ErrorAction SilentlyContinue)
+          Write-Output "crash dumps kept: $($dumps.Count)"
+          if ($dumps.Count -eq 0) { exit 0 }
+          $cdb = @(Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe', 'C:\Program Files\Windows Kits\10\Debuggers\x64\cdb.exe' -ErrorAction SilentlyContinue)[0]
+          if (-not $cdb) { Write-Output 'no cdb on this runner; the dumps are in the evidence artifact'; exit 0 }
+          $env:_NT_SYMBOL_PATH = "srv*$env:RUNNER_TEMP\sym*https://msdl.microsoft.com/download/symbols;srv*$env:RUNNER_TEMP\sym*https://symbols.electronjs.org"
+          foreach ($d in $dumps) {
+            Write-Output "===== $($d.Name)"
+            & $cdb.FullName -z $d.FullName -c '.lines -e; .ecxr; kP 40; !analyze -v; ~*kn 25; q' 2>&1 | Select-String -NotMatch '^\s*$' | Select-Object -First 400 | ForEach-Object { "  $_" }
+          }
       - name: Keep what the run saw
         if: always()
         uses: actions/upload-artifact@v4
@@ -216,6 +237,27 @@ jobs:
         env:
           EMBER_STRICT: '1'
           EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs
+      # A crash on the runner used to leave an exit code and nothing else: Ember's
+      # crash reporter writes its dump into the profile, and the profile is gone when
+      # the suite ends. profile.mjs now keeps any dump beside the logs, and this reads
+      # each one's native stack, with Electron's and Microsoft's symbols, into the log.
+      # verify-boom freezes a window on purpose, so a "hung input thread" dump from it
+      # is expected there.
+      - name: Crash stacks
+        if: always()
+        shell: pwsh
+        run: |
+          $kept = Join-Path $env:RUNNER_TEMP 'ember-logs'
+          $dumps = @(Get-ChildItem $kept -Filter *.dmp -ErrorAction SilentlyContinue)
+          Write-Output "crash dumps kept: $($dumps.Count)"
+          if ($dumps.Count -eq 0) { exit 0 }
+          $cdb = @(Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe', 'C:\Program Files\Windows Kits\10\Debuggers\x64\cdb.exe' -ErrorAction SilentlyContinue)[0]
+          if (-not $cdb) { Write-Output 'no cdb on this runner; the dumps are in the evidence artifact'; exit 0 }
+          $env:_NT_SYMBOL_PATH = "srv*$env:RUNNER_TEMP\sym*https://msdl.microsoft.com/download/symbols;srv*$env:RUNNER_TEMP\sym*https://symbols.electronjs.org"
+          foreach ($d in $dumps) {
+            Write-Output "===== $($d.Name)"
+            & $cdb.FullName -z $d.FullName -c '.lines -e; .ecxr; kP 40; !analyze -v; ~*kn 25; q' 2>&1 | Select-String -NotMatch '^\s*$' | Select-Object -First 400 | ForEach-Object { "  $_" }
+          }
       - name: Keep what the run saw
         if: always()
         uses: actions/upload-artifact@v4
