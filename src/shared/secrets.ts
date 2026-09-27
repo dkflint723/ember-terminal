@@ -120,8 +120,24 @@ const LABELLED = [
   /(Authorization:\s*(?:Bearer|Basic)\s+)\S+/i,
   // Connection strings, which put the credential in a named field between semicolons.
   /((?:AccountKey|SharedAccessKey|SharedAccessSignature|Password|Pwd)\s*=\s*)[^;\s"']+/i,
-  // The credentials in a URL, keeping the rest of it readable.
-  /([a-z][a-z0-9+.-]*:\/\/[^\s/@:]+:)[^\s/@]+(?=@)/i,
+  /*
+   * The credentials in a URL, keeping the rest of it readable.
+   *
+   * Every part bounded. Unbounded, a long run of letters and digits — a base64
+   * blob, a minified line — was tried as a scheme from every starting point, each
+   * attempt scanning to the end: 2.5 s for 80,000 characters, minutes for a
+   * megabyte, on main's thread, for history and the log alike. No real scheme is
+   * longer than 32 characters, and no user or password here longer than these.
+   */
+  /(\b[a-z][a-z0-9+.-]{0,31}:\/\/[^\s/@:]{1,256}:)[^\s/@]{1,512}(?=@)/i,
+  /*
+   * A credential in JSON, which quotes its label: `"password": "…"`,
+   * `"Authorization": "Bearer …"`. A fault's detail written as JSON carried these
+   * in the clear, because every rule above expects the label bare. The label must
+   * end in the name, so `"author"` and `"maxTokens"` are left alone.
+   */
+  new RegExp(`("[A-Za-z0-9_-]*${NAME}"\\s*:\\s*")(?:[^"\\\\]|\\\\.)*`, 'i'),
+  /("authorization"\s*:\s*")(?:[^"\\]|\\.)*/i,
   // mysql and psql take the value attached to the flag: -pMyPassword.
   /((?<=^|\s)-p)\S{3,}/
 ]
@@ -185,7 +201,7 @@ const INLINE_SECRET = [
   /(?<=^|\s)-p\S{3,}/,
   /x-api-key\s*:\s*\S/i,
   /Authorization:\s*(?:Bearer|Basic)\s+\S/i,
-  /\b[a-z][a-z0-9+.-]*:\/\/[^\s/@:]+:[^\s/@]+@/i
+  /\b[a-z][a-z0-9+.-]{0,31}:\/\/[^\s/@:]{1,256}:[^\s/@]{1,512}@/i
 ]
 
 /** True when a command line appears to carry a credential in the clear. */

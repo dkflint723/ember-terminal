@@ -170,6 +170,41 @@ check(
 )
 check('and an ordinary proposal goes through', !inventsRedaction('const a = 1\n', 'const a = 2\n'))
 
+// --- JSON, which quotes the label ----------------------------------------------------
+// A fault's detail written as JSON, or a curl that echoes a request body.
+redacts('{"headers":{"Authorization":"Bearer abc123opaquevalue0987"}}', 'abc123opaque', '"Authorization":"')
+redacts('{"password":"hunter2hunter2"}', 'hunter2', '"password":"')
+redacts('{ "client_secret" : "s3cr3t-value-here" , "x": 1 }', 's3cr3t', '"client_secret" : "')
+redacts('{"access_token":"ya29.a0AfH6SMBxyz","expires_in":3599}', 'ya29.a0AfH6', '"expires_in":3599')
+redacts('{"apiKey":"not-shaped-like-any-vendor-key"}', 'not-shaped', '"apiKey":"')
+untouched('{"author":"Jane Doe","maxTokens":"100","tokens":"12","name":"ember"}')
+untouched('{"passwordPolicy":{"minLength":12}}')
+
+// --- a URL's credentials, still found once the rule is bounded ------------------------
+redacts('git clone https://user:hunter2pass@github.com/o/r.git', 'hunter2pass', 'https://user:')
+redacts('postgres://admin:Pa55w0rd!@db.internal:5432/app', 'Pa55w0rd', 'postgres://admin:')
+dropped('git clone https://user:hunter2pass@github.com/o/r.git')
+untouched('see https://example.com/a/b and file:///C:/x/y.txt:12:3')
+
+/*
+ * --- and in bounded time ------------------------------------------------------------
+ *
+ * Unbounded, the URL rule tried every run of letters and digits as a scheme from each
+ * starting point and scanned to the end each time: 2.5 s for 80,000 characters on
+ * main's thread, where history's output and ember.log's faults are redacted.
+ */
+for (const [what, fn] of [
+  ['redactSecrets', redactSecrets],
+  ['containsInlineSecret', containsInlineSecret]
+]) {
+  const blob = 'A'.repeat(100_000)
+  const started = performance.now()
+  fn(blob)
+  const took = performance.now() - started
+  cases += 1
+  check(`${what} on 100,000 letters takes under 300 ms`, took < 300, `${Math.round(took)} ms`)
+}
+
 console.log(
   failures === 0 ? `secrets: ${cases} cases PASS` : `secrets: ${failures} checks FAILED of ${cases} cases`
 )

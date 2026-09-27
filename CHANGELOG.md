@@ -5,6 +5,24 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Redaction finds keys in JSON, and cannot freeze main
+
+- **A credential in JSON was kept.** Every labelled rule expects the label bare —
+  `TOKEN=…`, `--password …`, `Authorization: Bearer …` — and JSON quotes it, so
+  `{"password":"…"}` and `{"Authorization":"Bearer …"}` in command output went into
+  history as they were, and would have gone into ember.log the same way. A quoted
+  label that ends in a credential's name now has its value redacted; `"author"` and
+  `"maxTokens"` are left alone.
+- **One rule took seconds on a long line.** The rule for a password inside a URL tried
+  every run of letters and digits as a URL scheme, from every starting point, reading
+  to the end each time: 3.7 s for 100,000 characters, minutes for a megabyte, on
+  main's thread — where history redacts up to 100,000 characters of a command's output.
+  Each part of it is now bounded, which finds the same credentials.
+- **How it is checked:** *secrets* (92 cases, in the unit tables) has five JSON
+  credentials, two JSON objects that must come back unchanged, URL credentials under
+  the bounded rule, and a 300 ms limit on 100,000 letters. Master's rules fail 6: all
+  five JSON cases, and the limit at 3,718 ms. Found by an independent review.
+
 ### A crash on the runner leaves its stack behind
 
 - **A native crash in a suite left an exit code and nothing else.** Ember starts
