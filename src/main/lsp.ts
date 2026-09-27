@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import type { CustomLanguageServer } from '../shared/types.js'
+import type { CustomLanguageServer, LspStderrLine } from '../shared/types.js'
+import { redactSecrets, stripAnsi } from '../shared/secrets.js'
 import { appendFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { homedir } from 'node:os'
@@ -253,9 +254,27 @@ function powerShellExecutable(): string | null {
  * JSON over stdio, which has to be reassembled because a pipe read can split or
  * coalesce messages arbitrarily.
  */
+/** Lines of stderr kept per server: a tail to explain a failure, not an archive. */
+const STDERR_LINES = 200
+
 export class LspService {
   private servers = new Map<string, ChildProcessWithoutNullStreams>()
   private buffers = new Map<string, Buffer>()
+  /*
+   * What each server said on stderr.
+   *
+   * A server that cannot start — a toolchain missing, a version it refuses, a
+   * wrapper script that fails — explains itself there and nowhere else, and it was
+   * read only when EMBER_LSP_LOG named a trace file, which nobody running a packaged
+   * build has. The Output panel showed LSP log messages, which a server that never
+   * got as far as the handshake has not sent, and only those that arrived while the
+   * panel happened to be open. So the last lines are kept here, per server, beyond
+   * the life of the process, and the panel asks for them when it opens.
+   */
+  private stderr = new Map<string, LspStderrLine[]>()
+  /** A line split across chunks, per server, until its newline arrives. */
+  private stderrPartial = new Map<string, string>()
+  private stderrSeq = 0
   /** Workspace root per language, injected into the handshake. See post(). */
   private roots = new Map<string, string>()
 
@@ -398,8 +417,12 @@ export class LspService {
     child.stdin.on('error', (err) => trace('<--', language, `stdin: ${err.message}`))
     child.stdout.on('data', (chunk: Buffer) => this.onData(language, chunk))
     // A server that rejects the handshake often explains itself here and nowhere else.
-    if (LOG_PATH) child.stderr.on('data', (c: Buffer) => trace('<--', language, `stderr: ${c}`))
-    else child.stderr.resume()
+    child.stderr.on('data', (c: Buffer) => {
+      trace('<--', language, `stderr: ${c}`)
+      this.onStderr(language, c.toString('utf8'))
+    })
+    // What was left without a newline is still something the server said.
+    child.stderr.on('end', () => this.onStderr(language, '\n'))
     child.on('exit', (code, signal) => {
       trace('<--', language, `exit: code=${code} signal=${signal}`)
       this.servers.delete(language)
@@ -445,6 +468,26 @@ export class LspService {
     })
 
     return { ok: true }
+  }
+
+  private onStderr(language: string, chunk: string): void {
+    const parts = ((this.stderrPartial.get(language) ?? '') + chunk).split(/\r?\n/)
+    this.stderrPartial.set(language, parts.pop() ?? '')
+    for (const raw of parts) {
+      const text = redactSecrets(stripAnsi(raw)).trimEnd()
+      if (!text) continue
+      const line: LspStderrLine = { seq: (this.stderrSeq += 1), language, text }
+      const kept = this.stderr.get(language) ?? []
+      kept.push(line)
+      if (kept.length > STDERR_LINES) kept.splice(0, kept.length - STDERR_LINES)
+      this.stderr.set(language, kept)
+      this.send({ type: 'stderr', language, line })
+    }
+  }
+
+  /** Every server's recent stderr, oldest first, for a panel that has just opened. */
+  recentStderr(): LspStderrLine[] {
+    return [...this.stderr.values()].flat().sort((a, b) => a.seq - b.seq)
   }
 
   /** Reassemble framed messages, which may arrive split or several at a time. */

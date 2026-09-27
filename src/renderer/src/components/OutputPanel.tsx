@@ -13,6 +13,8 @@ interface Line {
   id: number
   language: string
   text: string
+  /** Set for a server's stderr, which main numbers so the backlog and the stream can meet. */
+  seq?: number
 }
 
 const LIMIT = 500
@@ -25,7 +27,35 @@ export function OutputPanel(): React.JSX.Element {
   const notice = useStore((s) => s.notice)
 
   useEffect(() => {
-    return window.ember.onLspMessage((event) => {
+    /*
+     * What the servers wrote to stderr before this panel was open.
+     *
+     * A server that failed to start said why on stderr, and only there, usually
+     * well before anyone thought to open this panel. Main keeps the last lines of
+     * each. They are asked for once, and merged by number with any that stream in
+     * while the answer is on its way, so none is shown twice or lost between them.
+     */
+    let live = true
+    void window.ember.lspStderr().then((backlog) => {
+      if (!live) return
+      setLines((prev) => {
+        const have = new Set(prev.map((l) => l.seq).filter((n) => n !== undefined))
+        const earlier = backlog
+          .filter((l) => !have.has(l.seq))
+          .map((l) => ({ id: nextId.current++, language: l.language, text: l.text, seq: l.seq }))
+        return [...earlier, ...prev].slice(-LIMIT)
+      })
+    })
+    const stop = window.ember.onLspMessage((event) => {
+      if (event.type === 'stderr' && event.line) {
+        const { seq, language, text } = event.line
+        setLines((prev) =>
+          prev.some((l) => l.seq === seq)
+            ? prev
+            : [...prev, { id: nextId.current++, language, text, seq }].slice(-LIMIT)
+        )
+        return
+      }
       // Only the parts worth reading: a server's own log messages, and the fact
       // that one stopped. The rest is request traffic and would bury both.
       let text: string | null = null
@@ -47,6 +77,10 @@ export function OutputPanel(): React.JSX.Element {
         return [...prev, line].slice(-LIMIT)
       })
     })
+    return () => {
+      live = false
+      stop()
+    }
   }, [])
 
   // Follow the tail, the way a log view is expected to.
@@ -86,7 +120,10 @@ export function OutputPanel(): React.JSX.Element {
           </div>
         ) : (
           shown.map((line) => (
-            <div key={line.id} className="output__line">
+            <div
+              key={line.id}
+              className={`output__line${line.seq !== undefined ? ' output__line--stderr' : ''}`}
+            >
               <span className="output__from">{line.language}</span>
               <span className="output__text">{line.text}</span>
             </div>

@@ -116,6 +116,7 @@ const api: EmberApi = {
   lspStart: (language: string, root?: string) => ipcRenderer.invoke('lsp:start', language, root),
   lspSetRoot: (root: string) => ipcRenderer.send('lsp:setRoot', root),
   lspSend: (language: string, message: unknown) => ipcRenderer.send('lsp:send', language, message),
+  lspStderr: () => ipcRenderer.invoke('lsp:stderr'),
   lspRequest: (language: string, method: string, params: unknown) =>
     ipcRenderer.invoke('lsp:request', language, method, params),
   onLspMessage: (cb: (e: LspEvent) => void) => {

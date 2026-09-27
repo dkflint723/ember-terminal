@@ -5,6 +5,30 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A language server that cannot start says why, in the Output panel
+
+- **A server that died before its handshake left no reason anywhere.** A toolchain
+  missing, a version refused, a wrapper script that fails: such a server explains
+  itself on stderr, and Ember read stderr only when `EMBER_LSP_LOG` named a trace
+  file, which no packaged build has. The Output panel showed the log messages a
+  server sends once it is running — which one that never got that far has not
+  sent — and only those that arrived while the panel happened to be open.
+- **Main now keeps the last 200 lines each server wrote to stderr**, beyond the life
+  of the process, with colour codes stripped and keys redacted. They stream into the
+  Output panel as they arrive, and the panel asks for the rest when it opens, so a
+  server that died before anyone looked still says why. Lines are numbered in main,
+  so the backlog and the stream never show one twice.
+- **How it is checked:** `verify-lsp-custom` teaches a server that writes two lines to
+  stderr, one quoting a key, and exits; the Output panel is opened only afterwards.
+  It must show both lines, the key redacted, and exactly as many as main kept. On
+  the build before this, all four checks fail, 2 runs of 2 — the panel shows
+  nothing; the first check fails there only because the call it makes did not exist.
+- **Caught on the way in:** the stderr lines travel on the channel the editor's
+  language client reads, and the client took anything that was not a restart or an
+  exit to be a protocol message. The first version of this threw in the page for
+  every line a running server wrote, and `verify-lsp` failed on it in both jobs of
+  the gate. The client now reads protocol messages only.
+
 ### Redaction finds keys in JSON, and cannot freeze main
 
 - **A credential in JSON was kept.** Every labelled rule expects the label bare —
