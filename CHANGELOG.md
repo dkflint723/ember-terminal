@@ -5,6 +5,16 @@ newest entry sits on top.
 
 ## Unreleased
 
+### verify-completion meets Windows PowerShell's engine warm, as a pane would
+
+- **One check read a cold engine and called completion broken.** A Windows PowerShell
+  pane starts its completion engine when it opens, well before anyone presses Tab.
+  The suite asks that engine with no such pane open, so it meets it cold, and on a
+  loaded runner Windows PowerShell could take longer to come up than one request
+  waits: the answer was empty, and the check failed about one full run in four —
+  including 0.4.2's first release run. It now asks until the engine answers, for up
+  to thirty seconds; a completer that is really broken still answers nothing.
+
 ### Quitting just after a shell was asked for no longer crashes
 
 - **Ember sometimes died on its way out** — exit code 0xe06d7363, an uncaught C++

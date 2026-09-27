@@ -230,7 +230,19 @@ if (!rootHasWindows) {
    * used to give exactly that empty answer, so it passed for a build whose
    * completion had not come up at all.
    */
-  const ordinary = await ask('windows-powershell', systemDrive, 'Get-ChildIt')
+  /*
+   * Asked until it answers, within a bound. A Windows PowerShell pane starts its
+   * completion engine when it opens (prewarm), long before anyone presses Tab; this
+   * suite has no such pane, so it meets the engine cold, and on a loaded runner
+   * Windows PowerShell can take longer to come up than one request waits — about one
+   * full run in four, it answered nothing and the check reported completion broken.
+   * A broken completer still answers nothing for the whole thirty seconds.
+   */
+  let ordinary = await ask('windows-powershell', systemDrive, 'Get-ChildIt')
+  for (let until = Date.now() + 30_000; !ordinary.items.some((i) => i.text === 'Get-ChildItem') && Date.now() < until; ) {
+    await sleep(1000)
+    ordinary = await ask('windows-powershell', systemDrive, 'Get-ChildIt')
+  }
   check(
     'an ordinary command name completes',
     ordinary.items.some((i) => i.text === 'Get-ChildItem'),
