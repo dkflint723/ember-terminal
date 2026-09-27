@@ -28,6 +28,8 @@ import { redactSecrets } from '../shared/secrets.js'
 export const LOG_NAME = 'ember.log'
 export const ROTATE_AT = 2 * 1024 * 1024
 export const GENERATIONS = 3
+/** Characters of one line's text; a stack is a few KB, a quoted file is not. */
+export const MAX_LINE = 64 * 1024
 
 export interface Log {
   /** A narration line: the updater saying what it is doing. */
@@ -54,23 +56,47 @@ export function textOf(detail: unknown): string {
 }
 
 export function createLog(dirOf: () => string, rotateAt = ROTATE_AT): Log {
+  /*
+   * The current file moves first, under a name of its own, and only then does
+   * anything older. Another program holding ember.log open — a `Get-Content -Wait`,
+   * an editor tailing it — makes that first rename fail, and when it came last it
+   * failed after the older generations had already been shifted and the oldest
+   * deleted: every write while the file was held lost its line and one more
+   * generation. Now a held file fails before anything is touched, and is rotated on
+   * the first write after it is let go.
+   */
   const rotate = (dir: string): void => {
     const current = generation(dir, 0)
     if (!existsSync(current) || statSync(current).size < rotateAt) return
+    const moving = join(dir, 'ember.rotating.log')
+    renameSync(current, moving)
     rmSync(generation(dir, GENERATIONS), { force: true })
-    for (let n = GENERATIONS - 1; n >= 0; n -= 1) {
+    for (let n = GENERATIONS - 1; n >= 1; n -= 1) {
       const from = generation(dir, n)
       if (existsSync(from)) renameSync(from, generation(dir, n + 1))
     }
+    renameSync(moving, generation(dir, 1))
   }
 
   const write = (label: string, text: string): void => {
+    let dir: string
     try {
-      const dir = dirOf()
+      dir = dirOf()
+    } catch {
+      return
+    }
+    try {
       rotate(dir)
+    } catch {
+      // Not rotated this time; the line is still worth more than the size limit.
+    }
+    try {
+      // One line cannot outgrow the limit either: a fault quoting a whole file is
+      // clipped rather than written as a megabyte that no rotation would split.
+      const body = text.length > MAX_LINE ? `${text.slice(0, MAX_LINE)} … [${text.length - MAX_LINE} more characters]` : text
       appendFileSync(
         generation(dir, 0),
-        `[${new Date().toISOString()}] ${redactSecrets(label)}: ${redactSecrets(text)}\n`
+        `[${new Date().toISOString()}] ${redactSecrets(label)}: ${redactSecrets(body)}\n`
       )
     } catch {
       // A log that cannot be written must not become its own crash.
