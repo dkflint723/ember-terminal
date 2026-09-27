@@ -285,7 +285,10 @@ const api: EmberApi = {
   homeDir: ipcRenderer.sendSync('app:homeDir') as string,
   /** What to quote when reporting a bug. */
   version: ipcRenderer.sendSync('app:version') as string,
-  reportError: (kind, text) => ipcRenderer.send('log:renderer', kind, text)
+  reportError: (kind, text) => ipcRenderer.send('log:renderer', kind, text),
+  about: () => ipcRenderer.invoke('app:about'),
+  copyDiagnostics: () => ipcRenderer.invoke('app:copyDiagnostics'),
+  openLogs: () => ipcRenderer.send('app:openLogs')
 }
 
 contextBridge.exposeInMainWorld('ember', api)

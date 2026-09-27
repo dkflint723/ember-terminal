@@ -1531,6 +1531,20 @@ export interface EmberApi {
   version: string
   /** An error the renderer did not handle, for ember.log. */
   reportError(kind: RendererErrorKind, text: string): void
+  /** The runtime under this build, and where its data lives, for Settings' About. */
+  about(): Promise<AboutInfo>
+  /** Put a bug report's worth of facts on the clipboard; says how many log lines went. */
+  copyDiagnostics(): Promise<{ logLines: number }>
+  /** Show ember.log in Explorer. */
+  openLogs(): void
+}
+
+export interface AboutInfo {
+  electron: string
+  chrome: string
+  node: string
+  os: string
+  userData: string
 }
 
 /** The three ways the renderer tells main something went wrong it did not handle. */

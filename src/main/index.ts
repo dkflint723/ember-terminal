@@ -229,6 +229,8 @@ if (isAdminWindow) {
 }
 import { PtyManager } from './pty.js'
 import { createLog } from './log.js'
+import { diagnosticsReport, type Environment } from './diagnostics.js'
+import { arch, release } from 'node:os'
 import { detectProfiles } from './profiles.js'
 import { SettingsStore } from './settings.js'
 import { ThemeStore } from './themes.js'
@@ -1377,6 +1379,39 @@ function registerIpc(): void {
   // fetched is a version nobody has when they are writing down what went wrong.
   ipcMain.on('app:version', (event) => {
     event.returnValue = app.getVersion()
+  })
+
+  /*
+   * What a bug report needs first, one click from Settings.
+   *
+   * The version was the only fact the window gave, and every report still became
+   * a round of questions — which Windows, which settings, what the log said. The
+   * report is built in main, where the settings and the log are, and written to
+   * the clipboard from here so the renderer never holds the settings it
+   * summarises. See diagnostics.ts for what is left out and why.
+   */
+  const environment = (): Environment => ({
+    version: app.getVersion(),
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    node: process.versions.node,
+    os: `Windows ${release()} ${arch()}`,
+    userData: app.getPath('userData')
+  })
+  ipcMain.handle('app:about', () => {
+    const { version: _version, ...about } = environment()
+    return about
+  })
+  ipcMain.handle('app:copyDiagnostics', () => {
+    const tail = log.tail(200)
+    clipboard.writeText(diagnosticsReport(environment(), settings.get(), tail))
+    return { logLines: tail.length }
+  })
+  ipcMain.on('app:openLogs', () => {
+    // The file when there is one; the folder it would be in when nothing has gone
+    // wrong yet, which is its own answer.
+    if (existsSync(log.path())) shell.showItemInFolder(log.path())
+    else void shell.openPath(app.getPath('userData'))
   })
 
   /*

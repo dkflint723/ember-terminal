@@ -709,6 +709,47 @@ check("and is not saved until Save", storedSize !== 15, String(storedSize))
 await page.locator('.modal__actions .btn', { hasText: 'Cancel' }).click()
 await sleep(400)
 
+/*
+ * --- a bug report's facts, one click away, without the key ----------------------
+ *
+ * The version was the only thing the window said about itself. Settings now says
+ * what it runs on and where its data is, and Copy diagnostics puts that, the
+ * settings and the log's tail on the clipboard — built in main, which holds a key
+ * this suite stored above. Read from the system clipboard, the way it would be
+ * pasted.
+ */
+// Its own key: the one stored above was cleared again by the export check.
+const DIAG_KEY = 'sk-ant-verify-diagnostics-not-a-real-key'
+await page.evaluate((key) => window.ember.setSettings({ anthropicApiKey: key }), DIAG_KEY)
+// Emptied first, so what is read afterwards can only have come from the button.
+await app.evaluate(({ clipboard }) => clipboard.writeText('before'))
+await page.keyboard.press('Control+Comma')
+await page.waitForSelector('.modal', { timeout: 10_000 })
+const aboutText = await page
+  .waitForFunction(() => document.querySelector('.settings__about')?.textContent?.includes('Electron'), null, {
+    timeout: 10_000
+  })
+  .then(() => page.locator('.settings__about').textContent())
+  .catch(() => '')
+check('Settings says which Electron and Windows it runs on', /Electron \d+/.test(aboutText ?? '') && /Windows/.test(aboutText ?? ''), aboutText ?? '(no about line)')
+// This profile's own folder, or the admin-window folder inside it on an elevated run.
+check('and where its data is', /Data in [A-Za-z]:\\/.test(aboutText ?? '') && (aboutText ?? '').includes(path.basename(profile.dir)), aboutText ?? '')
+const hasButton = (await page.locator('.settings__diagnostics').count()) === 1
+check('there is a Copy diagnostics button', hasButton)
+if (hasButton) await page.locator('.settings__diagnostics').click()
+const note = await page
+  .waitForSelector('.settings__diagnostics-note', { timeout: 10_000 })
+  .then((el) => el.textContent())
+  .catch(() => '')
+const copied = await app.evaluate(({ clipboard }) => clipboard.readText())
+check('it says what it copied', /^Copied:/.test(note ?? ''), note ?? '(no note)')
+check('the clipboard holds the version', /^Ember \d+\.\d+\.\d+/.test(copied), copied.slice(0, 80))
+check('and says a key is set', /"anthropicApiKey": "set"/.test(copied), (copied.match(/"anthropicApiKey": [^,\n]*/) ?? ['(no anthropicApiKey line)'])[0])
+check('without the key', !copied.includes(DIAG_KEY), 'the stored key is in the report')
+await page.keyboard.press('Escape')
+await sleep(400)
+await page.evaluate(() => window.ember.setSettings({ anthropicApiKey: null }))
+
 const unclosed = await closeApp(app)
 if (unclosed) failures.push(unclosed)
 profile.cleanup()

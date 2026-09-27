@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type {
+  AboutInfo,
   AiCredential,
   ClaudeAccess,
   CustomLanguageServer,
@@ -174,6 +175,15 @@ function labelOfKey(key: string): string {
 export function SettingsPanel(): React.JSX.Element | null {
   /** What the last hand-run update check said, shown beside the button. */
   const [updateNote, setUpdateNote] = useState('')
+  const [about, setAbout] = useState<AboutInfo | null>(null)
+  const [diagnosticsNote, setDiagnosticsNote] = useState('')
+  useEffect(() => {
+    let live = true
+    void window.ember.about().then((info) => live && setAbout(info))
+    return () => {
+      live = false
+    }
+  }, [])
   /** Whether an update is staged and installable — carried, never inferred. */
   const [updateReady, setUpdateReady] = useState(false)
   /*
@@ -1942,9 +1952,49 @@ export function SettingsPanel(): React.JSX.Element | null {
                 {/* Nowhere in the window said which build this was, so the first
                     question anyone asks about a bug — which version? — had no answer
                     short of the installer's filename. */}
-                <div className="field__note">
+                <div className="field__note settings__about">
                   Ember {window.ember.version}
+                  {about && (
+                    <>
+                      <br />
+                      Electron {about.electron} · Chromium {about.chrome} · Node {about.node} ·{' '}
+                      {about.os}
+                      <br />
+                      Data in {about.userData}
+                    </>
+                  )}
                 </div>
+                {/* What a bug report needs, one click away. The report is built and
+                    copied by main, and leaves out keys, saved commands, shell
+                    arguments and folders — see main/diagnostics.ts. */}
+                <div className="composer__proposal-actions">
+                  <button
+                    className="btn settings__diagnostics"
+                    onClick={() => {
+                      setDiagnosticsNote('')
+                      void window.ember
+                        .copyDiagnostics()
+                        .then(({ logLines }) =>
+                          setDiagnosticsNote(
+                            `Copied: the version, Windows, your settings without keys, commands or folders, and ${
+                              logLines === 0 ? 'an empty log' : `the log's last ${logLines} lines`
+                            }. Read it before you post it.`
+                          )
+                        )
+                        .catch((err: unknown) => setDiagnosticsNote(`Could not copy: ${String(err)}`))
+                    }}
+                  >
+                    Copy diagnostics
+                  </button>
+                  <button className="btn" onClick={() => window.ember.openLogs()}>
+                    Open logs
+                  </button>
+                </div>
+                {diagnosticsNote && (
+                  <div className="field__note settings__diagnostics-note" role="status">
+                    {diagnosticsNote}
+                  </div>
+                )}
               </div>
 
               <div className="field" role="group" aria-labelledby="settings-updates">

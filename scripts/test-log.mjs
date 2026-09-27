@@ -4,28 +4,12 @@
 // fault came, so a key an error happened to quote was in the one file people attach
 // to a bug report. main/log.ts rotates it at 2 MB, keeps three generations back, and
 // passes every line through redactSecrets. This drives it against a real directory.
-//
-// main's sources import each other by their compiled names (`../shared/secrets.js`),
-// which Node's type stripping does not map back to the .ts on disk; the hook below
-// does only that.
+
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { registerHooks } from 'node:module'
-import { fileURLToPath } from 'node:url'
+import './ts-resolve.mjs'
 
-registerHooks({
-  resolve(specifier, context, next) {
-    if (specifier.startsWith('.') && specifier.endsWith('.js') && context.parentURL) {
-      const js = new URL(specifier, context.parentURL)
-      const ts = new URL(specifier.replace(/\.js$/, '.ts'), context.parentURL)
-      if (!fs.existsSync(fileURLToPath(js)) && fs.existsSync(fileURLToPath(ts))) {
-        return next(ts.href, context)
-      }
-    }
-    return next(specifier, context)
-  }
-})
 const real = await import('../src/main/log.ts')
 const { GENERATIONS, LOG_NAME } = real
 

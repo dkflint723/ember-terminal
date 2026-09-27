@@ -5,6 +5,31 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Settings copies what a bug report needs, and opens the log
+
+- **The window said which version it was, and nothing else.** Every report still
+  became a round of questions — which Windows, which settings, what the log said —
+  asked of someone on a machine that is not this one.
+- **Settings now says what Ember runs on and where its data is, and has two
+  buttons.** *Open logs* shows ember.log in Explorer. *Copy diagnostics* puts the
+  version, Electron, Chromium, Node and Windows, the settings and the log's last 200
+  lines on the clipboard, and says what it copied.
+- **Built so it cannot carry a key, a command or a folder.** Settings hold keys,
+  saved commands, the arguments shells start with and the folders people work in,
+  and a report is posted where anyone can read it. So numbers and switches are
+  copied, a short list of fields known to be names is copied, keys say only whether
+  one is set, and everything else — including any field added later — is a count or
+  "set". The log lines are redacted again, since a log from an older build was not.
+  The report is built and copied by main; the window never holds the settings it
+  summarises.
+- **How it is checked:** *diagnostics* (14 cases, in the unit tables) seeds a marker
+  into every place a key, command, argument or folder can live, and an unredacted key
+  into the log, and none may come out. With `EMBER_OLD_RULE=1` it runs the obvious
+  rule — keys removed, everything else copied — and fails 7 of 14: the key leaks
+  through a shell's arguments. `verify-settings` stores a key, presses the button,
+  and reads the system clipboard: the version is there, the key is said to be set,
+  and the key is not. There was no button to press before this.
+
 ### What the window throws reaches ember.log
 
 - **The renderer's errors went nowhere anyone would look.** An error in a click
