@@ -256,6 +256,90 @@ check(
   JSON.stringify(shown.filter((t) => t.includes('tried with token')))
 )
 
+/*
+ * --- a server that never answers cannot hold up Ctrl+S --------------------------
+ *
+ * Format on save asked the language server and waited for it, and a request on the
+ * editor's channel had no deadline at all: a server that was busy, wedged or slow
+ * held the save for as long as it stayed that way, with nothing on screen to say
+ * why. This one offers formatting and never answers it, and notes what it is told.
+ */
+const noteFile = path.join(dir, 'mute-server-notes.txt')
+fs.writeFileSync(path.join(dir, 'slow.rb'), 'puts "hello"\n', 'utf8')
+await page.evaluate(
+  ({ node, script, notes }) =>
+    window.ember.setSettings({
+      formatOnSave: true,
+      languageServers: [
+        {
+          id: 'mute-formatter',
+          languageId: 'ruby',
+          name: 'A server that formats too late',
+          command: node,
+          args: [script, '--slow-formatting', '8000', '--note', notes],
+          extensions: ['.rb']
+        }
+      ]
+    }),
+  { node: process.execPath, script: path.join(APP_DIR, 'scripts', 'lsp-fake-server.mjs'), notes: noteFile }
+)
+await sleep(800)
+await page.keyboard.press('Control+p')
+await page.waitForSelector('.qp__box', { timeout: 8_000 })
+await page.locator('.qp__box').fill('slow.rb')
+await sleep(500)
+await page.keyboard.press('Enter')
+await page.waitForFunction(
+  () => window.monaco.editor.getModels().some((m) => m.uri.path.endsWith('slow.rb') && m.getLanguageId() === 'ruby'),
+  null,
+  { timeout: 20_000 }
+)
+// The server up and holding the document before anything is asked of it.
+await sleep(2500)
+await page.evaluate(() => {
+  const editor = window.monaco.editor.getEditors().find((e) => e.getModel()?.uri.path.endsWith('slow.rb'))
+  editor?.focus()
+})
+await page.keyboard.press('Control+End')
+await page.keyboard.type('# typed before saving\n', { delay: 5 })
+const savedAt = Date.now()
+await page.keyboard.press('Control+s')
+const onDisk = () => fs.readFileSync(path.join(dir, 'slow.rb'), 'utf8')
+let saveWaited = null
+for (let until = Date.now() + 12_000; Date.now() < until; ) {
+  if (onDisk().includes('# typed before saving')) {
+    saveWaited = Date.now() - savedAt
+    break
+  }
+  await sleep(100)
+}
+check('a save is not held by a server slow to format', saveWaited !== null && saveWaited < 4_000, saveWaited === null ? 'not saved after 12 s' : `${saveWaited} ms`)
+const notes = () => (fs.existsSync(noteFile) ? fs.readFileSync(noteFile, 'utf8') : '')
+check('the server was really asked to format — this is not a save that skipped it', /asked textDocument\/formatting/.test(notes()), notes() || '(nothing noted)')
+const askedId = (/asked textDocument\/formatting (\S+)/.exec(notes()) ?? [])[1]
+check(
+  'and was told to stop that same request',
+  askedId !== undefined && new RegExp(`^cancel ${askedId}$`, 'm').test(notes()),
+  notes() || '(nothing noted)'
+)
+/*
+ * The server answers anyway, eight seconds after it was asked, with an
+ * edit. That answer is about a file already saved, and must change nothing.
+ */
+const savedText = onDisk()
+for (let until = Date.now() + 14_000; !/^answered /m.test(notes()) && Date.now() < until; ) await sleep(200)
+check('the server did answer, late — so what follows is tested, not assumed', /^answered /m.test(notes()), notes())
+await sleep(1500)
+const buffer = await page.evaluate(
+  () => window.monaco.editor.getModels().find((m) => m.uri.path.endsWith('slow.rb'))?.getValue() ?? ''
+)
+check('its late answer is not applied to the buffer', !buffer.includes('# formatted late'), JSON.stringify(buffer.slice(0, 80)))
+check('what was saved stays as it was saved', onDisk() === savedText)
+const dirty = await page.evaluate(
+  () => [...document.querySelectorAll('[data-dirty]')].map((el) => el.getAttribute('data-dirty'))
+)
+check('and the file is not marked unsaved', dirty.length > 0 && dirty.every((d) => d === 'false'), JSON.stringify(dirty))
+
 const unclosed = await closeApp(app)
 if (unclosed) failures.push(unclosed)
 profile.cleanup()

@@ -3,6 +3,40 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
+## Unreleased
+
+### A save does not wait on a language server that never answers
+
+- **Format on save could hold a save for as long as a server stayed silent.** It
+  asked the language server to format and waited, and requests between the editor
+  and a server had no deadline at all: a server that was busy, wedged or slow kept
+  Ctrl+S from finishing, with nothing on screen to say why. Monaco's own client
+  cannot cancel — it takes a cancellation token for formatting and never passes it
+  on.
+- **A save now gives a language server 1.5 seconds to format**, and a format asked
+  for by hand ten. Past that, Ember gives up on the request itself: the server is
+  told to stop (`$/cancelRequest`), the editor is answered with no changes at once,
+  and the server's answer, should it come after all, is dropped rather than applied
+  to a file that has already been saved. A notice says the file was saved as typed.
+  The bundled TypeScript formatter, which cannot hang the way a server can, is
+  waited for on save up to the ten seconds.
+- **A server that has stopped is not left owing answers.** What was still asked of
+  it is answered with nothing when it goes, and anything asked afterwards is
+  answered at once rather than sent nowhere. A server that is restarted keeps what
+  was asked while it was down: Ember hands those to the new process.
+- **How it is checked:** `verify-lsp-custom` teaches a server that offers formatting
+  and answers eight seconds late with an edit, turns on format on save, types and
+  presses Ctrl+S. The file must be on disk within 4 seconds, the server told to stop
+  the request it was asked, its late edit kept out of the buffer, and the file
+  unchanged and not marked unsaved. On the build before this, 2 runs of 2: the save
+  held 8.1 seconds, no cancel, and the late edit applied.
+- **Corrected before landing, after an independent review.** The first version
+  failed every request in flight when a server was restarted — including the ones
+  main was about to hand the new process — and failed them with an error, which
+  Monaco rethrows in the page; it left the bundled formatter's late edits to land
+  after the save; and it did not cancel at all at first, because Monaco writes a
+  request's URI unencoded (`file:///c:/…`) where the model says `file:///c%3A/…`.
+
 ## 0.4.3 — 2026-09-27
 
 A release with one fix in it: Ember no longer crashes, or fails to exit, when it is

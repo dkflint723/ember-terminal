@@ -7,6 +7,25 @@
 
 let buffer = Buffer.alloc(0)
 
+/*
+ * --mute-formatting: offer formatting, then never answer it — a server that is busy,
+ * wedged, or simply slow, which a save must not wait on. Anything it is told to
+ * cancel is appended to the file named by --note, so a suite can see the cancel
+ * arrive.
+ */
+const muteFormatting = process.argv.includes('--mute-formatting')
+// --slow-formatting <ms>: answer, but late, with an edit — so a suite can see whether
+// an answer that comes after the save is applied anyway.
+const slowAt = process.argv.indexOf('--slow-formatting')
+const slowMs = slowAt > 0 ? Number(process.argv[slowAt + 1]) : 0
+const noteAt = process.argv.indexOf('--note')
+const notePath = noteAt > 0 ? process.argv[noteAt + 1] : null
+const note = async (line) => {
+  if (!notePath) return
+  const fs = await import('node:fs')
+  fs.appendFileSync(notePath, `${line}\n`)
+}
+
 const send = (msg) => {
   const body = JSON.stringify({ jsonrpc: '2.0', ...msg })
   process.stdout.write(`Content-Length: ${Buffer.byteLength(body, 'utf8')}\r\n\r\n${body}`)
@@ -14,14 +33,29 @@ const send = (msg) => {
 
 const onMessage = (msg) => {
   const { id, method } = msg
+  if (method === '$/cancelRequest') void note(`cancel ${msg.params?.id}`)
   if (id === undefined) return // Notifications need no answer.
+  if ((muteFormatting || slowMs > 0) && (method === 'textDocument/formatting' || method === 'textDocument/rangeFormatting')) {
+    void note(`asked ${method} ${id}`)
+    if (slowMs > 0) {
+      setTimeout(() => {
+        void note(`answered ${id}`)
+        send({ id, result: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }, newText: '# formatted late\n' }] })
+      }, slowMs)
+    }
+    return
+  }
 
   switch (method) {
     case 'initialize':
       send({
         id,
         result: {
-          capabilities: { textDocumentSync: 1, hoverProvider: true },
+          capabilities: {
+            textDocumentSync: 1,
+            hoverProvider: true,
+            ...(muteFormatting || slowMs > 0 ? { documentFormattingProvider: true } : {})
+          },
           serverInfo: { name: 'fake-lsp' }
         }
       })

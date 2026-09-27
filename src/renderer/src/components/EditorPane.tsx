@@ -696,7 +696,7 @@ export function EditorPane({ pane, active, onFocus, tabId }: Props): React.JSX.E
      * reflows under a moving caret is a special kind of hostile.
      */
     if (from && useStore.getState().settings.formatOnSave) {
-      await formatDocument(editor, from)
+      await formatDocument(editor, from, { onSave: true })
     }
 
     if (from) {

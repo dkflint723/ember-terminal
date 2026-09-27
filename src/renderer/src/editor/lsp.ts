@@ -53,12 +53,38 @@ class Value<T> {
   }
 }
 
+/*
+ * One document, however its URI was spelled. Monaco's client writes a request's
+ * URI its own way — `file:///c:/…` where the model says `file:///c%3A/…` — so a
+ * give-up that compared the strings found nothing to give up on. Both are parsed,
+ * and a Windows file path is compared as Windows compares paths, without case;
+ * anything else is compared exactly, since only there is case not meaningful.
+ */
+function sameUri(a: string, b: string): boolean {
+  const canon = (u: string): string => {
+    const parsed = monaco.Uri.parse(u)
+    if (parsed.scheme === 'file' && /^[a-z]:[\\/]/i.test(parsed.fsPath)) return parsed.fsPath.toLowerCase()
+    return parsed.toString()
+  }
+  return canon(a) === canon(b)
+}
+
 class IpcTransport {
   readonly state = new Value<ConnectionState>({ state: 'connecting' })
   private listener: ((message: unknown) => void) | undefined
   private unsubscribe: (() => void) | undefined
   /** Document URI to the language it was opened as. See `serves`. */
   private openedAs = new Map<string, string>()
+  /**
+   * Requests sent and not yet answered, by id: what was asked, and about which
+   * document. Nothing on this channel had a deadline — Monaco's client waits on a
+   * reply for as long as it takes, and a server that never answers kept whatever
+   * awaited it waiting too. What is here can be given up on (`abandon`), and is all
+   * failed at once when the server goes.
+   */
+  private inFlight = new Map<number | string, { method: string; uri: string | undefined }>()
+  /** Given up on: the server's late reply, if one comes, is dropped. */
+  private abandoned = new Set<number | string>()
 
   constructor(
     private language: string,
@@ -99,6 +125,12 @@ class IpcTransport {
           })
         }
         useStore.getState().setNotice(`The ${this.language} language server was restarted.`, 'info')
+        /*
+         * Nothing in flight is given up here. Main holds what was sent while the
+         * server was down and delivers it to the new process before it says so, so
+         * those requests are about to be answered; failing them at this point
+         * failed exactly the ones that were going to work.
+         */
         return
       }
       if (event.type === 'exit') {
@@ -120,12 +152,20 @@ class IpcTransport {
         // TypeScript stood its bundled worker down when the server arrived;
         // with the server gone for good, the worker is the intelligence left.
         if (this.language === 'typescript') standUpBundledTypeScript()
+        // Nothing still asked of it will be answered now; said, so nothing waits on it.
+        this.answerInFlightWithNothing()
         return
       }
       // Only protocol messages go to the reader. A server's stderr travels on the
       // same channel, for the Output panel, and is not JSON-RPC: handed on, it
       // reached Monaco's client as a message with no method and threw in the page.
       if (event.type !== 'message') return
+      const reply = event.message as { id?: number | string; method?: unknown } | undefined
+      if (reply && reply.id !== undefined && reply.method === undefined) {
+        this.inFlight.delete(reply.id)
+        // Already answered, with nothing, when it was given up on.
+        if (this.abandoned.delete(reply.id)) return
+      }
       this.listener?.(event.message)
     })
 
@@ -135,7 +175,55 @@ class IpcTransport {
 
   async send(message: unknown): Promise<void> {
     if (!this.serves(message)) return
+    const rpc = message as { id?: number | string; method?: unknown; params?: { textDocument?: { uri?: unknown } } }
+    const isRequest = !!rpc && rpc.id !== undefined && typeof rpc.method === 'string'
+    /*
+     * A server given up on is not asked anything. Monaco's client keeps its
+     * providers registered and goes on asking — a hover, a highlight — and main
+     * drops each one, so each was a promise that never settled. Answered here, at
+     * once, with nothing.
+     */
+    if (this.state.value.state === 'closed') {
+      if (isRequest) queueMicrotask(() => this.listener?.({ jsonrpc: '2.0', id: rpc.id, result: null }))
+      return
+    }
+    if (isRequest) {
+      const uri = rpc.params?.textDocument?.uri
+      this.inFlight.set(rpc.id as number | string, { method: rpc.method as string, uri: typeof uri === 'string' ? uri : undefined })
+    }
     window.ember.lspSend(this.language, message)
+  }
+
+  /*
+   * With nothing, not with an error. Monaco turns an error reply into an exception,
+   * and for hover, highlights, the outline and the rest it rethrows that on a timer
+   * — an uncaught error in the page, which ember.log now records as a fault. Nothing
+   * is what a server that has gone has to say.
+   */
+  private answerInFlightWithNothing(): void {
+    for (const id of [...this.inFlight.keys()]) {
+      this.inFlight.delete(id)
+      this.listener?.({ jsonrpc: '2.0', id, result: null })
+    }
+  }
+
+  /**
+   * Give up on every request of this kind about this document: the server is told
+   * to stop ($/cancelRequest), the client waiting on it is answered with nothing at
+   * once, and the server's own answer, should it come after all, is dropped rather
+   * than applied to a document that has moved on. Returns how many there were.
+   */
+  abandon(methods: string[], uri: string): number {
+    let count = 0
+    for (const [id, asked] of [...this.inFlight.entries()]) {
+      if (!methods.includes(asked.method) || !asked.uri || sameUri(asked.uri, uri) === false) continue
+      this.inFlight.delete(id)
+      this.abandoned.add(id)
+      window.ember.lspSend(this.language, { jsonrpc: '2.0', method: '$/cancelRequest', params: { id } })
+      this.listener?.({ jsonrpc: '2.0', id, result: null })
+      count += 1
+    }
+    return count
   }
 
   /**
@@ -202,6 +290,18 @@ class IpcTransport {
 }
 
 const started = new Map<string, Promise<boolean>>()
+/** The transport for each running server, for giving up on what was asked of it. */
+const transports = new Map<string, IpcTransport>()
+
+/**
+ * Give up on a document's outstanding requests of these kinds, whichever server is
+ * answering for its language. Used by a save that will not wait on a formatter.
+ */
+export function abandonRequests(model: monaco.editor.ITextModel, methods: string[]): number {
+  const server = serverFor(model.getLanguageId())
+  if (!server) return 0
+  return transports.get(server)?.abandon(methods, model.uri.toString()) ?? 0
+}
 
 
 /**
@@ -364,6 +464,7 @@ export function ensureLanguageServer(language: string, root?: string): Promise<b
   const attempt = (async (): Promise<boolean> => {
     const transport = new IpcTransport(target, root)
     if (!(await transport.connect())) return false
+    transports.set(target, transport)
 
     const LspClient = (
       monaco as unknown as { lsp?: { MonacoLspClient?: new (t: unknown) => unknown } }

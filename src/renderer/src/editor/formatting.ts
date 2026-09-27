@@ -1,6 +1,16 @@
 import { monaco } from './monaco'
 import { useStore, workspaceRoot } from '../state/store'
 import { explainRestricted } from '../state/trust'
+import { abandonRequests } from './lsp'
+
+/*
+ * How long a formatter is waited for. A save waits briefly and then saves what was
+ * typed: format-on-save asked the language server and waited for it with no limit,
+ * so a server that was busy, wedged or slow held the save for as long as it stayed
+ * that way. Asked for by hand, a format may take longer, but not forever either.
+ */
+const ON_SAVE_MS = 1500
+const BY_HAND_MS = 10_000
 
 /**
  * Formatting, in the order of who has standing to have an opinion: the
@@ -60,7 +70,8 @@ function applyFormatted(
  */
 export async function formatDocument(
   editor: monaco.editor.ICodeEditor,
-  filePath: string | null
+  filePath: string | null,
+  { onSave = false }: { onSave?: boolean } = {}
 ): Promise<void> {
   const model = editor.getModel()
   if (!model) return
@@ -111,10 +122,42 @@ export async function formatDocument(
 
   const action = editor.getAction('editor.action.formatDocument')
   if (!action) return
+  const limit = onSave ? ON_SAVE_MS : BY_HAND_MS
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<'late'>((resolve) => {
+    timer = setTimeout(() => resolve('late'), limit)
+  })
   try {
-    await action.run()
+    const running = action.run().then(() => 'done' as const)
+    const outcome = await Promise.race([running, late])
+    if (outcome === 'late') {
+      // Given up on, so its answer cannot land after the save and undo it.
+      const abandoned = abandonRequests(model, ['textDocument/formatting', 'textDocument/rangeFormatting'])
+      if (abandoned === 0 && onSave) {
+        /*
+         * Nothing of a language server's to give up on: the formatter is Monaco's
+         * own — the bundled TypeScript worker, starting cold. It cannot be stopped,
+         * and it cannot wedge the way a server can, so the save waits for it, to the
+         * limit a format asked for by hand gets. Saving without it put the text as
+         * typed on disk, and then its edits landed in the buffer: formatted, unsaved,
+         * and different from the file.
+         */
+        await Promise.race([running, new Promise((resolve) => setTimeout(resolve, BY_HAND_MS - ON_SAVE_MS))])
+      } else if (abandoned > 0) {
+        useStore
+          .getState()
+          .setNotice(
+            onSave
+              ? `The ${model.getLanguageId()} language server did not format this file within ${limit / 1000} s, so it was saved as typed.`
+              : `The ${model.getLanguageId()} language server did not format this file within ${limit / 1000} s.`,
+            'info'
+          )
+      }
+    }
   } catch {
     // No formatter for this language; the save proceeds as typed.
+  } finally {
+    clearTimeout(timer)
   }
 }
 
