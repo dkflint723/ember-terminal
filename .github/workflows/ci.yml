@@ -223,6 +223,13 @@ jobs:
           Set-ItemProperty $key DumpCount 20 -Type DWord
           icacls $dir /grant 'Everyone:(OI)(CI)F' | Out-Null
           Get-ItemProperty $key | Format-List DumpFolder, DumpType, DumpCount
+      # DEBUG: prove the trap — a throwaway Electron with the crash reporter on crashes
+      # on purpose, unelevated, and its Crashpad dump must be kept by profile.mjs.
+      - name: The trap catches a crash
+        shell: pwsh
+        run: pwsh -NoProfile -File .github/unelevated.ps1 'node scripts/debug-crash-selftest.mjs'
+        env:
+          EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs
       - name: The gate
         shell: pwsh
         run: pwsh -NoProfile -File .github/unelevated.ps1 'node scripts/gate.mjs --hosted'
@@ -235,7 +242,8 @@ jobs:
         shell: pwsh
         run: |
           $dir = Join-Path $env:RUNNER_TEMP 'dumps'
-          $dumps = @(Get-ChildItem $dir -Filter *.dmp -ErrorAction SilentlyContinue)
+          $kept = Join-Path $env:RUNNER_TEMP 'ember-logs'
+          $dumps = @(Get-ChildItem $dir, $kept -Filter *.dmp -ErrorAction SilentlyContinue)
           Write-Output "DUMPS: $($dumps.Count)"
           $cdb = @(Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe', 'C:\Program Files\Windows Kits\10\Debuggers\x64\cdb.exe' -ErrorAction SilentlyContinue)[0]
           if (-not $cdb) { Write-Output 'DUMPS: no cdb on this runner'; exit 0 }

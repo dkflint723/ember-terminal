@@ -90,6 +90,25 @@ function keepLogs(dir) {
     ]) {
       if (fs.existsSync(from)) fs.copyFileSync(from, path.join(keep, `${stem}${suffix}.log`))
     }
+    /*
+     * And any crash dump, which is the only account of a crash there is.
+     *
+     * Ember starts Electron's crash reporter, so a native crash is written by
+     * Crashpad into this directory — and this directory is deleted when the suite
+     * ends. A crash on a hosted runner (0xe06d7363 at quit, once in several hundred
+     * closes) left an exit code and nothing else to read.
+     */
+    const dumps = []
+    const walk = (d, depth) => {
+      if (depth > 5) return
+      for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+        const p = path.join(d, entry.name)
+        if (entry.isDirectory()) walk(p, depth + 1)
+        else if (entry.name.toLowerCase().endsWith('.dmp')) dumps.push(p)
+      }
+    }
+    if (fs.existsSync(dir)) walk(dir, 0)
+    for (const dump of dumps) fs.copyFileSync(dump, path.join(keep, `${stem}-${path.basename(dump)}`))
   } catch {
     // Evidence is a convenience. Failing to keep it must not fail the run.
   }
