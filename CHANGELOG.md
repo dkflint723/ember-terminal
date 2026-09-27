@@ -79,8 +79,11 @@ newest entry sits on top.
 - **Corrected before release.** As first written, rotation moved the older files
   first: while the file was held, every fault was lost along with a generation of
   history. An independent review reproduced it with a held handle; it also found the
-  unclipped line, and the two redaction faults fixed in their own entry above.
-- **How it is checked:** *ember.log* (23 cases, in the unit tables) drives the writer
+  unclipped line, and the two redaction faults fixed in their own entry above. A
+  second review found that an *older* generation held open stopped the rotation
+  part-way, and the next one overwrote the file left waiting; a rotation left
+  unfinished is now finished first.
+- **How it is checked:** *ember.log* (26 cases, in the unit tables) drives the writer
   against a real directory — the format, keys in a message, a label and an object,
   200 KB of faults against a 10 KB limit, a 5 MB fault, a file held open by a .NET
   handle as PowerShell's tail holds it, and a directory that is not there. With

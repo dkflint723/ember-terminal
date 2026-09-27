@@ -87,9 +87,9 @@ function keepLogs(dir) {
     // Every generation, as the audit reads them: a fault rotated out of ember.log
     // fails the run, and should be in the evidence that says why.
     const logs = [['', ''], ['admin-window', '-admin']].flatMap(([sub, tag]) =>
-      ['ember.log', 'ember.1.log', 'ember.2.log', 'ember.3.log'].map((f) => [
+      ['ember.log', 'ember.1.log', 'ember.2.log', 'ember.3.log', 'ember.rotating.log'].map((f) => [
         path.join(dir, sub, f),
-        `${tag}${f === 'ember.log' ? '' : `-${f.slice(6, 7)}`}`
+        `${tag}${f === 'ember.log' ? '' : `-${f.slice(6, -4)}`}`
       ])
     )
     for (const [from, suffix] of logs) {
@@ -133,7 +133,7 @@ export function auditProfileDir(dir, { expectFaults = [] } = {}) {
   // Every generation: main rotates ember.log at 2 MB into ember.1.log and on, and a
   // fault rotated out of the current file is still a fault.
   const files = [dir, path.join(dir, 'admin-window')].flatMap((d) =>
-    ['ember.log', 'ember.1.log', 'ember.2.log', 'ember.3.log'].map((f) => path.join(d, f))
+    ['ember.log', 'ember.1.log', 'ember.2.log', 'ember.3.log', 'ember.rotating.log'].map((f) => path.join(d, f))
   )
   for (const file of files) {
     let text

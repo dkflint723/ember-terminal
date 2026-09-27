@@ -167,6 +167,39 @@ if (process.platform === 'win32') {
   check('once let go, the next write rotates', read(dir, 'ember.1.log').includes('while held: second') && read(dir).includes('after: let go'), JSON.stringify(names(dir)))
 }
 
+/*
+ * --- an older generation someone else holds open --------------------------------
+ *
+ * The current file had moved aside and the shift stopped at the held generation, so
+ * the next rotation renamed the new current file over the one left waiting: that
+ * file's contents were gone, and faults sat under a name nothing reads.
+ */
+if (process.platform === 'win32') {
+  const { spawn } = await import('node:child_process')
+  const dir = fresh()
+  const log = createLog(() => dir, 100)
+  for (const n of [1, 2, 3]) fs.writeFileSync(path.join(dir, `ember.${n}.log`), `GEN${n}\n`)
+  fs.writeFileSync(path.join(dir, LOG_NAME), 'ORIGINAL-CURRENT '.repeat(10) + '\n')
+  const target = path.join(dir, 'ember.2.log').replace(/'/g, "''")
+  const holder = spawn(
+    'powershell.exe',
+    ['-NoProfile', '-Command', `$f = [IO.File]::Open('${target}', 'Open', 'Read', 'ReadWrite'); 'held'; Start-Sleep -Seconds 4; $f.Close()`],
+    { stdio: ['ignore', 'pipe', 'ignore'] }
+  )
+  await new Promise((resolve) => {
+    holder.stdout.on('data', (d) => d.toString().includes('held') && resolve())
+    setTimeout(resolve, 15_000)
+  })
+  log.fault('held gen', 'A '.repeat(60))
+  log.fault('held gen', 'B '.repeat(60))
+  await new Promise((resolve) => holder.on('exit', resolve))
+  log.fault('after', 'C')
+  const all = names(dir).map((f) => read(dir, f)).join('\n')
+  check('with an older generation held, the current file is not lost', all.includes('ORIGINAL-CURRENT'), JSON.stringify(names(dir)))
+  check('nor the faults written meanwhile', all.includes('held gen: A') && all.includes('held gen: B'), JSON.stringify(names(dir)))
+  check('and once let go, the rotation left waiting is finished', !names(dir).includes('ember.rotating.log'), JSON.stringify(names(dir)))
+}
+
 // --- a log that cannot be written is not a crash --------------------------------
 {
   const missing = path.join(fresh(), 'no', 'such', 'dir')

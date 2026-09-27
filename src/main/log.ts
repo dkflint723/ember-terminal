@@ -28,6 +28,8 @@ import { redactSecrets } from '../shared/secrets.js'
 export const LOG_NAME = 'ember.log'
 export const ROTATE_AT = 2 * 1024 * 1024
 export const GENERATIONS = 3
+/** Where the current file waits while the older ones move up; see rotate(). */
+export const ROTATING_NAME = 'ember.rotating.log'
 /** Characters of one line's text; a stack is a few KB, a quoted file is not. */
 export const MAX_LINE = 64 * 1024
 
@@ -65,17 +67,28 @@ export function createLog(dirOf: () => string, rotateAt = ROTATE_AT): Log {
    * generation. Now a held file fails before anything is touched, and is rotated on
    * the first write after it is let go.
    */
-  const rotate = (dir: string): void => {
-    const current = generation(dir, 0)
-    if (!existsSync(current) || statSync(current).size < rotateAt) return
-    const moving = join(dir, 'ember.rotating.log')
-    renameSync(current, moving)
+  /*
+   * A rotation that stopped part-way is finished before another starts. An older
+   * generation held open — a tail left running after "Open logs" — can stop the
+   * shift after the current file has moved aside, and the next rotation then
+   * renamed the new current file over the one left waiting, which Windows allows:
+   * that whole file was lost, and what was in it sat under a name no reader looks for.
+   */
+  const shiftInto1 = (dir: string, moving: string): void => {
     rmSync(generation(dir, GENERATIONS), { force: true })
     for (let n = GENERATIONS - 1; n >= 1; n -= 1) {
       const from = generation(dir, n)
       if (existsSync(from)) renameSync(from, generation(dir, n + 1))
     }
     renameSync(moving, generation(dir, 1))
+  }
+  const rotate = (dir: string): void => {
+    const moving = join(dir, ROTATING_NAME)
+    if (existsSync(moving)) shiftInto1(dir, moving)
+    const current = generation(dir, 0)
+    if (!existsSync(current) || statSync(current).size < rotateAt) return
+    renameSync(current, moving)
+    shiftInto1(dir, moving)
   }
 
   const write = (label: string, text: string): void => {
