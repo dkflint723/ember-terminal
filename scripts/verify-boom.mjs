@@ -25,12 +25,21 @@ import { closeApp, watchRunning } from './harness.mjs'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 /*
- * One fault is expected here, because this suite causes it on purpose: the
- * renderer is force-crashed below to prove main notices and puts the workspace
- * back. Main writing that down is the evidence, not a failure — anything else in
- * ember.log still fails the run.
+ * The faults expected here are the ones this suite causes on purpose: the renderer
+ * is force-crashed below to prove main notices and puts the workspace back, and
+ * before that it throws, rejects and fails to render, to prove each reaches
+ * ember.log. Main writing those down is the evidence, not a failure — anything else
+ * in ember.log still fails the run.
  */
-const profile = newProfile('boom', { expectFaults: [/renderer gone: crashed/] })
+const DELIBERATE = /ember:(boom|thrown|rejected|burst)/
+const profile = newProfile('boom', {
+  expectFaults: [
+    /renderer gone: crashed/,
+    /^renderer (error|unhandled rejection|render failure): [\s\S]*ember:(boom|thrown|rejected|burst)/,
+    // The burst below is cut off at the limit on purpose, and main says so.
+    /^renderer faults dropped: \d+ more in that minute/
+  ]
+})
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
@@ -52,8 +61,8 @@ await watchRunning(app)
 await placeTopRight(app)
 const pageErrors = []
 page.on('pageerror', (e) => {
-  // The detonation itself is the one error this suite causes on purpose.
-  if (!e.message.includes('ember:boom')) pageErrors.push(e.message)
+  // The errors this suite causes on purpose are the only ones let through.
+  if (!DELIBERATE.test(e.message)) pageErrors.push(e.message)
 })
 await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
 await sleep(1200)
@@ -195,6 +204,51 @@ check('a second session opens', secondSession, `${await page.locator('.sessions_
 const before = await waitForSession(2, 30)
 check('the workspace is on disk before the crash', before.tabs === 2, sessionDetail(before))
 
+// --- what the renderer does not catch reaches ember.log -------------------------
+/*
+ * An error in a handler, a promise nobody awaited, a render that failed: each went
+ * to the renderer's console and nowhere else, so the log a bug report attaches
+ * described main alone. Read from the file itself, waited for rather than slept on,
+ * since the report crosses to main over IPC.
+ */
+const logText = () => {
+  try {
+    return fs.readFileSync(path.join(userData, 'ember.log'), 'utf8')
+  } catch {
+    return ''
+  }
+}
+const waitForLog = async (test, seconds = 10) => {
+  const until = Date.now() + seconds * 1000
+  while (Date.now() < until) {
+    if (test(logText())) return true
+    await sleep(100)
+  }
+  return test(logText())
+}
+const KEY = 'sk-ant-api03-EmberBoomNotARealKey0123456789abcdef'
+await page.evaluate((key) => {
+  setTimeout(() => {
+    throw new Error(`ember:thrown in a timer, quoting ${key}`)
+  }, 0)
+}, KEY)
+check(
+  'an error thrown outside React reaches ember.log',
+  await waitForLog((t) => /\] renderer error: Error: ember:thrown in a timer/.test(t)),
+  logText().slice(-600) || '(no ember.log)'
+)
+check('with its stack', /ember:thrown in a timer[^\n]*\n\s+at /.test(logText()), logText().slice(-400))
+check('and without the key it quoted', !logText().includes(KEY) && logText().includes('[redacted]'))
+
+await page.evaluate(() => {
+  void Promise.reject(new Error('ember:rejected and nobody awaited it'))
+})
+check(
+  'a promise rejected with nobody listening reaches ember.log',
+  await waitForLog((t) => /\] renderer unhandled rejection: Error: ember:rejected/.test(t)),
+  logText().slice(-600) || '(no ember.log)'
+)
+
 // --- the crash ------------------------------------------------------------------
 await page.evaluate(() => window.dispatchEvent(new CustomEvent('ember:boom')))
 await sleep(800)
@@ -211,6 +265,39 @@ check('and announces itself as an alert', boom.alert === 'alert', String(boom.al
 check('saying what happened', boom.title.includes('stopped drawing'), boom.title)
 check('with the actual error on screen', boom.error.includes('ember:boom'), boom.error)
 check('while the broken tree is down', boom.appGone === true, String(boom.appGone))
+
+/*
+ * The screen shows the message; the log keeps what the message cannot say — which
+ * component.
+ */
+check(
+  'the render failure reaches ember.log',
+  await waitForLog((t) => /\] renderer render failure: Error: ember:boom/.test(t)),
+  logText().slice(-600) || '(no ember.log)'
+)
+check('with the component that threw', /component stack:[\s\S]*Detonator/.test(logText()), logText().slice(-600))
+
+/*
+ * A loop that throws on every frame is one fault told many times. Main writes the
+ * first twenty in a minute from a window and counts the rest — so this comes after
+ * the three above have been written, and counts every renderer line: 3 + 40 thrown,
+ * 20 written.
+ */
+await page.evaluate(() => {
+  for (let i = 0; i < 40; i += 1) {
+    setTimeout(() => {
+      throw new Error(`ember:burst ${i}`)
+    }, 0)
+  }
+})
+await waitForLog((t) => (t.match(/\] renderer error: Error: ember:burst/g) ?? []).length >= 17)
+await sleep(1000)
+const rendererLines = (logText().match(/\] renderer (error|unhandled rejection|render failure): /g) ?? []).length
+check(
+  'a burst of 40 more stops at 20 renderer faults in the minute',
+  rendererLines === 20,
+  `${rendererLines} renderer faults written`
+)
 
 // --- the way back ---------------------------------------------------------------
 await page.locator('.boom .btn', { hasText: 'Reload the window' }).click()
@@ -321,6 +408,16 @@ check(
   'and the workspace it saves afterwards is still both sessions',
   saved.tabs === 2,
   sessionDetail(saved)
+)
+
+/*
+ * The burst's cut-off faults are counted, and the count is written when the window's
+ * minute ends — by the clock, not by some later fault that may never come.
+ */
+check(
+  'how many were cut off is written when the minute ends',
+  await waitForLog((t) => /\] renderer faults dropped: \d+ more in that minute/.test(t), 75),
+  logText().split('\n').filter((l) => /renderer faults/.test(l)).join(' | ') || '(no count written)'
 )
 
 const unclosed = await closeApp(app)

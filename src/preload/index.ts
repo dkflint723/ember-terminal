@@ -284,7 +284,8 @@ const api: EmberApi = {
   // available in a sandboxed preload, which is the point.
   homeDir: ipcRenderer.sendSync('app:homeDir') as string,
   /** What to quote when reporting a bug. */
-  version: ipcRenderer.sendSync('app:version') as string
+  version: ipcRenderer.sendSync('app:version') as string,
+  reportError: (kind, text) => ipcRenderer.send('log:renderer', kind, text)
 }
 
 contextBridge.exposeInMainWorld('ember', api)

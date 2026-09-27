@@ -1529,4 +1529,9 @@ export interface EmberApi {
   homeDir: string
   /** The running build, for anyone writing down what went wrong. */
   version: string
+  /** An error the renderer did not handle, for ember.log. */
+  reportError(kind: RendererErrorKind, text: string): void
 }
+
+/** The three ways the renderer tells main something went wrong it did not handle. */
+export type RendererErrorKind = 'error' | 'unhandled rejection' | 'render failure'
