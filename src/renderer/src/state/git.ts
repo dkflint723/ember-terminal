@@ -107,13 +107,16 @@ export function useGitStatusPolling(): void {
 
     const tick = (): void => {
       if (document.visibilityState !== 'visible') return
-      void refreshGitStatus()
+      // A read already out answers a poll, which is not reacting to any change:
+      // queuing one more behind it would run git back to back, forever, on a
+      // repository whose status takes longer than the interval.
+      if (!readWorkspaceStatus.busy()) void refreshGitStatus()
       // Only the pane in front of the user: a window of eight shells should not
       // mean eight git processes every three seconds.
       const s = useStore.getState()
       const tab = s.tabs.find((t) => t.id === s.activeTabId)
       const pane = tab ? s.panes[tab.activePaneId] : undefined
-      if (pane?.kind === 'terminal') void refreshGitForCwd(pane.cwd)
+      if (pane?.kind === 'terminal' && !readCwdStatus.busy()) void refreshGitForCwd(pane.cwd)
     }
     const timer = window.setInterval(tick, POLL_MS)
 

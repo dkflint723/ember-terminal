@@ -10,33 +10,77 @@
  * nothing at all.
  *
  * This keeps the guard and fixes the loss: a request made while a run is under way
- * is remembered, and runs once, straight after. However many arrive meanwhile, one
- * more run covers them all. The promise a caller gets resolves only when a run that
- * started after its request has finished, so awaiting a refresh means the answer is
- * at least as new as the question.
+ * is remembered, and runs once, straight after. However many arrive meanwhile for
+ * the same key, one more run covers them all.
+ *
+ * Each request is answered by the run that covers it, and by nothing else. The first
+ * version handed every caller the promise for the whole queue, which settled only
+ * when the queue was empty — and on a repository whose status takes longer than the
+ * poll interval the poll refills it on every read, so a Commit that awaited its
+ * refresh waited for as long as the window was visible, with its buttons disabled.
+ * A failure is likewise told only to the requests that run was for: a request made
+ * during a read that then fails is still read, and is not blamed for it.
  *
  * Keyed, for status read per directory: each key asked for while busy is run once,
  * in the order first asked, one at a time.
  */
-export function serialized<K>(run: (key: K) => Promise<void>): (key: K) => Promise<void> {
-  const pending = new Set<K>()
-  let draining: Promise<void> | null = null
+export interface Serialized<K> {
+  /** Run for `key` once whatever is under way has finished; resolves after that run. */
+  (key: K): Promise<void>
+  /**
+   * Whether a run is under way or waiting. A poll asks this and skips its turn: it is
+   * not reacting to a change, so a read already out answers it, and queuing another
+   * behind it would keep git running back to back on exactly the repository slow
+   * enough to be a problem.
+   */
+  busy(): boolean
+}
+
+interface Waiters {
+  promise: Promise<void>
+  resolve: () => void
+  reject: (err: unknown) => void
+}
+
+export function serialized<K>(run: (key: K) => Promise<void>): Serialized<K> {
+  const pending = new Map<K, Waiters>()
+  // Set before `run` is first called, so a run that asks again before its first
+  // await queues behind itself rather than starting a second run beside it.
+  let running = false
 
   const drain = async (): Promise<void> => {
+    running = true
     try {
       while (pending.size > 0) {
-        const key = pending.values().next().value as K
+        const [key, waiters] = pending.entries().next().value as [K, Waiters]
         pending.delete(key)
-        await run(key)
+        try {
+          await run(key)
+          waiters.resolve()
+        } catch (err) {
+          waiters.reject(err)
+        }
       }
     } finally {
-      draining = null
+      running = false
     }
   }
 
-  return (key: K): Promise<void> => {
-    pending.add(key)
-    if (!draining) draining = drain()
-    return draining
-  }
+  const request = ((key: K): Promise<void> => {
+    let waiters = pending.get(key)
+    if (!waiters) {
+      let resolve!: () => void
+      let reject!: (err: unknown) => void
+      const promise = new Promise<void>((res, rej) => {
+        resolve = res
+        reject = rej
+      })
+      waiters = { promise, resolve, reject }
+      pending.set(key, waiters)
+    }
+    if (!running) void drain()
+    return waiters.promise
+  }) as Serialized<K>
+  request.busy = () => running || pending.size > 0
+  return request
 }

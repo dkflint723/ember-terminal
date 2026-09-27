@@ -9,13 +9,15 @@
 // here, with reads that finish only when told to.
 //
 // EMBER_OLD_RULE=1 runs the same cases against the rule it replaced, to show they
-// catch it.
+// catch it. EMBER_OLD_RULE=2 runs them against this module's first version (8174916),
+// which handed every caller the promise for the whole queue: under a poll that kept
+// asking, an awaited refresh was never answered.
 import { serialized as fixed } from '../src/shared/serialized.ts'
 
 /** The rule that was there before: a read in flight turns every other request away. */
 function dropping(run) {
   let busy = false
-  return async (key) => {
+  const request = async (key) => {
     if (busy) return
     busy = true
     try {
@@ -24,8 +26,36 @@ function dropping(run) {
       busy = false
     }
   }
+  request.busy = () => busy
+  return request
 }
-const serialized = process.env.EMBER_OLD_RULE ? dropping : fixed
+
+/** 8174916's serialized, as it was. */
+function draining(run) {
+  const pending = new Set()
+  let draining = null
+  const drain = async () => {
+    try {
+      while (pending.size > 0) {
+        const key = pending.values().next().value
+        pending.delete(key)
+        await run(key)
+      }
+    } finally {
+      draining = null
+    }
+  }
+  const request = (key) => {
+    pending.add(key)
+    if (!draining) draining = drain()
+    return draining
+  }
+  request.busy = () => draining !== null
+  return request
+}
+const serialized =
+  process.env.EMBER_OLD_RULE === '1' ? dropping : process.env.EMBER_OLD_RULE === '2' ? draining : fixed
+const tick = () => new Promise((r) => setTimeout(r, 0))
 
 let failures = 0
 let cases = 0
@@ -76,10 +106,34 @@ const harness = () => {
   await h.release()
   await new Promise((r) => setTimeout(r, 0))
   check('Refresh pressed mid-read is not dropped', h.started.length === 2, JSON.stringify(h.started))
+  // The read that was out when it was pressed has finished; that one began before the
+  // change, so it is not an answer.
+  check('and whoever awaited it is not answered by the read that was already out', refreshed === false)
   await h.releaseAll()
   await refresh
   check('and the last thing published is the tree after the change', h.seen.at(-1) === '-:after', JSON.stringify(h.seen))
   check('and whoever awaited it was answered after that read', refreshed === true)
+}
+
+// --- an awaited refresh is answered while the poll keeps asking ------------------
+/*
+ * A repository whose status takes longer than the poll interval: a poll lands during
+ * every read. Source Control's Commit awaits its refresh before it clears its busy
+ * state, so a refresh that waits for the queue to empty leaves every button disabled
+ * for as long as the window is visible.
+ */
+{
+  const h = harness()
+  void h.read()
+  let answered = false
+  void h.read().then(() => (answered = true))
+  for (let i = 0; i < 10; i += 1) {
+    void h.read() // the poll, during this read
+    await h.release()
+    await tick()
+  }
+  check('an awaited refresh is answered while the poll keeps asking', answered, `${h.seen.length} reads, not answered`)
+  await h.releaseAll()
 }
 
 // --- never two at once, however many ask -----------------------------------------
@@ -132,8 +186,84 @@ const harness = () => {
   let rejected = false
   await read().catch(() => (rejected = true))
   await read()
-  check('a failed read is reported to whoever asked', rejected || process.env.EMBER_OLD_RULE === '1', `rejected ${rejected}`)
+  check('a failed read is reported to whoever asked', rejected, `rejected ${rejected}`)
   check('and the next request still reads', calls === 2, `calls ${calls}`)
+}
+
+// --- a failure is told only to the requests that read was for --------------------
+/*
+ * A cd lands while another directory's read is out, and that read fails. The cd's
+ * request did not ask about that directory and was made after that read began: it is
+ * still read, straight after, and is not handed the other read's error.
+ */
+{
+  const gates = []
+  const seen = []
+  const read = serialized(async (key) => {
+    const ok = await new Promise((resolve) => gates.push(resolve))
+    if (!ok) throw new Error(`read of ${key} failed`)
+    seen.push(key)
+  })
+  const first = read('C:/old').catch(() => {})
+  let cd = 'pending'
+  void read('C:/repo').then(
+    () => (cd = 'answered'),
+    (e) => (cd = `rejected: ${e.message}`)
+  )
+  gates.shift()(false)
+  for (let i = 0; i < 5; i += 1) {
+    await tick()
+    gates.shift()?.(true)
+  }
+  await first
+  await tick()
+  check("a request made during a read that fails is not given that read's error", cd === 'answered', cd)
+  check('and is still read without anyone asking again', seen.includes('C:/repo'), JSON.stringify(seen))
+}
+
+// --- a run that asks again before its first await is not run beside itself -------
+{
+  let running = 0
+  let most = 0
+  let again = true
+  const read = serialized(async () => {
+    running += 1
+    most = Math.max(most, running)
+    if (again) {
+      again = false
+      void read()
+    }
+    await tick()
+    running -= 1
+  })
+  await read()
+  await tick()
+  await tick()
+  check('a request made from inside a run, before it awaits, waits its turn', most === 1, `most at once ${most}`)
+}
+
+// --- a run that throws before it is a promise does not stop every later one -------
+{
+  let calls = 0
+  const read = serialized(() => {
+    calls += 1
+    if (calls === 1) throw new Error('threw synchronously')
+    return Promise.resolve()
+  })
+  await read().catch(() => {})
+  await read().catch(() => {})
+  check('a run that throws synchronously does not wedge every request after it', calls === 2, `calls ${calls}`)
+}
+
+// --- busy() is what the poll asks before it adds a read ----------------------------
+{
+  const h = harness()
+  check('nothing out: not busy', h.read.busy() === false)
+  void h.read()
+  check('a read out: busy, so the poll skips its turn', h.read.busy() === true)
+  await h.releaseAll()
+  await tick()
+  check('and not busy once it has finished', h.read.busy() === false)
 }
 
 console.log(`serialized reads: ${cases} cases ${failures === 0 ? 'PASS' : `FAIL (${failures})`}`)

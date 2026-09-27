@@ -39,14 +39,29 @@ newest entry sits on top.
   a branch not shown after a `cd`.
 - **A request made during a read is now read again straight after it.** Still never
   two reads at once; however many requests arrive meanwhile, one more read covers
-  them, and for folders each one asked for is read once, in turn. Awaiting a refresh
-  now means the answer is at least as new as the question.
+  them, and for folders each one asked for is read once, in turn. Each request is
+  answered by the read that covers it — one that began after it was made — and a
+  failure is told only to the requests that read was for.
+- **The poll no longer adds a read behind one already out.** It is not reacting to
+  any change, so the read in flight answers it; queuing another would keep git
+  running back to back on the repository slow enough to matter.
+- **Corrected before release.** The first version of this handed every caller the
+  promise for the whole queue. On a repository whose status takes longer than the
+  three-second poll, the poll refilled the queue during every read, so it never
+  emptied: Commit, Push, Pull and Refresh awaited a refresh that was never answered
+  and stayed disabled for as long as the window was visible. A read that failed also
+  passed its error to requests made after it began, and left them unread. An
+  independent review found both, with failing cases; its table's check that a
+  refresh was answered *after* the new read could not fail.
 - **Not proven:** that this was the cause of those two `verify-git` failures. It
   explains them; the race is too rare to show it gone.
-- **How it is checked:** *serialized reads* (11 cases, in the unit tables) sets up the
-  race with reads that finish only when told to. Against the old rule it fails 5 of
-  11: Refresh dropped mid-read, the old tree the last thing published, a `cd` during
-  another folder's read lost.
+- **How it is checked:** *serialized reads* (20 cases, in the unit tables) sets up the
+  race with reads that finish only when told to. Against the dropping rule
+  (`EMBER_OLD_RULE=1`) it fails 7 of 20: Refresh dropped mid-read, the old tree the
+  last thing published, a `cd` during another folder's read lost. Against the first
+  version (`EMBER_OLD_RULE=2`) it fails 5: the refresh starved by the poll, the error
+  passed to a later request and that request left unread, a run started beside
+  itself, and a synchronous throw that stopped every read after it.
 
 ## 0.4.1 — 2026-09-26
 
