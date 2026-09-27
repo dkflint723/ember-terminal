@@ -74,7 +74,7 @@ jobs:
     runs-on: windows-latest
     needs: fast
     if: github.event_name != 'schedule'
-    timeout-minutes: 240
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -139,7 +139,7 @@ jobs:
       # somebody typed.
       - name: Suites
         shell: pwsh
-        run: pwsh -NoProfile -File .github/unelevated.ps1 'pwsh -NoProfile -File .github/loop.ps1'
+        run: pwsh -NoProfile -File .github/unelevated.ps1 'pwsh -NoProfile -Command node scripts/gate.mjs --only $env:SUITES; exit $LASTEXITCODE'
         env:
           SUITES: ${{ inputs.only || 'settings,output,shell,history,flood,lsp,boom' }}
           EMBER_STRICT: '1'
@@ -210,12 +210,49 @@ jobs:
       # --hosted leaves out the three suites that need something no hosted runner
       # has (VS Code, a gh login, Claude Code), and prints them with the reason. The
       # list lives in gate.mjs, beside the suites it names.
+      # DEBUG: Windows Error Reporting writes a full dump of any electron.exe that crashes.
+      - name: Crash dumps on
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'dumps'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $key = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\electron.exe'
+          New-Item -Force $key | Out-Null
+          Set-ItemProperty $key DumpFolder $dir
+          Set-ItemProperty $key DumpType 2 -Type DWord
+          Set-ItemProperty $key DumpCount 20 -Type DWord
+          icacls $dir /grant 'Everyone:(OI)(CI)F' | Out-Null
+          Get-ItemProperty $key | Format-List DumpFolder, DumpType, DumpCount
       - name: The gate
         shell: pwsh
         run: pwsh -NoProfile -File .github/unelevated.ps1 'node scripts/gate.mjs --hosted'
         env:
           EMBER_STRICT: '1'
           EMBER_KEEP_LOGS: ${{ runner.temp }}/ember-logs
+      # DEBUG: the native stack of every dump, with Electron's and Microsoft's symbols.
+      - name: Crash stacks
+        if: always()
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'dumps'
+          $dumps = @(Get-ChildItem $dir -Filter *.dmp -ErrorAction SilentlyContinue)
+          Write-Output "DUMPS: $($dumps.Count)"
+          $cdb = @(Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe', 'C:\Program Files\Windows Kits\10\Debuggers\x64\cdb.exe' -ErrorAction SilentlyContinue)[0]
+          if (-not $cdb) { Write-Output 'DUMPS: no cdb on this runner'; exit 0 }
+          $mods = (Get-ChildItem -Recurse node_modules -Filter *.node | ForEach-Object { $_.DirectoryName } | Sort-Object -Unique) -join ';'
+          $env:_NT_SYMBOL_PATH = "srv*$env:RUNNER_TEMP\sym*https://msdl.microsoft.com/download/symbols;srv*$env:RUNNER_TEMP\sym*https://symbols.electronjs.org;$mods"
+          foreach ($d in $dumps) {
+            Write-Output "===== DUMP $($d.Name) $($d.LastWriteTime.ToString('HH:mm:ss')) $([math]::Round($d.Length/1MB))MB"
+            & $cdb.FullName -z $d.FullName -c '.lines -e; .ecxr; kP 40; !analyze -v; ~*kn 25; q' 2>&1 | Select-String -NotMatch '^\s*$' | Select-Object -First 400 | ForEach-Object { "DUMP| $_" }
+          }
+      - name: Keep the dumps
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-dumps
+          path: ${{ runner.temp }}/dumps/
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Keep what the run saw
         if: always()
         uses: actions/upload-artifact@v4
