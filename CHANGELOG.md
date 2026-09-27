@@ -3,7 +3,50 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
-## Unreleased
+## 0.4.1 — 2026-09-26
+
+A release about how Ember looks, how it behaves when nothing is happening, and
+what it does with a file that has gone wrong. Twelve entries follow; this is what
+they add up to.
+
+**A window with some depth.** On Windows 11 the window sits on Mica, so the
+wallpaper tints through; Mica Alt, Acrylic and none are a setting away, and on
+Windows 10 it stays solid and says why. Dialogs, the palette and menus are frosted,
+the pane you are in has a ring, and a running command glows. Every theme has a
+palette for glass that keeps text at 4.5:1 over a black desktop and a white one.
+A window opacity slider is there for anyone who wants it, off by default. All of
+it can be turned off, and none of it is drawn in a Windows contrast theme.
+
+**Quieter and quicker to start.** The editor is no longer loaded before the first
+prompt; it arrives when the window is idle or when it is asked for. A window
+sitting still no longer rewrites its workspace every few seconds, and the write
+that remains is off the main process's thread.
+
+**Damaged files are kept, not lost.** Settings, the workspace and history are
+written whole or not at all, keep the generation before, and are recovered from it
+when a crash tears one; what was found and done is said in one notice.
+
+**Settings that check and can be undone.** Cancel puts back every preview. Escape
+or a stray click outside with changes made asks before discarding them. Values are
+checked on the way in: one out of range is brought into range and says so, and an
+import leaves out what it cannot use and names it.
+
+**For screen readers and contrast themes.** The composer has a name, a finished
+command is announced with its exit code, the Claude panel is a named log that says
+when it is busy, and selections survive a Windows contrast theme. ANSI colours are
+held to 4.5:1 like the app's own text.
+
+**Opus 5.5.** It is the default for new installs, and an install on Opus 5 moves to
+it once, with a note saying how to go back; choosing Opus 5 again is kept.
+
+**Fixed.** A language server that exits while being written to no longer throws in
+Ember's main process.
+
+**Known limitations.**
+- Resizing the window while a command runs can still disturb that command's block.
+- A found line can drift out of view when the command after it finishes.
+- The update feed is not signed, as in every previous release.
+- How the window backdrop looks has been seen on one Windows 11 desktop.
 
 ### A window with a Mica backdrop, frosted overlays and a few accents
 
