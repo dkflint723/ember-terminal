@@ -18,6 +18,11 @@ newest entry sits on top.
   came back to the source line.
 - **Not proven:** anything about the quit crash itself. It did not happen in about
   760 closes since, so it is caught for the next time rather than explained.
+- **The step that prints them can never fail a run.** As first written it ended with
+  the debugger's own exit code, so a dump the debugger could not read turned a green
+  gate red; it now reports and exits 0, with ten minutes to do it in. Corrected before
+  release, after an independent review: a planted unreadable dump failed the job
+  with the first version and left it green with this one.
 - **How it is checked:** the full gate, where `verify-boom`'s deliberate freeze leaves
   a dump every run and its stack is printed.
 
