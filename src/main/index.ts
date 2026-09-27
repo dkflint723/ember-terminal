@@ -12,7 +12,6 @@ import {
 } from 'electron'
 import { join } from 'node:path'
 import {
-  appendFileSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -229,6 +228,7 @@ if (isAdminWindow) {
   app.setPath('userData', mine)
 }
 import { PtyManager } from './pty.js'
+import { createLog } from './log.js'
 import { detectProfiles } from './profiles.js'
 import { SettingsStore } from './settings.js'
 import { ThemeStore } from './themes.js'
@@ -301,30 +301,18 @@ function forRenderer(current: Settings): Settings & { hasApiKey: boolean; hasGho
 /**
  * Where a fault goes when there is no console: a packaged build's stderr lands
  * nowhere, so every report is also appended to ember.log in userData — the file
- * to ask for when something went wrong on a machine that is not this one.
+ * to ask for when something went wrong on a machine that is not this one. See
+ * log.ts for its size and what is kept out of it.
  */
+const log = createLog(() => app.getPath('userData'))
+
 function logLine(label: string, line: string): void {
-  try {
-    appendFileSync(
-      join(app.getPath('userData'), 'ember.log'),
-      `[${new Date().toISOString()}] ${label}: ${line}\n`
-    )
-  } catch {
-    // A log that cannot be written must not become its own crash.
-  }
+  log.line(label, line)
 }
 
 function reportFault(label: string, detail: unknown): void {
   console.error(`Ember: ${label}`, detail)
-  try {
-    const line = detail instanceof Error ? (detail.stack ?? detail.message) : String(detail)
-    appendFileSync(
-      join(app.getPath('userData'), 'ember.log'),
-      `[${new Date().toISOString()}] ${label}: ${line}\n`
-    )
-  } catch {
-    // A log that cannot be written must not become its own crash.
-  }
+  log.fault(label, detail)
 }
 
 /* One dialog, not one per fault: a crash loop that raised a box per throw would
