@@ -125,7 +125,12 @@ function keepLogs(dir) {
 export function auditProfileDir(dir, { expectFaults = [] } = {}) {
   keepLogs(dir)
   const found = []
-  for (const file of [path.join(dir, 'ember.log'), path.join(dir, 'admin-window', 'ember.log')]) {
+  // Every generation: main rotates ember.log at 2 MB into ember.1.log and on, and a
+  // fault rotated out of the current file is still a fault.
+  const files = [dir, path.join(dir, 'admin-window')].flatMap((d) =>
+    ['ember.log', 'ember.1.log', 'ember.2.log', 'ember.3.log'].map((f) => path.join(d, f))
+  )
+  for (const file of files) {
     let text
     try {
       text = fs.readFileSync(file, 'utf8')

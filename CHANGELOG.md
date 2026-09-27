@@ -5,6 +5,29 @@ newest entry sits on top.
 
 ## Unreleased
 
+### ember.log stays under 8 MB, and no key reaches it
+
+- **The log had no size and no filter.** Main appended every fault to ember.log as
+  it came, and nothing ever trimmed it: a fault in a loop — a language server dying
+  on each keystroke, an update check failing every hour — grew it for as long as
+  Ember ran. And a fault is written in its own words, so an error that quoted a
+  request header or a command line put the key into the one file people attach to
+  a bug report. Two functions in main wrote it, each its own copy of the line.
+- **One writer, main/log.ts, now does both.** Every line passes through the same
+  redaction history uses. At 2 MB the file becomes ember.1.log, and so on three
+  generations back, the oldest dropped — 8 MB at most whatever happens. A fault
+  that is not an Error or a string is written as JSON rather than as
+  `[object Object]`.
+- **The format is the one it was** — `[time] label: text`, a stack continuing on
+  the lines after — because people read it and the suites parse it. The audit's
+  suggestion of JSON lines would serve neither. The suites' fault audit now reads
+  every generation, so a fault rotated out of the current file still fails the run.
+- **How it is checked:** *ember.log* (18 cases, in the unit tables) drives the writer
+  against a real directory — the format, keys in a message, a label and an object,
+  200 KB of faults against a 10 KB limit, and a directory that is not there. With
+  `EMBER_OLD_RULE=1` it runs the writer main had, copied as it was, and fails 9 of 18:
+  every redaction and rotation case.
+
 ### Redaction finds keys in JSON, and cannot freeze main
 
 - **A credential in JSON was kept.** Every labelled rule expects the label bare —
