@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import type { GitFileChange } from '@shared/types'
 import { isInside } from '@shared/paths'
+import { serialized } from '@shared/serialized'
 import { useStore, workspaceRoot } from './store'
 
 /**
@@ -22,10 +23,17 @@ const POLL_MS = 3000
  * than taking it as an argument, so a caller reacting to a button press does not
  * have to hold a subscription just to refresh.
  */
-/** True while a status call is in flight, so a slow repo does not stack them up. */
-let polling = false
-
-export async function refreshGitStatus(): Promise<void> {
+/*
+ * One status read at a time, and a request made during one is read again after it.
+ *
+ * A repository slow enough to outlast the poll interval had two or three `git
+ * status` processes running against it at once, forever, so a read in flight turned
+ * every other request away. That lost the ones that mattered: a read that began
+ * before a merge in the terminal published the tree as it was, the Refresh pressed
+ * afterwards was dropped, and the panel waited for the next poll. See
+ * shared/serialized — still never more than one read, and never a request lost.
+ */
+const readWorkspaceStatus = serialized<void>(async () => {
   const { setGitStatus, setGitError } = useStore.getState()
   const treeRoot = workspaceRoot(useStore.getState())
   if (!treeRoot) {
@@ -33,26 +41,22 @@ export async function refreshGitStatus(): Promise<void> {
     setGitError(null)
     return
   }
-  // A repository slow enough to outlast the poll interval had two or three
-  // `git status` processes running against it at once, forever.
-  if (polling) return
-  polling = true
-  try {
-    const res = await window.ember.gitStatus(treeRoot)
-    setGitStatus(res.ok ? res.status : null)
-    /*
-     * The reason is kept rather than dropped.
-     *
-     * Every failure — git missing from PATH, a folder git will not trust, a
-     * timeout — arrived here and was rendered as "not a git repository", which is
-     * the one explanation guaranteed to send someone looking in the wrong place.
-     * "Not a git repository" is still not worth shouting about, so it stays the
-     * panel's own quiet wording; anything else is shown.
-     */
-    setGitError(res.ok || /not a git repository/i.test(res.error) ? null : res.error)
-  } finally {
-    polling = false
-  }
+  const res = await window.ember.gitStatus(treeRoot)
+  setGitStatus(res.ok ? res.status : null)
+  /*
+   * The reason is kept rather than dropped.
+   *
+   * Every failure — git missing from PATH, a folder git will not trust, a
+   * timeout — arrived here and was rendered as "not a git repository", which is
+   * the one explanation guaranteed to send someone looking in the wrong place.
+   * "Not a git repository" is still not worth shouting about, so it stays the
+   * panel's own quiet wording; anything else is shown.
+   */
+  setGitError(res.ok || /not a git repository/i.test(res.error) ? null : res.error)
+})
+
+export function refreshGitStatus(): Promise<void> {
+  return readWorkspaceStatus()
 }
 
 /**
@@ -67,27 +71,26 @@ export async function refreshGitStatus(): Promise<void> {
  * Read per directory and cached by it, because several panes in one project are the
  * normal case and they can share the answer.
  */
-let pollingCwd = false
+/*
+ * The same, per directory. The flag here was shared by every directory, so a `cd`
+ * into a repository while the previous directory was being read was turned away,
+ * and the branch chip stayed empty until the next poll.
+ */
+const readCwdStatus = serialized<string>(async (cwd) => {
+  const res = await window.ember.gitStatus(cwd)
+  // The pane may have been cd'd elsewhere while git was answering; the reply
+  // describes the directory it was asked about, so it is filed under that one.
+  useStore.getState().setCwdGit(cwd, res.ok ? res.status : null)
+})
 
 export async function refreshGitForCwd(cwd: string): Promise<void> {
-  const { setCwdGit } = useStore.getState()
   const treeRoot = workspaceRoot(useStore.getState())
   if (!cwd) return
   // Inside the workspace the polled status already describes this directory, and
   // asking git the same question twice per tick is the kind of waste that shows up
   // as a fan spinning on a large repository.
   if (treeRoot && isInside(treeRoot, cwd)) return
-  if (pollingCwd) return
-
-  pollingCwd = true
-  try {
-    const res = await window.ember.gitStatus(cwd)
-    // The pane may have been cd'd elsewhere while git was answering; the reply
-    // describes the directory it was asked about, so it is filed under that one.
-    setCwdGit(cwd, res.ok ? res.status : null)
-  } finally {
-    pollingCwd = false
-  }
+  return readCwdStatus(cwd)
 }
 
 /**

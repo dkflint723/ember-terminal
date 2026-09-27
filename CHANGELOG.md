@@ -3,6 +3,30 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
+## Unreleased
+
+### Refresh in Source Control is never ignored
+
+- **Pressing Refresh while a status read was under way did nothing.** A flag turned
+  away every request made during a read, so a slow repository never had two `git
+  status` processes stacked on it. But the read in flight could have started before
+  the change being asked about, so it published the tree as it was, and the panel
+  waited for the next poll, up to three seconds later. The branch chip under the
+  composer had the same flag, shared by every folder: a `cd` into a repository while
+  the previous folder was being read left the chip empty until the next poll.
+  `verify-git` caught both, rarely — a merge not shown 2.5 seconds after Refresh, and
+  a branch not shown after a `cd`.
+- **A request made during a read is now read again straight after it.** Still never
+  two reads at once; however many requests arrive meanwhile, one more read covers
+  them, and for folders each one asked for is read once, in turn. Awaiting a refresh
+  now means the answer is at least as new as the question.
+- **Not proven:** that this was the cause of those two `verify-git` failures. It
+  explains them; the race is too rare to show it gone.
+- **How it is checked:** *serialized reads* (11 cases, in the unit tables) sets up the
+  race with reads that finish only when told to. Against the old rule it fails 5 of
+  11: Refresh dropped mid-read, the old tree the last thing published, a `cd` during
+  another folder's read lost.
+
 ## 0.4.1 — 2026-09-26
 
 A release about how Ember looks, how it behaves when nothing is happening, and
