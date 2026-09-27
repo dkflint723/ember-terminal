@@ -3,7 +3,45 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
-## Unreleased
+## 0.4.2 — 2026-09-27
+
+A release about what Ember can tell you when something goes wrong, and what it keeps
+out of what it tells you. Eight entries follow; this is what they add up to.
+
+**A log worth attaching.** ember.log now holds what the window throws as well as
+what main does — an error in a click handler, a promise nobody awaited, a component
+that failed to draw, with the component named — and it stays under 8 MB, rotating
+through three older files. No key reaches it: every line is redacted, a program
+holding it open costs nothing, and one line cannot outgrow the limit.
+
+**A bug report in one click.** Settings says which Electron, Chromium, Node and
+Windows it runs on and where its data is. *Copy diagnostics* puts that, the
+settings and the log's last 200 lines on the clipboard, leaving out keys, saved
+commands, shell arguments, folders and your name; *Open logs* shows the file.
+
+**A language server that will not start says why.** What a server writes to stderr
+— usually the only explanation of a missing toolchain or a refused version — is
+kept and shown in the Output panel, even when the panel is opened after the server
+has died.
+
+**Redaction that finds more and cannot stall.** Keys inside JSON (`"password": …`,
+`"Authorization": "Bearer …"`) are redacted in history and the log, and a very long
+line of output no longer holds Ember's main process for seconds while it is checked.
+
+**Fixed.** Refresh in Source Control, pressed while a status read was under way, did
+nothing until the next poll; the branch shown under the composer had the same fault
+after a `cd`.
+
+**Known limitations.**
+- Quitting Ember a moment after a shell was asked for — as a window closes, or while
+  a restored session is starting its shells — can still end in a crash
+  (exit code 0xe06d7363) or leave the process running. The cause is found and a fix
+  is being tested; it is not in this release. Nothing is lost when it happens: the
+  workspace and history were written before the quit got that far.
+- Resizing the window while a command runs can still disturb that command's block.
+- A found line can drift out of view when the command after it finishes.
+- The update feed is not signed, as in every previous release.
+- How the window backdrop looks has been seen on one Windows 11 desktop.
 
 ### verify-follow waits for git to name the branch
 
