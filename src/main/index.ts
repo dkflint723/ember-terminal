@@ -1436,6 +1436,7 @@ function registerIpc(): void {
    * reloaded does not get a fresh one for the rest of it.
    */
   const rendererFaults = new Map<number, { count: number; dropped: number; timer: NodeJS.Timeout }>()
+  const watchedForGoing = new Set<number>()
   const endMinute = (id: number): void => {
     const seen = rendererFaults.get(id)
     if (!seen) return
@@ -1451,7 +1452,15 @@ function registerIpc(): void {
     if (!seen) {
       seen = { count: 0, dropped: 0, timer: setTimeout(() => endMinute(id), 60_000) }
       rendererFaults.set(id, seen)
-      e.sender.once('destroyed', () => endMinute(id))
+      // Once per window, not once per minute: a window that faults every minute
+      // would otherwise gather a listener for each.
+      if (!watchedForGoing.has(id)) {
+        watchedForGoing.add(id)
+        e.sender.once('destroyed', () => {
+          watchedForGoing.delete(id)
+          endMinute(id)
+        })
+      }
     }
     seen.count += 1
     if (seen.count > RENDERER_BURST) {
