@@ -306,6 +306,11 @@ function forRenderer(current: Settings): Settings & { hasApiKey: boolean; hasGho
  */
 const log = createLog(() => app.getPath('userData'))
 
+/** Per window, per minute; past it the rest are counted rather than written. */
+const RENDERER_BURST = 20
+/** A stack is a few KB; a message that is a whole file's text is not worth keeping. */
+const RENDERER_FAULT_CHARS = 8_000
+
 function logLine(label: string, line: string): void {
   log.line(label, line)
 }
@@ -1372,6 +1377,52 @@ function registerIpc(): void {
   // fetched is a version nobody has when they are writing down what went wrong.
   ipcMain.on('app:version', (event) => {
     event.returnValue = app.getVersion()
+  })
+
+  /*
+   * What the renderer threw and nobody caught.
+   *
+   * An error in a click handler, a promise nobody awaited, a component that failed
+   * to render: each went to the renderer's console and nowhere else, so ember.log
+   * — the file asked for when something went wrong — described main alone, and a
+   * packaged build had no console open to see the rest. They arrive here, under a
+   * fixed set of labels so the renderer cannot write lines of its own choosing,
+   * clipped, and at most RENDERER_BURST in a minute per window: a render loop
+   * throwing on every frame is one fault told many times, and the disk should not
+   * hear all of them.
+   */
+  /*
+   * A window's minute starts with its first fault and ends on a timer, or when the
+   * window goes — and whichever comes first writes down how many were not written.
+   * Waiting for the next fault to say so meant a burst followed by quiet, or a
+   * window closed mid-burst, never said it at all. A reload keeps the same
+   * webContents, and so the same minute: a page that threw its budget away and was
+   * reloaded does not get a fresh one for the rest of it.
+   */
+  const rendererFaults = new Map<number, { count: number; dropped: number; timer: NodeJS.Timeout }>()
+  const endMinute = (id: number): void => {
+    const seen = rendererFaults.get(id)
+    if (!seen) return
+    clearTimeout(seen.timer)
+    rendererFaults.delete(id)
+    if (seen.dropped > 0) reportFault('renderer faults dropped', `${seen.dropped} more in that minute`)
+  }
+  ipcMain.on('log:renderer', (e, kind: unknown, text: unknown) => {
+    if (kind !== 'error' && kind !== 'unhandled rejection' && kind !== 'render failure') return
+    const detail = typeof text === 'string' ? text.slice(0, RENDERER_FAULT_CHARS) : String(text)
+    const id = e.sender.id
+    let seen = rendererFaults.get(id)
+    if (!seen) {
+      seen = { count: 0, dropped: 0, timer: setTimeout(() => endMinute(id), 60_000) }
+      rendererFaults.set(id, seen)
+      e.sender.once('destroyed', () => endMinute(id))
+    }
+    seen.count += 1
+    if (seen.count > RENDERER_BURST) {
+      seen.dropped += 1
+      return
+    }
+    reportFault(`renderer ${kind}`, detail)
   })
 
   ipcMain.on('app:homeDir', (event) => {

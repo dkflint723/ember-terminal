@@ -5,6 +5,30 @@ newest entry sits on top.
 
 ## Unreleased
 
+### What the window throws reaches ember.log
+
+- **The renderer's errors went nowhere anyone would look.** An error in a click
+  handler, a promise nobody awaited, a component that failed to render: each went to
+  the window's own console, which a packaged build never has open. ember.log — the
+  file a bug report attaches — described main alone, and 61 of the 79 suites had
+  never had a renderer error counted against them.
+- **Now each one is written there,** under one of three fixed labels so the window
+  cannot write lines of its own choosing, clipped at 8,000 characters, and redacted
+  like everything else in the log. A render failure carries the component stack that
+  says which component threw. A window writes at most 20 in a minute; the rest are
+  counted, and the count is written when the minute ends or the window closes.
+- **Two things are not faults, and are left out.** Monaco rejects work it has
+  superseded with an error named `Canceled` and leaves some of those unhandled by
+  design, once per inline suggestion; a ResizeObserver that changes layout reports a
+  "loop" the specification calls intended. Written down, the first failed
+  `verify-ghost` with five faults on the runner.
+- **How it is checked:** `verify-boom` throws in a timer quoting a key, rejects a
+  promise, fails a render, then throws 40 more, and reads ember.log for each: the key
+  redacted, the stack and component there, exactly 20 written, and the count of the
+  rest written when the minute ends. On the build without this, all seven of the
+  first checks fail, 2 runs of 2. An independent review found the `Canceled` noise
+  and the count that was never written before this landed.
+
 ### ember.log stays under 8 MB, and no key reaches it
 
 - **The log had no size and no filter.** Main appended every fault to ember.log as

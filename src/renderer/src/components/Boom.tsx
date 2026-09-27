@@ -34,6 +34,12 @@ export class Boom extends Component<Props, State> {
     // Kept in the console rather than swallowed: the stack is the only thing that
     // says which component threw, and the message below is deliberately not it.
     console.error('Ember: a component failed to render', error, info.componentStack)
+    // And in ember.log, with the component stack that says where: the screen below
+    // shows the message, which is rarely enough to find the component by.
+    window.ember.reportError(
+      'render failure',
+      `${error.stack ?? error.message}\ncomponent stack:${info.componentStack ?? ' (none)'}`
+    )
   }
 
   render(): ReactNode {
