@@ -183,7 +183,11 @@ await page.evaluate(
           args: [
             '-e',
             `console.error('ember:stderr the brokenlang toolchain is not installed');` +
-              `console.error('ember:stderr tried with token ${key}');process.exit(3)`
+              `console.error('ember:stderr tried with token ${key}');` +
+              // A progress line redrawn with bare carriage returns, and one very long line.
+              `process.stderr.write('ember:stderr progress 10%' + String.fromCharCode(13) + 'ember:stderr progress 20%' + String.fromCharCode(13));` +
+              `process.stderr.write('ember:stderr long ' + 'x'.repeat(20000) + String.fromCharCode(10));` +
+              `setTimeout(() => process.exit(3), 100)`
           ],
           extensions: ['.broken']
         }
@@ -202,6 +206,14 @@ for (let i = 0; i < 40 && backlog.length < 2; i += 1) {
   )
 }
 check('main keeps what the server wrote to stderr', backlog.length >= 2, JSON.stringify(backlog))
+const everything = await page.evaluate(() => (window.ember.lspStderr?.() ?? Promise.resolve([])))
+check(
+  'a carriage return ends a line, so a progress bar is lines rather than one line growing',
+  everything.some((l) => l.text === 'ember:stderr progress 10%') && everything.some((l) => l.text === 'ember:stderr progress 20%'),
+  JSON.stringify(everything.filter((l) => l.text.includes('progress')).map((l) => l.text.slice(0, 60)))
+)
+const longest = Math.max(0, ...everything.map((l) => l.text.length))
+check('and one line is clipped rather than kept whole', longest > 0 && longest <= 4_010, `${longest} characters`)
 
 if ((await page.locator('.panel__tab', { hasText: 'Output' }).count()) === 0) {
   await page.keyboard.press('Control+j')
