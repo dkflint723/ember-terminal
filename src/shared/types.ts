@@ -856,12 +856,21 @@ export interface AiChatEvent {
 }
 
 export interface LspEvent {
-  type: 'message' | 'exit' | 'restarted'
+  type: 'message' | 'exit' | 'restarted' | 'stderr'
   language: string
   message?: unknown
   code?: number | null
   /** Set when the server failed to start at all, rather than exiting later. */
   error?: string
+  /** A line the server wrote to stderr, with its place in this window's order. */
+  line?: LspStderrLine
+}
+
+/** One line of a language server's stderr. `seq` orders lines across servers. */
+export interface LspStderrLine {
+  seq: number
+  language: string
+  text: string
 }
 
 /** How much room a command block takes. See Settings.blockDensity. */
@@ -1321,6 +1330,8 @@ export interface EmberApi {
   lspSetRoot(root: string): void
   lspSend(language: string, message: unknown): void
   lspRequest(language: string, method: string, params: unknown): Promise<unknown>
+  /** What each server has written to stderr lately, oldest first. */
+  lspStderr(): Promise<LspStderrLine[]>
   onLspMessage(cb: (e: LspEvent) => void): () => void
   onIdeCall(cb: (call: IdeCall) => void): () => void
   ideResult(id: number, result: unknown): void

@@ -160,6 +160,102 @@ check(
 )
 check('and answers with nothing rather than hanging its caller', answer === null, JSON.stringify(answer))
 
+/*
+ * --- a server that cannot start says why, in the Output panel -----------------
+ *
+ * A missing toolchain, a version refused, a wrapper script that fails: a server
+ * that dies before its handshake explains itself on stderr and nowhere else, and
+ * stderr was read only into a trace file an environment variable had to name. The
+ * Output panel showed log messages, which such a server never sends, and only those
+ * that arrived while it was open. This one says two things and exits — and the panel
+ * is opened only afterwards, the way anyone would go looking.
+ */
+const KEY = 'sk-ant-api03-EmberLspNotARealKey0123456789abcdef'
+await page.evaluate(
+  ({ node, key }) =>
+    window.ember.setSettings({
+      languageServers: [
+        {
+          id: 'broken-server',
+          languageId: 'brokenlang',
+          name: 'A server whose toolchain is missing',
+          command: node,
+          args: [
+            '-e',
+            `console.error('ember:stderr the brokenlang toolchain is not installed');` +
+              `console.error('ember:stderr tried with token ${key}');` +
+              // A progress line redrawn with bare carriage returns, and one very long line.
+              `process.stderr.write('ember:stderr progress 10%' + String.fromCharCode(13) + 'ember:stderr progress 20%' + String.fromCharCode(13));` +
+              `process.stderr.write('ember:stderr long ' + 'x'.repeat(20000) + String.fromCharCode(10));` +
+              `setTimeout(() => process.exit(3), 100)`
+          ],
+          extensions: ['.broken']
+        }
+      ]
+    }),
+  { node: process.execPath, key: KEY }
+)
+await sleep(1200)
+await page.evaluate((root) => window.ember.lspStart('brokenlang', root), dir)
+// Gone before anyone looks: the panel is opened only once the server has exited.
+let backlog = []
+for (let i = 0; i < 40 && backlog.length < 2; i += 1) {
+  await sleep(250)
+  backlog = await page.evaluate(() =>
+    (window.ember.lspStderr?.() ?? Promise.resolve([])).then((lines) => lines.filter((l) => l.text.includes('ember:stderr')))
+  )
+}
+check('main keeps what the server wrote to stderr', backlog.length >= 2, JSON.stringify(backlog))
+const everything = await page.evaluate(() => (window.ember.lspStderr?.() ?? Promise.resolve([])))
+check(
+  'a carriage return ends a line, so a progress bar is lines rather than one line growing',
+  everything.some((l) => l.text === 'ember:stderr progress 10%') && everything.some((l) => l.text === 'ember:stderr progress 20%'),
+  JSON.stringify(everything.filter((l) => l.text.includes('progress')).map((l) => l.text.slice(0, 60)))
+)
+const longest = Math.max(0, ...everything.map((l) => l.text.length))
+check('and one line is clipped rather than kept whole', longest > 0 && longest <= 4_010, `${longest} characters`)
+
+if ((await page.locator('.panel__tab', { hasText: 'Output' }).count()) === 0) {
+  await page.keyboard.press('Control+j')
+  await page.waitForSelector('.panel__tab', { timeout: 5_000 }).catch(() => {})
+}
+await page.locator('.panel__tab', { hasText: 'Output' }).click()
+let shown = []
+for (let i = 0; i < 40; i += 1) {
+  shown = await page.evaluate(() =>
+    [...document.querySelectorAll('.output__line--stderr')].map((l) => l.textContent ?? '')
+  )
+  if (shown.some((t) => t.includes('toolchain is not installed'))) break
+  await sleep(250)
+}
+check(
+  'the Output panel, opened after the server died, shows why it died',
+  shown.some((t) => t.includes('brokenlang') && t.includes('the brokenlang toolchain is not installed')),
+  JSON.stringify(shown.slice(0, 4))
+)
+/*
+ * A server that dies is started again, up to three times, and says the same thing
+ * each time — so identical lines are expected. What must hold is that the backlog
+ * fetched on opening and the lines streamed meanwhile are not both shown: the panel
+ * holds exactly the lines main kept.
+ */
+await sleep(4000)
+const kept = await page.evaluate(() =>
+  (window.ember.lspStderr?.() ?? Promise.resolve([])).then((lines) => lines.filter((l) => l.text.includes('toolchain is not installed')).length)
+)
+const onScreen = await page.evaluate(
+  () =>
+    [...document.querySelectorAll('.output__line--stderr')].filter((l) =>
+      (l.textContent ?? '').includes('toolchain is not installed')
+    ).length
+)
+check('each line shown once: as many on screen as main kept', kept > 0 && onScreen === kept, `${onScreen} shown, ${kept} kept`)
+check(
+  'and without the key it quoted',
+  shown.some((t) => t.includes('tried with token [redacted]')) && !shown.some((t) => t.includes(KEY)),
+  JSON.stringify(shown.filter((t) => t.includes('tried with token')))
+)
+
 const unclosed = await closeApp(app)
 if (unclosed) failures.push(unclosed)
 profile.cleanup()

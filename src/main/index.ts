@@ -2073,6 +2073,7 @@ function registerIpc(): void {
   ipcMain.handle('lsp:request', (e, language: string, method: string, params: unknown) =>
     lspFor(e).request(language, method, params)
   )
+  ipcMain.handle('lsp:stderr', (e) => lspFor(e).recentStderr())
 
   ipcMain.on('ide:result', (_e, id: number, result: unknown) => {
     const call = pendingIdeCalls.get(id)

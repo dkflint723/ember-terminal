@@ -122,6 +122,10 @@ class IpcTransport {
         if (this.language === 'typescript') standUpBundledTypeScript()
         return
       }
+      // Only protocol messages go to the reader. A server's stderr travels on the
+      // same channel, for the Output panel, and is not JSON-RPC: handed on, it
+      // reached Monaco's client as a message with no method and threw in the page.
+      if (event.type !== 'message') return
       this.listener?.(event.message)
     })
 
