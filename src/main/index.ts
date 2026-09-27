@@ -228,7 +228,7 @@ if (isAdminWindow) {
   }
   app.setPath('userData', mine)
 }
-import { PtyManager } from './pty.js'
+import { PtyManager, quitLog } from './pty.js'
 import { detectProfiles } from './profiles.js'
 import { SettingsStore } from './settings.js'
 import { ThemeStore } from './themes.js'
@@ -2636,7 +2636,9 @@ process.on('unhandledRejection', (reason) => {
    * there is nothing left to cancel, and after their last writes have landed.
    */
   let shellsEnded = false
+  process.on('exit', (code) => quitLog(`process exit ${code}`))
   app.on('will-quit', (e) => {
+    quitLog(`will-quit shellsEnded=${shellsEnded} shellsLeft=${ptys?.shellsLeft ?? 'n/a'}`)
     /*
      * The shells first, and their exits heard, while JavaScript can still hear
      * them — see endEveryShell. Once, and then the quit goes on from here.

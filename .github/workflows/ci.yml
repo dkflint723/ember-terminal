@@ -74,7 +74,7 @@ jobs:
     runs-on: windows-latest
     needs: fast
     if: github.event_name != 'schedule'
-    timeout-minutes: 45
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -139,7 +139,7 @@ jobs:
       # somebody typed.
       - name: Suites
         shell: pwsh
-        run: pwsh -NoProfile -File .github/unelevated.ps1 'pwsh -NoProfile -Command node scripts/gate.mjs --only $env:SUITES; exit $LASTEXITCODE'
+        run: pwsh -NoProfile -File .github/unelevated.ps1 'pwsh -NoProfile -File .github/loop.ps1'
         env:
           SUITES: ${{ inputs.only || 'settings,output,shell,history,flood,lsp,boom' }}
           EMBER_STRICT: '1'

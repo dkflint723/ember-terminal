@@ -1,6 +1,21 @@
 import { spawn as ptySpawn, type IPty } from '@lydell/node-pty'
+// DEBUG: the quit, in a file the runner keeps (not ember.log, which the suites read as faults).
+function quitLog(line: string): void {
+  const dir = process.env.EMBER_KEEP_LOGS
+  if (!dir) return
+  try {
+    mkdirSync(dir, { recursive: true })
+    appendFileSync(
+      join(dir, `quit-${process.pid}.log`),
+      `${new Date().toISOString()} ${line}` + String.fromCharCode(10)
+    )
+  } catch {
+    // Diagnostics only.
+  }
+}
+export { quitLog }
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { unsupportedShellOf } from '../shared/quote.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -184,6 +199,7 @@ export class PtyManager {
       this.onData(req.paneId, d)
     })
     pty.onExit(({ exitCode }) => {
+      quitLog(`exit arrived pid ${pty.pid}`)
       this.unreaped.delete(pty.pid)
       /*
        * Only if this is still the session for that pane.
@@ -499,6 +515,8 @@ export class PtyManager {
    * step of quitting that must never be what waits.
    */
   async endEveryShell(ms = 3_000): Promise<void> {
+    const startedAt = Date.now()
+    quitLog(`endEveryShell: sessions=${this.sessions.size} unreaped=${[...this.unreaped].join(',') || '-'}`)
     this.killAll()
     for (const pid of this.unreaped) {
       try {
@@ -511,5 +529,6 @@ export class PtyManager {
     while (this.unreaped.size > 0 && Date.now() < until) {
       await new Promise((resolve) => setTimeout(resolve, 25))
     }
+    quitLog(`endEveryShell done after ${Date.now() - startedAt}ms: left=${[...this.unreaped].join(',') || '-'} sessions=${this.sessions.size}`)
   }
 }

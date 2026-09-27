@@ -160,7 +160,7 @@ export async function closeApp(app, { ms = 20_000 } = {}) {
     const code = proc.exitCode ?? 0
     return code === 0
       ? null
-      : `the app exits cleanly when asked — exit code 0x${(code >>> 0).toString(16)}${(code >>> 0) === 0xe06d7363 ? ', an uncaught C++ exception' : ''}`
+      : `the app exits cleanly when asked (pid ${proc.pid}) — exit code 0x${(code >>> 0).toString(16)}${(code >>> 0) === 0xe06d7363 ? ', an uncaught C++ exception' : ''}`
   }
   const alive = aliveUnder(pid)
   spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true })
