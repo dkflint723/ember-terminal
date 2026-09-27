@@ -57,6 +57,9 @@ type ExitSink = (paneId: string, exitCode: number) => void
  * Owns every live pty. Panes are addressed by id so the renderer never holds a
  * handle to a native object.
  */
+/** node-pty gives up starting a shell after 5 s; quitting waits a little past that. */
+const STARTING_BOUND_MS = 5_500
+
 export class PtyManager {
   private sessions = new Map<string, Session>()
 
@@ -119,6 +122,9 @@ export class PtyManager {
 
   spawn(req: SpawnRequest, profile: ShellProfile, opts: { typedFallback?: boolean } = {}): void {
     this.kill(req.paneId)
+    // Once quitting has begun, a shell started now would outlive the wait for the
+    // others — see endEveryShell. Every window has gone by then; nobody is asking.
+    if (this.closing) return
 
     const env: Record<string, string> = {}
     for (const [k, v] of Object.entries(process.env)) {
@@ -173,6 +179,7 @@ export class PtyManager {
       detached: false
     }
     this.sessions.set(req.paneId, session)
+    this.unheard.add(pty)
 
     pty.onData((d) => {
       session.pending += d.length
@@ -184,7 +191,7 @@ export class PtyManager {
       this.onData(req.paneId, d)
     })
     pty.onExit(({ exitCode }) => {
-      this.unreaped.delete(pty.pid)
+      this.unheard.delete(pty)
       /*
        * Only if this is still the session for that pane.
        *
@@ -454,8 +461,7 @@ export class PtyManager {
     const s = this.sessions.get(paneId)
     if (!s) return
     this.sessions.delete(paneId)
-    // Remembered until its exit arrives: see endEveryShell.
-    if (s.pty.pid > 0) this.unreaped.add(s.pty.pid)
+    // Still in `unheard` until its exit arrives: see endEveryShell.
     try {
       s.pty.kill()
     } catch {
@@ -468,15 +474,24 @@ export class PtyManager {
   }
 
   /**
-   * Shells told to end whose exit has not yet arrived, by process id. An id leaves
-   * this set when the exit does, about a second after the process ends — node-pty
-   * waits that long for the last of its output.
+   * Every shell started whose exit has not yet arrived, running or told to end. One
+   * leaves this set when its exit does, about a second after the process ends —
+   * node-pty waits that long for the last of its output.
+   *
+   * Held by the pty itself, not by process id. It was ids, added when a shell was
+   * killed and only if it had one: and a shell killed while node-pty is still
+   * starting it has none yet. node-pty defers that kill until the shell is up, then
+   * kills it, and reports the exit like any other — so a shell asked for a moment
+   * before quitting was ended without being waited for, and its exit could arrive
+   * once node was tearing itself down. See endEveryShell for what that does.
    */
-  private unreaped = new Set<number>()
+  private unheard = new Set<IPty>()
+  /** Set once quitting has begun: no shell is started after that. */
+  private closing = false
 
   /** How many shells are running, or were told to end and have not been heard to. */
   get shellsLeft(): number {
-    return this.sessions.size + this.unreaped.size
+    return this.unheard.size
   }
 
   /*
@@ -498,18 +513,42 @@ export class PtyManager {
    * quitting waits until each exit has arrived. Bounded, because this is the one
    * step of quitting that must never be what waits.
    */
-  async endEveryShell(ms = 3_000): Promise<void> {
+  async endEveryShell(ms = 3_000): Promise<string[]> {
+    this.closing = true
     this.killAll()
-    for (const pid of this.unreaped) {
-      try {
-        process.kill(pid)
-      } catch {
-        // Gone already; its exit is on the way.
+    /*
+     * Ended outright as well, each as soon as it has a process to end: one still
+     * being started has no pid yet, and gets one when node-pty has started it.
+     */
+    const ended = new Set<number>()
+    const endOutright = (): void => {
+      for (const pty of this.unheard) {
+        if (pty.pid <= 0 || ended.has(pty.pid)) continue
+        ended.add(pty.pid)
+        try {
+          process.kill(pty.pid)
+        } catch {
+          // Gone already; its exit is on the way.
+        }
       }
     }
-    const until = Date.now() + ms
-    while (this.unreaped.size > 0 && Date.now() < until) {
+    /*
+     * Longer while a shell is still being started. Until node-pty has started it,
+     * there is nothing to end, and it will start it — and so report its exit —
+     * whenever its output worker is ready, up to its own five-second limit, after
+     * which it gives up and never starts it. Leaving before then leaves exactly the
+     * exit this waits for. Shells that have a process get the ordinary bound.
+     */
+    const began = Date.now()
+    const starting = (): boolean => [...this.unheard].some((pty) => pty.pid <= 0)
+    while (this.unheard.size > 0) {
+      const elapsed = Date.now() - began
+      if (elapsed >= (starting() ? Math.max(ms, STARTING_BOUND_MS) : ms)) break
+      endOutright()
       await new Promise((resolve) => setTimeout(resolve, 25))
     }
+    // What was still not heard from, so the quit can say so rather than crash
+    // without a word about which shell it was.
+    return [...this.unheard].map((pty) => (pty.pid > 0 ? `pid ${pty.pid}` : 'a shell not yet started'))
   }
 }

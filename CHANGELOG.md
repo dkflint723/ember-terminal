@@ -3,6 +3,33 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
+## Unreleased
+
+### Quitting just after a shell was asked for no longer crashes
+
+- **Ember sometimes died on its way out** — exit code 0xe06d7363, an uncaught C++
+  exception, a few times in a dozen full runs of the suites — and sometimes did not
+  exit at all. A crash dump, which the runner now keeps (see *A crash on the runner leaves its
+  stack behind*), named the place: node-pty
+  reporting a shell's exit to JavaScript once Electron had begun tearing JavaScript
+  down, which it cannot do, and has no way to recover from.
+- **The shell was one quitting had not waited for.** Quitting ends every shell and
+  waits to hear each one end — but it noted a shell to wait for by its process id,
+  and a shell killed in the moment node-pty is still starting it has none yet.
+  node-pty holds that kill until the shell is up, then kills it and reports the exit
+  like any other: to nobody, if the quit had already moved on. A shell asked for as
+  a window closed or a session was restored is exactly that shell.
+- **Every shell started is now waited for until its exit arrives**, whether or not
+  it had a process id when it was ended, each one ended outright as soon as it has
+  one, and no shell is started once quitting has begun. If one is still not heard
+  from after three seconds — five and a half while one is still being started, past
+  the point where node-pty gives up starting it — ember.log says which before the
+  quit goes on.
+- **How it is checked:** `verify-close` asks for three shells and quits at once,
+  five times; every quit must exit cleanly. On the build before this it failed 2
+  runs of 2 — seven of those ten quits crashed or never exited. A longer run of the
+  same race on the runner: 6 of 15 quits failed before, 0 of 36 after.
+
 ## 0.4.2 — 2026-09-27
 
 A release about what Ember can tell you when something goes wrong, and what it keeps

@@ -112,6 +112,57 @@ const launchRunning = async (label, command) => {
   profile.cleanup()
 }
 
+/*
+ * --- shells asked for as the app quits ---------------------------------------------
+ *
+ * node-pty starts a shell a moment after it is asked to, and until then the shell
+ * has no process id. Quitting waited only for shells with one, so a shell killed
+ * while still starting was never waited for: node-pty killed it once it was up and
+ * reported its exit — by then, sometimes, to a node already tearing itself down,
+ * which it cannot report to. The process then dies with an uncaught C++ exception
+ * (0xe06d7363), or waits on the shell for as long as it lives. Found by crash dump:
+ * the exception escapes node-addon-api's ThreadSafeFunction::CallJS in conpty.node.
+ * Measured on the runner: 6 of 15 such quits on the build before this failed.
+ */
+{
+  const outcomes = []
+  for (let round = 0; round < 5; round += 1) {
+    const profile = newProfile(`close-race-${round}`)
+    const app = watchPageErrors(
+      await electron.launch({
+        executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
+        args: [APP_DIR, profile.arg],
+        cwd: APP_DIR,
+        env,
+        timeout: 60_000
+      }),
+      pageErrors
+    )
+    const page = await app.firstWindow()
+    await watchRunning(app)
+    await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
+    await sleep(800)
+    const proc = app.process()
+    const exited = new Promise((resolve) => proc.once('exit', (code) => resolve(code)))
+    // Three shells asked for and not waited on, then the quit, at once.
+    await page.evaluate(() => {
+      for (let i = 0; i < 3; i += 1) {
+        void window.ember.spawn({ paneId: `late-${Date.now()}-${i}`, profileId: '', cols: 80, rows: 24 }).catch(() => {})
+      }
+    })
+    await app.evaluate(({ app: electronApp }) => electronApp.quit()).catch(() => {})
+    const code = await Promise.race([exited, sleep(30_000).then(() => 'still running after 30 s')])
+    if (typeof code !== 'number') spawnSync('taskkill', ['/PID', String(proc.pid), '/T', '/F'], { windowsHide: true })
+    outcomes.push(typeof code === 'number' ? `0x${(code >>> 0).toString(16)}` : code)
+    profile.cleanup()
+  }
+  check(
+    'shells asked for as it quits: every quit of five exits cleanly',
+    outcomes.every((o) => o === '0x0'),
+    outcomes.join(', ')
+  )
+}
+
 for (const f of failures) console.log(`  - ${f}`)
 if (pageErrors.length > 0) console.log('page errors:', pageErrors.slice(0, 4).join(' | '))
 const passed = failures.length === 0 && pageErrors.length === 0

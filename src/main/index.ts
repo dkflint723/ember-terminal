@@ -2729,7 +2729,14 @@ process.on('unhandledRejection', (reason) => {
     if (!shellsEnded && ptys && ptys.shellsLeft > 0) {
       shellsEnded = true
       e.preventDefault()
-      void ptys.endEveryShell().finally(() => app.quit())
+      void ptys
+        .endEveryShell()
+        .then((unheard) => {
+          // Named, because what follows may be the crash endEveryShell exists to
+          // prevent, and a crash dump does not say which shell it was waiting on.
+          if (unheard.length > 0) reportFault('shells not heard to end before quitting', unheard.join(', '))
+        })
+        .finally(() => app.quit())
       return
     }
     dap?.dispose()
