@@ -3,7 +3,26 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
-## Unreleased
+## 0.4.3 — 2026-09-27
+
+A release with one fix in it: Ember no longer crashes, or fails to exit, when it is
+quit a moment after a shell was asked for. Two entries follow; this is what they add
+up to.
+
+**Quitting is clean.** A shell asked for just before quitting — as a window closes,
+or while a restored session is starting its shells — could be ended before it had
+fully started, and quitting did not wait to hear it end. When its exit arrived
+after Ember had begun shutting down, Ember died with exit code 0xe06d7363, or went
+on running with no window. Every shell started is now waited for until it has
+ended, and none is started once quitting has begun. On the test runner, quitting
+straight after asking for three shells failed 6 times in 15 before and 0 in 36
+after. This was 0.4.2's first known limitation.
+
+**Known limitations.**
+- Resizing the window while a command runs can still disturb that command's block.
+- A found line can drift out of view when the command after it finishes.
+- The update feed is not signed, as in every previous release.
+- How the window backdrop looks has been seen on one Windows 11 desktop.
 
 ### verify-completion meets Windows PowerShell's engine warm, as a pane would
 
