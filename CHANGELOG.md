@@ -22,11 +22,21 @@ newest entry sits on top.
   the lines after — because people read it and the suites parse it. The audit's
   suggestion of JSON lines would serve neither. The suites' fault audit now reads
   every generation, so a fault rotated out of the current file still fails the run.
-- **How it is checked:** *ember.log* (18 cases, in the unit tables) drives the writer
+- **A file someone else holds open costs nothing.** A `Get-Content -Wait` or an
+  editor tailing ember.log stops it being renamed. The current file now moves first,
+  so a held file fails before any older generation is touched, the line is written
+  anyway, and the file rotates on the first write after it is let go. One line is
+  clipped at 64 KB, so a fault quoting a whole file cannot outgrow the limit.
+- **Corrected before release.** As first written, rotation moved the older files
+  first: while the file was held, every fault was lost along with a generation of
+  history. An independent review reproduced it with a held handle; it also found the
+  unclipped line, and the two redaction faults fixed in their own entry above.
+- **How it is checked:** *ember.log* (23 cases, in the unit tables) drives the writer
   against a real directory — the format, keys in a message, a label and an object,
-  200 KB of faults against a 10 KB limit, and a directory that is not there. With
-  `EMBER_OLD_RULE=1` it runs the writer main had, copied as it was, and fails 9 of 18:
-  every redaction and rotation case.
+  200 KB of faults against a 10 KB limit, a 5 MB fault, a file held open by a .NET
+  handle as PowerShell's tail holds it, and a directory that is not there. With
+  `EMBER_OLD_RULE=1` it runs the writer main had, copied as it was, and fails 12 of 23.
+  The first version of this writer fails the 5 cases added since.
 
 ### Redaction finds keys in JSON, and cannot freeze main
 

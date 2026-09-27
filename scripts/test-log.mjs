@@ -133,6 +133,56 @@ const names = (dir) => fs.readdirSync(dir).sort()
   check('the oldest faults are the ones dropped', !files.some((f) => read(dir, f).includes('] loop: 0 x')))
 }
 
+// --- one line cannot outgrow the limit ---------------------------------------------
+{
+  const dir = fresh()
+  const log = createLog(() => dir, 10_000)
+  log.fault('quoted a whole file', 'x'.repeat(5_000_000))
+  const size = fs.statSync(path.join(dir, LOG_NAME)).size
+  check('a 5 MB fault is written clipped, not whole', size < 70 * 1024, `${size} bytes`)
+  check('and says how much was left out', /\[4\d{6} more characters\]/.test(read(dir)))
+}
+
+/*
+ * --- a file someone else holds open ------------------------------------------------
+ *
+ * `Get-Content -Wait`, or an editor tailing the log, holds it without letting it be
+ * renamed. Rotation then failed part-way — after the older generations had been
+ * shifted and the oldest deleted — and took the line with it, so every fault while it
+ * was held was lost along with a generation of history. Windows only: it is Windows
+ * that refuses the rename. A .NET handle, as PowerShell's own tail opens one.
+ */
+if (process.platform === 'win32') {
+  const { spawn } = await import('node:child_process')
+  const dir = fresh()
+  const log = createLog(() => dir, 1_000)
+  for (const n of [1, 2, 3]) fs.writeFileSync(path.join(dir, `ember.${n}.log`), `GEN${n}\n`)
+  fs.writeFileSync(path.join(dir, LOG_NAME), 'CURRENT '.repeat(200) + '\n')
+  const target = path.join(dir, LOG_NAME).replace(/'/g, "''")
+  const holder = spawn(
+    'powershell.exe',
+    [
+      '-NoProfile',
+      '-Command',
+      `$f = [IO.File]::Open('${target}', 'Open', 'Read', 'ReadWrite'); 'held'; Start-Sleep -Seconds 4; $f.Close()`
+    ],
+    { stdio: ['ignore', 'pipe', 'ignore'] }
+  )
+  await new Promise((resolve) => {
+    holder.stdout.on('data', (d) => d.toString().includes('held') && resolve())
+    setTimeout(resolve, 15_000)
+  })
+  log.fault('while held', 'first')
+  log.fault('while held', 'second')
+  const during = read(dir)
+  const kept = [1, 2, 3].map((n) => read(dir, `ember.${n}.log`))
+  await new Promise((resolve) => holder.on('exit', resolve))
+  check('a fault written while the file is held is not lost', during.includes('while held: first') && during.includes('while held: second'), during.slice(-200))
+  check('and no generation is lost to the failed rotation', kept.join('|') === 'GEN1\n|GEN2\n|GEN3\n', JSON.stringify(kept))
+  log.fault('after', 'let go')
+  check('once let go, the next write rotates', read(dir, 'ember.1.log').includes('while held: second') && read(dir).includes('after: let go'), JSON.stringify(names(dir)))
+}
+
 // --- a log that cannot be written is not a crash --------------------------------
 {
   const missing = path.join(fresh(), 'no', 'such', 'dir')

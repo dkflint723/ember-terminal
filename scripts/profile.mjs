@@ -84,10 +84,15 @@ function keepLogs(dir) {
   try {
     fs.mkdirSync(keep, { recursive: true })
     const stem = path.basename(dir)
-    for (const [from, suffix] of [
-      [path.join(dir, 'ember.log'), ''],
-      [path.join(dir, 'admin-window', 'ember.log'), '-admin']
-    ]) {
+    // Every generation, as the audit reads them: a fault rotated out of ember.log
+    // fails the run, and should be in the evidence that says why.
+    const logs = [['', ''], ['admin-window', '-admin']].flatMap(([sub, tag]) =>
+      ['ember.log', 'ember.1.log', 'ember.2.log', 'ember.3.log'].map((f) => [
+        path.join(dir, sub, f),
+        `${tag}${f === 'ember.log' ? '' : `-${f.slice(6, 7)}`}`
+      ])
+    )
+    for (const [from, suffix] of logs) {
       if (fs.existsSync(from)) fs.copyFileSync(from, path.join(keep, `${stem}${suffix}.log`))
     }
     /*
