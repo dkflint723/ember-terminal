@@ -5,6 +5,15 @@ newest entry sits on top.
 
 ## Unreleased
 
+### verify-follow waits for git to name the branch
+
+- **One of its checks read git at a fixed moment.** After switching branch in Ember,
+  it waited for the editor to show the other branch's file, then asked git once
+  which branch it was on. git rewrites the working tree before it moves HEAD, so
+  in the gap between the two the answer was still the old branch; a full run on
+  the runner hit it once. It now waits for git's answer the way it waits for the
+  editor's.
+
 ### A language server that cannot start says why, in the Output panel
 
 - **A server that died before its handshake left no reason anywhere.** A toolchain

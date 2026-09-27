@@ -196,7 +196,14 @@ check(
   await within(LOOK, async () => (await onScreen()).includes('onlyOnOther')),
   await onScreen()
 )
-check('on the branch git says', git('branch', '--show-current') === 'other', git('branch', '--show-current'))
+// Waited for, like the editor above it: git rewrites the working tree before it
+// moves HEAD, so the file can already be the other branch's while HEAD, read once
+// at that moment, still names the old one. It did on a hosted runner, once.
+check(
+  'on the branch git says',
+  await within(LOOK, async () => git('branch', '--show-current') === 'other'),
+  git('branch', '--show-current')
+)
 check('clean, and with nothing to decide', (await dirty()) === 0 && (await bar()) === null)
 await switchTo('main')
 check(
