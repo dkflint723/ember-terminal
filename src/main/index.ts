@@ -2074,6 +2074,11 @@ function registerIpc(): void {
     lspFor(e).request(language, method, params)
   )
   ipcMain.handle('lsp:stderr', (e) => lspFor(e).recentStderr())
+  ipcMain.handle('lsp:restart', (e, language: unknown) =>
+    typeof language === 'string'
+      ? lspFor(e).restartByHand(language)
+      : { ok: false, error: 'No language given.' }
+  )
 
   ipcMain.on('ide:result', (_e, id: number, result: unknown) => {
     const call = pendingIdeCalls.get(id)

@@ -1332,6 +1332,8 @@ export interface EmberApi {
   lspRequest(language: string, method: string, params: unknown): Promise<unknown>
   /** What each server has written to stderr lately, oldest first. */
   lspStderr(): Promise<LspStderrLine[]>
+  /** Restart a language server by hand; one given up on is given another chance. */
+  lspRestart(language: string): Promise<{ ok: boolean; error?: string }>
   onLspMessage(cb: (e: LspEvent) => void): () => void
   onIdeCall(cb: (call: IdeCall) => void): () => void
   ideResult(id: number, result: unknown): void

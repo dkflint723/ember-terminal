@@ -5,6 +5,38 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Restart language server, and a server given up on can be asked back
+
+- **A language server that went wrong could only be put right by restarting
+  Ember.** One answering wrongly, or not at all, stayed that way; one that crashed
+  three times in two minutes was given up on for the rest of the session — the
+  window said it "could not be revived", and there was nothing to do about it.
+- **"Restart language server" is in the palette**, and can be given a key in
+  Settings, where a command with none now reads "Unbound". It restarts the server
+  for the file in front of you — from a terminal pane, the editor on screen — through
+  the same path a crash takes: a new process, the handshake replayed, the documents
+  re-opened from the editor's own text. It is not counted as a crash. A server that
+  had been given up on is given another chance; one that could not be started at
+  all is started afresh.
+- **A server given up on takes its squiggles with it.** They stayed on screen with
+  nothing behind them, and the bundled TypeScript worker, standing back up, drew its
+  own beside them: every mistake underlined twice.
+- **How it is checked:** `verify-lsp-recovery`, after its crash, runs the command from
+  the palette: a new TypeScript server process must start and underline a mistake
+  typed afterwards. Then it kills the server until Ember gives up on it — no squiggle
+  of the server's may remain — runs the command again, and the restarted server itself
+  must mark the next mistake and answer a hover about it. On the build before this,
+  the palette offers nothing and neither restart happens.
+- **Not fixed:** a server restarted before it has answered the editor's first
+  handshake comes back without the editor's hover and completion for that session;
+  reloading the window restores them. Main's replayed handshake is answered, but the
+  editor's own never is. An attempt to hand the editor that answer got it to finish
+  its handshake and still not ask for hovers, so it was not kept.
+- **Corrected before landing, after an independent review:** a second restart during
+  the first one's replay threw away what was held for it; a process whose kill failed
+  could unseat its successor; the "comes back" check was satisfied by the bundled
+  worker's squiggles; and two commands with no key were reported as a conflict.
+
 ### verify-lsp checks that no language server outlives Ember
 
 - **A question the audit raised, answered by measurement.** On Windows, killing a

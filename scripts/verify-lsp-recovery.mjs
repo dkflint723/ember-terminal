@@ -114,6 +114,118 @@ await page.keyboard.type('\nconst alsoWrong: string = 42\n', { delay: 10 })
 const after = await waitForSquiggles(2, 45_000)
 check('and it underlines new mistakes in the same buffer', after >= 2, `${after} squiggles`)
 
+/*
+ * --- restarted by hand, from the palette ---------------------------------------
+ *
+ * A server that has gone wrong without dying could only be put right by
+ * restarting Ember. "Restart language server" does it for the language of the file
+ * in front of you, through the same path as a crash: a new process that knows the
+ * document.
+ */
+const runCommand = async (label) => {
+  await page.click('.pane.editor .view-lines')
+  await page.keyboard.press('Control+Shift+P')
+  await page.waitForSelector('.qp__box', { timeout: 10_000 })
+  await page.locator('.qp__box').fill(label)
+  await sleep(400)
+  const offered = await page.evaluate(() => document.querySelector('.qp__item--on')?.textContent ?? '')
+  await page.keyboard.press('Enter')
+  // Offered nothing, the palette stays up over the editor; closed, so the checks
+  // after this say what went wrong rather than a click timing out.
+  await sleep(300)
+  if (await page.locator('.qp').count()) await page.keyboard.press('Escape')
+  return offered
+}
+const newServer = async (known, ms = 30_000) => {
+  const start = Date.now()
+  for (;;) {
+    const fresh = serverPids().filter((pid) => !known.includes(pid))
+    if (fresh.length >= 1 || Date.now() - start > ms) return fresh
+    await sleep(300)
+  }
+}
+const seen = [...original, ...revived]
+const offered = await runCommand('Restart language server')
+check('the palette offers "Restart language server"', /Restart language server/.test(offered), offered || '(nothing offered)')
+const byHand = await newServer(seen)
+check('asked for by hand, a new server process starts', byHand.length >= 1, JSON.stringify(byHand))
+seen.push(...byHand)
+await page.click('.pane.editor .view-lines')
+await page.keyboard.press('Control+End')
+await page.keyboard.type('\nconst thirdWrong: boolean = "no"\n', { delay: 10 })
+const afterHand = await waitForSquiggles(3, 45_000)
+check('and it knows the document: a third mistake is underlined', afterHand >= 3, `${afterHand} squiggles`)
+
+/*
+ * --- given up on, and asked back -----------------------------------------------
+ *
+ * Three deaths in two minutes and Ember gives up on a server for the rest of the
+ * session, saying it could not be revived. Asking for a restart gives it another
+ * chance.
+ */
+const notice = () => page.evaluate(() => document.body.textContent ?? '')
+for (let round = 0; round < 6 && !/could not be revived/.test(await notice()); round += 1) {
+  for (const pid of serverPids()) {
+    try {
+      execFileSync('taskkill', ['/PID', String(pid), '/F'], { windowsHide: true })
+    } catch {
+      // Already gone.
+    }
+  }
+  const next = await newServer(seen, 8_000)
+  seen.push(...next)
+}
+check('killed often enough, the server is given up on', /could not be revived/.test(await notice()))
+/*
+ * And what it said about the file is taken down with it. Its squiggles stayed with
+ * nothing behind them, and the bundled TypeScript worker, standing back up, drew
+ * its own beside them: every mistake underlined twice.
+ */
+const staleLsp = await page.evaluate(() => {
+  const model = window.monaco.editor.getModels().find((m) => m.uri.path.endsWith('broken.ts'))
+  return model ? window.monaco.editor.getModelMarkers({ owner: 'lsp', resource: model.uri }).length : -1
+})
+check('given up on, its squiggles are taken down', staleLsp === 0, `${staleLsp} left`)
+await runCommand('Restart language server')
+const asked = await newServer(seen)
+check('asked back by hand, a server given up on starts again', asked.length >= 1, JSON.stringify(asked))
+await page.click('.pane.editor .view-lines')
+await page.keyboard.press('Control+End')
+await page.keyboard.type('\nconst fourthWrong: number = []\n', { delay: 10 })
+/*
+ * Counted as the server's own, on the line just typed. Squiggles on screen prove
+ * nothing here: once Ember gives up, the bundled TypeScript worker stands back up
+ * and underlines the same mistakes itself.
+ */
+const lspMarkerOn = (text) =>
+  page.evaluate((needle) => {
+    const model = window.monaco.editor.getModels().find((m) => m.uri.path.endsWith('broken.ts'))
+    if (!model) return false
+    const line = model.getLinesContent().findIndex((l) => l.includes(needle)) + 1
+    return window.monaco.editor.getModelMarkers({ owner: 'lsp', resource: model.uri }).some((m) => m.startLineNumber === line)
+  }, text)
+let serverMarked = false
+for (let until = Date.now() + 45_000; !serverMarked && Date.now() < until; ) {
+  serverMarked = await lspMarkerOn('fourthWrong')
+  if (!serverMarked) await sleep(500)
+}
+check('and the server itself underlines the next mistake', serverMarked)
+/*
+ * And answers a hover, which diagnostics alone cannot: the editor's client asks for
+ * hovers only once its handshake with the server has been answered.
+ */
+const hovered = await page.evaluate(async () => {
+  const model = window.monaco.editor.getModels().find((m) => m.uri.path.endsWith('broken.ts'))
+  if (!model) return null
+  const line = model.getLinesContent().findIndex((l) => l.includes('fourthWrong')) + 1
+  const reply = await window.ember.lspRequest('typescript', 'textDocument/hover', {
+    textDocument: { uri: model.uri.toString(true) },
+    position: { line: line - 1, character: 8 }
+  })
+  return JSON.stringify(reply ?? null)
+})
+check('and answers a hover about it', /fourthWrong/.test(hovered ?? ''), (hovered ?? '').slice(0, 120))
+
 const unclosed = await closeApp(app)
 if (unclosed) failures.push(unclosed)
 profile.cleanup()

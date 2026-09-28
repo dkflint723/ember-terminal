@@ -1833,7 +1833,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                       <button
                         type="button"
                         className={`keyrow__chord ${capturing === command.id ? 'keyrow__chord--live' : ''}`}
-                        aria-label={`${command.label}: ${capturing === command.id ? 'press the new keys' : chord}. Press to change`}
+                        aria-label={`${command.label}: ${capturing === command.id ? 'press the new keys' : chord || 'unbound'}. Press to change`}
                         onClick={() => {
                           setCapturing(command.id)
                           capturingRef.current = command.id
@@ -1884,7 +1884,8 @@ export function SettingsPanel(): React.JSX.Element | null {
                           setCapturing(null)
                         }}
                       >
-                        {capturing === command.id ? 'press keys…' : chord}
+                        {/* A command with no key by default says so, rather than showing an empty button. */}
+                        {capturing === command.id ? 'press keys…' : chord || 'Unbound'}
                       </button>
                       {refused?.id === command.id && (
                         <span className="keyrow__refused" role="status">
@@ -1895,7 +1896,7 @@ export function SettingsPanel(): React.JSX.Element | null {
                         <button
                           className="icon-btn"
                           title="Back to the default"
-                          aria-label={`Reset ${command.label} to ${command.chord}`}
+                          aria-label={`Reset ${command.label} to ${command.chord || 'unbound'}`}
                           onClick={() => {
                             const next = { ...(draft.keybindings ?? {}) }
                             delete next[command.id]

@@ -264,6 +264,12 @@ function commands(): Command[] {
           run: () => runEditorAction('editor.action.formatDocument')
         },
         {
+          id: 'editor.restartLanguageServer',
+          label: 'Restart language server',
+          hint: hintFor('editor.restartLanguageServer'),
+          run: () => void import('../editor/lsp').then((m) => m.restartActiveLanguageServer())
+        },
+        {
           id: 'file.saveAll',
           label: 'File: Save All',
           hint: 'Ctrl+Alt+S',

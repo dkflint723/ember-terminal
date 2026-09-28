@@ -34,6 +34,8 @@ const send = (msg) => {
 const onMessage = (msg) => {
   const { id, method } = msg
   if (method === '$/cancelRequest') void note(`cancel ${msg.params?.id}`)
+  if (method === 'initialize') void note(`initialize ${id} pid ${process.pid}`)
+  if (method === 'textDocument/hover') void note(`hover ${id} pid ${process.pid}`)
   if (id === undefined) return // Notifications need no answer.
   if ((muteFormatting || slowMs > 0) && (method === 'textDocument/formatting' || method === 'textDocument/rangeFormatting')) {
     void note(`asked ${method} ${id}`)

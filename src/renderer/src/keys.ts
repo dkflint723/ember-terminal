@@ -168,6 +168,16 @@ export const COMMANDS: Command[] = [
     }
   },
   {
+    id: 'editor.restartLanguageServer',
+    label: 'Restart language server',
+    // Unbound: something asked for from the palette, not a reflex.
+    chord: '',
+    run: ({ s }) => {
+      if (s.mode !== 'ide') return false
+      void import('./editor/lsp').then((m) => m.restartActiveLanguageServer())
+    }
+  },
+  {
     id: 'debug.toggleBreakpoint',
     label: 'Debug: toggle breakpoint',
     chord: 'F9',
@@ -460,6 +470,8 @@ export function resolveBindings(overrides: Record<string, string>): ResolvedBind
   for (const command of COMMANDS) {
     const chord = overrides[command.id] ?? command.chord
     byId.set(command.id, chord)
+    // Unbound is not a chord: two commands with none do not conflict.
+    if (!chord) continue
     claims.set(chord, [...(claims.get(chord) ?? []), command.label])
     // First claim wins, so a conflict disables the later command rather than
     // making one keystroke do two things.

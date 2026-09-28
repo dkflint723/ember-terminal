@@ -418,7 +418,11 @@ export class LspService {
      * error is only noted.
      */
     child.stdin.on('error', (err) => trace('<--', language, `stdin: ${err.message}`))
-    child.stdout.on('data', (chunk: Buffer) => this.onData(language, chunk))
+    child.stdout.on('data', (chunk: Buffer) => {
+      // A replaced process that is somehow still talking does not write into its
+      // successor's stream.
+      if (this.servers.get(language) === child) this.onData(language, chunk)
+    })
     // A server that rejects the handshake often explains itself here and nowhere else.
     /*
      * The unfinished line belongs to this process, not to the language. A server
@@ -435,6 +439,9 @@ export class LspService {
     child.stderr.on('end', () => this.onStderr(language, partial, '\n'))
     child.on('exit', (code, signal) => {
       trace('<--', language, `exit: code=${code} signal=${signal}`)
+      // Only about this language's current server: a process already replaced —
+      // one whose kill failed and was started over — must not unseat its successor.
+      if (this.servers.get(language) !== child) return
       this.servers.delete(language)
       this.buffers.delete(language)
       // Let go of anything waiting on a handshake that is never coming, and forget
@@ -453,6 +460,12 @@ export class LspService {
        * Three deaths inside two minutes is a server that will keep dying, and
        * then the renderer is told the truth and left to its fallbacks.
        */
+      // Asked for by hand: restarted at once, and not counted against it as a crash.
+      if (!this.stopping && this.restartingByHand.delete(language)) {
+        this.crashTimes.delete(language)
+        void this.restart(language)
+        return
+      }
       if (!this.stopping && this.shouldRestart(language)) {
         const attempt = this.crashTimes.get(language)?.length ?? 1
         setTimeout(() => void this.restart(language), attempt * 1_000)
@@ -472,6 +485,8 @@ export class LspService {
      */
     child.on('error', (err) => {
       trace('<--', language, `spawn failed: ${err.message}`)
+      if (this.servers.get(language) !== child) return
+      this.restartingByHand.delete(language)
       this.servers.delete(language)
       this.buffers.delete(language)
       this.send({ type: 'exit', language, code: null, error: err.message })
@@ -921,12 +936,53 @@ export class LspService {
     return recent.length <= 3
   }
 
+  /** Servers being restarted because someone asked; see restartByHand. */
+  private restartingByHand = new Set<string>()
+
+  /*
+   * "Restart language server", asked for by hand.
+   *
+   * A server that has gone wrong without dying — answering wrongly, or not at all
+   * — could only be put right by restarting Ember, and one that had died three
+   * times in two minutes had been given up on for the rest of the session. The
+   * restart goes through the same path as a crash: the handshake replayed, the
+   * documents re-opened from the editor's own text. It is not a crash, so it does
+   * not count towards giving up, and a server already given up on is given another
+   * chance.
+   */
+  restartByHand(language: string): { ok: boolean; error?: string } {
+    if (!this.initRequests.has(language)) {
+      // Running, but the editor has not yet begun its handshake: there is nothing
+      // to replay a restart from, and nothing to start afresh either.
+      if (this.servers.has(language)) {
+        return { ok: false, error: `The ${language} language server is still starting.` }
+      }
+      return { ok: false, error: 'not-started' }
+    }
+    const child = this.servers.get(language)
+    if (child) {
+      this.restartingByHand.add(language)
+      try {
+        child.kill()
+      } catch {
+        this.restartingByHand.delete(language)
+        return { ok: false, error: `The ${language} language server could not be stopped.` }
+      }
+      return { ok: true }
+    }
+    this.crashTimes.delete(language)
+    void this.restart(language)
+    return { ok: true }
+  }
+
   private async restart(language: string): Promise<void> {
     if (this.stopping || this.servers.has(language)) return
     const init = this.initRequests.get(language)
     if (!init) return
 
-    this.restarting.set(language, [])
+    // What was already held for a restart still under way is kept: a second one
+    // arriving mid-replay must not throw away what the first was holding.
+    this.restarting.set(language, this.restarting.get(language) ?? [])
     const started = this.start(language, this.roots.get(language))
     if (!started.ok) {
       this.restarting.delete(language)

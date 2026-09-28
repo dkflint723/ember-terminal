@@ -1,5 +1,5 @@
 import { monaco, languageForPath } from './monaco'
-import { useStore } from '../state/store'
+import { useStore, workspaceRoot } from '../state/store'
 import { SERVER_FOR, serverFor, taughtServerFor } from './servers'
 
 export { serverFor }
@@ -125,6 +125,11 @@ class IpcTransport {
           })
         }
         useStore.getState().setNotice(`The ${this.language} language server was restarted.`, 'info')
+        // Open again, if it had been given up on and has now been asked back.
+        if (this.state.value.state === 'closed') {
+          this.state.value = { state: 'open' }
+          if (this.language === 'typescript') standDownBundledTypeScript()
+        }
         /*
          * Nothing in flight is given up here. Main holds what was sent while the
          * server was down and delivers it to the new process before it says so, so
@@ -154,6 +159,14 @@ class IpcTransport {
         if (this.language === 'typescript') standUpBundledTypeScript()
         // Nothing still asked of it will be answered now; said, so nothing waits on it.
         this.answerInFlightWithNothing()
+        /*
+         * And what it said about the files is taken down. Its squiggles stayed on
+         * screen with nothing behind them — and the bundled TypeScript worker, stood
+         * back up just above, drew its own beside them, every mistake twice.
+         */
+        for (const model of monaco.editor.getModels()) {
+          if (serverFor(model.getLanguageId()) === this.language) monaco.editor.setModelMarkers(model, 'lsp', [])
+        }
         return
       }
       // Only protocol messages go to the reader. A server's stderr travels on the
@@ -201,7 +214,13 @@ class IpcTransport {
    * is what a server that has gone has to say.
    */
   private answerInFlightWithNothing(): void {
-    for (const id of [...this.inFlight.keys()]) {
+    for (const [id, asked] of [...this.inFlight.entries()]) {
+      /*
+       * Except the handshake. Answered with nothing, the client reads the server's
+       * capabilities out of null and throws — an unhandled rejection in the page,
+       * which ember.log records as a fault. Left waiting, it throws nothing.
+       */
+      if (asked.method === 'initialize') continue
       this.inFlight.delete(id)
       this.listener?.({ jsonrpc: '2.0', id, result: null })
     }
@@ -362,6 +381,52 @@ interface TsDefaults {
  * file of that language rather than at boot, so a terminal-only session never pays
  * for a language server.
  */
+/**
+ * Restart the server for the file in front of you: the focused editor's, or else
+ * the active editor pane's. Shared by the palette and the rebindable command.
+ */
+export async function restartActiveLanguageServer(): Promise<void> {
+  /*
+   * The file in front of you: the focused editor, or else an editor on screen —
+   * from a terminal pane beside one, the palette offers this and the editor is what
+   * it means. The model's own language, not the one its name suggests: a file can
+   * be set to a language by hand, or belong to a taught one.
+   */
+  const editors = monaco.editor.getEditors()
+  const model = (editors.find((e) => e.hasTextFocus()) ?? editors.find((e) => e.getModel()))?.getModel()
+  const languageId = model?.getLanguageId()
+  if (!languageId) {
+    useStore.getState().setNotice('Open a file to restart the language server for it.', 'info')
+    return
+  }
+  await restartLanguageServer(languageId)
+}
+
+/** Restart the server answering for this editor language, by hand. */
+export async function restartLanguageServer(languageId: string): Promise<void> {
+  const server = serverFor(languageId)
+  const store = useStore.getState()
+  if (!server) {
+    store.setNotice(`No language server answers for ${languageId} files.`, 'info')
+    return
+  }
+  const res = await window.ember.lspRestart(server)
+  if (res.ok) return
+  if (res.error === 'not-started') {
+    /*
+     * It never got as far as a handshake — it could not be started at all — and
+     * the first attempt was remembered, so nothing would try again short of
+     * reloading the window. Tried afresh: a toolchain installed since is found.
+     */
+    started.delete(server)
+    store.setNotice(`Starting the ${server} language server again.`, 'info')
+    const ok = await ensureLanguageServer(languageId, workspaceRoot(useStore.getState()) ?? undefined)
+    if (!ok) store.setNotice(`The ${server} language server still could not be started.`, 'error')
+    return
+  }
+  store.setNotice(res.error ?? `The ${server} language server could not be restarted.`, 'error')
+}
+
 /** Which server answers for a Monaco language id, if any. */
 /** One place a definition, declaration or implementation can be. */
 export interface DefinitionTarget {
