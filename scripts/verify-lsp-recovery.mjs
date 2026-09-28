@@ -188,7 +188,16 @@ const staleLsp = await page.evaluate(() => {
 check('given up on, its squiggles are taken down', staleLsp === 0, `${staleLsp} left`)
 await runCommand('Restart language server')
 const asked = await newServer(seen)
-check('asked back by hand, a server given up on starts again', asked.length >= 1, JSON.stringify(asked))
+/*
+ * Failed once in seven runs with nothing to say why. What the window said after the
+ * command, and which servers were running, is the first thing to know next time.
+ */
+const saidAfter = asked.length >= 1 ? '' : ((await notice()).match(/[^.]*language server[^.]*\./g) ?? []).slice(-3).join(' ')
+check(
+  'asked back by hand, a server given up on starts again',
+  asked.length >= 1,
+  `no new server process; running: ${JSON.stringify(serverPids())}; the window said: ${saidAfter || '(nothing about a language server)'}`
+)
 await page.click('.pane.editor .view-lines')
 await page.keyboard.press('Control+End')
 await page.keyboard.type('\nconst fourthWrong: number = []\n', { delay: 10 })
