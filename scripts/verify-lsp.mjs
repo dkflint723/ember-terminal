@@ -8,11 +8,31 @@ import { _electron as electron } from 'playwright-core'
 import { placeTopRight } from './place-window.mjs'
 import { newProfile } from './profile.mjs'
 import { closeApp, watchPageErrors, watchRunning } from './harness.mjs'
+import { spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
 const APP_DIR = path.resolve(import.meta.dirname, '..')
+
+/*
+ * Language-server processes from this checkout still running, by what they run.
+ *
+ * Quitting killed each server's own process and nothing under it, which on Windows
+ * leaves the rest of the tree running: the TypeScript server starts tsserver
+ * processes of its own. Read from the process table, because a process left
+ * behind is exactly one Ember has stopped knowing about.
+ */
+function serverProcessesLeft() {
+  const script =
+    "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'node_modules.(typescript|typescript-language-server|pyright|yaml-language-server|bash-language-server)' } | ForEach-Object { \"$($_.ProcessId) $($_.CommandLine)\" }"
+  const out = spawnSync('powershell.exe', ['-NoProfile', '-Command', script], { encoding: 'utf8', windowsHide: true })
+  const here = APP_DIR.toLowerCase()
+  return (out.stdout ?? '')
+    .split(/\r?\n/)
+    .filter((l) => l.trim() && l.toLowerCase().includes(here))
+    .map((l) => l.replace(/\s+/g, ' ').slice(0, 160))
+}
 /**
  * A profile per language, not per run. This harness launches the app four times,
  * and a shared profile would mean the second launch restoring the first language's
@@ -299,17 +319,24 @@ async function run(language) {
     }
   }
 
+  // Seen while running, so that none seen afterwards means gone, not unseeable.
+  const whileRunning = serverProcessesLeft()
   const unclosed = await closeApp(app)
+  // Given a moment to go, as a server told to stop would be.
+  await sleep(3000)
+  const leftBehind = serverProcessesLeft()
 
   const lines = readLines(logPath)
   fs.rmSync(work, { recursive: true, force: true })
-  return { spec, ui, lines, rename, unclosed }
+  return { spec, ui, lines, rename, unclosed, leftBehind, whileRunning }
 }
 
-function check(language, { spec, ui, lines, rename, unclosed }) {
+function check(language, { spec, ui, lines, rename, unclosed, leftBehind, whileRunning }) {
   const failures = []
   // A language with no server is skipped, but a window that would not close is not.
   if (unclosed) failures.push(unclosed)
+  if (leftBehind.length > 0) failures.push(`language server processes still running after Ember quit: ${leftBehind.join(' | ')}`)
+  if (whileRunning.length === 0) failures.push('the process table showed no server while it ran, so its absence afterwards proves nothing')
   const traffic = parseTraffic(lines)
   const sent = traffic.filter((t) => t.fromClient).map((t) => t.msg)
   const received = traffic.filter((t) => !t.fromClient).map((t) => t.msg)

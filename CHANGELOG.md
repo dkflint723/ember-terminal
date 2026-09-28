@@ -5,6 +5,18 @@ newest entry sits on top.
 
 ## Unreleased
 
+### verify-lsp checks that no language server outlives Ember
+
+- **A question the audit raised, answered by measurement.** On Windows, killing a
+  process leaves its children running, and the TypeScript server starts processes
+  of its own, so a quit could have left language servers behind it. `verify-lsp` now
+  reads the process table after each language's window closes. None was left, in
+  three runs: the fix the audit suggested — a protocol shutdown before the kill — is
+  not needed for this, and was not made.
+- **How it is checked:** before the window closes, the same query must see that
+  language's server running, so that finding none afterwards means gone rather than
+  unseeable. It passes on the build before this too; it is a guard, not a fix.
+
 ### A save does not wait on a language server that never answers
 
 - **Format on save could hold a save for as long as a server stayed silent.** It
