@@ -340,6 +340,48 @@ const dirty = await page.evaluate(
 )
 check('and the file is not marked unsaved', dirty.length > 0 && dirty.every((d) => d === 'false'), JSON.stringify(dirty))
 
+/*
+ * --- an edit nobody asked for ----------------------------------------------------
+ *
+ * Ember now applies the edits a language server sends — which is how refactorings
+ * reach the editor — but only while a command someone ran is asking for them. This
+ * server, once a file opens, asks to change it unprompted. The file must stay as it
+ * was, and the server must be told no.
+ */
+const pushNotes = path.join(dir, 'push-notes.txt')
+fs.writeFileSync(path.join(dir, 'pushed.go'), 'package main\n', 'utf8')
+await page.evaluate(
+  ({ node, script, notes }) =>
+    window.ember.setSettings({
+      formatOnSave: false,
+      languageServers: [
+        {
+          id: 'pushy',
+          languageId: 'go',
+          name: 'A server that edits unprompted',
+          command: node,
+          args: [script, '--push-edit', '--note', notes],
+          extensions: ['.go']
+        }
+      ]
+    }),
+  { node: process.execPath, script: path.join(APP_DIR, 'scripts', 'lsp-fake-server.mjs'), notes: pushNotes }
+)
+await sleep(800)
+await page.keyboard.press('Control+p')
+await page.waitForSelector('.qp__box', { timeout: 8_000 })
+await page.locator('.qp__box').fill('pushed.go')
+await sleep(500)
+await page.keyboard.press('Enter')
+const pushAnswer = () => (fs.existsSync(pushNotes) ? fs.readFileSync(pushNotes, 'utf8') : '')
+for (let until = Date.now() + 20_000; !/^answered push-1 /m.test(pushAnswer()) && Date.now() < until; ) await sleep(300)
+const pushedText = await page.evaluate(
+  () => window.monaco.editor.getModels().find((m) => m.uri.path.toLowerCase().endsWith('/pushed.go'))?.getValue() ?? null
+)
+check('an edit the server sends unprompted is answered', /^answered push-1 /m.test(pushAnswer()), pushAnswer() || '(no answer noted)')
+check('and refused', /answered push-1 \{"applied":false/.test(pushAnswer()), pushAnswer())
+check('and the file is as it was', pushedText === 'package main\n', JSON.stringify(pushedText))
+
 const unclosed = await closeApp(app)
 if (unclosed) failures.push(unclosed)
 profile.cleanup()

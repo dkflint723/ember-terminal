@@ -1,7 +1,7 @@
 import { monaco, languageForPath } from './monaco'
 import { useStore, workspaceRoot } from '../state/store'
 import { SERVER_FOR, serverFor, taughtServerFor } from './servers'
-import { afterRename, ensureModels, fileUrisIn, NAMES_FILES } from './broker'
+import { afterRename, applyWorkspaceEdit, ensureModels, fileUrisIn, NAMES_FILES } from './broker'
 
 export { serverFor }
 
@@ -83,7 +83,7 @@ class IpcTransport {
    * awaited it waiting too. What is here can be given up on (`abandon`), and is all
    * failed at once when the server goes.
    */
-  private inFlight = new Map<number | string, { method: string; uri: string | undefined }>()
+  private inFlight = new Map<number | string, { method: string; uri: string | undefined; explicit?: boolean }>()
   /** Given up on: the server's late reply, if one comes, is dropped. */
   private abandoned = new Set<number | string>()
 
@@ -174,12 +174,47 @@ class IpcTransport {
       // same channel, for the Output panel, and is not JSON-RPC: handed on, it
       // reached Monaco's client as a message with no method and threw in the page.
       if (event.type !== 'message') return
+      // The server asking the editor to make an edit: applied here, and answered.
+      const request = event.message as { id?: number | string; method?: unknown; params?: { edit?: unknown } } | undefined
+      if (request && request.id !== undefined && request.method === 'workspace/applyEdit') {
+        const id = request.id
+        /*
+         * Only when asked. A server's edit is taken while a command someone ran is
+         * under way, or in the moments after it; any other edit a server sends —
+         * a buggy one, unprompted — is declined and changes nothing.
+         */
+        if (!serverEditExpected()) {
+          window.ember.lspSend(this.language, {
+            jsonrpc: '2.0',
+            id,
+            result: { applied: false, failureReason: 'Ember applies edits from a language server only when a command you ran asks for them.' }
+          })
+          return
+        }
+        void applyWorkspaceEdit(request.params?.edit)
+          .catch((err: unknown) => ({ applied: false, failureReason: String(err) }))
+          .then((result) => window.ember.lspSend(this.language, { jsonrpc: '2.0', id, result }))
+        return
+      }
       const reply = event.message as { id?: number | string; method?: unknown; result?: unknown } | undefined
       if (reply && reply.id !== undefined && reply.method === undefined) {
         const asked = this.inFlight.get(reply.id)
         this.inFlight.delete(reply.id)
         // Already answered, with nothing, when it was given up on.
         if (this.abandoned.delete(reply.id)) return
+        if (asked?.method === 'initialize') registerServerCommands(this.language, reply.result)
+        /*
+         * A query the editor makes by itself, failed by the server, is nothing to
+         * show — not an error in the page. Monaco rethrows a provider's error on a
+         * timer, which ember.log records as a fault, so a server's own bug became
+         * one of Ember's: TypeScript 5.9 throws computing refactorings for a
+         * lightbulb over the constant an extract has just made.
+         */
+        const failed = reply as { error?: unknown }
+        if (asked && failed.error !== undefined && QUIET_ON_FAILURE.has(asked.method) && !asked.explicit) {
+          this.listener?.({ jsonrpc: '2.0', id: reply.id, result: null })
+          return
+        }
         /*
          * An answer that names other files waits until each one has a model: the
          * editor can show and edit only what it holds a model for. See broker.ts.
@@ -220,7 +255,13 @@ class IpcTransport {
     }
     if (isRequest) {
       const uri = rpc.params?.textDocument?.uri
-      this.inFlight.set(rpc.id as number | string, { method: rpc.method as string, uri: typeof uri === 'string' ? uri : undefined })
+      // A code action asked for by hand (Ctrl+.) is kept apart from the lightbulb's.
+      const trigger = (rpc.params as { context?: { triggerKind?: unknown } } | undefined)?.context?.triggerKind
+      this.inFlight.set(rpc.id as number | string, {
+        method: rpc.method as string,
+        uri: typeof uri === 'string' ? uri : undefined,
+        explicit: rpc.method === 'textDocument/codeAction' && trigger === 1
+      })
     }
     window.ember.lspSend(this.language, message)
   }
@@ -327,6 +368,63 @@ class IpcTransport {
 }
 
 const started = new Map<string, Promise<boolean>>()
+
+/**
+ * The commands a server says it can carry out, made into commands the editor can run.
+ *
+ * A code action can come back as a command rather than an edit — the TypeScript
+ * server's refactorings all do (`_typescript.applyRefactoring`) — and Monaco runs it
+ * by looking the name up among its own commands. Nothing had registered any, so
+ * choosing extract to constant ran nothing, and the server was never asked. Each is
+ * registered here to ask the server (`workspace/executeCommand`); the server then
+ * sends back the edit it made (`workspace/applyEdit`), which broker.ts applies.
+ */
+const registeredCommands = new Set<string>()
+/** Server commands running now, and when the last one ended. See serverEditExpected. */
+let commandsRunning = 0
+let lastCommandEnded = 0
+const EDIT_AFTER_COMMAND_MS = 5_000
+function serverEditExpected(): boolean {
+  return commandsRunning > 0 || Date.now() - lastCommandEnded < EDIT_AFTER_COMMAND_MS
+}
+/** Names that are the editor's own; a server's command must not replace one of them. */
+const EDITOR_OWN = /^(editor|actions|workbench|vs|monaco)\./
+
+/** Requests the editor makes on its own, on a timer or as the caret moves. */
+const QUIET_ON_FAILURE = new Set([
+  'textDocument/codeAction',
+  'textDocument/codeLens',
+  'textDocument/documentHighlight',
+  'textDocument/documentSymbol',
+  'textDocument/documentLink',
+  'textDocument/documentColor',
+  'textDocument/foldingRange',
+  'textDocument/inlayHint',
+  'textDocument/semanticTokens/full',
+  'textDocument/semanticTokens/full/delta',
+  'textDocument/semanticTokens/range'
+])
+function registerServerCommands(language: string, result: unknown): void {
+  const commands = (result as { capabilities?: { executeCommandProvider?: { commands?: unknown } } } | null)
+    ?.capabilities?.executeCommandProvider?.commands
+  if (!Array.isArray(commands)) return
+  for (const command of commands) {
+    if (typeof command !== 'string' || registeredCommands.has(command)) continue
+    // Monaco's command registry is global and the last registration wins: a server
+    // naming one of the editor's own commands would have taken it over.
+    if (EDITOR_OWN.test(command) || monaco.editor.getEditors().some((e) => e.getAction(command))) continue
+    registeredCommands.add(command)
+    monaco.editor.registerCommand(command, async (_accessor, ...args: unknown[]) => {
+      commandsRunning += 1
+      try {
+        return await window.ember.lspRequest(language, 'workspace/executeCommand', { command, arguments: args })
+      } finally {
+        commandsRunning -= 1
+        lastCommandEnded = Date.now()
+      }
+    })
+  }
+}
 /** The transport for each running server, for giving up on what was asked of it. */
 const transports = new Map<string, IpcTransport>()
 

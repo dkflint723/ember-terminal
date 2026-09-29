@@ -262,6 +262,13 @@ const STDERR_LINES = 200
  */
 const STDERR_LINE_CHARS = 4_000
 
+/** The client's capabilities, saying it applies a server's workspace edits. */
+function withApplyEdit(capabilities: unknown): Record<string, unknown> {
+  const caps = (capabilities && typeof capabilities === 'object' ? capabilities : {}) as Record<string, unknown>
+  const workspace = (caps.workspace && typeof caps.workspace === 'object' ? caps.workspace : {}) as Record<string, unknown>
+  return { ...caps, workspace: { applyEdit: true, ...workspace } }
+}
+
 export class LspService {
   private servers = new Map<string, ChildProcessWithoutNullStreams>()
   private buffers = new Map<string, Buffer>()
@@ -620,6 +627,8 @@ export class LspService {
         params: {
           ...params,
           processId: params.processId ?? process.pid,
+          // Said, since it is now true: the window applies a server's own edits.
+          capabilities: withApplyEdit(params.capabilities),
           ...workspace,
           ...(settings ? { initializationOptions: params.initializationOptions ?? settings } : {})
         }
@@ -1099,10 +1108,22 @@ export class LspService {
       // Declined rather than acknowledged: claiming success for an edit or a
       // navigation that never happened would leave the server's model of the
       // document ahead of the editor's.
+      // Not answered here: passed to the window, which holds the documents and
+      // applies the edit (editor/broker.ts). Declining it made every refactoring
+      // the server carries out itself — extract to constant, to function — do
+      // nothing when chosen.
       case 'workspace/applyEdit':
-        return { applied: false }
+        return undefined
       case 'window/showDocument':
         return { success: false }
+      /*
+       * typescript-language-server's own request, sent after an extract refactoring
+       * to offer renaming what it made (`newLocal`). Unanswered, the server failed
+       * the whole refactoring's command, although the edit had been made. Answered
+       * with nothing: the edit stands, and the rename is not offered.
+       */
+      case '_typescript.rename':
+        return null
 
       default:
         return undefined

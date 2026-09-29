@@ -177,6 +177,54 @@ check('saved, the renamed file has the change', onDisk().includes("welcome('worl
 const names = fs.readdirSync(dir).filter((n) => n.endsWith('.ts'))
 check('and keeps its name as it was spelled', names.includes('UseGreet.ts') && names.includes('Greet.ts'), JSON.stringify(names))
 
+/*
+ * --- a refactoring the server applies itself ----------------------------------
+ *
+ * Extract to constant is a code action whose edit the TypeScript server does not
+ * return: it runs a command, and then asks the editor to make the edit
+ * (`workspace/applyEdit`). Ember declined every such request, so the refactoring
+ * was offered and did nothing.
+ */
+// Back to Greet.ts: a pane holds an editor only for the file it is showing.
+await page.locator('.etab', { hasText: 'Greet.ts' }).first().click()
+await page.waitForFunction(
+  () => window.monaco.editor.getEditors().some((e) => e.getModel()?.uri.path.toLowerCase().endsWith('/greet.ts')),
+  null,
+  { timeout: 10_000 }
+)
+await page.evaluate(`(() => {
+  const e = ${editorOf('/greet.ts')}
+  e.focus()
+  const line = e.getModel().getLinesContent().findIndex((l) => l.includes("'hello ' + name")) + 1
+  const col = e.getModel().getLineContent(line).indexOf("'hello ' + name") + 1
+  e.setSelection({ startLineNumber: line, startColumn: col, endLineNumber: line, endColumn: col + "'hello ' + name".length })
+})()`)
+await page.evaluate(`(() => ${editorOf('/greet.ts')}.trigger('verify', 'editor.action.codeAction', { kind: 'refactor.extract.constant', apply: 'first' }))()`)
+const greetNow = () =>
+  page.evaluate(
+    () => window.monaco.editor.getModels().find((m) => m.uri.path.toLowerCase().endsWith('/greet.ts'))?.getValue() ?? ''
+  )
+let extracted = ''
+for (let until = Date.now() + 15_000; Date.now() < until; ) {
+  extracted = await greetNow()
+  if (/const \w+ = 'hello ' \+ name/.test(extracted)) break
+  await sleep(300)
+}
+console.log('greet.ts after extract:', JSON.stringify(extracted.slice(0, 200)))
+check('a refactoring the server applies itself changes the file', /const \w+ = 'hello ' \+ name/.test(extracted), JSON.stringify(extracted.slice(0, 160)))
+// And comes back out as one step: a single undo takes the whole refactoring away.
+await page.evaluate(`(() => { const e = ${editorOf('/greet.ts')}; e.focus(); e.trigger('verify', 'undo', null) })()`)
+await sleep(500)
+const undone = await greetNow()
+check(
+  'one undo takes the refactoring back',
+  // Only meaningful once there was a refactoring to take back.
+  /const \w+ = 'hello ' \+ name/.test(extracted) &&
+    !/const \w+ = 'hello ' \+ name/.test(undone) &&
+    undone.includes("return 'hello ' + name"),
+  JSON.stringify(undone.slice(0, 160))
+)
+
 const unclosed = await closeApp(app)
 if (unclosed) failures.push(unclosed)
 profile.cleanup()

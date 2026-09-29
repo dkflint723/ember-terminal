@@ -14,6 +14,9 @@ let buffer = Buffer.alloc(0)
  * arrive.
  */
 const muteFormatting = process.argv.includes('--mute-formatting')
+// --push-edit: once a document opens, ask the editor to change it, unprompted — a
+// buggy server — and note what the editor answers.
+const pushEdit = process.argv.includes('--push-edit')
 // --slow-formatting <ms>: answer, but late, with an edit — so a suite can see whether
 // an answer that comes after the save is applied anyway.
 const slowAt = process.argv.indexOf('--slow-formatting')
@@ -33,6 +36,21 @@ const send = (msg) => {
 
 const onMessage = (msg) => {
   const { id, method } = msg
+  // The editor's answer to something this server asked.
+  if (method === undefined && id !== undefined) {
+    void note(`answered ${id} ${JSON.stringify(msg.result ?? msg.error ?? null)}`)
+    return
+  }
+  if (pushEdit && method === 'textDocument/didOpen') {
+    const uri = msg.params?.textDocument?.uri
+    setTimeout(() => {
+      send({
+        id: 'push-1',
+        method: 'workspace/applyEdit',
+        params: { edit: { changes: { [uri]: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }, newText: '// pushed by the server\n' }] } } }
+      })
+    }, 1500)
+  }
   if (method === '$/cancelRequest') void note(`cancel ${msg.params?.id}`)
   if (method === 'initialize') void note(`initialize ${id} pid ${process.pid}`)
   if (method === 'textDocument/hover') void note(`hover ${id} pid ${process.pid}`)

@@ -5,6 +5,47 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Refactorings the language server carries out itself now happen
+
+- **Extract to constant, to function and the rest were offered and did nothing.**
+  The TypeScript server answers them with a command rather than an edit: the editor
+  is to run the command, and the server then sends the edit it made
+  (`workspace/applyEdit`). Neither half worked. The editor looked the command up
+  among its own and found nothing, so the server was never asked; and had it been,
+  Ember declined every edit a server sent.
+- **Both halves now do.** Each command a server says it can carry out is one the
+  editor can run, and asks the server. The edit it sends back is applied as one
+  undoable step per file; a file it changes that had no tab is opened, unsaved, as
+  after a rename. Nothing is written to disk until you save.
+- **Only when asked, only in the folder, and whole or not at all.** A server's edit
+  is taken while a command you ran is under way, or in the moments after it; one it
+  sends unprompted is declined. So is an edit to a file outside the open folder, one
+  worked out against a version of a file that has since changed, one whose changes
+  overlap, and one that would create, rename or delete a file — each checked before
+  any file is touched, so an edit is never half made. A server cannot take over one
+  of the editor's own commands by naming it.
+- **Code lenses run their commands too.** A lens a server shows — "run test", say —
+  did nothing when clicked; it now asks the server to carry it out, as it always
+  said it would.
+- **A server's failure over something nobody asked for is not an error.** The editor
+  asks by itself for the lightbulb, highlights, the outline, folding and the like; a
+  server that fails one of those now leaves that part empty, where Monaco used to
+  throw the failure into the page. TypeScript 5.9 fails the lightbulb over the
+  constant an extract has just made. Ctrl+., asked for by hand, still says so.
+- **How it is checked:** `verify-lsp-crossfile` selects an expression in its open file,
+  asks for extract to constant, and requires the new constant in the file, then a
+  single undo to take it away again, with nothing thrown in the page. On the build
+  before this, 2 runs of 2, the file is unchanged. `verify-lsp-custom` teaches a
+  server that, when a file opens, asks to change it unprompted: the file must stay
+  as it was and the server be told no. The first version of this change applied it.
+- **Corrected before landing, after an independent review:** it applied an edit
+  given in both of the protocol's forms twice, applied edits at stale offsets, could
+  leave some files changed while telling the server none were, took edits from a
+  server unprompted and anywhere on disk, and let a server replace one of the
+  editor's own commands.
+- **Not done:** after an extract the TypeScript server offers to rename what it made;
+  that offer is answered with nothing, so no rename box appears.
+
 ### Shift+F12 and F2 reach files that are not open
 
 - **References and rename worked only across files already open.** The editor can
@@ -40,10 +81,8 @@ newest entry sits on top.
   in it; nothing limited how many files one answer could load; and the notice could
   claim a rename that had not been applied — it now names only files that changed.
 - **Not yet:** a preview before a rename is applied — the notice says what changed
-  afterwards — and edits a language server asks to make on its own
-  (`workspace/applyEdit`, as some code actions do), which are still declined. Nor is
-  a problem the server reports for a file before it is loaded shown until the
-  server reports it again.
+  afterwards. Nor is a problem the server reports for a file before it is loaded
+  shown until the server reports it again.
 
 ### Restart language server, and a server given up on can be asked back
 

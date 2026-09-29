@@ -1,5 +1,5 @@
-import { samePath } from '@shared/paths'
-import { useStore } from '../state/store'
+import { isInside, samePath } from '@shared/paths'
+import { useStore, workspaceRoot } from '../state/store'
 import { languageForPath, modelUri, monaco } from './monaco'
 import { parkModel } from './models'
 import { lastSynced, noteSynced } from './synced'
@@ -171,6 +171,125 @@ export function afterRename(result: unknown): void {
   })
   // A rename that is cancelled, or leaves a file as it was, changes nothing to wait for.
   const giveUp = setTimeout(finish, waiting.size > 0 ? 3000 : 0)
+}
+
+/**
+ * A workspace edit the server asks the editor to make (`workspace/applyEdit`).
+ *
+ * Refactorings such as extract to constant come back from the TypeScript server as a
+ * command, and running it makes the server send the edit this way. Declined, the
+ * refactoring was offered and did nothing. Applied here, as one undoable step per
+ * file; a file the edit changes that had no tab is opened, unsaved, as after a
+ * rename. Creating, renaming or deleting files is not done — the whole edit is
+ * declined, rather than half of it made.
+ */
+export async function applyWorkspaceEdit(edit: unknown): Promise<{ applied: boolean; failureReason?: string }> {
+  const e = (edit ?? {}) as {
+    changes?: Record<string, LspTextEdit[]>
+    documentChanges?: { kind?: string; textDocument?: { uri?: string; version?: number | null }; edits?: LspTextEdit[] }[]
+  }
+  if ((e.documentChanges ?? []).some((c) => typeof c.kind === 'string')) {
+    return { applied: false, failureReason: 'Ember does not create, rename or delete files for a language server.' }
+  }
+  /*
+   * The protocol gives an edit two ways to be written, and `documentChanges` wins
+   * when both are there. Some servers send both; taking both applied every edit
+   * twice, which Monaco refuses outright as overlapping.
+   */
+  const byUri = new Map<string, LspTextEdit[]>()
+  const versions = new Map<string, number>()
+  if (e.documentChanges) {
+    for (const change of e.documentChanges) {
+      const uri = change.textDocument?.uri
+      if (typeof uri !== 'string') continue
+      byUri.set(uri, [...(byUri.get(uri) ?? []), ...(change.edits ?? [])])
+      if (typeof change.textDocument?.version === 'number') versions.set(uri, change.textDocument.version)
+    }
+  } else {
+    for (const [uri, edits] of Object.entries(e.changes ?? {})) byUri.set(uri, [...edits])
+  }
+  if (byUri.size === 0) return { applied: true }
+
+  /*
+   * Only in the workspace. A server may name any file it can read — a profile, a
+   * git hook — and such a change would sit in a tab, one Save All away from disk.
+   */
+  const root = workspaceRoot(useStore.getState())
+  const outside = [...byUri.keys()].map((uri) => monaco.Uri.parse(uri).fsPath).filter((p) => !root || !isInside(root, p))
+  if (outside.length > 0) {
+    return { applied: false, failureReason: `Ember applies a language server's edits only inside the open folder; ${outside[0]} is not.` }
+  }
+
+  await ensureModels([...byUri.keys()])
+  const models = [...byUri.keys()].map((uri) => monaco.editor.getModel(modelUri(monaco.Uri.parse(uri).fsPath)))
+  // All or nothing: a file that could not be read leaves every file as it was.
+  if (models.some((m) => !m)) return { applied: false, failureReason: 'A file the edit changes could not be read.' }
+
+  /*
+   * Checked, every file, before any is touched. An edit the server worked out against
+   * an older version of a file — typed into while it thought — lands at the wrong
+   * offsets, and edits that overlap are refused by Monaco part-way through, leaving
+   * some files changed while the server is told none were.
+   */
+  const uris = [...byUri.keys()]
+  for (let i = 0; i < uris.length; i += 1) {
+    const expected = versions.get(uris[i])
+    if (expected !== undefined && expected !== models[i]!.getVersionId()) {
+      return { applied: false, failureReason: 'A file changed while the language server was working on it.' }
+    }
+    const sorted = [...byUri.get(uris[i])!].sort(
+      (a, b) => a.range.start.line - b.range.start.line || a.range.start.character - b.range.start.character
+    )
+    for (let j = 1; j < sorted.length; j += 1) {
+      const prev = sorted[j - 1].range.end
+      const next = sorted[j].range.start
+      if (prev.line > next.line || (prev.line === next.line && prev.character > next.character)) {
+        return { applied: false, failureReason: 'The language server sent edits that overlap.' }
+      }
+    }
+  }
+
+  const origin = monaco.editor.getEditors().find((ed) => ed.hasTextFocus())
+  const changed: string[] = []
+  ;[...byUri.values()].forEach((edits, i) => {
+    const model = models[i]!
+    model.pushStackElement()
+    model.pushEditOperations(
+      [],
+      edits.map((te) => ({
+        range: new monaco.Range(
+          te.range.start.line + 1,
+          te.range.start.character + 1,
+          te.range.end.line + 1,
+          te.range.end.character + 1
+        ),
+        text: te.newText
+      })),
+      () => null
+    )
+    model.pushStackElement()
+    changed.push(model.uri.fsPath)
+  })
+  const untabbed = changed.filter((p) => !openInATab(p))
+  await openTabs(untabbed, untabbed.length > 0 ? origin : undefined)
+  if (changed.length > 1 || untabbed.length > 0) {
+    const spelled = await Promise.all(changed.map((p) => window.ember.diskSpelling(p)))
+    const names = spelled.map((p) => p.split(/[\\/]/).pop()).join(', ')
+    useStore
+      .getState()
+      .setNotice(
+        untabbed.length > 0
+          ? `Changed ${names}. ${untabbed.length === 1 ? 'One was' : `${untabbed.length} were`} not open and ${untabbed.length === 1 ? 'is' : 'are'} now, unsaved.`
+          : `Changed ${names}.`,
+        'info'
+      )
+  }
+  return { applied: true }
+}
+
+interface LspTextEdit {
+  range: { start: { line: number; character: number }; end: { line: number; character: number } }
+  newText: string
 }
 
 /** Open each file as a tab, then give focus back to the editor the rename was made in. */
