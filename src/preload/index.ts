@@ -251,6 +251,7 @@ const api: EmberApi = {
   noteTrust: (folder: string, trusted: boolean): Promise<Settings> =>
     ipcRenderer.invoke('settings:noteTrust', folder, trusted),
   realFolder: (folder: string): Promise<string> => ipcRenderer.invoke('file:realFolder', folder),
+  diskSpelling: (filePath: string): Promise<string> => ipcRenderer.invoke('file:diskSpelling', filePath),
   settingsLoadError: (): Promise<string | null> => ipcRenderer.invoke('settings:loadError'),
   sessionLoadNotice: (): Promise<string | null> => ipcRenderer.invoke('session:loadNotice'),
   historyLoadNotice: (): Promise<string | null> => ipcRenderer.invoke('history:loadNotice'),

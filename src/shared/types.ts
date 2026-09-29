@@ -1314,6 +1314,8 @@ export interface EmberApi {
    * path comes back as given when it cannot be resolved.
    */
   realFolder(folder: string): Promise<string>
+  /** A path as it is spelled on disk: its capitalisation, short names written out. */
+  diskSpelling(filePath: string): Promise<string>
   /** Record that a composer chord has been used, so its hint retires. */
   noteLearnedChord(chord: string): Promise<Settings>
   /** Whether a saved API key would really be encrypted at rest. */

@@ -5,6 +5,46 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Shift+F12 and F2 reach files that are not open
+
+- **References and rename worked only across files already open.** The editor can
+  show and change only files it holds in memory, and it held only those open in a
+  tab. Shift+F12 on a function used in another file showed nothing — once the
+  language server had loaded the project, the editor failed with "No text model"
+  for the other file and put up no list at all — and F2 changed nothing whatever,
+  not even the file it was pressed in, because a rename that reached one file it
+  could not hold was abandoned as a whole.
+- **Now the files an answer names are loaded before the editor sees it.** When the
+  language server answers a references, definition or rename request, each file it
+  names that is not open is read from disk and held, as a file is when its tab
+  opens. The references list shows them; a rename changes them. A file changed by a
+  rename that had no tab is opened, unsaved, so the change can be seen, saved or
+  undone — nothing is written behind anyone's back — and a notice names every file
+  the rename touched. Files held only to be shown are let go after two minutes,
+  into the same twenty-file lot as closed tabs — unless one holds a change, which is
+  opened instead of let go. At most fifty files are loaded for one answer.
+- **Named as they are spelled.** The language server hands paths back lower-cased,
+  and the first version of this opened `UseGreet.ts` as `usegreet.ts` — and saving
+  it renamed the file on disk to match. Tabs and the notice now use each file's own
+  spelling. (The references list still shows names in lower case, as it always has
+  for every file, open or not.)
+- **How it is checked:** a new suite, `verify-lsp-crossfile`, opens `Greet.ts` of a
+  two-file TypeScript project and waits for the language server to know
+  `UseGreet.ts`. Shift+F12 must list it; F2 must rename in both, open `UseGreet.ts`
+  unsaved and spelled as it is, leave it unchanged on disk, and name both files; and
+  saved, the file must keep its name. On the build before this, 2 runs of 2: no
+  references list, "No text model" in the page, and neither file renamed. The first
+  version of this change fails the spelling checks.
+- **Corrected before landing, after an independent review:** the lower-cased names
+  above; a renamed file that never got its tab could later be let go with its change
+  in it; nothing limited how many files one answer could load; and the notice could
+  claim a rename that had not been applied — it now names only files that changed.
+- **Not yet:** a preview before a rename is applied — the notice says what changed
+  afterwards — and edits a language server asks to make on its own
+  (`workspace/applyEdit`, as some code actions do), which are still declined. Nor is
+  a problem the server reports for a file before it is loaded shown until the
+  server reports it again.
+
 ### Restart language server, and a server given up on can be asked back
 
 - **A language server that went wrong could only be put right by restarting

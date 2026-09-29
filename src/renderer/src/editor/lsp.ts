@@ -1,6 +1,7 @@
 import { monaco, languageForPath } from './monaco'
 import { useStore, workspaceRoot } from '../state/store'
 import { SERVER_FOR, serverFor, taughtServerFor } from './servers'
+import { afterRename, ensureModels, fileUrisIn, NAMES_FILES } from './broker'
 
 export { serverFor }
 
@@ -173,11 +174,28 @@ class IpcTransport {
       // same channel, for the Output panel, and is not JSON-RPC: handed on, it
       // reached Monaco's client as a message with no method and threw in the page.
       if (event.type !== 'message') return
-      const reply = event.message as { id?: number | string; method?: unknown } | undefined
+      const reply = event.message as { id?: number | string; method?: unknown; result?: unknown } | undefined
       if (reply && reply.id !== undefined && reply.method === undefined) {
+        const asked = this.inFlight.get(reply.id)
         this.inFlight.delete(reply.id)
         // Already answered, with nothing, when it was given up on.
         if (this.abandoned.delete(reply.id)) return
+        /*
+         * An answer that names other files waits until each one has a model: the
+         * editor can show and edit only what it holds a model for. See broker.ts.
+         */
+        if (asked && NAMES_FILES.has(asked.method)) {
+          const uris = fileUrisIn(reply.result)
+          if (uris.length > 0) {
+            void ensureModels(uris)
+              .catch(() => [] as string[])
+              .then(() => {
+                this.listener?.(event.message)
+                if (asked.method === 'textDocument/rename') afterRename(reply.result)
+              })
+            return
+          }
+        }
       }
       this.listener?.(event.message)
     })

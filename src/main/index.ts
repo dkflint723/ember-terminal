@@ -237,7 +237,7 @@ import { ThemeStore } from './themes.js'
 import { applyLook, constructionLook, lookOf } from './look.js'
 import { CompletionService } from './completion.js'
 import { HistoryStore } from './history.js'
-import { FileService, fileArgs, isStamp, longPath, pathArgs, realFolder } from './files.js'
+import { diskSpelling, FileService, fileArgs, isStamp, longPath, pathArgs, realFolder } from './files.js'
 import { isEncodingName } from '../shared/encoding.js'
 import { hasSecret } from '../shared/secrets.js'
 import { isTrustedPath } from '../shared/trust.js'
@@ -2044,6 +2044,9 @@ function registerIpc(): void {
   })
   ipcMain.handle('file:realFolder', (_e, folder: string) =>
     typeof folder === 'string' ? realFolder(folder) : folder
+  )
+  ipcMain.handle('file:diskSpelling', (_e, filePath: unknown) =>
+    typeof filePath === 'string' ? diskSpelling(filePath) : filePath
   )
   ipcMain.handle('file:openFolderDialog', (e, defaultPath?: string) => {
     const win = windowFromEvent(e) ?? mainWindow

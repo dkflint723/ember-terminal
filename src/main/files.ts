@@ -99,6 +99,34 @@ export function longPath(p: string): string {
 }
 
 /**
+ * A path in the spelling it has on disk — its capitalisation, and short names
+ * written out — and still the same place: like `longPath`, the filesystem's answer
+ * is taken only where each part that differs does so by case or was a short name,
+ * so a junction or a substituted drive is left as given.
+ *
+ * For paths that come from a language server, which lower-cases them. A file opened
+ * from one was named that way in its tab, and saving it renamed it on disk:
+ * UserCard.tsx became usercard.tsx.
+ */
+export function diskSpelling(p: string): string {
+  if (process.platform !== 'win32' || !p) return p
+  let real: string
+  try {
+    real = realpathSync.native(p)
+  } catch {
+    return p
+  }
+  const given = p.split(/[\\/]+/).filter(Boolean)
+  const named = real.split(/[\\/]+/).filter(Boolean)
+  if (given.length !== named.length) return p
+  for (let i = 0; i < given.length; i++) {
+    if (given[i].toLowerCase() === named[i].toLowerCase()) continue
+    if (!given[i].includes('~')) return p
+  }
+  return real
+}
+
+/**
  * The filesystem's own name for a path: short names written out, junctions,
  * substituted drives and links followed, capitalisation as it is on disk.
  *

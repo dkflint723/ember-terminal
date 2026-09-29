@@ -94,6 +94,7 @@ const ORDER = [
   'verify-links',
   'verify-lsp-custom',
   'verify-lsp-recovery',
+  'verify-lsp-crossfile',
   'verify-models',
   'verify-profiles',
   'verify-rebind',
