@@ -1282,6 +1282,8 @@ export interface EmberApi {
    * preLaunchTask's — with `${env:…}` in its values resolved. Null when there is none.
    */
   dapEnvFile(env: Record<string, string>): Promise<string | null>
+  /** Remove such a file, written for a task that then did not run. */
+  dapDropEnvFile(file: string): Promise<void>
   /**
    * Answer a reverse request the adapter made of the client — runInTerminal,
    * once the command is actually standing in a terminal pane.

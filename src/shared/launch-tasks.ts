@@ -137,6 +137,25 @@ export function resolveTask(name: string, tasksJson: unknown, ctx: LaunchContext
     }
     case 'shell': {
       if (typeof t.command !== 'string' || !t.command.trim()) return { ok: false, reason: `The task ${quoted(name)} has no command.` }
+      // Written for another shell: run in PowerShell it would mean something else, or nothing.
+      if ((t.options as { shell?: unknown } | undefined)?.shell !== undefined) {
+        return { ok: false, reason: `The task ${quoted(name)} names its own shell, and Ember runs shell tasks in PowerShell only.` }
+      }
+      /*
+       * A variable is filled into the command as it is, the way VS Code does it — so a
+       * value PowerShell reads as syntax changes the command: a folder named `$work`
+       * expands, a file named `x;calc.js` runs calc. Refused, with where to put it.
+       */
+      const raw = typeof entry.command === 'string' ? entry.command : ''
+      for (const m of raw.matchAll(/\$\{(?!env:)[^}]+\}/g)) {
+        const one = resolveLaunchVariables(m[0], ctx)
+        if (one.ok && /[`$;&|'"(){}@<>\r\n]/.test(String(one.value))) {
+          return {
+            ok: false,
+            reason: `In the task ${quoted(name)}, ${m[0]} is ${quoted(String(one.value))}, which PowerShell would read as part of the command. Pass it in "args", where it is kept as a value.`
+          }
+        }
+      }
       // A shell task's command is shell source, written for the shell it runs in —
       // on Windows, PowerShell — so it goes in as it is. Its arguments are values.
       script = argText ? `${t.command} ${argText}` : t.command

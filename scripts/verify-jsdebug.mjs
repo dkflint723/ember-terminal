@@ -29,7 +29,9 @@ if (!fs.existsSync(JS_DEBUG)) {
 }
 const profile = newProfile('jsdebug')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const env = { ...process.env }
+// A token named by `${env:…}` in the arguments: resolved in main, so a secret by the time it is typed.
+const ARG_TOKEN = 'ghp_' + 'EmberArgumentNotARealToken012345678'.padEnd(36, 'y')
+const env = { ...process.env, EMBER_ARG_SECRET: ARG_TOKEN }
 delete env.ELECTRON_RUN_AS_NODE
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-jsdebug-'))
@@ -72,13 +74,13 @@ fs.writeFileSync(
       { name: 'Missing runtime', type: 'node', request: 'launch', program: '${workspaceFolder}/app.js', runtimeExecutable: 'no-such-runtime-ember' },
       // A token in `env`, as a launch.json holds one: the program must see it, and
       // nothing else may.
-      { name: 'With a secret', type: 'node', request: 'launch', program: '${workspaceFolder}/secret.js', console: 'integratedTerminal', env: { GITHUB_TOKEN: TOKEN } }
+      { name: 'With a secret', type: 'node', request: 'launch', program: '${workspaceFolder}/secret.js', console: 'integratedTerminal', env: { GITHUB_TOKEN: TOKEN }, args: ['${env:EMBER_ARG_SECRET}'] }
     ]
   })
 )
 fs.writeFileSync(
   path.join(dir, 'secret.js'),
-  "console.log(process.env.GITHUB_TOKEN ? 'secret-seen-' + process.env.GITHUB_TOKEN.length : 'secret-missing')\n",
+  "console.log(process.env.GITHUB_TOKEN ? 'secret-seen-' + process.env.GITHUB_TOKEN.length : 'secret-missing')\nconsole.log('arg-seen-' + (process.argv[2] ?? '').length)\n",
   'utf8'
 )
 
@@ -205,6 +207,10 @@ const alive = (pid) => {
 // and a shell reports the long one.
 const elsewhere = fs.realpathSync.native(path.join(dir, 'elsewhere'))
 await inShell(`$env:NODE_OPTIONS='x'; Set-Location -LiteralPath '${elsewhere}'; Write-Output 'READY-MARK'`, 'READY-MARK')
+// PowerShell's history file, and how much of it came before this run: it is the
+// user's own, and only what this run typed is this run's business.
+const histPath = (/HIST\[(.*?)\]/.exec(await inShell('Write-Output "HIST[$((Get-PSReadLineOption).HistorySavePath)]"', 'HIST[')) ?? [])[1] ?? ''
+const histStart = histPath && fs.existsSync(histPath) ? fs.statSync(histPath).size : 0
 const before = await shellState()
 check('the shell starts with its own NODE_OPTIONS', before.nodeOptions === 'x', JSON.stringify(before))
 
@@ -310,6 +316,16 @@ const recorded = await page.evaluate(async (token) => {
 }, TOKEN)
 check('nor in history', recorded.token === 0, JSON.stringify(recorded))
 check('and nothing the debugger typed is in history', recorded.encoded === 0, JSON.stringify(recorded))
+check('and the argument that named one reaches the program', await page.evaluate(() => [...document.querySelectorAll('.block__body')].some((b) => /arg-seen-40/.test(b.textContent ?? ''))))
+/*
+ * Nor in PowerShell's own history file, which keeps every line typed — encoded or
+ * not, and its filter for secrets cannot see through the encoding. So each encoded
+ * line in it is decoded and read.
+ */
+const typed = histPath && fs.existsSync(histPath) ? fs.readFileSync(histPath).subarray(histStart).toString('utf8') : ''
+const decoded = [...typed.matchAll(/-EncodedCommand (\S+)/g)].map((m) => Buffer.from(m[1], 'base64').toString('utf16le')).join('\n')
+check('PowerShell keeps a history to read', typed.length > 0, histPath || '(no path)')
+check('and no secret is in it, encoded or not', ![TOKEN, ARG_TOKEN].some((t) => typed.includes(t) || decoded.includes(t)), histPath)
 const leftover = fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith('ember-debuggee-') && !tempBefore.has(n))
 check('the file that carried it is gone', leftover.length === 0, JSON.stringify(leftover))
 

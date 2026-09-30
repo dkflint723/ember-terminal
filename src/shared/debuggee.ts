@@ -29,7 +29,11 @@ import { powerShellLiteral } from './quote.ts'
 export interface DebuggeeRequest {
   args: string[]
   cwd?: string
-  /** A JSON file of name to value (null to unset), read and deleted by the child. */
+  /**
+   * A JSON file, `{ env, args }`: the environment, name to value (null to unset), and
+   * the program's arguments. Read and deleted by the child; the args in the request
+   * are then only for naming the block.
+   */
   envFile?: string
   /** The environment itself: for tests, and for adapters asked without main's file. */
   env?: Record<string, string | null>
@@ -45,6 +49,13 @@ const literal = (v: string): string => powerShellLiteral(v.replace(/[\r\n]/g, ' 
 export function debuggeeScript(req: DebuggeeRequest): string | null {
   const args = req.args.map(String)
   if (args.length === 0) return null
+  /*
+   * With a file, the arguments come from it too. They can hold a secret as surely as
+   * the environment can — `"args": ["--token", "${env:GITHUB_TOKEN}"]` is resolved
+   * before it gets here — and the typed line is kept by PowerShell's own history,
+   * whose filter for secrets cannot see through the encoding.
+   */
+  if (req.envFile) return childScript(req, '$a = @($e.args); $rest = @($a | Select-Object -Skip 1); & $a[0] @rest')
   return childScript(req, `& ${args.map(literal).join(' ')}`)
 }
 
@@ -63,10 +74,10 @@ function childScript(req: { cwd?: string; envFile?: string; env?: Record<string,
        * debugger's hook or its configuration's environment, undebugged, with one
        * red line to say so.
        */
-      `try { $e = Get-Content -Raw -Encoding UTF8 -LiteralPath ${file} -ErrorAction Stop | ConvertFrom-Json } catch { [Console]::Error.WriteLine('This debugging run has ended; its program is not started again on its own.'); exit 1 }`,
+      `try { $e = Get-Content -Raw -Encoding UTF8 -LiteralPath ${file} -ErrorAction Stop | ConvertFrom-Json } catch { [Console]::Error.WriteLine('This run has ended; it is not started again on its own.'); exit 1 }`,
       `Remove-Item -LiteralPath ${file} -ErrorAction SilentlyContinue`,
       // Only a plain name: anything else is not an environment variable anyone meant.
-      "foreach ($p in $e.PSObject.Properties) { if ($p.Name -match '^[A-Za-z_][A-Za-z0-9_]*$') { if ($null -eq $p.Value) { Remove-Item \"Env:$($p.Name)\" -ErrorAction SilentlyContinue } else { Set-Item \"Env:$($p.Name)\" ([string]$p.Value) } } }"
+      "foreach ($p in $e.env.PSObject.Properties) { if ($p.Name -match '^[A-Za-z_][A-Za-z0-9_]*$') { if ($null -eq $p.Value) { Remove-Item \"Env:$($p.Name)\" -ErrorAction SilentlyContinue } else { Set-Item \"Env:$($p.Name)\" ([string]$p.Value) } } }"
     )
   }
   for (const [key, value] of Object.entries(req.env ?? {})) {

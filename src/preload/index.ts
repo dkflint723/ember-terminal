@@ -59,6 +59,7 @@ const api: EmberApi = {
     ipcRenderer.invoke('dap:request', sessionId, command, args),
   dapStop: (sessionId: string) => ipcRenderer.invoke('dap:stop', sessionId),
   dapEnvFile: (env: Record<string, string>) => ipcRenderer.invoke('dap:envFile', env),
+  dapDropEnvFile: (file: string) => ipcRenderer.invoke('dap:dropEnvFile', file),
   dapReverseReply: (sessionId: string, requestSeq: number, ok: boolean) =>
     ipcRenderer.send('dap:reverseReply', sessionId, requestSeq, ok),
   onDapEvent: (cb: (payload: DapEventPayload) => void) => {

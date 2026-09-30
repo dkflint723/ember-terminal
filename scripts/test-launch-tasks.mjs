@@ -29,7 +29,9 @@ const tasks = {
     { label: 'gulp', type: 'gulp', task: 'default' },
     { label: 'asks', type: 'shell', command: 'echo ${input:who}' },
     { label: 'per os', type: 'shell', command: 'build.sh', windows: { command: 'build.cmd', options: { env: { W: '1' } } }, options: { cwd: 'tools' } },
-    { type: 'npm', script: 'prep', options: { env: { FROM: 'tasks.json' } } }
+    { type: 'npm', script: 'prep', options: { env: { FROM: 'tasks.json' } } },
+    { label: 'own shell', type: 'shell', command: 'make', options: { shell: { executable: 'cmd.exe' } } },
+    { label: 'runs file', type: 'shell', command: 'node ${file}' }
   ]
 }
 const task = (name, json = tasks) => resolveTask(name, json, ctx)
@@ -57,6 +59,11 @@ refused('both', 'depends on other tasks')
 refused('gulp', 'which Ember does not run')
 refused('asks', '${input:who}')
 refused('nothing like it', 'no task named')
+refused('own shell', 'names its own shell')
+const hostile = resolveTask('runs file', tasks, { ...ctx, file: 'C:\\work\\proj\\x;calc.js' })
+check('refuses a substituted value PowerShell would read as syntax', !hostile.ok && hostile.reason.includes('x;calc.js'), JSON.stringify(hostile))
+const plain = resolveTask('runs file', tasks, ctx)
+check('and runs it when the value is only a path', plain.ok && plain.task.script === 'node C:\\work\\proj\\src\\app.ts', JSON.stringify(plain))
 refused('tsc: watch - tsconfig.json', 'never finishes')
 
 // --- the names VS Code gives on its own ------------------------------------------------

@@ -529,7 +529,8 @@ export function moveBreakpoints(from: string, to: string): void {
     const next = { ...s.breakpoints }
     for (const [key, file] of Object.entries(s.breakpoints)) {
       if (!inside(from, file.path)) continue
-      const path = to + file.path.slice(from.length)
+      // By the normalised prefix: `inside` matched it without case or a trailing slash.
+      const path = to.replace(/[\\/]+$/, '') + file.path.slice(from.replace(/[\\/]+$/, '').length)
       delete next[key]
       next[fileKey(path)] = { path, lines: file.lines.map((l) => ({ ...l, verified: false })) }
       moved.push(file.path, path)
@@ -1324,9 +1325,26 @@ function blockOutcome(paneId: string, blockId: string): Promise<{ exitCode: numb
  * or sets a variable leaves the pane's shell as it was. It is a block like any other
  * command — its output is there to read when it fails — named for the task.
  */
+/**
+ * A PowerShell pane at its prompt, waited for a moment when there is none yet. A
+ * restart comes here the instant the old session ends, while the program it ran in
+ * the terminal is still being taken down and the pane's prompt has not come back;
+ * without the wait a restart with a preLaunchTask, or a program in the terminal, was
+ * refused for want of a pane that was about to be there. A stop asked for ends it.
+ */
+async function debuggeePane(ms = 8_000): Promise<string | null> {
+  for (const until = Date.now() + ms; ; ) {
+    const id = terminalPaneForDebuggee()
+    if (id || cancelRequested || Date.now() >= until) return id
+    await new Promise((r) => window.setTimeout(r, 150))
+  }
+}
+
 async function runPreLaunchTask(task: ResolvedTask): Promise<boolean> {
   const app = useStore.getState()
-  const paneId = terminalPaneForDebuggee()
+  useDebugStore.setState({ status: 'starting', adapterName: `the task ‘${task.label}’` })
+  const paneId = await debuggeePane()
+  if (cancelRequested) return false
   const controller = paneId ? existingController(paneId) : undefined
   if (!paneId || !controller) {
     app.setNotice(
@@ -1335,16 +1353,18 @@ async function runPreLaunchTask(task: ResolvedTask): Promise<boolean> {
     )
     return false
   }
-  useDebugStore.setState({ status: 'starting', adapterName: `the task ‘${task.label}’` })
-  const envFile = task.env ? ((await window.ember.dapEnvFile(task.env)) ?? undefined) : undefined
-  const line = taskLine({ script: task.script, cwd: task.cwd, envFile })
-  if (line.length > MOST_LINE) {
+  // Measured with room for the file's name, before a file is written for a line that
+  // would be refused: one that is never read holds its values until the next sweep.
+  if (taskLine({ script: task.script, cwd: task.cwd, envFile: task.env ? 'x'.repeat(260) : undefined }).length > MOST_LINE) {
     app.setNotice(`The preLaunchTask ‘${task.label}’ is too long a command for Windows to start. The debugger did not start.`, 'error')
     return false
   }
-  if (cancelRequested) return false
-  const blockId = controller.runCommand(line, { label: taskLabel(task.label) })
+  const envFile = task.env ? ((await window.ember.dapEnvFile(task.env)) ?? undefined) : undefined
+  const line = taskLine({ script: task.script, cwd: task.cwd, envFile })
+  const blockId = cancelRequested ? null : controller.runCommand(line, { label: taskLabel(task.label) })
   if (!blockId) {
+    if (envFile) void window.ember.dapDropEnvFile(envFile)
+    if (cancelRequested) return false
     app.setNotice(`The preLaunchTask ‘${task.label}’ could not be run in the terminal. The debugger did not start.`, 'error')
     return false
   }
@@ -1403,6 +1423,8 @@ async function startWith(req: DebugStartRequest, adapters?: DebugAdapter[], note
     // Filters belong to the adapter that declared them; a new session's
     // capabilities repopulate this before its 'initialized' is answered.
     exceptionFilters: [],
+    // Until this adapter says what it honours: the last one's word is not its.
+    capabilities: null,
     ...EMPTY_RUN
   })
   // After the clearing above, which would take them with it.
@@ -1469,8 +1491,7 @@ function runDebuggeeInTerminal(body: {
   cwd?: string
   env?: Record<string, string | null>
   envFile?: string
-}): boolean {
-  const paneId = terminalPaneForDebuggee()
+}, paneId: string | null): boolean {
   const controller = paneId ? existingController(paneId) : undefined
   const request = { args: (body.args ?? []).map(String), cwd: body.cwd, envFile: body.envFile, env: body.env }
   const line = debuggeeLine(request)
@@ -1560,10 +1581,12 @@ export function handleDapEvent(payload: DapEventPayload): void {
         cwd?: string
         env?: Record<string, string | null>
       }
-      const ok = runDebuggeeInTerminal(args)
-      if (typeof args?.requestSeq === 'number') {
-        window.ember.dapReverseReply(sessionId, args.requestSeq, ok)
-      }
+      void debuggeePane().then((paneId) => {
+        const ok = runDebuggeeInTerminal(args, paneId)
+        if (typeof args?.requestSeq === 'number') {
+          window.ember.dapReverseReply(sessionId, args.requestSeq, ok)
+        }
+      })
       return
     }
     case 'launch-failed': {

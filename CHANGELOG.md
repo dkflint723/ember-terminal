@@ -47,6 +47,20 @@ newest entry sits on top.
   breakpoints with it, and one deleted takes them away, and the adapter is told both.
   And whatever goes wrong while starting, the debugger comes back to idle and says
   what: a throw on the way used to leave it reading "Starting…" until a reload.
+- **Corrected before landing, after a QA pass.** Filling in `${env:…}` made
+  `"args": ["--token", "${env:GITHUB_TOKEN}"]` put the token into the line typed into
+  the pane — encoded, which PowerShell's history file keeps and its filter for
+  secrets cannot read — so a debugged program's arguments now travel in the same
+  read-and-delete file as its environment. A restart with a preLaunchTask, or with a
+  program in the terminal, came the moment the old session ended, before that pane
+  was back at its prompt, and could be refused a terminal; both now wait for the
+  prompt, a few seconds at most. That race did not happen on this machine — the
+  restart check below passes on the build before the fix too — and is fixed from
+  reading the code. A shell task naming a shell of its own is refused rather than run
+  in PowerShell, and so is one whose command would have a filled-in value read as
+  PowerShell syntax (a file named `x;calc.js` in `${file}`); arguments are the place
+  for such values. A task's environment file is not written for a task that is then
+  refused, and a breakpoint box no longer follows the previous adapter's word.
 - **Not done:** compound launches, `postDebugTask`, and tasks with `dependsOn`;
   function and data breakpoints, setting a variable's value, and a settings page for
   taught adapters. That Stop now terminates first is not checked separately — the
@@ -56,12 +70,16 @@ newest entry sits on top.
   `${fileBasenameNoExtension}` and the program must print them filled in; one with an
   `${input:…}` must be refused by name; a configuration whose `preLaunchTask` builds a
   file must run a program that reads it, in a block named for the task, and one whose
-  task exits 3 must say so and start nothing; a breakpoint with a hit count of 3 in a
+  task exits 3 must say so and start nothing; a restart of a program with a task,
+  running in the terminal, must run both again; a breakpoint with a hit count of 3 in a
   loop must stop with the watch on `i` reading 2; a breakpoint in a module loaded late
   must be shown verified when it stops there; and a breakpoint must follow its file's
-  rename. On the build before this, every one of those fails. `verify-dap` now requires
+  rename. On the build before this, every one of those fails but the restart.
+  `verify-jsdebug` now passes a token through `${env:…}` in a configuration's
+  arguments and decodes every line this run added to PowerShell's history file,
+  requiring no token in any; that fails on this change's first version. `verify-dap` now requires
   the fake adapter's breakpoint to offer the condition it honours and not a hit count
-  or a log message. *launch variables* (20 cases) and *launch tasks* (28 cases, with
+  or a log message. *launch variables* (20 cases) and *launch tasks* (31 cases, with
   the task line run in each PowerShell there is) join the unit tables.
 
 ### Debugging a Node program leaves your shell as it was

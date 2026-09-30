@@ -358,8 +358,9 @@ export class DapSession {
        * PSReadLine. The child reads the file and deletes it (shared/debuggee.ts);
        * one the program never got as far as reading goes when the session does.
        */
+      // The arguments too: a `${env:…}` among them is a secret by the time it is here.
       const { env, ...rest } = (msg.arguments ?? {}) as Record<string, unknown>
-      const envFile = writeEnvFile(env)
+      const envFile = writeEnvFile(env, Array.isArray(rest.args) ? rest.args : [])
       if (envFile) this.envFiles.push(envFile)
       this.events.onEvent(this.id, 'run-in-terminal', { requestSeq: msg.seq, ...rest, envFile })
       return
@@ -450,22 +451,33 @@ export class DapSession {
 }
 
 /**
- * An environment for a child PowerShell to read and delete (shared/debuggee.ts),
- * or undefined when there is none to give or it could not be written. Values as
- * strings, the way the adapter would have set them: true, not True; null unsets.
+ * An environment — and, for a debuggee, its arguments — for a child PowerShell to
+ * read and delete (shared/debuggee.ts), as `{ env, args }`; undefined when there is
+ * nothing to give or it could not be written. Values as strings, the way the
+ * adapter would have set them: true, not True; null unsets.
  */
-export function writeEnvFile(env: unknown): string | undefined {
-  if (!env || typeof env !== 'object' || Object.keys(env).length === 0) return undefined
+export function writeEnvFile(env: unknown, args?: unknown[]): string | undefined {
+  const hasEnv = !!env && typeof env === 'object' && Object.keys(env).length > 0
+  if (!hasEnv && !args?.length) return undefined
   const file = join(tmpdir(), `ember-debuggee-${randomUUID()}.json`)
   try {
     const values = Object.fromEntries(
-      Object.entries(env as Record<string, unknown>).map(([k, v]) => [k, v === null || v === undefined ? null : String(v)])
+      Object.entries((hasEnv ? env : {}) as Record<string, unknown>).map(([k, v]) => [k, v === null || v === undefined ? null : String(v)])
     )
-    writeFileSync(file, JSON.stringify(values), { encoding: 'utf8', mode: 0o600 })
+    writeFileSync(file, JSON.stringify({ env: values, ...(args ? { args: args.map(String) } : {}) }), { encoding: 'utf8', mode: 0o600 })
     return file
   } catch {
     return undefined
   }
+}
+
+/** Remove one such file — only a file of that name in the temp folder, whatever is asked. */
+export function dropEnvFile(file: unknown): void {
+  if (typeof file !== 'string') return
+  const name = file.split(/[\\/]/).pop() ?? ''
+  if (!/^ember-debuggee-[0-9a-f-]+\.json$/.test(name)) return
+  if (join(tmpdir(), name).toLowerCase() !== file.toLowerCase()) return
+  rmSync(file, { force: true })
 }
 
 /*

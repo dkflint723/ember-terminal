@@ -38,6 +38,11 @@ write('vars.js', "console.log('VARS[' + process.argv.slice(2).join('|') + ']')\n
 write('build.js', "require('node:fs').writeFileSync(require('node:path').join(__dirname, 'built.txt'), 'BUILT-' + 'OK')\n")
 write('built.js', "console.log('RAN-WITH-' + require('node:fs').readFileSync(require('node:path').join(__dirname, 'built.txt'), 'utf8'))\n")
 write('fail.js', 'process.exit(3)\n')
+// Records each start, then stays running in the terminal for a restart to end.
+write(
+  'stays.js',
+  "const fs = require('node:fs'), p = require('node:path')\nfs.appendFileSync(p.join(__dirname, 'runs.txt'), fs.readFileSync(p.join(__dirname, 'built.txt'), 'utf8') + '\\n')\nsetInterval(() => {}, 1000)\n"
+)
 write('unbuilt.js', "console.log('SHOULD-NOT-' + 'RUN')\n")
 write('loop.js', "let total = 0\nfor (let i = 0; i < 5; i++) {\n  total += i\n}\nconsole.log('loop-done', total)\n")
 // A module loaded only after a pause: js-debug cannot place its breakpoint until then.
@@ -68,6 +73,14 @@ fs.writeFileSync(
         preLaunchTask: 'build',
         console: 'internalConsole',
         outputCapture: 'std'
+      },
+      {
+        name: 'Build, in the terminal',
+        type: 'node',
+        request: 'launch',
+        program: '${workspaceFolder}/stays.js',
+        preLaunchTask: 'build',
+        console: 'integratedTerminal'
       },
       {
         name: 'Broken build',
@@ -214,6 +227,32 @@ await waitFor(async () => /RAN-WITH-/.test(await output()), 45_000)
 check('the task runs before the program, which sees what it built', (await output()).includes('RAN-WITH-BUILT-OK'), (await output()).slice(-160))
 const headers = await page.evaluate(() => [...document.querySelectorAll('.block__cmd')].map((b) => (b.textContent ?? '').trim()))
 check('in a block named for the task', headers.includes('# preLaunchTask: build'), JSON.stringify(headers.slice(-3)))
+await settle()
+
+/*
+ * --- and runs again on restart, once the terminal it shares is back at its prompt ---
+ *
+ * The restart comes the moment the old session ends, while its program is still
+ * being taken down in the terminal the task needs; it was refused for want of a
+ * pane at its prompt.
+ */
+const runsFile = path.join(dir, 'runs.txt')
+const runs = () => (fs.existsSync(runsFile) ? fs.readFileSync(runsFile, 'utf8').trim().split(/\r?\n/).length : 0)
+const taskBlocks = () =>
+  page.evaluate(() => [...document.querySelectorAll('.block__cmd')].filter((b) => (b.textContent ?? '').trim() === '# preLaunchTask: build').length)
+await choose('Build, in the terminal')
+await f5()
+await waitFor(async () => runs() === 1 && (await state()).includes('Running'), 45_000)
+check('a program with a task runs in the terminal', runs() === 1, `${runs()} / ${await state()}`)
+const tasksBefore = await taskBlocks()
+await page.keyboard.press('Control+Shift+F5')
+await waitFor(async () => runs() === 2, 45_000)
+check(
+  'restart runs the task again, and the program',
+  runs() === 2 && (await taskBlocks()) === tasksBefore + 1,
+  `runs ${runs()}, task blocks ${tasksBefore} -> ${await taskBlocks()}, ${await state()}`
+)
+check('without being refused a terminal', !(await bodyText()).includes('none at its prompt'))
 await settle()
 
 // --- and a failing one stops the launch -------------------------------------------------

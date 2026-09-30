@@ -257,7 +257,7 @@ import { SnippetStore } from './snippets.js'
 import { Notifier, focusWindow } from './notify.js'
 import { AiService } from './ai.js'
 import { ClaudeCliService } from './claude-cli.js'
-import { DapService, detectAdapters, writeEnvFile } from './dap.js'
+import { DapService, detectAdapters, dropEnvFile, writeEnvFile } from './dap.js'
 import { resolveEnvVariables } from '../shared/launch-vars.js'
 import { formatWithPrettier, hasPrettier } from './prettier.js'
 import {
@@ -1990,6 +1990,8 @@ function registerIpc(): void {
   ipcMain.handle('dap:envFile', (_e, env: unknown) =>
     writeEnvFile(env && typeof env === 'object' ? resolveEnvVariables(env, process.env) : undefined) ?? null
   )
+  // One written for a task that then did not run. Only such a file, by its name and place.
+  ipcMain.handle('dap:dropEnvFile', (_e, file: unknown) => dropEnvFile(file))
   ipcMain.handle('dap:request', (_e, sessionId: string, command: string, args?: unknown) =>
     dap.request(sessionId, command, args)
   )

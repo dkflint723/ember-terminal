@@ -68,6 +68,7 @@ const fileScript = decode(fromFile)
 check('reads the environment file, as UTF-8 in either PowerShell', fileScript.includes("Get-Content -Raw -Encoding UTF8 -LiteralPath 'C:\\Temp\\ember-debuggee-1.json' -ErrorAction Stop | ConvertFrom-Json"), fileScript.slice(0, 140))
 check('and refuses to start the program when the file is gone', /catch \{ .*exit 1 \}/.test(fileScript), fileScript.slice(0, 260))
 check('deletes it before anything else runs', fileScript.indexOf('Remove-Item -LiteralPath') < fileScript.indexOf('& '), fileScript)
+check('takes the program’s arguments from it too, not the line — a ${env:…} among them is a secret', !fileScript.includes('app.js') && fileScript.includes('$e.args'), fileScript.slice(-200))
 check('sets only plain names from it', fileScript.includes("-match '^[A-Za-z_][A-Za-z0-9_]*$'"))
 
 // --- the block's name -----------------------------------------------------------------
@@ -92,17 +93,17 @@ if (process.platform === 'win32') {
   const path = await import('node:path')
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-debuggee-test-'))
   const prog = path.join(dir, 'show.js')
-  fs.writeFileSync(prog, 'console.log(JSON.stringify([process.env.EMBER_T1, process.env.EMBER_T2]))\n')
+  fs.writeFileSync(prog, 'console.log(JSON.stringify([process.env.EMBER_T1, process.env.EMBER_T2, ...process.argv.slice(2)]))\n')
   for (const shell of ['powershell.exe', 'pwsh.exe']) {
     const envFile = path.join(dir, `env-${shell}.json`)
-    fs.writeFileSync(envFile, JSON.stringify({ EMBER_T1: 'café 日本', EMBER_T2: 'true' }), 'utf8')
+    fs.writeFileSync(envFile, JSON.stringify({ env: { EMBER_T1: 'café 日本', EMBER_T2: 'true' }, args: [process.execPath, prog, 'arg with space', 'tok-é'] }), 'utf8')
     const run = (file) =>
       spawnSync(shell, ['-NoProfile', '-EncodedCommand', encodePowerShell(debuggeeScript({ args: [process.execPath, prog], envFile: file }))], {
         encoding: 'utf8'
       })
     const first = run(envFile)
     if (first.error) continue // this PowerShell is not installed
-    check(`${shell}: the values arrive as they were written`, (first.stdout ?? '').trim() === '["café 日本","true"]', (first.stdout ?? '').trim())
+    check(`${shell}: the values arrive as they were written`, (first.stdout ?? '').trim() === '["café 日本","true","arg with space","tok-é"]', (first.stdout ?? '').trim())
     check(`${shell}: and the file is gone after`, !fs.existsSync(envFile))
     const again = run(envFile)
     check(`${shell}: run again without the file, the program does not start`, again.status === 1 && !(again.stdout ?? '').includes('['), `${again.status} ${(again.stdout ?? '').trim()}`)
