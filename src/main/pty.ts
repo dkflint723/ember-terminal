@@ -394,6 +394,22 @@ export class PtyManager {
     }
   }
 
+  /**
+   * The valve started afresh, for a shell whose output now goes to another window.
+   * What was in flight to the window it left will never be acknowledged by the one it
+   * went to — and the one it left may no longer acknowledge it — so what was counted
+   * as unparsed would stay counted, and a shell paused at that moment never resumed.
+   */
+  resetFlow(paneId: string): void {
+    const session = this.sessions.get(paneId)
+    if (!session) return
+    session.pending = 0
+    if (session.paused) {
+      session.paused = false
+      session.pty.resume()
+    }
+  }
+
   /** The valve's book-keeping, per pane — the flood suite's only window in. */
   flowStats(): Record<string, { pending: number; paused: boolean; pausedCount: number }> {
     const out: Record<string, { pending: number; paused: boolean; pausedCount: number }> = {}

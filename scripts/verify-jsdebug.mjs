@@ -276,6 +276,19 @@ await page.click('.pane.editor .view-lines')
 console.log('before F5 on parent.js:', JSON.stringify(await probe()))
 await page.keyboard.press('F5')
 await waitFor(async () => (await stoppedLine('child.js')) === 2, 40_000)
+if ((await stoppedLine('child.js')) !== 2) {
+  // Where it stood instead: which file, which line, and what the debugger said.
+  console.log(
+    'child stop missed:',
+    JSON.stringify({
+      ...(await probe()),
+      parentLine: await stoppedLine('parent.js'),
+      childLine: await stoppedLine('child.js'),
+      frames: await page.evaluate(() => [...document.querySelectorAll('.dbg__frame')].map((f) => (f.textContent ?? '').slice(0, 80))),
+      output: await page.evaluate(() => (document.querySelector('.dbg__output')?.textContent ?? '').slice(-600))
+    })
+  )
+}
 check('a breakpoint in a child process stops it', (await stoppedLine('child.js')) === 2, `${await state()} / line ${await stoppedLine('child.js')}`)
 const parentPid = Number(fs.existsSync(pidFile('parent')) ? fs.readFileSync(pidFile('parent'), 'utf8') : 0)
 const childPid = Number(fs.existsSync(pidFile('child')) ? fs.readFileSync(pidFile('child'), 'utf8') : 0)

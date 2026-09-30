@@ -1548,8 +1548,11 @@ function registerIpc(): void {
   ipcMain.handle('pty:spawn', (e, req: SpawnRequest) => {
     // Spawning kills whatever shell had the id first: never another window's.
     if (typeof req?.paneId !== 'string' || !ownsPane(e, req.paneId, 'pty:spawn')) {
-      return { ok: false, error: 'That pane belongs to another window.' }
+      return { ok: false, error: 'This terminal’s shell is open in another window. Close this pane and open a new one.' }
     }
+    // A window already on its way out starts nothing: the shell would run for nobody.
+    const caller = windowIdOf(e.sender)
+    if (caller === null) return { ok: false, error: 'This window is closing.' }
     const all = profiles()
     /*
      * A named shell that is gone is not the same as no name at all.
@@ -1572,7 +1575,7 @@ function registerIpc(): void {
     }
     try {
       // The spawner owns the pane's output until a move says otherwise.
-      paneOwners.set(req.paneId, windowIdOf(e.sender) ?? 1)
+      paneOwners.set(req.paneId, caller)
       /*
        * A shell Ember has no script for, said out loud.
        *
@@ -1612,9 +1615,15 @@ function registerIpc(): void {
     const ids = Array.isArray(paneIds)
       ? paneIds.filter((p): p is string => typeof p === 'string' && ownsPane(e, p, 'pty:adopt'))
       : []
-    const taken = ptys.adopt(ids)
+    // A window already on its way out adopts nothing: the shells would be nobody's.
     const windowId = windowIdOf(e.sender)
-    if (windowId !== null) for (const id of taken) paneOwners.set(id, windowId)
+    if (windowId === null) return []
+    const taken = ptys.adopt(ids)
+    for (const id of taken) {
+      paneOwners.set(id, windowId)
+      // What was in flight to the page before it reloaded will never be acknowledged.
+      ptys.resetFlow(id)
+    }
     return taken
   })
   ipcMain.on('pty:write', (e, paneId: string, data: string) => {
@@ -2090,7 +2099,11 @@ function registerIpc(): void {
     }
     const id = createWindow({ transfer })
     for (const pane of transfer.terminals) {
-      if (typeof pane?.id === 'string') paneOwners.set(pane.id, id)
+      if (typeof pane?.id === 'string') {
+        paneOwners.set(pane.id, id)
+        // The window it left no longer acknowledges what it was sent: see resetFlow.
+        ptys.resetFlow(pane.id)
+      }
     }
     return { ok: true }
   })

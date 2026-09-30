@@ -29,11 +29,23 @@ newest entry sits on top.
   can be listed with confidence — a path clicked in terminal output, a definition in
   a library, a debugger frame in Node's own code — and a rule that refused one of
   them would break it for everyone at once. What those lines hold decides the rule.
-- **Not done:** refusing file requests outside (the notes come first); a path
-  reached through a junction or a SUBST drive reads as outside; whether a path
-  exists, its real spelling and its timestamps are not noted, since a shell asks on
-  every `cd`; the language server, formatter and completion channels are not
-  checked.
+- **Corrected before landing, after a QA pass.** Refusing the old window's
+  acknowledgements after a tab moved would have left what was in flight to it
+  counted as unread for good, and a shell paused under heavy output at that moment
+  would never have resumed; a shell's flow control now starts afresh when its pane
+  moves or is adopted after a reload. That is not checked by a suite. A window
+  already closing no longer starts or adopts a shell, which would have run owned by
+  the first window and seen by nobody.
+- **Not done:** refusing file requests outside (the notes come first), for which
+  the folders will have to come from what main saw — a folder opened, a dialog, the
+  command line — since today the window reports its own; a path reached through a
+  junction or a SUBST drive reads as outside; whether a path exists, its real
+  spelling and its timestamps are not noted, since a shell asks on every `cd`; git
+  staging, checkout, push and pull, revealing a file, and the language server,
+  formatter and completion channels are not checked yet. If Ember stops between
+  moving a tab and saving, both windows can come back naming the same shell; the
+  second now shows that it is open in the other window rather than killing it, and
+  that pane has to be closed.
 - **How it is checked:** a new suite, `verify-ipc-scope`, opens a second window and
   from it types into, asks the nonce of, adopts, spawns over and kills the first
   window's shell, and requires each to do nothing — the shell still answering
