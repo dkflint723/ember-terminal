@@ -44,6 +44,12 @@ export interface CommandBlock {
    * copied, re-run and collapsed like any other.
    */
   restored?: boolean
+  /**
+   * Not written to history. A command typed on the user's behalf and named by a
+   * label rather than by what was typed — the debugger's program — is not something
+   * to search for, run again or offer as a suggestion.
+   */
+  unrecorded?: boolean
 }
 
 /** What the agent offered to do, and whether it has been acted on. */
@@ -672,7 +678,7 @@ interface Store {
   terminalPane(paneId: string): TerminalPaneState | null
   patchPane(paneId: string, patch: Partial<TerminalPaneState>): void
 
-  beginBlock(paneId: string, command: string): string
+  beginBlock(paneId: string, command: string, opts?: { unrecorded?: boolean }): string
   patchBlock(paneId: string, blockId: string, patch: Partial<CommandBlock>): void
   /** Open a conversation block for a question just asked, and return its id. */
   beginConversation(paneId: string, prompt: string, attached?: AttachedBlock[]): string
@@ -1968,7 +1974,7 @@ export const useStore = create<Store>((set, get) => ({
       return { panes: { ...s.panes, [paneId]: { ...pane, ...patch } } }
     }),
 
-  beginBlock: (paneId, command) => {
+  beginBlock: (paneId, command, opts) => {
     const id = uid()
     set((s) => {
       const pane = s.panes[paneId]
@@ -1984,7 +1990,8 @@ export const useStore = create<Store>((set, get) => ({
         startedAt: Date.now(),
         durationMs: null,
         collapsed: false,
-        interactive: false
+        interactive: false,
+        ...(opts?.unrecorded ? { unrecorded: true } : {})
       }
       // Cap history so a long-lived pane cannot grow without bound.
       const blocks = [...pane.blocks, block].slice(-400)

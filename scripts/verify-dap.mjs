@@ -328,11 +328,19 @@ check(
   (await outputText()).includes('terminal-standing:true'),
   (await outputText()).slice(-200)
 )
-const blockProof = await page.evaluate(() =>
-  [...document.querySelectorAll('.block')].some((b) =>
-    (b.textContent ?? '').includes('dap-terminal-proof')
+/*
+ * The program's own output, waited for. This used to be read once, straight after the
+ * pause, and passed on the block's header — which spelled out the typed line, echo
+ * and all. The block is now named for the program and the line runs through a child
+ * PowerShell, so only the output can answer, and it takes that shell a moment to start.
+ */
+let blockProof = false
+for (let until = Date.now() + 10_000; !blockProof && Date.now() < until; ) {
+  blockProof = await page.evaluate(() =>
+    [...document.querySelectorAll('.block__body')].some((b) => (b.textContent ?? '').includes('dap-terminal-proof'))
   )
-)
+  if (!blockProof) await sleep(300)
+}
 check('and the program ran as a real block', blockProof)
 await page.keyboard.press('Shift+F5')
 await waitForState('Not debugging')

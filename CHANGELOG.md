@@ -5,6 +5,61 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Debugging a Node program leaves your shell as it was
+
+- **F5 changed the shell it ran the program in, and Ctrl+C made it stick.** When the
+  Node debugger asks for its program to run in a terminal, Ember typed the debugger's
+  environment into your pane — js-debug's bootloader in `NODE_OPTIONS` among it —
+  changed to the program's folder, ran it, and then deleted those variables: deleting
+  a `NODE_OPTIONS` of your own along with them. Ctrl+C stops a whole line of
+  PowerShell, so after an interrupted run nothing was deleted at all, and every
+  `node` you ran from that shell afterwards tried to attach to a debugger. The
+  folder change was never undone.
+- **The program now runs in a child of that shell**, the same PowerShell as the pane,
+  given the environment and the folder inside it, so they end with it however it
+  ends. Your shell sets nothing and has nothing to clean up. The environment's
+  values are not typed at all — a `launch.json`'s `env` is where a token goes — but
+  handed over in a file the program's shell reads and deletes, so they reach neither
+  the pane, Ember's history, Share, nor PowerShell's own history file. The block is
+  named for the program (`# debugging: node.exe app.js`) and kept out of history. The
+  child starts without a profile, so a program runs the same way every time.
+- **A `launch.json` written for VS Code works.** It says `"type": "node"`, which VS
+  Code translates for js-debug and Ember did not: every such configuration failed
+  with "Unknown config", said only in the Debug view. `chrome` and `msedge` are
+  translated as well.
+- **A launch the debugger refuses says why, in a notice** — "Can't find Node.js
+  binary …", not "The session ended." — where before it wrote into the Debug view
+  and nothing else, and F5 with the panel closed looked like a key that did nothing.
+  The session is stopped with a disconnect rather than ended outright, which had left
+  a program it had already started running and holding its port. A launch you stop
+  yourself says nothing. And launch no longer times out at fifteen seconds: a program
+  that compiles first, or a machine under load, is given the time it takes.
+- **Also:** a program that cannot be found fails its block, an adapter that goes
+  while being written to no longer risks a crash in Ember's main process, and a
+  program printing in a loop no longer re-renders the Debug view for every line.
+  Some security software flags PowerShell started with an encoded command; on a
+  managed machine that is worth knowing.
+- **How it is checked:** a new suite, `verify-jsdebug`, drives the js-debug Ember
+  ships, which no suite did — `verify-dap` uses a fake adapter that behaves like none
+  in use. It stops at a breakpoint in a `.js` file; runs a program to its end and
+  interrupts another with Ctrl+C, and each time requires your `NODE_OPTIONS` and
+  folder as you left them; stops at a breakpoint in a child process; ends both
+  processes with Shift+F5; runs a `launch.json` entry that passes a token, requiring
+  the program to see it and nothing else to hold it; and has a refused launch explain
+  itself. On the build before this, the shell checks, the token, the block's name and
+  the refusal fail. *debuggee* (27 cases, in the unit tables) holds what is typed to
+  carrying no environment, and on Windows runs the script in each PowerShell there
+  is. CI fetches the pinned js-debug for the runs that need it,
+  straight from its release and retried.
+- **Corrected before landing, after a QA pass:** the first version typed the
+  environment encoded — which hid a token from the checks that keep one out of
+  history and Share, while anyone could decode it — named the block after that
+  line, reported a stop you asked for as a failed launch, and let a missing program
+  pass. A second pass found that Windows PowerShell 5.1 read the environment file in
+  its own code page (`café` arrived as `cafÃ©`), that a program whose environment
+  file was already gone started anyway, undebugged, and that the debugging run's
+  block no longer came back with a restored session.
+
 ### A run meant to show a check failing is not reported as a failure
 
 - **Proving a check meant a red run, and a failure notice for it.** Every check in

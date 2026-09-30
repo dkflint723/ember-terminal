@@ -93,6 +93,11 @@ jobs:
           cache: npm
       - run: npm ci
       - uses: ./.github/actions/electron-binary
+      # The Node debugger Ember ships, pinned and hash-checked — only when a run asks
+      # for verify-jsdebug: no per-push suite needs it, and a download is one more
+      # thing that can fail.
+      - if: contains(inputs.only, 'jsdebug')
+        run: node scripts/fetch-js-debug.mjs
       - run: npx electron-vite build
       # The runner is an administrator with UAC off, so everything below would be an
       # elevated Ember: its user data one directory down, and no Claude Code bridge,
@@ -238,6 +243,8 @@ jobs:
           cache: npm
       - run: npm ci
       - uses: ./.github/actions/electron-binary
+      # The Node debugger Ember ships, pinned and hash-checked; verify-jsdebug drives it.
+      - run: node scripts/fetch-js-debug.mjs
       - run: npx electron-vite build
       # The runner is an administrator with UAC off, so everything below would be an
       # elevated Ember: its user data one directory down, and no Claude Code bridge,

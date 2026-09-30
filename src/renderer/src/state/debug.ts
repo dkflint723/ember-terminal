@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { DapEventPayload, DebugAdapter, DebugStartRequest } from '@shared/types'
-import { changeDirectoryCommand, powerShellLiteral } from '@shared/quote'
+import { debuggeeLabel, debuggeeLine, MOST_LINE } from '@shared/debuggee'
 import { existingController } from '../terminal/controller'
 import { readinessOf } from '../terminal/typing'
 import { activeDocument, paneIdsOf, useStore, workspaceRoot } from './store'
@@ -148,11 +148,25 @@ const fileKey = (p: string): string => p.replace(/\\/g, '/').toLowerCase()
 
 const OUTPUT_CAP = 400
 
+/*
+ * Collected, and added once a frame. Each output event copied the whole buffer and
+ * re-rendered the panel, so a program printing in a loop kept the window busy doing
+ * little else. A timer rather than an animation frame: a window in the background
+ * gets no frames, and its output would wait until it was looked at.
+ */
+let pendingOutput: { category: string; text: string }[] = []
+let outputFlush: ReturnType<typeof setTimeout> | null = null
+
 function appendOutput(category: string, text: string): void {
   if (!text) return
-  useDebugStore.setState((s) => ({
-    output: [...s.output.slice(-(OUTPUT_CAP - 1)), { category, text }]
-  }))
+  pendingOutput.push({ category, text })
+  if (outputFlush !== null) return
+  outputFlush = setTimeout(() => {
+    const batch = pendingOutput
+    pendingOutput = []
+    outputFlush = null
+    useDebugStore.setState((s) => ({ output: [...s.output, ...batch].slice(-OUTPUT_CAP) }))
+  }, 16)
 }
 
 const request = (
@@ -534,6 +548,12 @@ const TYPE_MAP: Record<string, string> = {
   'pwa-node': 'pwa-node',
   python: 'debugpy'
 }
+/** VS Code's names for js-debug's configurations, and the names js-debug itself uses. */
+const JS_DEBUG_TYPE: Record<string, string> = {
+  node: 'pwa-node',
+  chrome: 'pwa-chrome',
+  msedge: 'pwa-msedge'
+}
 const adapterIdFor = (type: string, adapters: DebugAdapter[]): string | null => {
   const mapped = TYPE_MAP[type] ?? type
   return adapters.some((a) => a.id === mapped) ? mapped : null
@@ -891,6 +911,16 @@ export async function startDebugging(): Promise<void> {
       return
     }
     if (typeof launch.request !== 'string') launch.request = 'launch'
+    /*
+     * In the name js-debug answers to. A launch.json written for VS Code says
+     * "type": "node" — VS Code translates that for js-debug itself — and js-debug's
+     * own server knows only `pwa-node`: every such configuration failed with
+     * "Unknown config", said only in the Debug view.
+     */
+    // Only for js-debug: a taught adapter answering to `chrome` itself knows no other name.
+    if (adapterId === 'pwa-node' && typeof launch.type === 'string' && JS_DEBUG_TYPE[launch.type]) {
+      launch.type = JS_DEBUG_TYPE[launch.type]
+    }
     // The debuggee runs in a real pane when the config asks for a terminal;
     // with no pane to give it, the protocol console keeps things honest.
     if (launch.console === 'integratedTerminal' && !terminalPaneForDebuggee()) {
@@ -965,6 +995,8 @@ async function startWith(req: DebugStartRequest, adapters?: DebugAdapter[]): Pro
   lastStart = req
   restartPending = false
   endedEarly.clear()
+  // The last run's output still on its way belongs to the last run.
+  pendingOutput = []
   useDebugStore.setState({
     status: 'starting',
     adapterName: adapter?.name ?? req.adapterId,
@@ -1024,54 +1056,34 @@ export async function evaluateRepl(expression: string): Promise<void> {
 
 /* ---------- the debuggee's terminal ---------- */
 
-/** One value, said in PowerShell without being interpreted by it — by the shared
-    quoter, which also doubles the typographic single quotes PowerShell closes a
-    string on. Newlines become spaces: the line is typed into a pty, and a
-    linebreak inside a value would end the command early however it is quoted. */
-const psQuote = (v: string): string => powerShellLiteral(v.replace(/[\r\n]/g, ' '))
-
 /**
- * The adapter asked for its program to run in a real terminal. Build the line
- * — environment, directory, program — and run it as an ordinary command in the
- * active tab's shell, where it becomes a block and its stdin belongs to the
- * user. The reply tells the adapter the command is standing.
+ * The adapter asked for its program to run in a real terminal. It runs as an
+ * ordinary command in the active tab's shell, where it becomes a block and its
+ * stdin belongs to the user — but in a child of that shell, which is given the
+ * adapter's environment and directory. See shared/debuggee.ts for why the pane's own
+ * shell is no longer where they are set. The reply tells the adapter the command is
+ * standing.
  */
 function runDebuggeeInTerminal(body: {
   requestSeq?: number
   args?: string[]
   cwd?: string
   env?: Record<string, string | null>
+  envFile?: string
 }): boolean {
   const paneId = terminalPaneForDebuggee()
   const controller = paneId ? existingController(paneId) : undefined
-  const args = (body.args ?? []).map(String)
-  if (!controller || args.length === 0) return false
-
-  const parts: string[] = []
-  const setKeys: string[] = []
-  for (const [key, value] of Object.entries(body.env ?? {})) {
-    if (value === null) continue
-    // The key is interpolated into the command line and cannot be quoted the
-    // way a value can — anything but a plain identifier is refused outright,
-    // because "creative" keys from a cloned repo's launch.json would otherwise
-    // be raw PowerShell running in the user's shell.
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue
-    setKeys.push(key)
-    parts.push(`$env:${key}=${psQuote(String(value))}`)
+  const request = { args: (body.args ?? []).map(String), cwd: body.cwd, envFile: body.envFile, env: body.env }
+  const line = debuggeeLine(request)
+  if (!controller || line === null) return false
+  if (line.length > MOST_LINE) {
+    useStore
+      .getState()
+      .setNotice('The debugger asked to run a program with a command line too long for Windows to start.', 'error')
+    return false
   }
-  // -LiteralPath: a plain path is a wildcard pattern to Set-Location, and a program
-  // under a folder called `[draft]` would otherwise start somewhere else.
-  if (body.cwd) parts.push(changeDirectoryCommand('powershell', String(body.cwd).replace(/[\r\n]/g, ' ')))
-  parts.push(`& ${args.map(psQuote).join(' ')}`)
-  if (setKeys.length > 0) {
-    // The debug environment is for the debuggee, not for the user's shell: a
-    // NODE_OPTIONS bootloader left behind would quietly attach a debugger to
-    // every node the user runs afterwards. Cleared once the program is done.
-    parts.push(
-      `Remove-Item ${setKeys.map((k) => `Env:${k}`).join(', ')} -ErrorAction SilentlyContinue`
-    )
-  }
-  controller.runCommand(parts.join('; '))
+  // Named for what it runs; what was typed carries paths and stays out of history.
+  controller.runCommand(line, { label: debuggeeLabel(request) })
   return true
 }
 
@@ -1131,6 +1143,12 @@ export function handleDapEvent(payload: DapEventPayload): void {
       if (typeof args?.requestSeq === 'number') {
         window.ember.dapReverseReply(sessionId, args.requestSeq, ok)
       }
+      return
+    }
+    case 'launch-failed': {
+      // Said where it will be seen: the Debug view may not be open.
+      const message = (body as { message?: string } | undefined)?.message ?? 'The launch failed.'
+      useStore.getState().setNotice(`The debugger could not start the program: ${message}`, 'error')
       return
     }
     case 'session-ended': {

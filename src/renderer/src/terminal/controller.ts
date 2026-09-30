@@ -195,6 +195,10 @@ export class TerminalController {
    * line can have it back if the shell goes on to run it after all. See finishBlock.
    */
   private unstarted: { blockId: string; command: string } | null = null
+  /** The last line typed under a label, and the label: see runCommand and adoptCommand. */
+  private labelled: { text: string; label: string } | null = null
+  /** Whether pendingCommand is a label standing in for a typed line. */
+  private pendingLabelled = false
   /** The size the pty was last given, so a command can tell whether its strip changed it. */
   private ptySize: { cols: number; rows: number } | null = null
   /** Whether the pty has written anything since its size last changed. */
@@ -701,9 +705,14 @@ export class TerminalController {
     // block has not been opened yet.
     if (!this.currentBlockId) {
       const command = this.pendingCommand ?? ''
-      this.currentBlockId = this.reopenUnstarted(command) ?? this.store().beginBlock(this.paneId, command)
+      this.currentBlockId =
+        this.reopenUnstarted(command) ??
+        (this.pendingLabelled
+          ? this.store().beginBlock(this.paneId, command, { unrecorded: true })
+          : this.store().beginBlock(this.paneId, command))
     }
     this.pendingCommand = null
+    this.pendingLabelled = false
     this.unstarted = null
     this.started = true
   }
@@ -806,10 +815,19 @@ export class TerminalController {
    */
   private adoptCommand(command: string): void {
     if (command.length === 0) return
+    /*
+     * Except for a line typed under a label (runCommand's `label`): the shell reports
+     * what was typed, and taking its word put the line back as the block's name and
+     * into history — the very thing the label was there to keep out.
+     */
+    const labelled = this.labelled !== null && command.trim() === this.labelled.text
     if (this.currentBlockId) {
+      const pane = this.store().terminalPane(this.paneId)
+      if (labelled || commandBlock(pane, this.currentBlockId)?.unrecorded) return
       this.store().patchBlock(this.paneId, this.currentBlockId, { command })
     } else {
-      this.pendingCommand = command
+      this.pendingCommand = labelled && this.labelled ? this.labelled.label : command
+      this.pendingLabelled = labelled
     }
   }
 
@@ -1123,15 +1141,19 @@ export class TerminalController {
     // Persist for cross-session search. Output goes over as plain text: history
     // exists to be searched, not to reproduce a block's rendering.
     if (block && block.command.trim().length > 0) {
-      window.ember.recordHistory({
-        command: block.command,
-        cwd: block.cwd,
-        shell: pane?.profileId ?? '',
-        exitCode,
-        durationMs,
-        startedAt: block.startedAt,
-        output: textFromHtml(output)
-      })
+      // Not a labelled block: kept with the pane, under its label, but not offered
+      // back through history, search or suggestions.
+      if (!block.unrecorded) {
+        window.ember.recordHistory({
+          command: block.command,
+          cwd: block.cwd,
+          shell: pane?.profileId ?? '',
+          exitCode,
+          durationMs,
+          startedAt: block.startedAt,
+          output: textFromHtml(output)
+        })
+      }
 
       /*
        * And keep the block itself, so the pane comes back holding it.
@@ -1269,6 +1291,8 @@ export class TerminalController {
     this.carry = ''
     this.currentBlockId = null
     this.pendingCommand = null
+    this.pendingLabelled = false
+    this.labelled = null
     this.started = false
     this.unstarted = null
     this.sawAltScreen = false
@@ -1622,7 +1646,12 @@ export class TerminalController {
   }
 
   /** Run a command from the input editor, opening its block up front. */
-  runCommand(command: string): void {
+  /**
+   * `label`, when given, is what the block is called instead of what was typed —
+   * for a line typed on the user's behalf that is not theirs to read, search or run
+   * again. Such a block is not written to history.
+   */
+  runCommand(command: string, opts?: { label?: string }): void {
     const trimmed = command.trim()
     if (trimmed.length === 0) {
       this.send('\r')
@@ -1642,10 +1671,16 @@ export class TerminalController {
     const clean = cleanPaste(trimmed, false)
     if (needsAsking(clean) && !window.confirm(runQuestion(clean))) return
 
+    // Remembered whether or not a block opens here: the shell's own report of the line
+    // can open one later, and has to be told it is labelled.
+    this.labelled = opts?.label ? { text: clean.text.trim(), label: opts.label } : null
+
     // Without integration there is no `133;D` to close a block, so opening one
     // would leave it spinning forever. Just send the text.
     if (this.store().terminalPane(this.paneId)?.integration === 'ready') {
-      this.currentBlockId = this.store().beginBlock(this.paneId, clean.text)
+      this.currentBlockId = opts?.label
+        ? this.store().beginBlock(this.paneId, opts.label, { unrecorded: true })
+        : this.store().beginBlock(this.paneId, clean.text)
       this.started = false
       this.unstarted = null
       // The block opens the strip, which may resize the pty; see sendWhenSized.

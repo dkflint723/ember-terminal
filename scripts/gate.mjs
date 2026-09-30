@@ -41,6 +41,7 @@ const ORDER = [
   'verify-vsix',
   'verify-completion',
   'verify-dap',
+  'verify-jsdebug',
   'verify-windows',
   'verify-admin',
   'verify-chrome',

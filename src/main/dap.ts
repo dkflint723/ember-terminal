@@ -1,7 +1,8 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { connect, createServer, type Socket } from 'node:net'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import type { DebugAdapter, DebugStartRequest } from '../shared/types.js'
 
@@ -75,6 +76,8 @@ interface PendingRequest {
 
 /** How long a single request may sit unanswered before the caller is released. */
 const REQUEST_TIMEOUT_MS = 15_000
+/** Requests answered only once the program is up, however long that takes. */
+const UNTIMED = new Set(['launch', 'attach'])
 
 export interface DapSessionEvents {
   onEvent: (sessionId: string, event: string, body: unknown) => void
@@ -105,6 +108,16 @@ export class DapSession {
   private socket: Socket | null = null
   private framer = new DapFramer((msg) => this.onMessage(msg))
   private ended = false
+  /** Environment files handed to a terminal, removed when the session ends. */
+  private envFiles: string[] = []
+  /** The adapter's last line of output: see onMessage. */
+  lastSaid = ''
+  /** Set once a stop has been asked for: what ends after that was asked to. */
+  stopping = false
+  /** Whether the session has ended. */
+  get hasEnded(): boolean {
+    return this.ended
+  }
   /** Children opened on the adapter's own ask, torn down with the parent. */
   private children: DapSession[] = []
 
@@ -172,6 +185,10 @@ export class DapSession {
     if (!this.child) return
     this.child.on('error', (err) => this.fail(`The adapter could not start: ${err.message}`))
     this.child.on('exit', () => this.end())
+    // A write racing the adapter's exit fails afterwards, as an 'error' on stdin; with
+    // nothing listening, Node raises it as an uncaught exception in main. The exit
+    // handler above is what deals with an adapter that has gone.
+    this.child.stdin?.on('error', () => {})
     // A TCP server's stdout is chatter, not protocol — but an unread pipe fills
     // at 64KB and then every write in the adapter blocks. Drained as output.
     if (this.adapter.transport === 'tcp') {
@@ -183,12 +200,20 @@ export class DapSession {
       )
     }
     // An adapter's stderr is its diagnostics channel; surface it as output.
-    this.child.stderr?.on('data', (chunk: Buffer) =>
-      this.events.onEvent(this.id, 'output', {
-        category: 'stderr',
-        output: chunk.toString('utf8')
-      })
-    )
+    this.child.stderr?.on('data', (chunk: Buffer) => {
+      const text = chunk.toString('utf8')
+      // An error is the likeliest reason a launch ends without an answer; see lastSaid.
+      // js-debug writes `O [Error]: Can't find Node.js binary …`, often joined to what
+      // it wrote before; the message is what follows the marker.
+      for (const line of text.split(/\r?\n/)) {
+        const said = /\[?\w*Error\]?:\s*(.+)$/.exec(line)?.[1]?.trim()
+        if (said) {
+          this.lastSaid = said
+          break
+        }
+      }
+      this.events.onEvent(this.id, 'output', { category: 'stderr', output: text })
+    })
   }
 
   /**
@@ -229,10 +254,18 @@ export class DapSession {
     const seq = this.seq++
     this.write({ seq, type: 'request', command, arguments: args ?? {} })
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(seq)
-        resolve({ ok: false, error: `The adapter never answered ${command}.` })
-      }, REQUEST_TIMEOUT_MS)
+      /*
+       * No clock on launch or attach. An adapter answers them when the program is
+       * up — which for a build that compiles first, or a machine under load, took
+       * longer than fifteen seconds, and the session was torn down as failed while
+       * the program was still on its way. The session ending still ends the wait.
+       */
+      const timer = UNTIMED.has(command)
+        ? setTimeout(() => {}, 0)
+        : setTimeout(() => {
+            this.pending.delete(seq)
+            resolve({ ok: false, error: `The adapter never answered ${command}.` })
+          }, REQUEST_TIMEOUT_MS)
       this.pending.set(seq, { resolve, timer, command })
     })
   }
@@ -271,6 +304,17 @@ export class DapSession {
     }
 
     if (msg.type === 'event') {
+      /*
+       * The last thing the adapter said, kept for a launch that ends without an
+       * answer: js-debug refusing a runtime it cannot find ends the session and
+       * says why only in its output, and "The session ended." told nobody anything.
+       */
+      if (msg.event === 'output') {
+        const text = String((msg.body as { output?: unknown } | undefined)?.output ?? '').trim()
+        const category = (msg.body as { category?: unknown } | undefined)?.category
+        // Errors only: js-debug's console notes ("Debugger attached.") are not a reason.
+        if (text && category === 'stderr') this.lastSaid = text.split(/\r?\n/).pop() ?? text
+      }
       if (msg.event === 'initialized' && !this.capabilitiesSent) {
         this.parkedInitialized = msg.body ?? null
         return
@@ -305,10 +349,28 @@ export class DapSession {
        * block. The request parks here until the renderer says it is standing.
        */
       this.reverse.add(msg.seq as number)
-      this.events.onEvent(this.id, 'run-in-terminal', {
-        requestSeq: msg.seq,
-        ...(msg.arguments as Record<string, unknown>)
-      })
+      /*
+       * The environment goes into a file, not to the window: its values can be
+       * secrets, and the line the window types is kept by history, by Share and by
+       * PSReadLine. The child reads the file and deletes it (shared/debuggee.ts);
+       * one the program never got as far as reading goes when the session does.
+       */
+      const { env, ...rest } = (msg.arguments ?? {}) as Record<string, unknown>
+      let envFile: string | undefined
+      if (env && typeof env === 'object' && Object.keys(env).length > 0) {
+        envFile = join(tmpdir(), `ember-debuggee-${randomUUID()}.json`)
+        try {
+          // As strings, the way the adapter would have set them: true, not True.
+          const values = Object.fromEntries(
+            Object.entries(env as Record<string, unknown>).map(([k, v]) => [k, v === null || v === undefined ? null : String(v)])
+          )
+          writeFileSync(envFile, JSON.stringify(values), { encoding: 'utf8', mode: 0o600 })
+          this.envFiles.push(envFile)
+        } catch {
+          envFile = undefined
+        }
+      }
+      this.events.onEvent(this.id, 'run-in-terminal', { requestSeq: msg.seq, ...rest, envFile })
       return
     }
 
@@ -380,6 +442,8 @@ export class DapSession {
     this.pending.clear()
     for (const child of this.children) child.end()
     this.children = []
+    for (const file of this.envFiles) rmSync(file, { force: true })
+    this.envFiles = []
     try {
       this.socket?.destroy()
     } catch {
@@ -394,13 +458,35 @@ export class DapSession {
   }
 }
 
+/*
+ * Environment files a crash left behind. One is read and deleted within a second or
+ * two of being written, so any older than this outlived the Ember that wrote it — and
+ * it may hold a token. Not every one at once: an administrator's Ember is another
+ * process, with sessions of its own.
+ */
+function sweepEnvFiles(): void {
+  try {
+    const dir = tmpdir()
+    const stale = Date.now() - 10 * 60_000
+    for (const name of readdirSync(dir)) {
+      if (!/^ember-debuggee-[0-9a-f-]+\.json$/.test(name)) continue
+      const file = join(dir, name)
+      if (statSync(file).mtimeMs < stale) rmSync(file, { force: true })
+    }
+  } catch {
+    // A temp folder that cannot be read is not a reason to have no debugger.
+  }
+}
+
 /** Every live session, and the way a window's worth of them dies together. */
 export class DapService {
   private sessions = new Map<string, DapSession>()
 
   constructor(
     private forward: (ownerWindowId: number, sessionId: string, event: string, body: unknown) => void
-  ) {}
+  ) {
+    sweepEnvFiles()
+  }
 
   private events(ownerWindowId: number): DapSessionEvents {
     return {
@@ -433,11 +519,20 @@ export class DapService {
        */
       void session.request(session.requestKind, req.launch).then((res) => {
         if (res.ok) return
-        this.forward(ownerWindowId, session.id, 'output', {
-          category: 'stderr',
-          output: `${res.error ?? 'The launch failed.'}\n`
-        })
-        session.end()
+        // A launch that ended because someone stopped it has nothing to report.
+        if (session.stopping) return
+        // Ended without an answer: what the adapter last said is the reason.
+        const ended = !res.error || res.error === 'The session ended.'
+        const message = ended && session.lastSaid ? session.lastSaid : (res.error ?? 'The launch failed.')
+        this.forward(ownerWindowId, session.id, 'output', { category: 'stderr', output: `${message}\n` })
+        /*
+         * Said to the window, not only into the Debug view: F5 with the panel closed
+         * looked like a key that did nothing. And stopped the way any session stops,
+         * with a disconnect first: ending it outright killed the adapter and left a
+         * debuggee it had already started running, holding its port.
+         */
+        this.forward(ownerWindowId, session.id, 'launch-failed', { message })
+        if (!session.hasEnded) this.stop(session.id)
       })
       return { ok: true, sessionId: session.id }
     } catch (err) {
@@ -463,6 +558,7 @@ export class DapService {
   stop(sessionId: string): void {
     const session = this.sessions.get(sessionId)
     if (!session) return
+    session.stopping = true
     // Ask politely first; end() runs regardless when the adapter goes quiet.
     // A launched debuggee dies with its session; an attached one is somebody
     // else's process, and stopping means letting go of it, not killing it.
@@ -508,6 +604,7 @@ export class DapService {
       // An attached debuggee is somebody else's process; letting go of it is not
       // the same as killing it.
       if (session.requestKind !== 'launch') continue
+      session.stopping = true
       void session.request('disconnect', { terminateDebuggee: true })
       asked = true
     }

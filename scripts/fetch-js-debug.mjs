@@ -84,17 +84,35 @@ if (fs.existsSync(marker) && flag !== '--force') {
   process.exit(0)
 }
 
-const release = await releaseFor(PIN.tag)
-const asset = assetIn(release)
-if (!asset || asset.name !== PIN.asset) {
-  console.error(
-    `Expected ${PIN.asset} in ${PIN.tag}, found ${asset ? asset.name : 'no js-debug-dap asset'}.`
-  )
-  process.exit(1)
+/*
+ * Straight from the release, by name, and tried more than once.
+ *
+ * The version and the file are pinned, so there is nothing to ask the GitHub API —
+ * which allows sixty unauthenticated requests an hour per address, and a hosted
+ * runner shares its address with everyone else's. And a download that fails once
+ * is tried again before a CI run is failed for it: that failure sends somebody an
+ * email about a network, not about Ember. The hash below still decides.
+ */
+const url = `https://github.com/microsoft/vscode-js-debug/releases/download/${PIN.tag}/${PIN.asset}`
+const download = async () => {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      const res = await fetch(url, { headers: { 'user-agent': 'ember-terminal' } })
+      if (!res.ok) throw new Error(`GitHub answered ${res.status}`)
+      return Buffer.from(await res.arrayBuffer())
+    } catch (err) {
+      if (attempt >= 3) {
+        console.error(`Could not download ${PIN.asset}: ${err instanceof Error ? err.message : err}`)
+        process.exit(1)
+      }
+      console.log(`download failed (${err instanceof Error ? err.message : err}); trying again`)
+      await new Promise((r) => setTimeout(r, attempt * 3000))
+    }
+  }
 }
 
-console.log(`fetching ${asset.name} (${Math.round(asset.size / 1024)}KB)…`)
-const body = Buffer.from(await (await fetch(asset.browser_download_url)).arrayBuffer())
+console.log(`fetching ${PIN.asset}…`)
+const body = await download()
 
 /*
  * Checked before anything is written where the build can reach it.
@@ -106,14 +124,14 @@ const body = Buffer.from(await (await fetch(asset.browser_download_url)).arrayBu
  */
 const sha256 = crypto.createHash('sha256').update(body).digest('hex')
 if (sha256 !== PIN.sha256) {
-  console.error(`${asset.name} is not what the pin says it is.`)
+  console.error(`${PIN.asset} is not what the pin says it is.`)
   console.error(`  expected sha256 ${PIN.sha256}`)
   console.error(`  got      sha256 ${sha256}`)
   console.error('Nothing was written. If this is a deliberate change, run with --update.')
   process.exit(1)
 }
 
-const tarball = path.join(APP_DIR, 'resources', asset.name)
+const tarball = path.join(APP_DIR, "resources", PIN.asset)
 fs.mkdirSync(path.dirname(tarball), { recursive: true })
 fs.writeFileSync(tarball, body)
 
@@ -121,7 +139,7 @@ fs.rmSync(target, { recursive: true, force: true })
 // The tarball's root directory is js-debug/, so extracting into resources/
 // lands it exactly where detection looks. Relative paths, because GNU tar
 // reads a Windows drive letter as a remote host name.
-execFileSync('tar', ['-xzf', asset.name], {
+execFileSync('tar', ['-xzf', PIN.asset], {
   cwd: path.join(APP_DIR, 'resources'),
   stdio: 'inherit'
 })
