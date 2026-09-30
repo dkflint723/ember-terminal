@@ -5,6 +5,45 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A window reaches only its own shells
+
+- **Any window could type into, kill or take over another window's shell.** Every
+  terminal request to Ember's main process named a pane and was done, whichever
+  window asked: typing into it, resizing it, reading the secret its shell uses to
+  mark prompts, killing it, adopting it, or starting a new shell under its id —
+  which killed the one there. The same held for a pane's saved output and for debug
+  sessions. The ids are random, but a window holding one is exactly what a moved
+  tab is, and one compromised window was every window's shells.
+- **Now each is refused unless the window asking owns the pane** — or nobody does,
+  which is a shell that has already ended or one about to be started or restored. A
+  tab moved to another window can only move shells its window owns. Debug sessions
+  answer only the window that started them. Refusals are written to `ember.log` as
+  `ipc refused`, once per channel and window.
+- **File requests outside a window's folders are now noted, not yet refused.**
+  Reading, writing, creating, renaming and deleting a file, listing a folder,
+  searching and replacing, and a discard or commit in git are each checked against
+  the window's session folders, the files and folders you picked in a dialog or
+  named on the command line, Ember's own data and its program files. A request
+  anywhere else is written to `ember.log` as `ipc outside`, once per path, and then
+  done as before. Ember opens files outside the folder on purpose in more ways than
+  can be listed with confidence — a path clicked in terminal output, a definition in
+  a library, a debugger frame in Node's own code — and a rule that refused one of
+  them would break it for everyone at once. What those lines hold decides the rule.
+- **Not done:** refusing file requests outside (the notes come first); a path
+  reached through a junction or a SUBST drive reads as outside; whether a path
+  exists, its real spelling and its timestamps are not noted, since a shell asks on
+  every `cd`; the language server, formatter and completion channels are not
+  checked.
+- **How it is checked:** a new suite, `verify-ipc-scope`, opens a second window and
+  from it types into, asks the nonce of, adopts, spawns over and kills the first
+  window's shell, and requires each to do nothing — the shell still answering
+  afterwards — and the refusals to be in the log. It opens and saves a file in the
+  folder and requires nothing noted, then writes and reads outside it and requires
+  both noted. On the build before this, every one of those fails. *scope* (16 cases)
+  joins the unit tables. `ipc refused` and `ipc outside` are narration to the suites'
+  fault audit: a stray resize from the window a tab has just left is a race, not a
+  failure.
+
 ### F5 does what a launch.json asks of it
 
 - **Five variables were filled in, and the rest reached the program as text.**

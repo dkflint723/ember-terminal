@@ -258,6 +258,7 @@ import { Notifier, focusWindow } from './notify.js'
 import { AiService } from './ai.js'
 import { ClaudeCliService } from './claude-cli.js'
 import { DapService, detectAdapters, dropEnvFile, writeEnvFile } from './dap.js'
+import { PathScope, type Access } from './scope.js'
 import { resolveEnvVariables } from '../shared/launch-vars.js'
 import { formatWithPrettier, hasPrettier } from './prettier.js'
 import {
@@ -694,6 +695,39 @@ function windowIdOf(contents: Electron.WebContents): number | null {
   return null
 }
 
+/*
+ * A window reaches only its own shells (audit R25, SE-07).
+ *
+ * Every pty channel took a pane id and did what it was asked: any window could type
+ * into, resize, read the nonce of, kill, or take over a shell another window owned,
+ * and spawning under another window's pane id killed that shell and took the id. The
+ * ids are random, but a renderer holding them is exactly what a moved tab or a
+ * restored session is — and one compromised window was every window's shells.
+ *
+ * A pane nobody owns is allowed: it is one that has died (a late resize after its
+ * exit changes nothing) or one about to be spawned or restored. Refusals are
+ * written to the log as narration, not as faults — a stray resize from the window a
+ * tab has just left is a race, not a failure — so that any that do happen can be
+ * read afterwards, once each per channel and window.
+ */
+const refusalsSaid = new Set<string>()
+function refused(channel: string, windowId: number | null, what: string): void {
+  const key = `${channel}:${windowId}`
+  if (refusalsSaid.has(key)) return
+  refusalsSaid.add(key)
+  logLine('ipc refused', `${channel} from window ${windowId ?? '?'}: ${what}`)
+}
+
+function ownsPane(e: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent, paneId: unknown, channel: string): boolean {
+  if (typeof paneId !== 'string') return false
+  const owner = paneOwners.get(paneId)
+  if (owner === undefined) return true
+  const caller = windowIdOf(e.sender)
+  if (owner === caller) return true
+  refused(channel, caller, `pane owned by window ${owner}`)
+  return false
+}
+
 function windowFromEvent(e: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): BrowserWindow | null {
   const win = BrowserWindow.fromWebContents(e.sender)
   return win && !win.isDestroyed() ? win : null
@@ -869,6 +903,16 @@ let ai: AiService
 let claudeCli: ClaudeCliService
 let ptys: PtyManager
 let dap: DapService
+/**
+ * Where each window's file requests are expected to go: its workspace roots, what
+ * the user picked, and — for every window — the user-data folder and Ember's own
+ * files, which a definition in the bundled TypeScript library opens. See scope.ts.
+ */
+const scope = new PathScope(
+  () => [app.getPath('userData'), app.getAppPath(), process.resourcesPath],
+  (p) => longPath(p),
+  (line) => logLine('ipc outside', line)
+)
 /** Which window raised the last notification, so its click can land there. */
 let lastNoticeWindowId: number | null = null
 /**
@@ -1322,6 +1366,7 @@ function createWindow(seed: WindowSeed = {}): number {
     lsps.get(id)?.dispose()
     lsps.delete(id)
     unsavedCounts.delete(id)
+    scope.forget(id)
     // With it, or a window that closed holding a `ping -t` would go on being
     // counted as running work by every prompt that asks afterwards.
     runningCommands.delete(id)
@@ -1501,6 +1546,10 @@ function registerIpc(): void {
   ipcMain.handle('profiles:list', () => profiles())
 
   ipcMain.handle('pty:spawn', (e, req: SpawnRequest) => {
+    // Spawning kills whatever shell had the id first: never another window's.
+    if (typeof req?.paneId !== 'string' || !ownsPane(e, req.paneId, 'pty:spawn')) {
+      return { ok: false, error: 'That pane belongs to another window.' }
+    }
     const all = profiles()
     /*
      * A named shell that is gone is not the same as no name at all.
@@ -1553,23 +1602,29 @@ function registerIpc(): void {
    * moved here from another window never spawned anything, and it still has to be
    * able to tell its own shell's markers from a line of output.
    */
-  ipcMain.handle('pty:nonce', (_e, paneId: string) => ptys.nonceFor(paneId))
+  ipcMain.handle('pty:nonce', (e, paneId: string) => (ownsPane(e, paneId, 'pty:nonce') ? ptys.nonceFor(paneId) : null))
   /*
    * Panes whose shells are still running, claimed by the window that has just come
    * up holding their ids. What it gets back it does not spawn for.
    */
   ipcMain.handle('pty:adopt', (e, paneIds: unknown) => {
-    const ids = Array.isArray(paneIds) ? paneIds.filter((p): p is string => typeof p === 'string') : []
+    // Its own, from before a reload, or nobody's: never a shell another window holds.
+    const ids = Array.isArray(paneIds)
+      ? paneIds.filter((p): p is string => typeof p === 'string' && ownsPane(e, p, 'pty:adopt'))
+      : []
     const taken = ptys.adopt(ids)
     const windowId = windowIdOf(e.sender)
     if (windowId !== null) for (const id of taken) paneOwners.set(id, windowId)
     return taken
   })
-  ipcMain.on('pty:write', (_e, paneId: string, data: string) => ptys.write(paneId, data))
-  ipcMain.on('pty:resize', (_e, paneId: string, cols: number, rows: number) =>
-    ptys.resize(paneId, cols, rows)
-  )
-  ipcMain.on('pty:kill', (_e, paneId: string) => {
+  ipcMain.on('pty:write', (e, paneId: string, data: string) => {
+    if (ownsPane(e, paneId, 'pty:write')) ptys.write(paneId, data)
+  })
+  ipcMain.on('pty:resize', (e, paneId: string, cols: number, rows: number) => {
+    if (ownsPane(e, paneId, 'pty:resize')) ptys.resize(paneId, cols, rows)
+  })
+  ipcMain.on('pty:kill', (e, paneId: string) => {
+    if (!ownsPane(e, paneId, 'pty:kill')) return
     paneOwners.delete(paneId)
     ptys.kill(paneId)
   })
@@ -1662,6 +1717,8 @@ function registerIpc(): void {
     if (windowFromEvent(e) !== mainWindow) return []
     const pending = startupFiles
     startupFiles = []
+    // Named on the command line: chosen by the user as surely as in a dialog.
+    for (const f of pending) scope.pick(windowIdOf(e.sender) ?? 1, f)
     return pending
   })
 
@@ -1669,6 +1726,7 @@ function registerIpc(): void {
     if (windowFromEvent(e) !== mainWindow) return []
     const pending = startupFolders
     startupFolders = []
+    for (const f of pending) scope.pick(windowIdOf(e.sender) ?? 1, f)
     return pending
   })
 
@@ -1992,26 +2050,43 @@ function registerIpc(): void {
   )
   // One written for a task that then did not run. Only such a file, by its name and place.
   ipcMain.handle('dap:dropEnvFile', (_e, file: unknown) => dropEnvFile(file))
-  ipcMain.handle('dap:request', (_e, sessionId: string, command: string, args?: unknown) =>
-    dap.request(sessionId, command, args)
+  // A debug session answers only the window that started it, as a shell does.
+  const ownsSession = (e: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent, sessionId: unknown, channel: string): boolean => {
+    const owner = typeof sessionId === 'string' ? dap.ownerOf(sessionId) : undefined
+    if (owner === undefined) return true
+    const caller = windowIdOf(e.sender)
+    if (owner === caller) return true
+    refused(channel, caller, `debug session owned by window ${owner}`)
+    return false
+  }
+  ipcMain.handle('dap:request', (e, sessionId: string, command: string, args?: unknown) =>
+    ownsSession(e, sessionId, 'dap:request')
+      ? dap.request(sessionId, command, args)
+      : { ok: false, error: 'That debug session belongs to another window.' }
   )
-  ipcMain.handle('dap:stop', (_e, sessionId: string) => dap.stop(sessionId))
-  ipcMain.on('dap:reverseReply', (_e, sessionId: string, requestSeq: number, ok: boolean) =>
-    dap.reverseReply(sessionId, requestSeq, ok)
-  )
+  ipcMain.handle('dap:stop', (e, sessionId: string) => {
+    if (ownsSession(e, sessionId, 'dap:stop')) dap.stop(sessionId)
+  })
+  ipcMain.on('dap:reverseReply', (e, sessionId: string, requestSeq: number, ok: boolean) => {
+    if (ownsSession(e, sessionId, 'dap:reverseReply')) dap.reverseReply(sessionId, requestSeq, ok)
+  })
 
   /*
    * A session moving house. The new window is created holding the packed tab;
    * the ptys are re-pointed at it here, before the source lets go, so not a
    * byte of shell output has anywhere to fall between the two.
    */
-  ipcMain.handle('window:moveTab', (_e, transfer: TabTransfer) => {
+  ipcMain.handle('window:moveTab', (e, transfer: TabTransfer) => {
     if (
       typeof transfer?.tab?.id !== 'string' ||
       !Array.isArray(transfer.terminals) ||
       !Array.isArray(transfer.editors)
     ) {
       return { ok: false, error: 'Malformed transfer.' }
+    }
+    // A window moves its own shells; it cannot hand another window's to a new one.
+    if (!transfer.terminals.every((pane) => ownsPane(e, pane?.id, 'window:moveTab'))) {
+      return { ok: false, error: 'That tab holds a shell belonging to another window.' }
     }
     const id = createWindow({ transfer })
     for (const pane of transfer.terminals) {
@@ -2052,9 +2127,12 @@ function registerIpc(): void {
   ipcMain.handle('explorer:register', () => explorer.register())
   ipcMain.handle('explorer:unregister', () => explorer.unregister())
 
-  ipcMain.handle('file:openDialog', (e, defaultPath?: string) => {
+  ipcMain.handle('file:openDialog', async (e, defaultPath?: string) => {
     const win = windowFromEvent(e) ?? mainWindow
-    return win ? files.openDialog(win, defaultPath) : { ok: false, error: 'No window.' }
+    if (!win) return { ok: false, error: 'No window.' }
+    const opened = await files.openDialog(win, defaultPath)
+    if (opened.ok && 'path' in opened && typeof opened.path === 'string') scope.pick(windowIdOf(e.sender) ?? 1, opened.path)
+    return opened
   })
   ipcMain.handle('file:realFolder', (_e, folder: string) =>
     typeof folder === 'string' ? realFolder(folder) : folder
@@ -2062,21 +2140,50 @@ function registerIpc(): void {
   ipcMain.handle('file:diskSpelling', (_e, filePath: unknown) =>
     typeof filePath === 'string' ? diskSpelling(filePath) : filePath
   )
-  ipcMain.handle('file:openFolderDialog', (e, defaultPath?: string) => {
+  ipcMain.handle('file:openFolderDialog', async (e, defaultPath?: string) => {
     const win = windowFromEvent(e) ?? mainWindow
-    return win ? files.openFolderDialog(win, defaultPath) : null
+    const folder = win ? await files.openFolderDialog(win, defaultPath) : null
+    scope.pick(windowIdOf(e.sender) ?? 1, folder)
+    return folder
   })
-  ipcMain.handle('file:read', (_e, filePath: string) => files.read(filePath))
+  /*
+   * Where a window's file requests go is noted when it is outside its workspace
+   * roots and its dialog picks: see scope.ts. Noted, not refused, for now. Metadata
+   * — whether a path exists, its real spelling, its mtime — is not: a shell's every
+   * cd asks it, and it reads nothing of the file.
+   */
+  const within = (e: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent, channel: string, path: unknown, access: Access): void => {
+    scope.check(windowIdOf(e.sender), channel, path, access)
+  }
+  ipcMain.on('scope:roots', (e, roots: unknown) => {
+    const id = windowIdOf(e.sender)
+    if (id !== null) scope.setRoots(id, roots)
+  })
+  ipcMain.handle('file:read', (e, filePath: string) => {
+    within(e, 'file:read', filePath, 'read')
+    return files.read(filePath)
+  })
   // One boolean, so a click on something path-shaped can stay quiet when it
   // leads nowhere instead of opening an empty tab.
   ipcMain.handle('file:exists', (_e, filePath: string) => existsSync(filePath))
-  ipcMain.handle('file:readDir', (_e, dirPath: string) => files.readDir(dirPath))
+  ipcMain.handle('file:readDir', (e, dirPath: string) => {
+    within(e, 'file:readDir', dirPath, 'read')
+    return files.readDir(dirPath)
+  })
   ipcMain.handle('file:dirExists', (_e, dirPath: string) => files.directoryExists(dirPath))
-  ipcMain.handle('file:create', (_e, target: string, kind: 'file' | 'directory') =>
-    files.create(target, kind)
-  )
-  ipcMain.handle('file:rename', (_e, from: string, to: string) => files.rename(from, to))
-  ipcMain.handle('file:trash', (_e, target: string) => files.trash(target))
+  ipcMain.handle('file:create', (e, target: string, kind: 'file' | 'directory') => {
+    within(e, 'file:create', target, 'write')
+    return files.create(target, kind)
+  })
+  ipcMain.handle('file:rename', (e, from: string, to: string) => {
+    within(e, 'file:rename', from, 'write')
+    within(e, 'file:rename', to, 'write')
+    return files.rename(from, to)
+  })
+  ipcMain.handle('file:trash', (e, target: string) => {
+    within(e, 'file:trash', target, 'write')
+    return files.trash(target)
+  })
   ipcMain.on('file:reveal', (_e, target: string) => files.reveal(target))
 
   // Every one of these is answered by the asking window's own service. See lspFor.
@@ -2117,10 +2224,19 @@ function registerIpc(): void {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
   })
 
-  ipcMain.handle('search:run', (_e, query) => search.run(query))
+  ipcMain.handle('search:run', (e, query) => {
+    within(e, 'search:run', (query as { root?: unknown } | null)?.root, 'read')
+    return search.run(query)
+  })
   ipcMain.on('search:cancel', () => search.cancel())
-  ipcMain.handle('search:files', (_e, root: string) => search.files(root))
-  ipcMain.handle('search:replace', (_e, request: ReplaceRequest) => applyReplacement(request))
+  ipcMain.handle('search:files', (e, root: string) => {
+    within(e, 'search:files', root, 'read')
+    return search.files(root)
+  })
+  ipcMain.handle('search:replace', (e, request: ReplaceRequest) => {
+    for (const hit of Array.isArray(request?.hits) ? request.hits.slice(0, 5000) : []) within(e, 'search:replace', hit?.path, 'write')
+    return applyReplacement(request)
+  })
 
   ipcMain.handle('git:status', (_e, cwd: string) => git.status(cwd))
   ipcMain.handle('git:diff', (_e, root: string, path: string, staged: boolean) =>
@@ -2128,10 +2244,14 @@ function registerIpc(): void {
   )
   ipcMain.handle('git:stage', (_e, root: string, paths: string[]) => git.stage(root, paths))
   ipcMain.handle('git:unstage', (_e, root: string, paths: string[]) => git.unstage(root, paths))
-  ipcMain.handle('git:discard', (_e, root: string, paths: string[], untracked: string[]) =>
-    git.discard(root, paths, untracked)
-  )
-  ipcMain.handle('git:commit', (_e, root: string, message: string) => git.commit(root, message))
+  ipcMain.handle('git:discard', (e, root: string, paths: string[], untracked: string[]) => {
+    within(e, 'git:discard', root, 'write')
+    return git.discard(root, paths, untracked)
+  })
+  ipcMain.handle('git:commit', (e, root: string, message: string) => {
+    within(e, 'git:commit', root, 'write')
+    return git.commit(root, message)
+  })
   ipcMain.handle('git:cancel', (_e, root: string) => git.cancel(root))
   ipcMain.handle(
     'git:operation',
@@ -2169,19 +2289,22 @@ function registerIpc(): void {
   ipcMain.handle('git:checkout', (_e, root: string, name: string, create: boolean) =>
     create ? git.createBranch(root, name) : git.checkout(root, name)
   )
-  ipcMain.handle('file:write', (_e, filePath: string, content: string, opts?: FileWriteOptions) =>
-    files.write(filePath, content, {
+  ipcMain.handle('file:write', (e, filePath: string, content: string, opts?: FileWriteOptions) => {
+    within(e, 'file:write', filePath, 'write')
+    return files.write(filePath, content, {
       expect: isStamp(opts?.expect) ? opts.expect : opts?.expect === null ? null : undefined,
       force: opts?.force === true,
       encoding: isEncodingName(opts?.encoding) ? opts.encoding : undefined
     })
-  )
+  })
   ipcMain.handle('file:marks', (_e, paths: unknown) =>
     files.marks(Array.isArray(paths) ? paths.filter((p): p is string => typeof p === 'string') : [])
   )
-  ipcMain.handle('file:saveDialog', (e, defaultPath?: string) => {
+  ipcMain.handle('file:saveDialog', async (e, defaultPath?: string) => {
     const win = windowFromEvent(e) ?? mainWindow
-    return win ? files.saveDialog(win, defaultPath) : null
+    const target = win ? await files.saveDialog(win, defaultPath) : null
+    scope.pick(windowIdOf(e.sender) ?? 1, target)
+    return target
   })
 
   // Live, so a custom shell added mid-session completes like its dialect —
@@ -2189,14 +2312,21 @@ function registerIpc(): void {
   completion = new CompletionService(profiles)
   ipcMain.handle('completion:request', (_e, req: CompletionRequest) => completion.complete(req))
 
-  ipcMain.on('pty:ack', (_e, paneId: string, parsed: number) => ptys.ack(paneId, parsed))
+  ipcMain.on('pty:ack', (e, paneId: string, parsed: number) => {
+    if (ownsPane(e, paneId, 'pty:ack')) ptys.ack(paneId, parsed)
+  })
   ipcMain.handle('pty:flowStats', () => ptys.flowStats())
   ipcMain.on('history:record', (_e, entry: HistoryRecord) => history.record(entry))
-  ipcMain.on('blocks:save', (_e, paneId: string, block: PersistedBlock) =>
-    history.saveBlock(paneId, block)
+  // A pane's saved output is its window's to read, write and clear, like its shell.
+  ipcMain.on('blocks:save', (e, paneId: string, block: PersistedBlock) => {
+    if (ownsPane(e, paneId, 'blocks:save')) history.saveBlock(paneId, block)
+  })
+  ipcMain.handle('blocks:load', (e, paneIds: string[]) =>
+    history.loadBlocks(Array.isArray(paneIds) ? paneIds.filter((p) => ownsPane(e, p, 'blocks:load')) : [])
   )
-  ipcMain.handle('blocks:load', (_e, paneIds: string[]) => history.loadBlocks(paneIds))
-  ipcMain.on('blocks:clear', (_e, paneId: string) => history.clearBlocks(paneId))
+  ipcMain.on('blocks:clear', (e, paneId: string) => {
+    if (ownsPane(e, paneId, 'blocks:clear')) history.clearBlocks(paneId)
+  })
   /*
    * The prune runs on the union of every window's report plus every pane that
    * is currently owned. One window restoring and listing only its own panes
@@ -2582,6 +2712,8 @@ if (!app.requestSingleInstanceLock()) {
     // than starting a competing instance — in the window the user last stood in.
     const target = focusedEmberWindow()
     const opened = fileArgs(argv, app.getAppPath())
+    const targetId = target ? windowIdOf(target.webContents) : null
+    if (targetId !== null) for (const f of opened) scope.pick(targetId, f)
     if (opened.length > 0 && target && !target.webContents.isDestroyed()) {
       target.webContents.send('file:open', opened)
     }

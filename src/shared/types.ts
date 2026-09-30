@@ -1299,6 +1299,8 @@ export interface EmberApi {
   explorerUnregister(): Promise<{ ok: boolean; error?: string }>
   openFileDialog(defaultPath?: string): Promise<FileOpenResult>
   readFile(path: string): Promise<FileReadResult>
+  /** Every session's folder in this window, for main's note of requests outside them. */
+  setScopeRoots(roots: string[]): void
   /** Whether a path exists on disk — for keeping quiet about ones that don't. */
   pathExists(path: string): Promise<boolean>
   readDir(path: string): Promise<DirReadResult>

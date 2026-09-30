@@ -573,6 +573,11 @@ export class DapService {
     return session.request(command, args)
   }
 
+  /** The window a session belongs to, or undefined for one that has ended. */
+  ownerOf(sessionId: string): number | undefined {
+    return this.sessions.get(sessionId)?.ownerWindowId
+  }
+
   reverseReply(sessionId: string, requestSeq: number, ok: boolean): void {
     this.sessions.get(sessionId)?.respondReverse(requestSeq, ok)
   }

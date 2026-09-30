@@ -24,7 +24,7 @@ import * as path from 'node:path'
  * throwaway profile says a lot and means nothing, so the updater's labels are the
  * only ones let through. Everything else came through reportFault.
  */
-const NARRATION = new Set(['updater', 'updater warn', 'updater error'])
+const NARRATION = new Set(['updater', 'updater warn', 'updater error', 'ipc refused', 'ipc outside'])
 
 /**
  * The faults in an ember.log, one entry per report.

@@ -245,6 +245,17 @@ export function App(): React.JSX.Element {
    * two sessions on the same project says nothing to anybody.
    */
   const activeWorkspace = useStore(workspaceRoot)
+
+  /*
+   * Every session's folder, told to main, which notes file requests that go
+   * anywhere else (main/scope.ts). A joined string, so the effect runs when the set
+   * changes rather than on every store update.
+   */
+  const workspaces = useStore((s) => [...new Set(s.tabs.map((t) => t.workspace).filter((w): w is string => !!w))].join('\n'))
+  useEffect(() => {
+    window.ember.setScopeRoots(workspaces ? workspaces.split('\n') : [])
+  }, [workspaces])
+
   useEffect(() => {
     if (!activeWorkspace) return
     window.ember.lspSetRoot(activeWorkspace)

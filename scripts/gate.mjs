@@ -43,6 +43,7 @@ const ORDER = [
   'verify-dap',
   'verify-jsdebug',
   'verify-debug-launch',
+  'verify-ipc-scope',
   'verify-windows',
   'verify-admin',
   'verify-chrome',

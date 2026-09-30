@@ -107,6 +107,7 @@ const api: EmberApi = {
   paneNonce: (paneId: string) => ipcRenderer.invoke('pty:nonce', paneId),
   adoptPanes: (paneIds: string[]) => ipcRenderer.invoke('pty:adopt', paneIds),
   readFile: (path: string) => ipcRenderer.invoke('file:read', path),
+  setScopeRoots: (roots: string[]) => ipcRenderer.send('scope:roots', roots),
   pathExists: (path: string): Promise<boolean> => ipcRenderer.invoke('file:exists', path),
   readDir: (path: string) => ipcRenderer.invoke('file:readDir', path),
   directoryExists: (path: string) => ipcRenderer.invoke('file:dirExists', path),
