@@ -47,6 +47,26 @@ if (args[0] === '--file') {
 const feed = yaml.load(fs.readFileSync(feedFile, 'utf8'))
 if (!feed?.version || !Array.isArray(feed.files) || feed.files.length === 0) fail(`${feedFile} does not look like an update feed.`)
 if (tag && `v${feed.version}` !== tag) fail(`The feed says ${feed.version}, not ${tag}.`)
+if (feed.packages) fail('The feed names web-installer packages, which Ember does not ship and the signature would not cover.')
+
+/*
+ * And the files it names are the files the release holds. A signature vouches for
+ * whatever the feed says, so the installer it describes is fetched and measured
+ * first: a feed and an installer that disagree are not signed. (This cannot say the
+ * installer is the one that should have been built — installing the draft before
+ * signing, as the release notes ask, is how that is known.)
+ */
+const { createHash } = await import('node:crypto')
+for (const file of feed.files) {
+  const local = path.join(path.dirname(feedFile), String(file.url))
+  if (tag) execFileSync('gh', ['release', 'download', tag, '--pattern', String(file.url), '--dir', path.dirname(feedFile), '--clobber'], { stdio: 'inherit' })
+  if (!fs.existsSync(local)) fail(`${file.url} is not beside the feed, so it cannot be checked against it.`)
+  const bytes = fs.readFileSync(local)
+  const sha512 = createHash('sha512').update(bytes).digest('base64')
+  if (sha512 !== file.sha512 || (file.size !== undefined && bytes.length !== file.size)) {
+    fail(`${file.url} does not match the feed (sha512 ${sha512.slice(0, 16)}…, ${bytes.length} bytes); nothing was signed.`)
+  }
+}
 const text = canonicalFeed({ version: feed.version, files: feed.files })
 const signature = sign(null, Buffer.from(text, 'utf8'), key).toString('base64')
 if (!verify(null, Buffer.from(text, 'utf8'), UPDATE_PUBLIC_KEY, Buffer.from(signature, 'base64'))) fail('The signature did not verify; nothing was written.')

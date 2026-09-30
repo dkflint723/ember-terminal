@@ -13,16 +13,33 @@ newest entry sits on top.
   installer to everyone with update checks on.
 - **Now each release's feed is signed on the maintainer's machine**, with a key kept
   there and nowhere else: `node scripts/sign-release.mjs v0.4.4` fetches the draft's
-  `latest.yml`, signs its version and each file's name, SHA-512 and size, and
-  attaches `latest.yml.sig`. The script refuses a key other than the one Ember is
-  built with. Ember no longer lets the updater download on its own: when it finds a
-  version, it fetches the signature and checks it against the public key built into
-  it, and only then downloads — and the updater checks the installer against the very
-  SHA-512 the signature covers.
+  `latest.yml` and the installer it names, refuses if the two disagree, signs the
+  feed's version and each file's name, SHA-512 and size, and attaches
+  `latest.yml.sig`. The script refuses a key other than the one Ember is built with.
+  Ember no longer lets the updater download on its own: when it finds a version, it
+  fetches the signature and checks it against the public key built into it, and only
+  then downloads — the very feed it checked, and only the full installer, which the
+  updater checks against the SHA-512 the signature covers.
+- **What that protects, and what it does not.** A feed or installer changed after
+  signing, or published by someone holding the account while no release is being
+  signed, is not taken. A malicious build drafted *before* signing would be signed
+  like any other: installing the draft on the maintainer's own machine before signing
+  it, as the release notes ask, is what catches that.
 - **For this release a missing or wrong signature is written to `ember.log` and the
   update still downloads**, because the releases before this one were never signed
   and the first signed one has to reach them. From the release after this, an update
   whose signature does not check out is not downloaded, and Settings says why.
+- **Before signatures are required**, three things are to be closed: `EMBER_UPDATE_PUBKEY`
+  and `EMBER_UPDATE_SIGNATURE`, which a suite uses to stand in its own key and mode,
+  are honoured in the installed app too, so an environment variable left set would
+  turn the check off; a refusal during Install now waits out its two minutes before
+  saying so; and checks that overlap are not yet kept from each other, only caught.
+- **Corrected before landing, after a QA pass:** the updater downloads the feed its
+  latest check stored, not the one just verified, so a second check landing mid-way
+  could have been downloaded unchecked — the two are now compared first; a feed
+  naming web-installer packages, which the signature does not cover, sent the updater
+  down a path that downloads them, and is now refused with that path turned off; and
+  the signature's fetch is bounded at fifteen seconds.
 - **One notification when an update is ready.** The check used the updater's
   `checkForUpdatesAndNotify`, which posted a notification of its own beside Ember's.
 - **Releasing changes:** after the release job drafts a release and it has been

@@ -261,6 +261,7 @@ import { ClaudeCliService } from './claude-cli.js'
 import { DapService, detectAdapters, dropEnvFile, writeEnvFile } from './dap.js'
 import { PathScope, type Access } from './scope.js'
 import { checkFeedSignature, signatureRequired } from './feed-check.js'
+import { canonicalFeed, type FeedInfo } from '../shared/feed-signature.js'
 import { AcceptJournal, type AcceptedChange } from './journal.js'
 import { resolveEnvVariables } from '../shared/launch-vars.js'
 import { formatWithPrettier, hasPrettier } from './prettier.js'
@@ -418,15 +419,30 @@ let wantDownload = false
  * download goes ahead — the releases before this one were never signed, and the
  * first that is has to reach the builds that cannot check. After that, it refuses.
  */
+/** What the signature covers, from what the updater parsed. */
+const feedOf = (info: import('electron-updater').UpdateInfo): FeedInfo => ({
+  version: info.version,
+  files: (info.files ?? []).map((f) => ({ url: f.url, sha512: f.sha512, size: f.size }))
+})
+
 async function verifiedDownload(updater: typeof import('electron-updater').autoUpdater, info: import('electron-updater').UpdateInfo): Promise<void> {
-  const verdict = await checkFeedSignature(
-    { version: info.version, files: (info.files ?? []).map((f) => ({ url: f.url, sha512: f.sha512, size: f.size })) },
-    async (url) => {
-      const res = await net.fetch(url)
-      return { ok: res.ok, status: res.status, text: res.ok ? await res.text() : '' }
-    },
-    process.resourcesPath
-  )
+  /*
+   * A feed naming `packages` sends the updater down its web-installer path, which
+   * downloads a file the signature does not cover. Ember ships the full installer and
+   * turns that path off (watchUpdater); a feed asking for it anyway is not Ember's.
+   */
+  const packaged = (info as { packages?: unknown }).packages
+  const verdict = packaged
+    ? { ok: false as const, reason: 'its feed names web-installer packages, which the signature does not cover' }
+    : await checkFeedSignature(
+        feedOf(info),
+        async (url) => {
+          // Bounded: a signature that never arrives would leave the update waiting for good.
+          const res = await net.fetch(url, { signal: AbortSignal.timeout(15_000) })
+          return { ok: res.ok, status: res.status, text: res.ok ? await res.text() : '' }
+        },
+        process.resourcesPath
+      )
   if (verdict.ok) {
     logLine('updater', `feed signature verified for ${info.version}`)
   } else {
@@ -438,6 +454,16 @@ async function verifiedDownload(updater: typeof import('electron-updater').autoU
       })
       return
     }
+  }
+  /*
+   * And what downloads is what was checked. The updater downloads the feed its most
+   * recent check stored, not the one handed to this function — two checks
+   * overlapping, a later one with a different feed, would download that instead.
+   */
+  const current = (updater as unknown as { updateInfoAndProvider?: { info?: import('electron-updater').UpdateInfo } }).updateInfoAndProvider?.info
+  if (!current || canonicalFeed(feedOf(current)) !== canonicalFeed(feedOf(info))) {
+    logLine('updater warn', `the feed changed while ${info.version} was being checked; not downloaded from this check`)
+    return
   }
   try {
     await updater.downloadUpdate()
@@ -451,6 +477,9 @@ function watchUpdater(updater: typeof import('electron-updater').autoUpdater): v
   if (updaterWatched) return
   updaterWatched = true
   updater.autoDownload = false
+  // The full installer only: the web installer downloads a package the feed's
+  // signature does not cover (see verifiedDownload).
+  updater.disableWebInstaller = true
   updater.on('update-available', (info) => {
     if (wantDownload) void verifiedDownload(updater, info)
   })
