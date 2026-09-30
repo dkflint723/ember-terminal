@@ -103,6 +103,9 @@ export function DiffPane({ pane, active, onFocus }: Props): React.JSX.Element {
   const proposal = pane.proposal
   const needsSecond = !!proposal && (proposal.outside === true || !!proposal.risk)
   const [armed, setArmed] = useState(false)
+  // A new proposal in the same pane — a revised one for the same file reuses it —
+  // starts unarmed: the first click is always the one that says what it means.
+  useEffect(() => setArmed(false), [proposal?.tabName, proposal?.targetPath, pane.modified])
 
   return (
     <div

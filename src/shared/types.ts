@@ -1310,8 +1310,8 @@ export interface EmberApi {
   readFile(path: string): Promise<FileReadResult>
   /** Every session's folder in this window, for main's note of requests outside them. */
   setScopeRoots(roots: string[]): void
-  /** Keep an accepted proposal's previous contents; false when too large to keep. */
-  recordAccepted(change: AcceptedChangeRecord): Promise<boolean>
+  /** Keep an accepted proposal's previous contents, or say why it was not kept. */
+  recordAccepted(change: AcceptedChangeRecord): Promise<'kept' | 'too-large' | 'secret' | 'invalid'>
   /** The newest kept, for the revert command's question. */
   lastAccepted(): Promise<{ path: string; created: boolean; at: number } | null>
   /** Put the newest back, if the file is still what the proposal wrote. */

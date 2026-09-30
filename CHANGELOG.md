@@ -16,11 +16,13 @@ newest entry sits on top.
   the file had "changed on disk".
 - **Now the diff says where, in full, and what that means.** The path is resolved,
   `..` and all, and shown under the diff's bar. A file outside the project the
-  proposal was made in — or any, with no project open — is marked *Outside this
-  project*, and so is a place that runs on its own: a git hook or a repository's git
+  proposal was made in — the open folder, or with none open the terminal's, which is
+  where Claude Code usually runs — is marked *Outside this project*, and so is a place
+  that runs on its own: a git hook, by git or by husky, or a repository's git
   configuration, a PowerShell profile or script in Documents, the Startup folder,
-  `.ssh`, an editor's `tasks.json` or `launch.json`, each saying what it does. Either
-  takes a second click: the first turns the button into *accept anyway*.
+  `.ssh`, an editor's `tasks.json` or `launch.json`, Claude Code's own settings, each
+  saying what it does. Either takes a second click: the first turns the button into
+  *accept anyway*, and a revised proposal for the same file starts unarmed again.
 - **A file Ember could not read is not written over.** It is shown as *Unreadable*,
   with "Ember can't show this file's current contents, so it won't overwrite it", and
   Accept is off. Only a file that is not there at all is shown as new.
@@ -31,15 +33,23 @@ newest entry sits on top.
   — the last twenty, whole, in Ember's own data folder — and *Revert last accepted
   change* in the palette puts back the newest, or moves a file the proposal created to
   the Recycle Bin, after asking and only if the file is still what the proposal left.
-  A file over 2 MB is not kept, and accepting one says so.
+  A file over 2 MB is not kept, nor one holding a credential — a copy of a `.env` in
+  the data folder would be one more place its token lives — and accepting either says
+  it cannot be reverted.
+- **Corrected before landing, after a QA pass:** an *accept anyway* left armed was
+  still armed when Claude sent a revised proposal for the same file, which one click
+  then wrote; with no folder open every Claude Code proposal was outside; Claude
+  Code's settings and husky's hooks were missing from the places flagged; and the
+  journal would have kept a credential.
 - **How it is checked:** `verify-agent` now opens its folder as a project, as it is
   used, and adds: a proposal for `..\` outside it is marked outside, shows the resolved
   path in full, writes nothing on the first accept and writes on the second; a file
   of binary bytes is shown as *Unreadable*, says it will not be overwritten, and is
   byte-identical after Accept; and an accepted change to a file is put back by the
-  palette command. On the build before this, all of those fail but the bytes — that
-  build refused that write too, under the wrong reason. *proposal path* (21 cases)
-  and *accept journal* (10 cases) join the unit tables.
+  palette command, and a revised proposal after an arming is not accepted by one click.
+  On the build before this, all of those fail but the bytes — that
+  build refused that write too, under the wrong reason. *proposal path* (24 cases)
+  and *accept journal* (12 cases) join the unit tables.
 
 ### Asking Claude without an API key runs the CLI with no tools, and takes a long question
 

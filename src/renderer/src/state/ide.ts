@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import type { FileReadResult, FileStamp, IdeCall } from '@shared/types'
 import { assessProposal, resolveProposalPath } from '@shared/proposal-path'
-import { type DiffPaneState, type EditorDocument, useStore, workspaceRoot } from './store'
+import { type DiffPaneState, type EditorDocument, terminalPaneIdFor, useStore, workspaceRoot } from './store'
 import { noteSynced } from '../editor/synced'
 import { inventsRedaction } from '@shared/secrets'
 
@@ -101,8 +101,23 @@ export function recordSelection(selection: {
  * Accept writes over, and nothing else; and where the file is — outside the project,
  * or somewhere that runs on its own — is worked out once, and shown.
  */
+/**
+ * The folder a proposal is judged against: the project, or — with none open, which is
+ * how Claude Code is often run, in a terminal cd'd into a repository — the folder of
+ * the terminal it would have been asked from. Without that, every edit Claude Code
+ * made to its own repository was "outside" and took two clicks.
+ */
+export function proposalBase(): string | null {
+  const s = useStore.getState()
+  const root = workspaceRoot(s)
+  if (root) return root
+  const paneId = terminalPaneIdFor(s)
+  const pane = paneId ? s.terminalPane(paneId) : null
+  return pane?.cwd || null
+}
+
 function proposalFacts(target: string, existing: FileReadResult) {
-  const assessed = assessProposal(target, workspaceRoot(useStore.getState()))
+  const assessed = assessProposal(target, proposalBase())
   const unreadable = !existing.ok && !existing.missing ? existing.error : null
   return {
     original: existing.ok ? existing.content : '',
@@ -323,7 +338,16 @@ export async function resolveProposal(
           after: written.stamp,
           at: Date.now()
         })
-        if (!kept) useStore.getState().setNotice('Applied. The file was too large to keep a copy of, so this change cannot be reverted from Ember.', 'info')
+        if (kept === 'too-large' || kept === 'secret') {
+          useStore
+            .getState()
+            .setNotice(
+              kept === 'secret'
+                ? 'Applied. The file held a credential, so no copy of it was kept, and this change cannot be reverted from Ember.'
+                : 'Applied. The file was too large to keep a copy of, so this change cannot be reverted from Ember.',
+              'info'
+            )
+        }
 
         pending.settle({
           __content: [
@@ -480,7 +504,7 @@ async function handle(call: IdeCall): Promise<unknown> {
     case 'openDiff': {
       // `..` taken out, so the path shown is the path that would be written.
       const asked = String(args.new_file_path ?? args.old_file_path ?? '')
-      const target = asked ? resolveProposalPath(asked, workspaceRoot(state) ?? '') : ''
+      const target = asked ? resolveProposalPath(asked, proposalBase() ?? '') : ''
       const tabName = String(args.tab_name ?? `✻ ${target.split(/[\\/]/).pop() ?? 'diff'}`)
       const proposed = String(args.new_file_contents ?? '')
 

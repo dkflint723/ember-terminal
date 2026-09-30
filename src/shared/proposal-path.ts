@@ -59,7 +59,12 @@ const RISKS: { test: RegExp; says: string }[] = [
     says: 'This is in the Startup folder: it runs every time you sign in to Windows.'
   },
   { test: /\\\.ssh\\/, says: 'This is in your .ssh folder, which holds your keys and who may sign in as you.' },
-  { test: /\\\.vscode\\(tasks|launch)\.json$/, says: 'This tells an editor what to run.' }
+  { test: /\\\.vscode\\(tasks|launch)\.json$/, says: 'This tells an editor what to run.' },
+  {
+    test: /\\\.claude\\settings(\.local)?\.json$/,
+    says: 'These are Claude Code’s settings, which can name commands it runs on its own.'
+  },
+  { test: /\\\.husky\\/, says: 'This is a git hook, by way of husky: it runs on its own when git does.' }
 ]
 
 export interface ProposalAssessment {

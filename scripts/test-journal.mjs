@@ -41,7 +41,7 @@ const journal = new AcceptJournal(dir, files)
 
 // An edit: kept, and put back.
 disk.set('C:\\p\\a.ts', 'proposed')
-check('an accepted edit is kept', await journal.record({ path: 'C:\\p\\a.ts', before: { content: 'original' }, after: stampOf('proposed'), at: 0 }))
+check('an accepted edit is kept', 'kept' === await journal.record({ path: 'C:\\p\\a.ts', before: { content: 'original' }, after: stampOf('proposed'), at: 0 }))
 check('and named as the last', journal.last()?.path === 'C:\\p\\a.ts')
 const back = await journal.revert()
 check('revert puts it back', back.ok && disk.get('C:\\p\\a.ts') === 'original', JSON.stringify(back))
@@ -67,7 +67,10 @@ check('a file the proposal created goes to the Recycle Bin', gone.ok && trashed.
 for (let i = 0; i < 25; i += 1) await journal.record({ path: `C:\\p\\${i}.ts`, before: { content: String(i) }, after: stampOf('x'), at: 0 })
 const kept = JSON.parse(fs.readFileSync(path.join(dir, 'accepted-changes.json'), 'utf8'))
 check('twenty are kept, the newest', kept.length === 20 && kept.at(-1).path === 'C:\\p\\24.ts', String(kept.length))
-check('a file too large to keep is said to be', (await journal.record({ path: 'C:\\p\\big', before: { content: 'x'.repeat(3 * 1024 * 1024) }, after: stampOf('y'), at: 0 })) === false)
+check('a file too large to keep is said to be', (await journal.record({ path: 'C:\\p\\big', before: { content: 'x'.repeat(3 * 1024 * 1024) }, after: stampOf('y'), at: 0 })) === 'too-large')
+const token = 'ghp_' + 'EmberJournalNotARealToken0123456789'.padEnd(36, 'z')
+check('a file holding a credential is not kept', (await journal.record({ path: 'C:\\p\\.env', before: { content: `GITHUB_TOKEN=${token}\n` }, after: stampOf('y'), at: 0 })) === 'secret')
+check('and no copy of it is anywhere in the journal', !fs.readFileSync(path.join(dir, 'accepted-changes.json'), 'utf8').includes(token))
 check('nothing to revert says so', !(await new AcceptJournal(fs.mkdtempSync(path.join(os.tmpdir(), 'ember-journal-')), files).revert()).ok)
 
 fs.rmSync(dir, { recursive: true, force: true })

@@ -4,6 +4,7 @@ import type { TextEncodingName } from '../shared/encoding.js'
 import type { FileStamp } from '../shared/types.js'
 import type { FileService } from './files.js'
 import { writeDocument } from './atomic.js'
+import { hasSecret } from '../shared/secrets.js'
 
 /**
  * The files accepted proposals wrote over, kept so the last one can be put back
@@ -12,9 +13,9 @@ import { writeDocument } from './atomic.js'
  * Accepting a proposal was final: the file's previous contents were in a diff pane
  * that closed on Accept, and nowhere else. Now the last twenty are kept in the user's
  * own data folder — whole, because a copy with its secrets taken out could not be put
- * back — and Revert last accepted change restores the newest, but only if the file
- * is still exactly what the proposal wrote. Anything since is somebody's work, and is
- * not overwritten.
+ * back, and so a file holding a credential is not kept at all — and Revert last
+ * accepted change restores the newest, but only if the file is still exactly what the
+ * proposal wrote. Anything since is somebody's work, and is not overwritten.
  */
 export interface AcceptedChange {
   path: string
@@ -52,14 +53,18 @@ export class AcceptJournal {
     writeDocument(this.file, Buffer.from(JSON.stringify(entries), 'utf8'))
   }
 
-  /** Keep one; false when the previous contents were too large to keep. */
-  async record(change: AcceptedChange): Promise<boolean> {
-    if (typeof change?.path !== 'string' || !change.after) return false
-    if (change.before && Buffer.byteLength(change.before.content, 'utf8') > MOST_BYTES) return false
+  /**
+   * Keep one, or say why not: too large, or holding a credential — a copy of a `.env`
+   * sitting in the data folder is one more place a token lives, and is not made.
+   */
+  async record(change: AcceptedChange): Promise<'kept' | 'too-large' | 'secret' | 'invalid'> {
+    if (typeof change?.path !== 'string' || !change.after) return 'invalid'
+    if (change.before && Buffer.byteLength(change.before.content, 'utf8') > MOST_BYTES) return 'too-large'
+    if (change.before && hasSecret(change.before.content)) return 'secret'
     let entries = [...this.load(), { ...change, at: Date.now() }].slice(-KEEP)
     while (entries.length > 1 && Buffer.byteLength(JSON.stringify(entries), 'utf8') > TOTAL_BYTES) entries = entries.slice(1)
     await this.save(entries)
-    return true
+    return 'kept'
   }
 
   /** The newest, for the command's label and its question. */

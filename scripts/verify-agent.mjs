@@ -160,6 +160,17 @@ if (await page.locator('.diff__accept').count()) await page.locator('.diff__acce
 await sleep(1500)
 check('the second writes it', fs.existsSync(escaped))
 fs.rmSync(escaped, { force: true })
+// Armed and left, then a revised proposal for the same file: it starts unarmed again.
+await openProposal(`..\\${path.basename(work)}-escaped.ts`)
+await page.locator('.diff__accept').click()
+await sleep(600)
+await openProposal(`..\\${path.basename(work)}-escaped.ts`)
+check('a revised proposal is not accepted by one click on an arming left from before', (await page.locator('.diff__accept', { hasText: 'accept anyway' }).count()) === 0)
+while (await page.locator('.diff__reject').count()) {
+  await page.locator('.diff__reject').last().click()
+  await sleep(500)
+}
+check('and nothing was written', !fs.existsSync(escaped))
 
 // --- a file Ember cannot read is not written over ----------------------------------
 const blob = path.join(work, 'blob.ts')
