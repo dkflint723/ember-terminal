@@ -5,6 +5,42 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Accepting a proposed file means exactly what the diff showed
+
+- **A proposal could be written anywhere, and its diff showed only the file's
+  name.** A path in a proposal — from the Claude panel or from Claude Code — is the
+  model's text. It was joined to the terminal's folder with `..` left in and written
+  wherever that led: a git hook, a PowerShell profile, the Startup folder. And a file
+  that is there but could not be read — binary, too large, held by another program —
+  was shown as a new, empty file; Accept was refused only as a side effect, saying
+  the file had "changed on disk".
+- **Now the diff says where, in full, and what that means.** The path is resolved,
+  `..` and all, and shown under the diff's bar. A file outside the project the
+  proposal was made in — or any, with no project open — is marked *Outside this
+  project*, and so is a place that runs on its own: a git hook or a repository's git
+  configuration, a PowerShell profile or script in Documents, the Startup folder,
+  `.ssh`, an editor's `tasks.json` or `launch.json`, each saying what it does. Either
+  takes a second click: the first turns the button into *accept anyway*.
+- **A file Ember could not read is not written over.** It is shown as *Unreadable*,
+  with "Ember can't show this file's current contents, so it won't overwrite it", and
+  Accept is off. Only a file that is not there at all is shown as new.
+- **Accept writes over the version the diff showed, and nothing else**: the check at
+  the write is against the file as read when the diff opened, not as read a moment
+  before writing.
+- **The last change can be put back.** What each accepted proposal wrote over is kept
+  — the last twenty, whole, in Ember's own data folder — and *Revert last accepted
+  change* in the palette puts back the newest, or moves a file the proposal created to
+  the Recycle Bin, after asking and only if the file is still what the proposal left.
+  A file over 2 MB is not kept, and accepting one says so.
+- **How it is checked:** `verify-agent` now opens its folder as a project, as it is
+  used, and adds: a proposal for `..\` outside it is marked outside, shows the resolved
+  path in full, writes nothing on the first accept and writes on the second; a file
+  of binary bytes is shown as *Unreadable*, says it will not be overwritten, and is
+  byte-identical after Accept; and an accepted change to a file is put back by the
+  palette command. On the build before this, all of those fail but the bytes — that
+  build refused that write too, under the wrong reason. *proposal path* (21 cases)
+  and *accept journal* (10 cases) join the unit tables.
+
 ### Asking Claude without an API key runs the CLI with no tools, and takes a long question
 
 - **The Claude Code CLI was told which tools not to use, and asked on its command

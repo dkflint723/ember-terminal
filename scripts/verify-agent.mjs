@@ -19,20 +19,25 @@ import { closeApp, watchRunning } from './harness.mjs'
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 const profile = newProfile('agent')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const work = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-agent-'))
+// By its long name: a runner's temp folder is spelled short, and a shell reports it long.
+const work = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'ember-agent-')))
 const env = { ...process.env, EMBER_FAKE_AI: '1', EMBER_FAKE_AI_SLOW: '1' }
 delete env.ELECTRON_RUN_AS_NODE
 
-const launch = () =>
+const launch = (folder = []) =>
   electron.launch({
     executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),
-    args: [APP_DIR, profile.arg],
+    // Opened on a project, as it is used: a proposal inside it is an ordinary edit,
+    // and one outside it is not (see the scenarios after the first proposal).
+    args: [APP_DIR, profile.arg, ...folder],
     cwd: APP_DIR,
     env,
     timeout: 60_000
   })
 
-let app = await launch()
+// The folder on the first launch only: named again on the restart, it would open a
+// session of its own rather than bring back the one that held the conversation.
+let app = await launch([work])
 let page = await app.firstWindow()
 await watchRunning(app)
 await placeTopRight(app)
@@ -127,6 +132,66 @@ check(
   'accepting writes the file',
   fs.existsSync(target) && fs.readFileSync(target, 'utf8').includes('planted = true')
 )
+
+/*
+ * --- a proposal outside the project: shown in full, and a second click ------------
+ *
+ * The path is the model's text, and it was joined to the terminal's folder `..` and
+ * all, written wherever that led, and shown in the bar by its name alone (audit R27).
+ */
+const openProposal = async (text) => {
+  await ask(`make-file:${text}`)
+  await waitAnswered('Done.')
+  await page.locator('.agent__card .btn', { hasText: 'Open diff' }).last().click()
+  await page.waitForSelector('.diff__accept', { timeout: 10_000 })
+  await sleep(600)
+}
+const where = () => page.evaluate(() => document.querySelector('.diff__where')?.textContent ?? '')
+const escaped = path.join(path.dirname(work), `${path.basename(work)}-escaped.ts`)
+await openProposal(`..\\${path.basename(work)}-escaped.ts`)
+check('a proposal outside the project says so', (await where()).includes('Outside this project'), await where())
+check('with the path it would be written to, in full, .. taken out', (await where()).toLowerCase().includes(escaped.toLowerCase()), await where())
+await page.locator('.diff__accept').click()
+await sleep(1200)
+check('the first accept writes nothing', !fs.existsSync(escaped))
+check('and asks for a second', (await page.locator('.diff__accept', { hasText: 'accept anyway' }).count()) === 1)
+// Still there to press only where the first click asked rather than wrote.
+if (await page.locator('.diff__accept').count()) await page.locator('.diff__accept').click()
+await sleep(1500)
+check('the second writes it', fs.existsSync(escaped))
+fs.rmSync(escaped, { force: true })
+
+// --- a file Ember cannot read is not written over ----------------------------------
+const blob = path.join(work, 'blob.ts')
+const blobBytes = Buffer.from([0x00, 0x13, 0x37, 0x00, 0xff, 0xfe, 0x00, 0x00, 0x01, 0x02, 0x03, 0x00])
+fs.writeFileSync(blob, blobBytes)
+await openProposal(blob)
+check('a file that is there but unreadable is not shown as new', (await page.locator('.editor__lang', { hasText: 'Unreadable' }).count()) === 1)
+check('and says it will not be overwritten', (await where()).includes('won’t overwrite it'), await where())
+await page.locator('.diff__accept').click({ force: true })
+await sleep(1200)
+check('accept writes nothing over it', Buffer.compare(fs.readFileSync(blob), blobBytes) === 0)
+if (await page.locator('.diff__reject').count()) await page.locator('.diff__reject').last().click()
+await sleep(500)
+
+// --- and an accepted change can be put back ------------------------------------------
+const kept = path.join(work, 'kept.ts')
+fs.writeFileSync(kept, 'export const kept = 1\n', 'utf8')
+await openProposal(kept)
+await page.locator('.diff__accept').click()
+await sleep(1500)
+check('an accepted change to a file is written', fs.readFileSync(kept, 'utf8').includes('planted = true'))
+page.once('dialog', (d) => void d.accept())
+await page.click('.composer__input')
+await page.keyboard.press('Control+Shift+P')
+await page.waitForSelector('.qp__box', { timeout: 10_000 })
+await page.locator('.qp__box').fill('Revert last accepted change')
+await sleep(400)
+await page.locator('.qp__box').press('Enter')
+await sleep(2000)
+// A palette with no such command stays open, and would stand in front of what follows.
+if (await page.locator('.qp__box').count()) await page.keyboard.press('Escape')
+check('Revert last accepted change puts it back as it was', fs.readFileSync(kept, 'utf8') === 'export const kept = 1\n', JSON.stringify(fs.readFileSync(kept, 'utf8')))
 
 // --- a run proposal reaches the terminal ---------------------------------------
 await ask('run-echo please')

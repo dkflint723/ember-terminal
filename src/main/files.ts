@@ -255,7 +255,13 @@ export class FileService {
         stamp: stampOf(buffer, info.mtimeMs)
       }
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : 'Could not read that file.' }
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : 'Could not read that file.',
+        // Not there at all, as against there and unreadable: a proposal treats the
+        // first as a new file and refuses to overwrite the second.
+        ...((err as NodeJS.ErrnoException | null)?.code === 'ENOENT' ? { missing: true } : {})
+      }
     }
   }
 

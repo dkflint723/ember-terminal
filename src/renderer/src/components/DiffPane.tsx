@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore, type DiffPaneState } from '../state/store'
 import { monaco } from '../editor/monaco'
 import { applyMonacoTheme, MONACO_THEME_ID } from '../editor/theme'
@@ -96,6 +96,14 @@ export function DiffPane({ pane, active, onFocus }: Props): React.JSX.Element {
     editorRef.current?.updateOptions({ accessibilitySupport: screenReaderMode ? 'on' : 'auto' })
   }, [screenReaderMode])
 
+  /*
+   * A proposal outside the project, or somewhere that runs on its own, takes a second
+   * click: the first says what accepting would mean, and arms the button.
+   */
+  const proposal = pane.proposal
+  const needsSecond = !!proposal && (proposal.outside === true || !!proposal.risk)
+  const [armed, setArmed] = useState(false)
+
   return (
     <div
       className={`pane editor diff ${active ? 'pane--active' : ''}`}
@@ -122,10 +130,18 @@ export function DiffPane({ pane, active, onFocus }: Props): React.JSX.Element {
               reject
             </button>
             <button
-              className="block__action diff__accept"
-              onClick={() => void resolveProposal(pane.proposal!.tabName, 'accept')}
+              className={`block__action diff__accept ${needsSecond && armed ? 'diff__accept--armed' : ''}`}
+              disabled={!!proposal?.unreadable}
+              title={proposal?.unreadable ? 'Ember can’t show this file’s current contents, so it won’t overwrite it.' : undefined}
+              onClick={() => {
+                if (needsSecond && !armed) {
+                  setArmed(true)
+                  return
+                }
+                void resolveProposal(pane.proposal!.tabName, 'accept')
+              }}
             >
-              accept
+              {needsSecond && armed ? 'accept anyway' : 'accept'}
             </button>
           </>
         )}
@@ -142,6 +158,22 @@ export function DiffPane({ pane, active, onFocus }: Props): React.JSX.Element {
           </button>
         )}
       </div>
+      {proposal && (
+        /*
+         * Where it would be written, in full: the bar showed only the file's name,
+         * and a proposal for a profile or a git hook looked like any other edit.
+         */
+        <div
+          className={`diff__where ${proposal.unreadable || proposal.risk || proposal.outside ? 'diff__where--warn' : ''}`}
+          role={proposal.unreadable || proposal.risk || proposal.outside ? 'alert' : undefined}
+        >
+          <span className="diff__path">{proposal.targetPath}</span>
+          {proposal.unreadable && <span className="diff__why">Ember can’t show this file’s current contents, so it won’t overwrite it.</span>}
+          {!proposal.unreadable && proposal.outside && <span className="diff__why">Outside this project.</span>}
+          {!proposal.unreadable && proposal.risk && <span className="diff__why">{proposal.risk}</span>}
+          {!proposal.unreadable && needsSecond && armed && <span className="diff__why">Press accept anyway to write it.</span>}
+        </div>
+      )}
       <div className="editor__host" ref={host} />
     </div>
   )

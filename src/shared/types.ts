@@ -281,7 +281,16 @@ export interface FileReadOk {
   encoding: TextEncodingName
 }
 
-export type FileReadResult = FileReadOk | { ok: false; error: string }
+/** An accepted proposal, as the journal keeps it: see main/journal.ts. */
+export interface AcceptedChangeRecord {
+  path: string
+  before: { content: string; encoding?: TextEncodingName } | null
+  after: FileStamp
+  at: number
+}
+
+/** `missing` when the file is not there; any other failure leaves a file that is there. */
+export type FileReadResult = FileReadOk | { ok: false; error: string; missing?: boolean }
 export type FileOpenResult = FileReadOk | { ok: false; error?: string; canceled?: boolean }
 export type FileWriteResult = { ok: true } | { ok: false; error: string }
 
@@ -1301,6 +1310,12 @@ export interface EmberApi {
   readFile(path: string): Promise<FileReadResult>
   /** Every session's folder in this window, for main's note of requests outside them. */
   setScopeRoots(roots: string[]): void
+  /** Keep an accepted proposal's previous contents; false when too large to keep. */
+  recordAccepted(change: AcceptedChangeRecord): Promise<boolean>
+  /** The newest kept, for the revert command's question. */
+  lastAccepted(): Promise<{ path: string; created: boolean; at: number } | null>
+  /** Put the newest back, if the file is still what the proposal wrote. */
+  revertAccepted(): Promise<{ ok: true; path: string } | { ok: false; error: string }>
   /** Whether a path exists on disk — for keeping quiet about ones that don't. */
   pathExists(path: string): Promise<boolean>
   readDir(path: string): Promise<DirReadResult>

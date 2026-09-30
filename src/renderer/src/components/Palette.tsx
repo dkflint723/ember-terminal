@@ -336,6 +336,11 @@ function commands(): Command[] {
   return [
     ...editorCommands,
     {
+      id: 'proposal.revertLast',
+      label: 'Revert last accepted change',
+      run: () => void import('../state/ide').then((m) => m.revertLastAccepted())
+    },
+    {
       id: 'file.openFolder',
       label: 'File: Open Folder…',
       run: () => {

@@ -259,6 +259,7 @@ import { AiService } from './ai.js'
 import { ClaudeCliService } from './claude-cli.js'
 import { DapService, detectAdapters, dropEnvFile, writeEnvFile } from './dap.js'
 import { PathScope, type Access } from './scope.js'
+import { AcceptJournal, type AcceptedChange } from './journal.js'
 import { resolveEnvVariables } from '../shared/launch-vars.js'
 import { formatWithPrettier, hasPrettier } from './prettier.js'
 import {
@@ -781,6 +782,8 @@ let themes: ThemeStore
 let completion: CompletionService
 let history: HistoryStore
 let files: FileService
+/** Accepted proposals' previous contents, for Revert last accepted change. */
+let journal: AcceptJournal
 /*
  * A language service per window, not one per app.
  *
@@ -2310,6 +2313,13 @@ function registerIpc(): void {
       encoding: isEncodingName(opts?.encoding) ? opts.encoding : undefined
     })
   })
+  // An accepted proposal's previous contents, kept; and the newest put back.
+  ipcMain.handle('proposal:record', (_e, change: AcceptedChange) => journal.record(change))
+  ipcMain.handle('proposal:last', () => {
+    const last = journal.last()
+    return last ? { path: last.path, created: last.before === null, at: last.at } : null
+  })
+  ipcMain.handle('proposal:revert', () => journal.revert())
   ipcMain.handle('file:marks', (_e, paths: unknown) =>
     files.marks(Array.isArray(paths) ? paths.filter((p): p is string => typeof p === 'string') : [])
   )
@@ -2794,6 +2804,7 @@ process.on('unhandledRejection', (reason) => {
     themes = new ThemeStore()
     history = new HistoryStore()
     files = new FileService()
+    journal = new AcceptJournal(app.getPath('userData'), files)
     git = new GitService()
     github = new GitHubService()
     session = new SessionStore()

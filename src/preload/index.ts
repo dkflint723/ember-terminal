@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { GhostModel,
+import type { AcceptedChangeRecord, GhostModel,
   AppliedLook,
   AiChatEvent,
   AiChatRequest,
@@ -108,6 +108,9 @@ const api: EmberApi = {
   adoptPanes: (paneIds: string[]) => ipcRenderer.invoke('pty:adopt', paneIds),
   readFile: (path: string) => ipcRenderer.invoke('file:read', path),
   setScopeRoots: (roots: string[]) => ipcRenderer.send('scope:roots', roots),
+  recordAccepted: (change: AcceptedChangeRecord) => ipcRenderer.invoke('proposal:record', change),
+  lastAccepted: () => ipcRenderer.invoke('proposal:last'),
+  revertAccepted: () => ipcRenderer.invoke('proposal:revert'),
   pathExists: (path: string): Promise<boolean> => ipcRenderer.invoke('file:exists', path),
   readDir: (path: string) => ipcRenderer.invoke('file:readDir', path),
   directoryExists: (path: string) => ipcRenderer.invoke('file:dirExists', path),

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { activeDocument, terminalPaneIdFor, useStore } from '../state/store'
 import type { AgentTurn, AiChatEvent } from '@shared/types'
 import { openLocalProposal } from '../state/ide'
+import { resolveProposalPath } from '@shared/proposal-path'
 import { monacoIfLoaded } from '../editor/loaded'
 import {
   programOf,
@@ -183,9 +184,8 @@ function segmentsOf(text: string): Segment[] {
 
 /** A model path, resolved the way a person reading it would resolve it. */
 function resolveAgainstCwd(raw: string): string {
-  if (/^[A-Za-z]:[\\/]/.test(raw) || raw.startsWith('\\\\')) return raw
-  const cwd = contextPane()?.cwd ?? ''
-  return `${cwd.replace(/[\\/]+$/, '')}\\${raw.replace(/^\.[\\/]/, '')}`
+  // `..` taken out here, so the path the diff shows is the path that would be written.
+  return resolveProposalPath(raw, contextPane()?.cwd ?? '')
 }
 
 export function AgentPanel(): React.JSX.Element | null {

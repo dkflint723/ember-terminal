@@ -266,7 +266,23 @@ export interface DiffPaneState extends BasePane {
    * right-hand side is then not a revision that exists anywhere — it is what the
    * file would become — and the pane grows accept and reject controls.
    */
-  proposal?: { tabName: string; targetPath: string }
+  proposal?: {
+    tabName: string
+    targetPath: string
+    /**
+     * The file as it was when the diff opened — its stamp, or null when it was not
+     * there — so Accept writes only over the very version that was shown.
+     */
+    stamp?: import('@shared/types').FileStamp | null
+    /** Its encoding then, for the journal to put it back the same way. */
+    encoding?: import('@shared/encoding').TextEncodingName
+    /** Why the file could not be read, when it is there and could not be: Accept is refused. */
+    unreadable?: string | null
+    /** Outside the project the proposal was made in, or there was none. */
+    outside?: boolean
+    /** What the place itself does, when it does something. */
+    risk?: string | null
+  }
 }
 
 export type Pane = TerminalPaneState | EditorPaneState | DiffPaneState

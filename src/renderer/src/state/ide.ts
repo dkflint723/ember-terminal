@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
-import type { FileStamp, IdeCall } from '@shared/types'
+import type { FileReadResult, FileStamp, IdeCall } from '@shared/types'
+import { assessProposal, resolveProposalPath } from '@shared/proposal-path'
 import { type DiffPaneState, type EditorDocument, useStore, workspaceRoot } from './store'
 import { noteSynced } from '../editor/synced'
 import { inventsRedaction } from '@shared/secrets'
@@ -89,13 +90,39 @@ export function recordSelection(selection: {
  * these — but registered all the same, because Accept writes the file through
  * resolveProposal and resolveProposal only acts on proposals it knows.
  */
+/**
+ * What a proposal knows about its file when its diff opens (audit R27, SE-05).
+ *
+ * A read that failed was shown as a new, empty file whatever the reason — a file
+ * that is there but could not be read (binary, too large, locked) looked like one
+ * being created, and Accept's refusal came only as a side effect, saying the file
+ * had "changed on disk". Now only a file that is not there is new; one that is there
+ * and unreadable says so, and Accept is refused outright. The stamp read here is what
+ * Accept writes over, and nothing else; and where the file is — outside the project,
+ * or somewhere that runs on its own — is worked out once, and shown.
+ */
+function proposalFacts(target: string, existing: FileReadResult) {
+  const assessed = assessProposal(target, workspaceRoot(useStore.getState()))
+  const unreadable = !existing.ok && !existing.missing ? existing.error : null
+  return {
+    original: existing.ok ? existing.content : '',
+    originalLabel: existing.ok ? 'Current' : unreadable ? 'Unreadable' : 'New file',
+    proposal: {
+      stamp: existing.ok ? existing.stamp : null,
+      encoding: existing.ok ? existing.encoding : undefined,
+      unreadable,
+      outside: assessed.outside,
+      risk: assessed.risk
+    }
+  }
+}
+
 export async function openLocalProposal(target: string, proposed: string): Promise<void> {
   const state = useStore.getState()
   let tabName = `✦ ${target.split(/[\\/]/).pop() ?? 'proposal'}`
   while (pendingProposals.has(tabName)) tabName += '·'
 
-  const existing = await window.ember.readFile(target)
-  const original = existing.ok ? existing.content : ''
+  const facts = proposalFacts(target, await window.ember.readFile(target))
   const tab = state.tabs.find((t) => t.id === state.activeTabId)
   if (!tab) return
 
@@ -103,16 +130,42 @@ export async function openLocalProposal(target: string, proposed: string): Promi
   const paneId = state.openDiffInSplit(tab.id, {
     filePath: target,
     title: tabName,
-    original,
+    original: facts.original,
     modified: proposed,
-    originalLabel: existing.ok ? 'Current' : 'New file',
+    originalLabel: facts.originalLabel,
     modifiedLabel: 'Proposed',
     language: languageForPath(target),
     staged: false,
-    proposal: { tabName, targetPath: target }
+    proposal: { tabName, targetPath: target, ...facts.proposal }
   })
   if (!paneId) return
   pendingProposals.set(tabName, { paneId, settle: () => {} })
+}
+
+/**
+ * Put back the file the newest accepted proposal wrote over — asked first, naming
+ * it, and only if the file is still what the proposal left (main/journal.ts).
+ */
+export async function revertLastAccepted(): Promise<void> {
+  const app = useStore.getState()
+  const last = await window.ember.lastAccepted()
+  if (!last) {
+    app.setNotice('No accepted change is kept to revert.', 'info')
+    return
+  }
+  const question = last.created
+    ? `Move ${last.path} to the Recycle Bin? The proposal accepted there created it.`
+    : `Put back ${last.path} as it was before the proposal was accepted?`
+  if (!window.confirm(question)) return
+  const res = await window.ember.revertAccepted()
+  if (!res.ok) {
+    app.setNotice(res.error, 'error')
+    return
+  }
+  // An editor holding the file is told, the same way an accepted change tells it.
+  const back = await window.ember.readFile(res.path)
+  if (back.ok) await reconcileAcceptedDiff(res.path, back.content, back.stamp)
+  app.setNotice(last.created ? `Moved ${res.path} to the Recycle Bin.` : `Put back ${res.path}.`, 'info')
 }
 
 export async function resolveProposal(
@@ -131,6 +184,22 @@ export async function resolveProposal(
     pending.settle({ __content: [{ type: 'text', text: 'DIFF_REJECTED' }] })
   } else if (diff) {
     const target = diff.proposal?.targetPath ?? diff.filePath
+    const unreadable = diff.proposal?.unreadable
+    if (unreadable) {
+      /*
+       * Not written over. What is there could not be shown, so accepting could only
+       * mean replacing something nobody saw — a binary file, one too large to open,
+       * one another program holds.
+       */
+      pending.settle({
+        success: false,
+        message: `${target} exists but could not be read (${unreadable}), so it was not overwritten.`
+      })
+      useStore.getState().setNotice('Ember can’t show this file’s current contents, so it won’t overwrite it.', 'error')
+      const owner = state.tabIdForPane(pending.paneId)
+      if (owner) state.closePane(owner, pending.paneId)
+      return
+    }
 
     /*
      * What is on disk NOW, not what was on disk when the diff was opened.
@@ -200,7 +269,9 @@ export async function resolveProposal(
               'what is actually in it.'
           }
         : await window.ember.writeFile(target, diff.modified, {
-            expect: now.ok ? now.stamp : null
+            // The version the diff showed, as read when it opened: a write over
+            // anything else is a write over something nobody looked at.
+            expect: diff.proposal?.stamp !== undefined ? diff.proposal.stamp : now.ok ? now.stamp : null
           })
       if (!written.ok && written.conflict) {
         pending.settle({
@@ -242,6 +313,17 @@ export async function resolveProposal(
          * integration could have.
          */
         await reconcileAcceptedDiff(target, diff.modified, written.stamp)
+        /*
+         * What was there, kept, so Revert last accepted change can put it back; said
+         * when it cannot be, since the file was too large to keep.
+         */
+        const kept = await window.ember.recordAccepted({
+          path: target,
+          before: now.ok ? { content: now.content, encoding: now.encoding } : null,
+          after: written.stamp,
+          at: Date.now()
+        })
+        if (!kept) useStore.getState().setNotice('Applied. The file was too large to keep a copy of, so this change cannot be reverted from Ember.', 'info')
 
         pending.settle({
           __content: [
@@ -396,14 +478,16 @@ async function handle(call: IdeCall): Promise<unknown> {
     }
 
     case 'openDiff': {
-      const target = String(args.new_file_path ?? args.old_file_path ?? '')
+      // `..` taken out, so the path shown is the path that would be written.
+      const asked = String(args.new_file_path ?? args.old_file_path ?? '')
+      const target = asked ? resolveProposalPath(asked, workspaceRoot(state) ?? '') : ''
       const tabName = String(args.tab_name ?? `✻ ${target.split(/[\\/]/).pop() ?? 'diff'}`)
       const proposed = String(args.new_file_contents ?? '')
 
       // The left-hand side is what is on disk now. A file being created has none,
-      // and an empty original is the honest way to show that.
-      const existing = await window.ember.readFile(target)
-      const original = existing.ok ? existing.content : ''
+      // and an empty original is the honest way to show that — for a file that is
+      // not there, and only for that: see proposalFacts.
+      const facts = proposalFacts(target, await window.ember.readFile(target))
 
       const tab = state.tabs.find((t) => t.id === state.activeTabId)
       if (!tab) return { success: false, message: 'No tab is open.' }
@@ -412,13 +496,13 @@ async function handle(call: IdeCall): Promise<unknown> {
       const paneId = state.openDiffInSplit(tab.id, {
         filePath: target,
         title: tabName,
-        original,
+        original: facts.original,
         modified: proposed,
-        originalLabel: existing.ok ? 'Current' : 'New file',
+        originalLabel: facts.originalLabel,
         modifiedLabel: 'Proposed',
         language: languageForPath(target),
         staged: false,
-        proposal: { tabName, targetPath: target }
+        proposal: { tabName, targetPath: target, ...facts.proposal }
       })
       if (!paneId) return { success: false, message: 'Could not open a diff.' }
 
