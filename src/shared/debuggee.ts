@@ -106,8 +106,15 @@ export function debuggeeLine(req: DebuggeeRequest): string | null {
  * What the block is called: a comment naming the program, which says what ran and
  * does nothing if it is run again — rerunning a debuggee without its debugger would
  * only have started it unattached. File names only, nothing from the environment.
+ *
+ * The program and the first thing after it that is not a flag: js-debug puts the
+ * runtime's own flags ahead of the script — `--experimental-network-inspection`,
+ * where the Node running it has one — and the block was named for that instead.
  */
 export function debuggeeLabel(req: DebuggeeRequest): string {
-  const names = req.args.slice(0, 2).map((a) => String(a).split(/[\\/]/).pop() ?? '')
+  const base = (a: string): string => a.split(/[\\/]/).pop() ?? ''
+  const [program, ...rest] = req.args.map(String)
+  const script = rest.find((a) => !a.startsWith('-'))
+  const names = [program, script].filter((a): a is string => a !== undefined).map(base)
   return `# debugging: ${names.join(' ').replace(/[\r\n]/g, ' ')}`
 }

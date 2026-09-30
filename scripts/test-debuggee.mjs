@@ -74,6 +74,9 @@ check('sets only plain names from it', fileScript.includes("-match '^[A-Za-z_][A
 const label = debuggeeLabel(req)
 check('the block is named for its program, as a comment', label === '# debugging: node.exe app.js', label)
 check('with nothing from the environment in it', !label.includes('marker-secret-value'))
+const flagged = debuggeeLabel({ args: ['C:\\node\\node.exe', '--experimental-network-inspection', '--enable-source-maps', 'C:\\work\\app.js', '--port', '80'] })
+check('named for the script, past the runtime’s own flags', flagged === '# debugging: node.exe app.js', flagged)
+check('and for the program alone when there is nothing else', debuggeeLabel({ args: ['C:\\tools\\run.exe', '--fast'] }) === '# debugging: run.exe', debuggeeLabel({ args: ['C:\\tools\\run.exe', '--fast'] }))
 
 /*
  * --- run for real, where there is PowerShell ------------------------------------------

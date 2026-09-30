@@ -58,7 +58,11 @@ newest entry sits on top.
   pass. A second pass found that Windows PowerShell 5.1 read the environment file in
   its own code page (`café` arrived as `cafÃ©`), that a program whose environment
   file was already gone started anyway, undebugged, and that the debugging run's
-  block no longer came back with a restored session.
+  block no longer came back with a restored session. The full gate then found the
+  block named for a flag: js-debug puts Node's own flags ahead of the script
+  (`--experimental-network-inspection`, on the Node the runner has), and the name
+  took the first argument after the program, whatever it was. It now takes the
+  first that is not a flag.
 
 ### A run meant to show a check failing is not reported as a failure
 
