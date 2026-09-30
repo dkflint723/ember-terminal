@@ -16,7 +16,7 @@
 //
 // Run: node scripts/verify-update.mjs   (needs a packaged build: npm run package)
 import { _electron as electron } from 'playwright-core'
-import { newProfile, seedDirs, skip } from './profile.mjs'
+import { newProfile, seedDirs, skip, userDataOf } from './profile.mjs'
 import * as crypto from 'node:crypto'
 import * as fs from 'node:fs'
 import * as http from 'node:http'
@@ -71,6 +71,19 @@ sha512: ${sha512}
 releaseDate: '${new Date().toISOString()}'
 `
 
+/*
+ * The feed signed, by a key of the suite's own that the app is told to trust
+ * (EMBER_UPDATE_PUBKEY): the release key is offline, and a test must never hold it.
+ * `signature` is what the server answers for latest.yml.sig, changed below for the
+ * run that must refuse.
+ */
+await import('./ts-resolve.mjs')
+const { canonicalFeed } = await import('../src/shared/feed-signature.ts')
+const signingKey = crypto.generateKeyPairSync('ed25519')
+const signed = (info) => crypto.sign(null, Buffer.from(canonicalFeed(info)), signingKey.privateKey).toString('base64')
+const feedInfo = { version: '99.9.9', files: [{ url: payloadName, sha512, size: payload.length }] }
+let signature = signed(feedInfo)
+
 const served = []
 const server = http.createServer((req, res) => {
   // electron-updater appends a cache-busting query; route on the path alone.
@@ -79,6 +92,11 @@ const server = http.createServer((req, res) => {
   if (route === '/latest.yml') {
     res.writeHead(200, { 'content-type': 'text/yaml' })
     res.end(feed)
+    return
+  }
+  if (route === '/latest.yml.sig') {
+    res.writeHead(200, { 'content-type': 'text/plain' })
+    res.end(signature)
     return
   }
   if (route === `/${payloadName}`) {
@@ -109,8 +127,11 @@ fs.writeFileSync(
 )
 
 const profile = newProfile('update')
-const env = { ...process.env }
+const env = { ...process.env, EMBER_UPDATE_PUBKEY: signingKey.publicKey.export({ type: 'spki', format: 'pem' }) }
 delete env.ELECTRON_RUN_AS_NODE
+let logText = ''
+let refusedStatuses = []
+let refusedServed = []
 
 let statuses = []
 let note = ''
@@ -187,8 +208,38 @@ try {
       (b.textContent ?? '').trim().toLowerCase().startsWith('install now')
     )
   )
+  try {
+    logText = fs.readFileSync(path.join(await userDataOf(app), 'ember.log'), 'utf8')
+  } catch {
+    logText = ''
+  }
 
   await app.close()
+
+  /*
+   * And a feed whose signature is over another installer — what someone holding the
+   * account but not the key could publish — with signatures required, as they will
+   * be from the release after this one: nothing is downloaded, and it says why.
+   */
+  signature = signed({ ...feedInfo, files: [{ ...feedInfo.files[0], sha512: crypto.createHash('sha512').update('other').digest('base64') }] })
+  // What this run asks for, apart from the first run's, which the checks below read.
+  const servedBefore = served.length
+  const strict = await electron.launch({ executablePath: EXE, args: [profile.arg], cwd: UNPACKED, env: { ...env, EMBER_UPDATE_SIGNATURE: 'required' }, timeout: 60_000 })
+  const strictPage = await strict.firstWindow()
+  await strictPage.waitForSelector('.pane', { timeout: 40_000 })
+  await sleep(1500)
+  await strictPage.evaluate(() => {
+    window.__updateStatuses = []
+    window.ember.onUpdateStatus((s) => window.__updateStatuses.push(s))
+  })
+  await strictPage.evaluate(() => window.ember.checkForUpdates())
+  for (let i = 0; i < 40; i++) {
+    await sleep(500)
+    refusedStatuses = await strictPage.evaluate(() => window.__updateStatuses ?? [])
+    if (refusedStatuses.some((s) => s.stage === 'error' || s.stage === 'ready')) break
+  }
+  refusedServed = served.slice(servedBefore)
+  await strict.close()
 } finally {
   // Put back what was there, or nothing if nothing was.
   if (originalFeed === null) fs.rmSync(FEED_CONFIG, { force: true })
@@ -198,6 +249,7 @@ try {
 }
 
 check('the check finds the newer version', /99\.9\.9/.test(note), note)
+check('the feed’s signature is checked, and holds, before the download', /feed signature verified for 99\.9\.9/.test(logText), logText.split(/\r?\n/).filter((l) => /signature/.test(l)).join(' | ') || '(nothing about a signature in ember.log)')
 check('the feed is fetched', served.includes('/latest.yml'), JSON.stringify(served))
 check('the installer the feed names is fetched', served.includes(`/${payloadName}`), JSON.stringify(served))
 check(
@@ -216,6 +268,8 @@ check(
   statuses.some((s) => s.stage === 'ready' && /ready to install/i.test(s.text)),
   JSON.stringify(statuses)
 )
+check('a feed signed over another installer is refused, when signatures are required', refusedStatuses.some((s) => s.stage === 'error' && /was not downloaded/.test(s.text)), JSON.stringify(refusedStatuses))
+check('and its installer is never fetched', !refusedServed.includes(`/${payloadName}`), JSON.stringify(refusedServed))
 check('nothing reported a failure', !statuses.some((s) => s.stage === 'error'), JSON.stringify(statuses))
 
 check('Settings offers Install now once an update is ready', installButton)

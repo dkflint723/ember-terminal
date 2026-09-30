@@ -5,6 +5,43 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Updates are signed by a key GitHub never holds
+
+- **Whoever controlled the GitHub account controlled every update.** Ember checked
+  the installer it downloaded against the SHA-512 in the release's `latest.yml` — a
+  file the same account wrote. Taking over the account was enough to ship any
+  installer to everyone with update checks on.
+- **Now each release's feed is signed on the maintainer's machine**, with a key kept
+  there and nowhere else: `node scripts/sign-release.mjs v0.4.4` fetches the draft's
+  `latest.yml`, signs its version and each file's name, SHA-512 and size, and
+  attaches `latest.yml.sig`. The script refuses a key other than the one Ember is
+  built with. Ember no longer lets the updater download on its own: when it finds a
+  version, it fetches the signature and checks it against the public key built into
+  it, and only then downloads — and the updater checks the installer against the very
+  SHA-512 the signature covers.
+- **For this release a missing or wrong signature is written to `ember.log` and the
+  update still downloads**, because the releases before this one were never signed
+  and the first signed one has to reach them. From the release after this, an update
+  whose signature does not check out is not downloaded, and Settings says why.
+- **One notification when an update is ready.** The check used the updater's
+  `checkForUpdatesAndNotify`, which posted a notification of its own beside Ember's.
+- **Releasing changes:** after the release job drafts a release and it has been
+  installed over the previous version, run `node scripts/sign-release.mjs <tag>`,
+  then publish. The key is at `%USERPROFILE%\.ember-release\update-signing.pem`;
+  keep it off this machine when not signing, and back it up — if it is lost, the next
+  release ships a new public key and everyone installs that one by hand.
+- **How it is checked:** `verify-update`, against the packaged app and a feed of its
+  own signed by a key of its own, now requires the signature to be checked and hold
+  before the download, and — with signatures required — that a feed signed over a
+  different installer is refused, with its installer never fetched. The packaged
+  build before this could not be launched on this machine to watch those fail (it
+  timed out twice before opening a window, for reasons not found); they cannot pass
+  on it, which has no signature check at all. *feed signature* (14 cases, in the unit
+  tables) holds the signed form, the check against a changed hash, a changed version,
+  another key and a missing signature, where the signature is looked for, and the
+  script refusing the wrong key. The release job's dry run runs `verify-update`
+  against the installed build.
+
 ### Accepting a proposed file means exactly what the diff showed
 
 - **A proposal could be written anywhere, and its diff showed only the file's

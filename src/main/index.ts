@@ -6,6 +6,7 @@ import {
   dialog,
   ipcMain,
   Menu,
+  net,
   Notification,
   screen,
   shell
@@ -259,6 +260,7 @@ import { AiService } from './ai.js'
 import { ClaudeCliService } from './claude-cli.js'
 import { DapService, detectAdapters, dropEnvFile, writeEnvFile } from './dap.js'
 import { PathScope, type Access } from './scope.js'
+import { checkFeedSignature, signatureRequired } from './feed-check.js'
 import { AcceptJournal, type AcceptedChange } from './journal.js'
 import { resolveEnvVariables } from '../shared/launch-vars.js'
 import { formatWithPrettier, hasPrettier } from './prettier.js'
@@ -334,9 +336,10 @@ let faultShown = false
  *
  * Off by default and checked only here: an app that reaches out to a server and
  * then rewrites itself is doing something the person running it should have chosen,
- * not something that comes with a terminal. `checkForUpdatesAndNotify` downloads in
- * the background and tells the OS when a version is ready, which is installed on the
- * next quit — nothing is replaced underneath a running shell.
+ * not something that comes with a terminal. A version found is downloaded in the
+ * background once its signature has been checked (see verifiedDownload), and Ember's
+ * own notification says when it is ready — only that one: `checkForUpdatesAndNotify`
+ * posted the updater's as well, so a ready update announced itself twice.
  *
  * Imported where it is used so a launch with the setting off never loads it, and
  * wrapped because there is nothing to check against until a release is published:
@@ -351,9 +354,9 @@ async function maybeCheckForUpdate(): Promise<void> {
   if (isAdminWindow) return
   try {
     const autoUpdater = await loadUpdater()
-    autoUpdater.autoDownload = true
     watchUpdater(autoUpdater)
-    await autoUpdater.checkForUpdatesAndNotify()
+    wantDownload = true
+    await autoUpdater.checkForUpdates()
   } catch (err) {
     reportFault('update check could not run', err)
     sendToAll('updates:status', {
@@ -403,9 +406,54 @@ function describeUpdateError(err: unknown): string {
  * Every window hears the progress, the finish, and the failure.
  */
 let updaterWatched = false
+/** Whether a version the updater finds is to be downloaded; see verifiedDownload. */
+let wantDownload = false
+
+/**
+ * Download a version the updater found, once its feed's signature has been checked
+ * against the release key (audit R24; shared/feed-signature.ts). The updater never
+ * downloads on its own any more: it would fetch before anything could be checked.
+ *
+ * For this release a signature that is missing or wrong is written down and the
+ * download goes ahead — the releases before this one were never signed, and the
+ * first that is has to reach the builds that cannot check. After that, it refuses.
+ */
+async function verifiedDownload(updater: typeof import('electron-updater').autoUpdater, info: import('electron-updater').UpdateInfo): Promise<void> {
+  const verdict = await checkFeedSignature(
+    { version: info.version, files: (info.files ?? []).map((f) => ({ url: f.url, sha512: f.sha512, size: f.size })) },
+    async (url) => {
+      const res = await net.fetch(url)
+      return { ok: res.ok, status: res.status, text: res.ok ? await res.text() : '' }
+    },
+    process.resourcesPath
+  )
+  if (verdict.ok) {
+    logLine('updater', `feed signature verified for ${info.version}`)
+  } else {
+    logLine('updater warn', `feed signature for ${info.version} did not verify: ${verdict.reason}`)
+    if (signatureRequired()) {
+      sendToAll('updates:status', {
+        text: `Version ${info.version} was not downloaded: ${verdict.reason}. It may not have come from Ember's maintainer.`,
+        stage: 'error'
+      })
+      return
+    }
+  }
+  try {
+    await updater.downloadUpdate()
+  } catch (err) {
+    // The updater's own 'error' listener reports it; this only keeps it from escaping.
+    logLine('updater warn', `download did not start: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
 function watchUpdater(updater: typeof import('electron-updater').autoUpdater): void {
   if (updaterWatched) return
   updaterWatched = true
+  updater.autoDownload = false
+  updater.on('update-available', (info) => {
+    if (wantDownload) void verifiedDownload(updater, info)
+  })
   /*
    * No silent install behind a quit.
    *
@@ -578,8 +626,8 @@ async function checkForUpdateNow(): Promise<string> {
   if (!app.isPackaged) return 'Update checks only run in the installed app.'
   try {
     const autoUpdater = await loadUpdater()
-    autoUpdater.autoDownload = settings.get().autoUpdate
     watchUpdater(autoUpdater)
+    wantDownload = settings.get().autoUpdate
     const result = await autoUpdater.checkForUpdates()
     const found = result?.updateInfo?.version
     if (!found) return 'The update service had nothing to say.'
@@ -2547,7 +2595,7 @@ function registerIpc(): void {
          */
         if (!downloadedThisRun) {
           logLine('updater', 'no download this run; asking the updater to find its cache')
-          updater.autoDownload = true
+          wantDownload = true
           const ready = new Promise<boolean>((resolve) => {
             const done = (): void => resolve(true)
             updater.once('update-downloaded', done)

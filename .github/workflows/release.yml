@@ -9,6 +9,11 @@
 #
 # Publishing the draft stays a person's decision, made after installing it over the
 # previous version (the audit's release ladder, R4 and R5).
+#
+# And signing it stays theirs too: the feed is signed with a key that never comes near
+# CI, by `node scripts/sign-release.mjs <tag>` on the maintainer's machine, which
+# attaches latest.yml.sig to the draft. Ember checks that signature before it
+# downloads (audit R24; src/shared/feed-signature.ts).
 name: Release
 
 on:
@@ -184,4 +189,4 @@ jobs:
             Where-Object { $_ -match '^\s*asset:\s*(.+)$' } |
             ForEach-Object { Join-Path release $Matches[1].Trim() }
           if (-not $assets) { Write-Host 'no asset list from the feed check'; exit 1 }
-          gh release create $env:GITHUB_REF_NAME $assets --draft --title "Ember $env:GITHUB_REF_NAME" --notes "Draft from $env:GITHUB_SHA. Install it over the previous version before publishing; see CHANGELOG.md."
+          gh release create $env:GITHUB_REF_NAME $assets --draft --title "Ember $env:GITHUB_REF_NAME" --notes "Draft from $env:GITHUB_SHA. Install it over the previous version, then sign it with node scripts/sign-release.mjs $env:GITHUB_REF_NAME, before publishing; see CHANGELOG.md."
