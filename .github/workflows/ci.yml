@@ -18,6 +18,16 @@ on:
         description: 'Suites to run on Windows, comma-separated. Blank runs the whole gate.'
         required: false
         default: ''
+      # 'fail' for a run that shows a new check failing on the build before a fix:
+      # it then passes when the suites fail, and fails if they pass. Watching a check
+      # fail on the old build is how every check here is proven, and each of those
+      # runs used to end red and send a failure notice for a result that was wanted.
+      expect:
+        description: 'pass, or fail for a run meant to show a check failing on an old build (with only).'
+        required: false
+        default: 'pass'
+        type: choice
+        options: [pass, fail]
   # Everything, once a day, while nobody is waiting for it.
   schedule:
     - cron: '0 9 * * *'
@@ -139,8 +149,17 @@ jobs:
       # somebody typed.
       - name: Suites
         shell: pwsh
-        run: pwsh -NoProfile -File .github/unelevated.ps1 'pwsh -NoProfile -Command node scripts/gate.mjs --only $env:SUITES; exit $LASTEXITCODE'
+        run: |
+          pwsh -NoProfile -File .github/unelevated.ps1 'pwsh -NoProfile -Command node scripts/gate.mjs --only $env:SUITES; exit $LASTEXITCODE'
+          $code = $LASTEXITCODE
+          if ($env:EXPECT -eq 'fail') {
+            if ($code -ne 0) { Write-Output "EXPECTED FAILURE: the suites failed (exit $code), as this run was asked to expect."; exit 0 }
+            Write-Output '::error::This run expected the suites to fail on this build, and they passed.'
+            exit 1
+          }
+          exit $code
         env:
+          EXPECT: ${{ inputs.expect || 'pass' }}
           SUITES: ${{ inputs.only || 'settings,output,shell,history,flood,lsp,boom' }}
           EMBER_STRICT: '1'
           # A hosted runner, so what only a real machine has is excused by name. The

@@ -5,6 +5,20 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A run meant to show a check failing is not reported as a failure
+
+- **Proving a check meant a red run, and a failure notice for it.** Every check in
+  this repository is first watched failing on the build before its fix, on the
+  hosted runner — and each of those runs ended red and sent a failure email for a
+  result that was the point. Of fifty-four runs dispatched during the last few
+  changes, twenty-eight failed, almost all of them on purpose.
+- **A dispatched run can now say it expects failure** (`-f expect=fail`, with
+  `only`): it passes when the suites fail, printing that it did, and fails if they
+  pass, which is the result worth being told about. Every other run is unchanged.
+- **How it is checked:** a branch with one check broken on purpose, dispatched with
+  `expect=fail`, ends green with the suite's failure in its log; the same suite on
+  an unbroken branch, dispatched as before, passes as before.
+
 ### Refactorings the language server carries out itself now happen
 
 - **Extract to constant, to function and the rest were offered and did nothing.**
