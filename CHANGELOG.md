@@ -23,10 +23,20 @@ newest entry sits on top.
   command line only for a CLI too old to take the file), and the CLI runs in an empty
   folder of its own. Errors are the CLI's own words, or its exit code; only a CLI
   that is not there is reported as not installed; and a failure always ends the turn.
+  A Claude Code too old to take `--tools` is still asked, with the system prompt on
+  its command line and so with the old limit, and is refused when its start lists
+  tools — which, for most older versions, it will — with a message saying it is too
+  old.
+- **Corrected before landing, after a QA pass:** a `--help` that failed once — a
+  first run held up by antivirus — was remembered for the whole launch, and every
+  question after it was refused for tools a current CLI had never been told to turn
+  off; the flag is now found whatever its help calls its argument; a CLI removed
+  while Ember ran says it is not installed; and the system-prompt file and folder a
+  killed Ember leaves behind are swept at the next start.
 - **How it is checked:** `verify-claude-login` now asks the real CLI a 41 KB question
   through the service and requires an answer — which, since a start listing tools is
   stopped, is also the check that the CLI runs with none. On the build before this,
-  the call throws before the CLI starts. *claude cli* (19 cases, in the unit tables)
+  the call throws before the CLI starts. *claude cli* (22 cases, in the unit tables)
   runs the service against a stand-in CLI: the prompt over stdin and nowhere on the
   command line, the system prompt from a file that is gone afterwards, `--tools ""`,
   an empty folder that is gone afterwards, a start listing tools stopped with no

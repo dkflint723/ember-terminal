@@ -1,6 +1,6 @@
 import { execFile, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ClaudeAccess } from '../shared/types.js'
@@ -34,6 +34,7 @@ export class ClaudeCliService {
   constructor(command = 'claude', prefix: string[] = []) {
     this.command = command
     this.prefix = prefix
+    sweepLeftovers()
   }
 
   private exec(args: string[], timeoutMs: number): Promise<{ stdout: string; stderr: string }> {
@@ -101,6 +102,8 @@ export class ClaudeCliService {
   /** Drop the memoised answer, after the user has signed in or out. */
   forget(): void {
     this.cached = null
+    // A sign-in can come with an updated CLI.
+    this.flagsKnown = null
   }
 
   /**
@@ -114,10 +117,16 @@ export class ClaudeCliService {
   private flags(): Promise<{ tools: boolean; systemPromptFile: boolean }> {
     this.flagsKnown ??= this.exec(['--help'], 20_000)
       .then(({ stdout }) => ({
-        tools: /--tools <tools/.test(stdout),
+        // The flag, whatever its placeholder; not --allowed-tools or --disallowed-tools.
+        tools: /(^|\s)--tools\b/m.test(stdout),
         systemPromptFile: /--system-prompt-file|--system-prompt\[-file\]/.test(stdout)
       }))
-      .catch(() => ({ tools: false, systemPromptFile: false }))
+      .catch(() => {
+        // Not kept: a --help that failed once — a first run scanned by antivirus, a
+        // slow start — would otherwise refuse every ask until Ember was restarted.
+        this.flagsKnown = null
+        return { tools: false, systemPromptFile: false }
+      })
     return this.flagsKnown
   }
   private flagsKnown: Promise<{ tools: boolean; systemPromptFile: boolean }> | null = null
@@ -207,7 +216,8 @@ export class ClaudeCliService {
               // answer goes out as one late delta, so the caller need not care.
               if (!streamedAny) onDelta(finalText)
               resolve({ ok: true, text: finalText })
-            } else if (error) resolve({ ok: false, error: describe(error, stderr) })
+            } else if (error && missing(error)) resolve({ ok: false, error: 'Claude Code is not installed, so there is nothing to sign in to.' })
+            else if (error) resolve({ ok: false, error: describe(error, stderr) })
             else resolve({ ok: false, error: 'Claude Code returned no answer.' })
           }
         )
@@ -240,7 +250,7 @@ export class ClaudeCliService {
             if (event.type === 'system' && event.subtype === 'init') {
               const tools = Array.isArray(event.tools) ? event.tools : []
               if (tools.length > 0) {
-                finalError = `Claude Code started with tools it could use (${tools.slice(0, 6).join(', ')}${tools.length > 6 ? ', …' : ''}), so Ember stopped it before it answered. Updating Claude Code should fix this.`
+                finalError = `Claude Code started with tools it could use (${tools.slice(0, 6).join(', ')}${tools.length > 6 ? ', …' : ''}), so Ember stopped it before it answered.${flags.tools ? '' : ' This Claude Code is too old to be run without tools; updating it should fix this.'}`
                 refused = true
                 child.kill()
                 return
@@ -295,7 +305,27 @@ function cliEnv(): NodeJS.ProcessEnv {
   return env
 }
 
-export type AskResult = { ok: true; text: string } | { ok: false; error: string }
+/*
+ * What an Ember that was killed mid-ask left in the temp folder: the system-prompt
+ * file, which holds the attached blocks and the open file, and the empty folder the
+ * CLI ran in. An ask takes minutes at most, so anything older than this outlived the
+ * Ember that made it; not every one at once, since another Ember may be asking now.
+ */
+function sweepLeftovers(): void {
+  try {
+    const dir = tmpdir()
+    const stale = Date.now() - 10 * 60_000
+    for (const name of readdirSync(dir)) {
+      if (!/^ember-claude-(system-[0-9a-f-]+\.txt|[A-Za-z0-9]{6})$/.test(name)) continue
+      const target = join(dir, name)
+      if (statSync(target).mtimeMs < stale) rmSync(target, { recursive: true, force: true })
+    }
+  } catch {
+    // A temp folder that cannot be read is not a reason to have no Claude.
+  }
+}
+
+export type AskResult ={ ok: true; text: string } | { ok: false; error: string }
 
 export interface AskStream {
   /** Resolves when the CLI finishes, however it finishes; never rejects. */

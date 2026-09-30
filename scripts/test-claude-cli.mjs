@@ -29,7 +29,7 @@ const recordFile = path.join(os.tmpdir(), `ember-fake-claude-${process.pid}.json
 process.env.FAKE_RECORD = recordFile
 const record = () => JSON.parse(fs.readFileSync(recordFile, 'utf8'))
 const run = async (env, system, prompt) => {
-  for (const k of ['FAKE_OLD', 'FAKE_TOOLS', 'FAKE_FAIL', 'FAKE_SILENT']) delete process.env[k]
+  for (const k of ['FAKE_OLD', 'FAKE_TOOLS', 'FAKE_FAIL', 'FAKE_SILENT', 'FAKE_HELP_ALT', 'FAKE_HELP_FAIL']) delete process.env[k]
   Object.assign(process.env, env)
   const cli = new ClaudeCliService(process.execPath, [FAKE])
   let streamed = ''
@@ -62,6 +62,21 @@ check('an older CLI without --tools is not given it', !oldSeen.argv.includes('--
 check('and gets the system prompt the way it understands', oldSeen.argv.includes('--system-prompt') && oldSeen.argv.includes('OLD-SYSTEM'))
 check('and still answers when it lists no tools', old.res.ok, JSON.stringify(old.res))
 
+// --- what the help says, read carefully and not held against it -----------------------------
+const alt = await run({ FAKE_HELP_ALT: '1' }, 'sys', 'hi')
+check('--tools is found whatever its placeholder', alt.res.ok && record().argv.includes('--tools'), record().argv.join(' '))
+check('an older CLI’s refusal says it is too old', !(await run({ FAKE_OLD: '1', FAKE_TOOLS: 'LS' }, 's', 'p')).res.ok && (await run({ FAKE_OLD: '1', FAKE_TOOLS: 'LS' }, 's', 'p')).res.error.includes('too old'))
+{
+  const keep = ['FAKE_OLD', 'FAKE_TOOLS', 'FAKE_FAIL', 'FAKE_SILENT', 'FAKE_HELP_ALT']
+  for (const k of keep) delete process.env[k]
+  const same = new ClaudeCliService(process.execPath, [FAKE])
+  process.env.FAKE_HELP_FAIL = '1'
+  await same.askStream('s', 'p', 'm', () => {}).done
+  delete process.env.FAKE_HELP_FAIL
+  const again = await same.askStream('s', 'p', 'm', () => {}).done
+  check('a --help that failed once is asked again, not held for the launch', again.ok && record().argv.includes('--tools'), JSON.stringify(again))
+}
+
 // --- errors, in the CLI's own words ---------------------------------------------------------------
 const failed = await run({ FAKE_FAIL: '1' }, 'sys', 'a prompt that must not appear in an error')
 check('a failure is said in the CLI’s words', !failed.res.ok && failed.res.error === 'Error: model not found: nope', JSON.stringify(failed.res))
@@ -74,10 +89,10 @@ const absent = new ClaudeCliService(path.join(os.tmpdir(), 'no-such-claude-here.
 const access = await absent.access()
 check('a CLI that is not there is not installed', access.installed === false, JSON.stringify(access))
 const nothing = await absent.askStream('s', 'p', 'm', () => {}).done
-check('and asking it ends, with a reason', !nothing.ok && typeof nothing.error === 'string', JSON.stringify(nothing))
+check('and asking it says it is not installed', !nothing.ok && /not installed/.test(nothing.error), JSON.stringify(nothing))
 
 // --- cancel -------------------------------------------------------------------------------------------
-for (const k of ['FAKE_OLD', 'FAKE_TOOLS', 'FAKE_FAIL', 'FAKE_SILENT']) delete process.env[k]
+for (const k of ['FAKE_OLD', 'FAKE_TOOLS', 'FAKE_FAIL', 'FAKE_SILENT', 'FAKE_HELP_ALT', 'FAKE_HELP_FAIL']) delete process.env[k]
 const cli = new ClaudeCliService(process.execPath, [FAKE])
 const stream = cli.askStream('s', 'p', 'm', () => {})
 stream.cancel()

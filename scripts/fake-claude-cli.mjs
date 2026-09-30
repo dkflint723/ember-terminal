@@ -4,10 +4,13 @@ import * as fs from 'node:fs'
 
 const argv = process.argv.slice(2)
 if (argv[0] === '--help') {
+  if (process.env.FAKE_HELP_FAIL) process.exit(3)
   console.log(
     process.env.FAKE_OLD
-      ? '  --disallowed-tools <tools...>\n  --system-prompt <prompt>'
-      : '  --tools <tools...>   Use "" to disable all tools\n  via: --system-prompt[-file], --append-system-prompt[-file]'
+      ? '  --disallowed-tools <tools...>\n  --allowed-tools <tools...>\n  --system-prompt <prompt>'
+      : process.env.FAKE_HELP_ALT
+        ? '  --tools [list]   Use "" to disable all tools\n  --system-prompt-file <file>'
+        : '  --tools <tools...>   Use "" to disable all tools\n  via: --system-prompt[-file], --append-system-prompt[-file]'
   )
   process.exit(0)
 }
