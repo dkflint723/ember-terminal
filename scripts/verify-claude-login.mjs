@@ -30,6 +30,28 @@ if (!signedIn) {
   skip('claude login', 'Claude Code is not installed or not signed in')
 }
 
+/*
+ * The service itself, against the real CLI, with a 40 KB prompt (audit R26, SE-08).
+ *
+ * On the command line a prompt that long could not start at all: Windows allows
+ * 32,767 characters. And an answer at all now means the CLI's start listed no tools,
+ * because the service stops a run whose start lists any — so this is also the check
+ * that Claude Code, as installed, runs tool-free.
+ */
+const direct = await (async () => {
+  await import('./ts-resolve.mjs')
+  const { ClaudeCliService } = await import('../src/main/claude-cli.ts')
+  const filler = 'Background, to be ignored. '.repeat(1500)
+  const prompt = `${filler}\n\nReply with exactly the word: ready`
+  try {
+    const res = await new ClaudeCliService().askStream('You follow instructions exactly.', prompt, 'claude-haiku-4-5-20251001', () => {}).done
+    return { chars: prompt.length, res }
+  } catch (err) {
+    // What the old service did: it threw, and a chat waiting on it never ended.
+    return { chars: prompt.length, res: { ok: false, threw: String(err) } }
+  }
+})()
+
 const profile = newProfile('claude-login')
 // Pinned before launch: a cheap model, and no API key, so the CLI path is the only
 // one available and the run costs almost nothing.
@@ -63,6 +85,11 @@ const failures = []
 const check = (label, ok, detail) => {
   if (!ok) failures.push(`${label}${detail !== undefined ? ` — ${detail}` : ''}`)
 }
+check(
+  `a ${Math.round(direct.chars / 1000)} KB prompt through the CLI is answered — its start listing no tools`,
+  direct.res.ok === true && /ready/i.test(direct.res.text ?? ''),
+  JSON.stringify(direct.res).slice(0, 300)
+)
 
 // --- what main says it would use ---------------------------------------------
 const credential = await page.evaluate(() => window.ember.aiCredential())

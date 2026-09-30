@@ -5,6 +5,34 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Asking Claude without an API key runs the CLI with no tools, and takes a long question
+
+- **The Claude Code CLI was told which tools not to use, and asked on its command
+  line.** Without an API key, Ember asks through the CLI you are signed in to. It
+  passed a list of eleven tools to disallow — a list that fell behind every release
+  that added one — and put the prompt and the system prompt, which carries the
+  attached blocks and the open file, on the command line, which Windows limits to
+  32,767 characters. A long conversation or a large attachment did not fail with a
+  message: the call threw before the CLI started, and the chat waited for good. The
+  CLI also ran in whatever folder Ember was started in, and a failure was described
+  with execFile's own message, which is the whole command line.
+- **Now every tool is turned off with `--tools ""`, and checked.** The CLI's first
+  event lists the tools it started with; a run that lists any is stopped before it
+  answers and says so, whatever flags that version took. The prompt goes over stdin
+  and the system prompt in a file that is deleted afterwards (the prompt on the
+  command line only for a CLI too old to take the file), and the CLI runs in an empty
+  folder of its own. Errors are the CLI's own words, or its exit code; only a CLI
+  that is not there is reported as not installed; and a failure always ends the turn.
+- **How it is checked:** `verify-claude-login` now asks the real CLI a 41 KB question
+  through the service and requires an answer — which, since a start listing tools is
+  stopped, is also the check that the CLI runs with none. On the build before this,
+  the call throws before the CLI starts. *claude cli* (19 cases, in the unit tables)
+  runs the service against a stand-in CLI: the prompt over stdin and nowhere on the
+  command line, the system prompt from a file that is gone afterwards, `--tools ""`,
+  an empty folder that is gone afterwards, a start listing tools stopped with no
+  answer delivered, an older CLI given only what it understands, errors in the CLI's
+  words and never its command line, and a cancel ending as cancelled.
+
 ### A window reaches only its own shells
 
 - **Any window could type into, kill or take over another window's shell.** Every

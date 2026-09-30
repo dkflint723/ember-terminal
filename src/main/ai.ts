@@ -348,6 +348,9 @@ export class AiService {
       if ('cancelled' in res) sink({ requestId: req.requestId, done: 'cancelled' })
       else if (res.ok) sink({ requestId: req.requestId, done: 'complete' })
       else sink({ requestId: req.requestId, done: 'error', error: res.error })
+    } catch (err) {
+      // However it failed, the turn ends: a panel left waiting shows a spinner for good.
+      sink({ requestId: req.requestId, done: 'error', error: err instanceof Error ? err.message : 'Claude Code failed.' })
     } finally {
       this.chatStreams.delete(req.requestId)
     }
