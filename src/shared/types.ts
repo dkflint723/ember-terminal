@@ -466,10 +466,12 @@ export interface SessionSnapshot {
   debug?: {
     breakpoints: {
       path: string
-      lines: { line: number; condition?: string; logMessage?: string }[]
+      lines: { line: number; condition?: string; logMessage?: string; hitCondition?: string }[]
     }[]
     exceptionFilters?: Record<string, boolean>
     launchChoice?: string
+    /** The Watch panel's expressions, in order. */
+    watches?: string[]
   }
   activeTabId: string | null
   /**
@@ -1275,6 +1277,11 @@ export interface EmberApi {
   installUpdateNow(): void
   /** Tear the session down, adapter process and all. */
   dapStop(sessionId: string): Promise<void>
+  /**
+   * Write an environment to a file a child PowerShell reads and deletes — a
+   * preLaunchTask's — with `${env:…}` in its values resolved. Null when there is none.
+   */
+  dapEnvFile(env: Record<string, string>): Promise<string | null>
   /**
    * Answer a reverse request the adapter made of the client — runInTerminal,
    * once the command is actually standing in a terminal pane.

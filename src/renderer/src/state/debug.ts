@@ -1,9 +1,12 @@
 import { create } from 'zustand'
 import type { DapEventPayload, DebugAdapter, DebugStartRequest } from '@shared/types'
-import { debuggeeLabel, debuggeeLine, MOST_LINE } from '@shared/debuggee'
+import { debuggeeLabel, debuggeeLine, MOST_LINE, taskLabel, taskLine } from '@shared/debuggee'
+import { resolveLaunchVariables, type LaunchContext } from '@shared/launch-vars'
+import { forWindows, resolveTask, type ResolvedTask } from '@shared/launch-tasks'
 import { existingController } from '../terminal/controller'
 import { readinessOf } from '../terminal/typing'
-import { activeDocument, paneIdsOf, useStore, workspaceRoot } from './store'
+import { monacoIfLoaded } from '../editor/loaded'
+import { activeDocument, paneIdsOf, useStore, workspaceRoot, type CommandBlock } from './store'
 import { mayRunIn } from '@shared/trust'
 import { explainRestricted, learnRealName } from './trust'
 
@@ -46,6 +49,25 @@ export interface BreakpointLine {
   condition?: string
   /** Print instead of stopping: a logpoint, where the adapter supports them. */
   logMessage?: string
+  /** Stop only on a hit count the adapter understands — `5`, `>= 3`, `% 2`. */
+  hitCondition?: string
+}
+
+/**
+ * What the adapter said it can do. The panel shows a control only where the
+ * adapter will honour it; before any adapter has said, it shows them all.
+ */
+export interface DebugCapabilities {
+  conditions: boolean
+  logPoints: boolean
+  hitConditions: boolean
+  terminate: boolean
+}
+
+export interface WatchResult {
+  value: string
+  error: boolean
+  variablesReference: number
 }
 
 export interface FileBreakpoints {
@@ -63,8 +85,10 @@ export interface ExceptionFilter {
 export interface LaunchOption {
   id: string
   label: string
-  kind: 'active-file' | 'config' | 'attach'
+  kind: 'active-file' | 'config' | 'attach' | 'unsupported'
   config?: Record<string, unknown>
+  /** For an entry Ember cannot run: why, said when it is chosen. */
+  why?: string
 }
 
 interface DebugState {
@@ -92,6 +116,12 @@ interface DebugState {
   output: { category: string; text: string }[]
   /** The console's exchanges, newest last. */
   repl: { expression: string; result: string; error: boolean }[]
+  /** The last adapter's capabilities; null until one has said. */
+  capabilities: DebugCapabilities | null
+  /** The Watch panel's expressions, kept across runs and in the session file. */
+  watches: string[]
+  /** Their values in the frame being looked at, by expression. */
+  watchResults: Record<string, WatchResult>
 }
 
 const EMPTY_RUN = {
@@ -102,7 +132,8 @@ const EMPTY_RUN = {
   frames: [] as DebugFrame[],
   activeFrameId: null as number | null,
   scopes: [] as DebugScope[],
-  variables: {} as Record<number, DebugVariable[]>
+  variables: {} as Record<number, DebugVariable[]>,
+  watchResults: {} as Record<string, WatchResult>
 }
 
 export const useDebugStore = create<DebugState>(() => ({
@@ -115,8 +146,13 @@ export const useDebugStore = create<DebugState>(() => ({
   launchOptions: [{ id: 'active-file', label: 'Active file', kind: 'active-file' }],
   launchChoice: 'active-file',
   output: [],
-  repl: []
+  repl: [],
+  capabilities: null,
+  watches: []
 }))
+
+/** Each session's capabilities: configurationDone is only sent where it is understood. */
+const sessionCapabilities = new Map<string, Record<string, unknown>>()
 
 /**
  * Exception choices made before (or between) sessions, applied whenever an
@@ -199,6 +235,8 @@ async function sendAllBreakpoints(sessionId: string): Promise<void> {
  * resend of its own, which will bring fresh verification.
  */
 const breakpointVersions = new Map<string, number>()
+/** `${sessionId}:${id}` → the file and line an adapter's breakpoint id stands for. */
+const breakpointIds = new Map<string, { key: string; line: number }>()
 const bumpVersion = (key: string): void => {
   breakpointVersions.set(key, (breakpointVersions.get(key) ?? 0) + 1)
 }
@@ -228,15 +266,23 @@ async function sendFileBreakpoints(sessionId: string, filePath: string): Promise
     breakpoints: sent.map((l) => ({
       line: l.line,
       ...(l.condition ? { condition: l.condition } : {}),
-      ...(l.logMessage ? { logMessage: l.logMessage } : {})
+      ...(l.logMessage ? { logMessage: l.logMessage } : {}),
+      ...(l.hitCondition ? { hitCondition: l.hitCondition } : {})
     })),
     sourceModified: false
   })
   if (!res.ok) return
   if ((breakpointVersions.get(key) ?? 0) !== versionAtSend) return
-  const answered = (res.body as { breakpoints?: { verified?: boolean; line?: number }[] })
+  const answered = (res.body as { breakpoints?: { id?: number; verified?: boolean; line?: number }[] })
     ?.breakpoints
   if (!answered) return
+  // The adapter's ids, so a later `breakpoint` event can say which one it means.
+  for (const [k, where] of breakpointIds) if (where.key === key && k.startsWith(`${sessionId}:`)) breakpointIds.delete(k)
+  answered.forEach((reply, i) => {
+    if (typeof reply?.id === 'number') {
+      breakpointIds.set(`${sessionId}:${reply.id}`, { key, line: reply.line ?? sent[i]?.line ?? 0 })
+    }
+  })
   /*
    * The adapter's answer is the truth about where the marks actually live.
    * Answers come back positionally; when the adapter moves two onto the same
@@ -255,7 +301,8 @@ async function sendFileBreakpoints(sessionId: string, filePath: string): Promise
           line,
           verified: reply?.verified === true,
           condition: asked.condition,
-          logMessage: asked.logMessage
+          logMessage: asked.logMessage,
+          hitCondition: asked.hitCondition
         })
       }
     })
@@ -308,7 +355,7 @@ export function toggleBreakpoint(filePath: string, line: number): void {
 export function setBreakpointMeta(
   filePath: string,
   line: number,
-  meta: { condition?: string; logMessage?: string }
+  meta: { condition?: string; logMessage?: string; hitCondition?: string }
 ): void {
   const key = fileKey(filePath)
   useDebugStore.setState((s) => {
@@ -324,7 +371,8 @@ export function setBreakpointMeta(
               ? {
                   ...l,
                   condition: meta.condition?.trim() ? meta.condition.trim() : undefined,
-                  logMessage: meta.logMessage?.trim() ? meta.logMessage.trim() : undefined
+                  logMessage: meta.logMessage?.trim() ? meta.logMessage.trim() : undefined,
+                  hitCondition: meta.hitCondition?.trim() ? meta.hitCondition.trim() : undefined
                 }
               : l
           )
@@ -417,11 +465,13 @@ export function serializeDebug(): NonNullable<
       lines: f.lines.map((l) => ({
         line: l.line,
         ...(l.condition ? { condition: l.condition } : {}),
-        ...(l.logMessage ? { logMessage: l.logMessage } : {})
+        ...(l.logMessage ? { logMessage: l.logMessage } : {}),
+        ...(l.hitCondition ? { hitCondition: l.hitCondition } : {})
       }))
     })),
     exceptionFilters: exceptionChoice,
-    launchChoice: s.launchChoice
+    launchChoice: s.launchChoice,
+    watches: s.watches
   }
 }
 
@@ -438,8 +488,9 @@ export function seedDebug(
       .map((l) => ({
         line: l.line,
         verified: false,
-        condition: l.condition,
-        logMessage: l.logMessage
+        condition: typeof l.condition === 'string' ? l.condition : undefined,
+        logMessage: typeof l.logMessage === 'string' ? l.logMessage : undefined,
+        hitCondition: typeof l.hitCondition === 'string' ? l.hitCondition : undefined
       }))
     if (lines.length > 0) breakpoints[fileKey(file.path)] = { path: file.path, lines }
   }
@@ -447,9 +498,94 @@ export function seedDebug(
     typeof saved.exceptionFilters === 'object' && saved.exceptionFilters !== null
       ? saved.exceptionFilters
       : {}
+  const watches = Array.isArray(saved.watches)
+    ? saved.watches.filter((w): w is string => typeof w === 'string' && w.trim().length > 0).slice(0, 50)
+    : []
   useDebugStore.setState({
     breakpoints,
+    watches,
     ...(typeof saved.launchChoice === 'string' ? { launchChoice: saved.launchChoice } : {})
+  })
+}
+
+/* ---------- breakpoints that move with their files ---------- */
+
+const inside = (parent: string, p: string): boolean => {
+  const a = fileKey(parent).replace(/\/+$/, '')
+  const b = fileKey(p)
+  return b === a || b.startsWith(`${a}/`)
+}
+
+/**
+ * A file or folder renamed in the explorer: its breakpoints go with it.
+ *
+ * They were keyed by path and stayed on the old one — hollow dots on a file that no
+ * longer existed, and none on the file the code was now in. The adapter is told
+ * both halves: the old path has none, the new one has them.
+ */
+export function moveBreakpoints(from: string, to: string): void {
+  const moved: string[] = []
+  useDebugStore.setState((s) => {
+    const next = { ...s.breakpoints }
+    for (const [key, file] of Object.entries(s.breakpoints)) {
+      if (!inside(from, file.path)) continue
+      const path = to + file.path.slice(from.length)
+      delete next[key]
+      next[fileKey(path)] = { path, lines: file.lines.map((l) => ({ ...l, verified: false })) }
+      moved.push(file.path, path)
+    }
+    return moved.length > 0 ? { breakpoints: next } : s
+  })
+  for (const path of moved) {
+    bumpVersion(fileKey(path))
+    scheduleResend(path)
+  }
+}
+
+/** A file or folder deleted in the explorer: its breakpoints go too, and the adapter is told. */
+export function dropBreakpoints(target: string): void {
+  const dropped: string[] = []
+  useDebugStore.setState((s) => {
+    const next = { ...s.breakpoints }
+    for (const [key, file] of Object.entries(s.breakpoints)) {
+      if (!inside(target, file.path)) continue
+      delete next[key]
+      dropped.push(file.path)
+    }
+    return dropped.length > 0 ? { breakpoints: next } : s
+  })
+  for (const path of dropped) {
+    bumpVersion(fileKey(path))
+    scheduleResend(path)
+  }
+}
+
+/**
+ * The adapter changed its mind about a breakpoint — verified it once the script
+ * loaded, or moved it to the line code is really on. There was no handler, so a
+ * breakpoint an adapter verifies late (js-debug does, for any file not yet loaded)
+ * stayed a hollow dot while it worked.
+ */
+function onBreakpointEvent(sessionId: string, body: unknown): void {
+  const b = body as { reason?: string; breakpoint?: { id?: number; verified?: boolean; line?: number; source?: { path?: string } } }
+  const bp = b?.breakpoint
+  if (!bp) return
+  const known = typeof bp.id === 'number' ? breakpointIds.get(`${sessionId}:${bp.id}`) : undefined
+  const key = known?.key ?? (bp.source?.path ? fileKey(bp.source.path) : null)
+  const was = known?.line ?? bp.line
+  if (!key || was === undefined) return
+  useDebugStore.setState((s) => {
+    const file = s.breakpoints[key]
+    if (!file) return s
+    const index = file.lines.findIndex((l) => l.line === was)
+    if (index < 0) return s
+    const line = typeof bp.line === 'number' && bp.line > 0 ? bp.line : was
+    // Moved onto a line that already has one: the two are one breakpoint now.
+    if (line !== was && file.lines.some((l) => l.line === line)) return s
+    const verified = b.reason === 'removed' ? false : bp.verified === true
+    const lines = file.lines.map((l, i) => (i === index ? { ...l, line, verified } : l)).sort((x, y) => x.line - y.line)
+    if (known && typeof bp.id === 'number') breakpointIds.set(`${sessionId}:${bp.id}`, { key, line })
+    return { breakpoints: { ...s.breakpoints, [key]: { path: file.path, lines } } }
   })
 }
 
@@ -546,6 +682,11 @@ function parseJsonc(text: string): unknown {
 const TYPE_MAP: Record<string, string> = {
   node: 'pwa-node',
   'pwa-node': 'pwa-node',
+  // js-debug debugs browsers too, and its server answers for them under the same roof.
+  chrome: 'pwa-node',
+  'pwa-chrome': 'pwa-node',
+  msedge: 'pwa-node',
+  'pwa-msedge': 'pwa-node',
   python: 'debugpy'
 }
 /** VS Code's names for js-debug's configurations, and the names js-debug itself uses. */
@@ -554,39 +695,55 @@ const JS_DEBUG_TYPE: Record<string, string> = {
   chrome: 'pwa-chrome',
   msedge: 'pwa-msedge'
 }
+/**
+ * Types VS Code runs through machinery of its own rather than an adapter, and what
+ * to write instead. Listed, so that choosing one says so rather than the entry
+ * being missing from the list with no word as to why.
+ */
+const NOT_ADAPTERS: Record<string, string> = {
+  'node-terminal':
+    'A node-terminal configuration opens a VS Code terminal with the debugger attached, which Ember has no way to do. Use "type": "node" with "console": "integratedTerminal".'
+}
+/**
+ * Fields VS Code acts on that Ember does not, and what that means for the run. Said
+ * in the Debug view's output when a configuration has them, rather than dropped.
+ */
+const IGNORED_FIELDS: Record<string, string> = {
+  postDebugTask: 'no task runs when the debugging ends',
+  serverReadyAction: 'no browser is opened when the server says it is ready'
+}
 const adapterIdFor = (type: string, adapters: DebugAdapter[]): string | null => {
   const mapped = TYPE_MAP[type] ?? type
   return adapters.some((a) => a.id === mapped) ? mapped : null
-}
-
-/** ${workspaceFolder} and friends, resolved against this window. */
-function substitute(value: unknown, workspace: string, file: string | null, depth = 0): unknown {
-  // A launch.json nested past all reason is a stack overflow waiting inside
-  // an F5 press; past this depth values pass through untouched.
-  if (depth > 32) return value
-  if (typeof value === 'string') {
-    return value
-      .replace(/\$\{workspaceFolder\}/g, workspace)
-      .replace(/\$\{workspaceFolderBasename\}/g, workspace.split(/[\\/]/).pop() ?? '')
-      .replace(/\$\{file\}/g, file ?? '')
-      .replace(/\$\{fileBasename\}/g, file?.split(/[\\/]/).pop() ?? '')
-      .replace(/\$\{fileDirname\}/g, file ? dirnameOf(file) : '')
-  }
-  if (Array.isArray(value)) return value.map((v) => substitute(v, workspace, file, depth + 1))
-  if (typeof value === 'object' && value !== null) {
-    return Object.fromEntries(
-      Object.entries(value).map(([k, v]) => [k, substitute(v, workspace, file, depth + 1)])
-    )
-  }
-  return value
 }
 
 const dirnameOf = (p: string): string =>
   p.slice(0, Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/')))
 
 /**
- * What the F5 picker offers: the active file always, every launch.json entry
- * an available adapter answers for, and an attach for Node when Node is here.
+ * What F5 runs from: the open folder, the file in front of you, its caret and
+ * selection, and your home folder — everything a launch.json variable can name that
+ * the window knows.
+ */
+function launchContext(workspace: string, file: string | null): LaunchContext {
+  const editors = monacoIfLoaded()?.monaco.editor.getEditors() ?? []
+  const editor = editors.find((e) => e.hasTextFocus()) ?? editors.find((e) => e.getModel() && file && fileKey(e.getModel()!.uri.fsPath) === fileKey(file))
+  const position = editor?.getPosition()
+  const selection = editor?.getSelection()
+  const model = editor?.getModel()
+  return {
+    workspace,
+    file,
+    ...(position ? { line: position.lineNumber } : {}),
+    ...(selection && model && !selection.isEmpty() ? { selection: model.getValueInRange(selection) } : {}),
+    home: window.ember.homeDir
+  }
+}
+
+/**
+ * What the F5 picker offers: the active file always, every launch.json entry,
+ * and an attach for Node when Node is here. An entry Ember cannot run is still
+ * listed, and choosing it says why — it used to be left out without a word.
  */
 export async function refreshLaunchOptions(): Promise<void> {
   const options: LaunchOption[] = [{ id: 'active-file', label: 'Active file', kind: 'active-file' }]
@@ -597,12 +754,36 @@ export async function refreshLaunchOptions(): Promise<void> {
     const read = await window.ember.readFile(`${root}\\.vscode\\launch.json`)
     if (read.ok) {
       try {
-        const parsed = parseJsonc(read.content) as { configurations?: Record<string, unknown>[] }
+        const parsed = parseJsonc(read.content) as {
+          configurations?: Record<string, unknown>[]
+          compounds?: Record<string, unknown>[]
+        }
         for (const config of parsed?.configurations ?? []) {
           const name = typeof config?.name === 'string' ? config.name : null
           const type = typeof config?.type === 'string' ? config.type : null
-          if (!name || !type || !adapterIdFor(type, adapters)) continue
-          options.push({ id: `config:${name}`, label: name, kind: 'config', config })
+          if (!name || !type) continue
+          if (NOT_ADAPTERS[type]) {
+            options.push({ id: `config:${name}`, label: `${name} (not supported)`, kind: 'unsupported', why: NOT_ADAPTERS[type] })
+          } else if (!adapterIdFor(type, adapters)) {
+            options.push({
+              id: `config:${name}`,
+              label: `${name} (no adapter)`,
+              kind: 'unsupported',
+              why: `No debug adapter answers for type ‘${type}’. Teach one in settings, under debugAdapters.`
+            })
+          } else {
+            options.push({ id: `config:${name}`, label: name, kind: 'config', config })
+          }
+        }
+        for (const compound of parsed?.compounds ?? []) {
+          const name = typeof compound?.name === 'string' ? compound.name : null
+          if (!name) continue
+          options.push({
+            id: `compound:${name}`,
+            label: `${name} (compound, not supported)`,
+            kind: 'unsupported',
+            why: 'A compound starts several configurations together, and Ember debugs one at a time. Start its configurations one by one.'
+          })
         }
       } catch {
         // A launch.json that does not parse offers nothing, quietly.
@@ -701,9 +882,54 @@ export async function selectFrame(frameId: number): Promise<void> {
       expensive: sc.expensive === true
     })) ?? []
   useDebugStore.setState({ scopes })
+  await evaluateWatches()
   for (const scope of scopes) {
     if (!scope.expensive) await fetchVariables(scope.variablesReference)
   }
+}
+
+/* ---------- the Watch panel ---------- */
+
+/**
+ * Each watch expression, evaluated in the frame being looked at. After the scopes
+ * are known and before the variables are fetched: a watch is the thing someone
+ * chose to look at, and should not wait behind a large scope.
+ */
+async function evaluateWatches(): Promise<void> {
+  const s = useDebugStore.getState()
+  const sessionId = s.stoppedSessionId
+  const frameId = s.activeFrameId
+  if (!sessionId || frameId === null || s.watches.length === 0) return
+  const generation = stopGeneration
+  const results: Record<string, WatchResult> = {}
+  await Promise.all(
+    s.watches.map(async (expression) => {
+      const res = await request(sessionId, 'evaluate', { expression, frameId, context: 'watch' })
+      const answer = res.body as { result?: unknown; variablesReference?: number } | undefined
+      results[expression] = res.ok
+        ? { value: String(answer?.result ?? ''), error: false, variablesReference: answer?.variablesReference ?? 0 }
+        : { value: res.error ?? 'Not available', error: true, variablesReference: 0 }
+    })
+  )
+  // Answers for a stop that has moved on, or a frame no longer being looked at, are not these.
+  const now = useDebugStore.getState()
+  if (generation !== stopGeneration || now.activeFrameId !== frameId) return
+  useDebugStore.setState({ watchResults: results })
+}
+
+export function addWatch(expression: string): void {
+  const text = expression.trim()
+  if (!text || useDebugStore.getState().watches.includes(text)) return
+  useDebugStore.setState((s) => ({ watches: [...s.watches, text].slice(-50) }))
+  void evaluateWatches()
+}
+
+export function removeWatch(expression: string): void {
+  useDebugStore.setState((s) => {
+    const { [expression]: _gone, ...rest } = s.watchResults
+    void _gone
+    return { watches: s.watches.filter((w) => w !== expression), watchResults: rest }
+  })
 }
 
 export async function fetchVariables(variablesReference: number): Promise<void> {
@@ -863,15 +1089,44 @@ export async function startDebugging(): Promise<void> {
   const idleAgain = (): void => {
     // Going idle with a stop still pending would carry it into the next F5.
     cancelRequested = false
-    useDebugStore.setState({ status: 'idle' })
+    useDebugStore.setState({ status: 'idle', adapterName: null })
   }
 
+  /*
+   * Whatever goes wrong on the way, the debugger comes back to idle and says what.
+   * A throw anywhere past the claim above — a taught adapter whose entry had no
+   * extensions was one — left the panel reading "Starting…" until the window was
+   * reloaded, and F5 did nothing at all in the meantime (DA-06).
+   */
+  try {
+    await prepareStart(app, idleAgain)
+  } catch (err) {
+    idleAgain()
+    app.setNotice(`The debugger could not start: ${err instanceof Error ? err.message : String(err)}`, 'error')
+  }
+}
+
+/** Say why a configuration's variables could not all be filled in. */
+function unsupportedVariables(list: string[]): string {
+  const reasons: string[] = []
+  if (list.some((v) => v.startsWith('${command:'))) reasons.push('${command:…} runs a command from a VS Code extension')
+  if (list.some((v) => v.startsWith('${input:'))) reasons.push('${input:…} asks a question Ember has no way to put')
+  const said = reasons.length > 0 ? ` — ${reasons.join(', and ')}` : ''
+  return `The launch configuration uses ${list.join(', ')}, which Ember cannot fill in${said}. The debugger did not start.`
+}
+
+async function prepareStart(app: ReturnType<typeof useStore.getState>, idleAgain: () => void): Promise<void> {
   // The options may never have been built — F5 works without the panel open,
   // and a restored launch choice must mean what it says.
   await refreshLaunchOptions()
   const adapters = await window.ember.listDebugAdapters()
   const fresh = useDebugStore.getState()
   const choice = fresh.launchOptions.find((o) => o.id === fresh.launchChoice) ?? fresh.launchOptions[0]
+  if (choice.kind === 'unsupported') {
+    app.setNotice(choice.why ?? 'Ember cannot run this configuration.', 'info')
+    idleAgain()
+    return
+  }
   const workspace = workspaceRoot(app) ?? ''
   const file = activeEditorFile()
 
@@ -894,23 +1149,62 @@ export async function startDebugging(): Promise<void> {
 
   let adapterId: string | null = null
   let launch: Record<string, unknown> | null = null
+  let task: ResolvedTask | null = null
+  const notes: string[] = []
 
   if (choice.kind === 'config' && choice.config) {
-    const type = String(choice.config.type ?? '')
+    // What VS Code does on Windows: the configuration's `windows` block laid over it.
+    const config = forWindows(choice.config)
+    const type = String(config.type ?? '')
     adapterId = adapterIdFor(type, adapters)
     if (!adapterId) {
       app.setNotice(`No debug adapter answers for type '${type}'.`, 'info')
       idleAgain()
       return
     }
-    try {
-      launch = substitute(choice.config, workspace, file) as Record<string, unknown>
-    } catch {
-      app.setNotice('The launch configuration could not be resolved.', 'error')
+    /*
+     * Every variable VS Code knows, filled in — or the launch refused, naming the
+     * ones that cannot be. Five were substituted and the rest went through as text,
+     * so `${userHome}/app.js` was a program path, and the launch failed saying only
+     * that the file did not exist (DA-05). `${env:…}` is left for main.
+     */
+    const context = launchContext(workspace, file)
+    const resolved = resolveLaunchVariables(config, context)
+    if (!resolved.ok) {
+      app.setNotice(unsupportedVariables(resolved.unsupported), 'error')
       idleAgain()
       return
     }
+    launch = resolved.value as Record<string, unknown>
     if (typeof launch.request !== 'string') launch.request = 'launch'
+    for (const [field, meaning] of Object.entries(IGNORED_FIELDS)) {
+      if (launch[field] !== undefined) notes.push(`Ember does not act on ${field} in this configuration: ${meaning}.\n`)
+    }
+    /*
+     * The task a configuration asks for before it starts: a TypeScript project's
+     * build, above all. It was ignored, and the program launched was the JavaScript
+     * from whenever the last build happened to be.
+     */
+    if (typeof launch.preLaunchTask === 'string' && launch.preLaunchTask.trim()) {
+      const read = workspace ? await window.ember.readFile(`${workspace}\\.vscode\\tasks.json`) : null
+      let tasksJson: unknown = null
+      if (read?.ok) {
+        try {
+          tasksJson = parseJsonc(read.content)
+        } catch {
+          app.setNotice('.vscode/tasks.json could not be read, so its preLaunchTask cannot run. The debugger did not start.', 'error')
+          idleAgain()
+          return
+        }
+      }
+      const found = resolveTask(launch.preLaunchTask, tasksJson, { ...context, workspace: workspace || (file ? dirnameOf(file) : '') })
+      if (!found.ok) {
+        app.setNotice(`${found.reason} The debugger did not start.`, 'error')
+        idleAgain()
+        return
+      }
+      task = found.task
+    }
     /*
      * In the name js-debug answers to. A launch.json written for VS Code says
      * "type": "node" — VS Code translates that for js-debug itself — and js-debug's
@@ -967,10 +1261,113 @@ export async function startDebugging(): Promise<void> {
     idleAgain()
     return
   }
-  await startWith({ adapterId, launch }, adapters)
+  lastTask = task
+  await runTaskThenStart({ adapterId, launch }, task, notes, adapters)
 }
 
-async function startWith(req: DebugStartRequest, adapters?: DebugAdapter[]): Promise<void> {
+/* ---------- the task before the launch ---------- */
+
+/** The preLaunchTask of the last start, run again by a restart as VS Code does. */
+let lastTask: ResolvedTask | null = null
+
+/**
+ * The task first, when there is one, and the launch only if it succeeded.
+ *
+ * Idle, with a notice, when it did not: a build that failed has left nothing new to
+ * debug, and launching the old output anyway is exactly what running the task is for
+ * preventing.
+ */
+async function runTaskThenStart(
+  req: DebugStartRequest,
+  task: ResolvedTask | null,
+  notes: string[],
+  adapters?: DebugAdapter[]
+): Promise<void> {
+  if (task && !(await runPreLaunchTask(task))) {
+    cancelRequested = false
+    useDebugStore.setState({ status: 'idle', adapterName: null })
+    return
+  }
+  await startWith(req, adapters, notes)
+}
+
+/**
+ * How a block ended: its exit code, or why it will not say. An end is trusted once
+ * it has stood for a moment — a line whose start marker arrives late is marked
+ * finished and then reopened, under the same id (controller.ts, reopenUnstarted).
+ */
+function blockOutcome(paneId: string, blockId: string): Promise<{ exitCode: number | null } | 'cancelled' | 'gone'> {
+  return new Promise((resolve) => {
+    let endedAt = 0
+    const tick = (): void => {
+      if (cancelRequested) return resolve('cancelled')
+      const pane = useStore.getState().terminalPane(paneId)
+      const block = pane?.blocks.find((b): b is CommandBlock => b.kind === 'command' && b.id === blockId)
+      if (!pane || !block) return resolve('gone')
+      if (block.status === 'running') {
+        if (pane.exited) return resolve('gone')
+        endedAt = 0
+      } else if (endedAt === 0) {
+        endedAt = Date.now()
+      } else if (Date.now() - endedAt >= 400) {
+        return resolve({ exitCode: block.exitCode })
+      }
+      window.setTimeout(tick, 150)
+    }
+    tick()
+  })
+}
+
+/**
+ * Run the task where the debuggee would run: a PowerShell pane at its prompt in this
+ * tab, in a child of that shell (shared/debuggee.ts), so a build that changes folder
+ * or sets a variable leaves the pane's shell as it was. It is a block like any other
+ * command — its output is there to read when it fails — named for the task.
+ */
+async function runPreLaunchTask(task: ResolvedTask): Promise<boolean> {
+  const app = useStore.getState()
+  const paneId = terminalPaneForDebuggee()
+  const controller = paneId ? existingController(paneId) : undefined
+  if (!paneId || !controller) {
+    app.setNotice(
+      `The preLaunchTask ‘${task.label}’ runs in a PowerShell terminal, and this tab has none at its prompt. The debugger did not start.`,
+      'error'
+    )
+    return false
+  }
+  useDebugStore.setState({ status: 'starting', adapterName: `the task ‘${task.label}’` })
+  const envFile = task.env ? ((await window.ember.dapEnvFile(task.env)) ?? undefined) : undefined
+  const line = taskLine({ script: task.script, cwd: task.cwd, envFile })
+  if (line.length > MOST_LINE) {
+    app.setNotice(`The preLaunchTask ‘${task.label}’ is too long a command for Windows to start. The debugger did not start.`, 'error')
+    return false
+  }
+  if (cancelRequested) return false
+  const blockId = controller.runCommand(line, { label: taskLabel(task.label) })
+  if (!blockId) {
+    app.setNotice(`The preLaunchTask ‘${task.label}’ could not be run in the terminal. The debugger did not start.`, 'error')
+    return false
+  }
+  const outcome = await blockOutcome(paneId, blockId)
+  if (outcome === 'cancelled') {
+    app.setNotice(`The debugger did not start. The task ‘${task.label}’ goes on in its terminal until it ends or you stop it there.`, 'info')
+    return false
+  }
+  if (outcome === 'gone') {
+    app.setNotice(`The preLaunchTask ‘${task.label}’ did not finish in its terminal. The debugger did not start.`, 'error')
+    return false
+  }
+  if (outcome.exitCode !== 0) {
+    app.setNotice(
+      `The preLaunchTask ‘${task.label}’ failed${outcome.exitCode !== null ? ` (exit code ${outcome.exitCode})` : ''}. The debugger did not start; its output is in the terminal.`,
+      'error'
+    )
+    return false
+  }
+  return true
+}
+
+async function startWith(req: DebugStartRequest, adapters?: DebugAdapter[], notes: string[] = []): Promise<void> {
   const app = useStore.getState()
   const list = adapters ?? (await window.ember.listDebugAdapters())
   const adapter = list.find((a) => a.id === req.adapterId)
@@ -1008,6 +1405,8 @@ async function startWith(req: DebugStartRequest, adapters?: DebugAdapter[]): Pro
     exceptionFilters: [],
     ...EMPTY_RUN
   })
+  // After the clearing above, which would take them with it.
+  for (const note of notes) appendOutput('console', note)
 
   const res = await window.ember.dapStart(req)
   if (!res.ok || !res.sessionId) {
@@ -1099,6 +1498,21 @@ export function handleDapEvent(payload: DapEventPayload): void {
       useDebugStore.setState({ sessions: [...s.sessions, sessionId] })
       return
     case 'capabilities-known': {
+      const caps = (body ?? {}) as Record<string, unknown>
+      sessionCapabilities.set(sessionId, caps)
+      /*
+       * The panel's controls follow the adapter. Condition and log-message boxes
+       * showed for every adapter, and an adapter that ignores them stopped on
+       * every hit of a breakpoint the user believed was conditional.
+       */
+      useDebugStore.setState({
+        capabilities: {
+          conditions: caps.supportsConditionalBreakpoints === true,
+          logPoints: caps.supportsLogPoints === true,
+          hitConditions: caps.supportsHitConditionalBreakpoints === true,
+          terminate: caps.supportsTerminateRequest === true
+        }
+      })
       const raw = (body as { exceptionBreakpointFilters?: { filter: string; label: string; default?: boolean }[] })
         ?.exceptionBreakpointFilters
       if (!raw || raw.length === 0) return
@@ -1114,9 +1528,16 @@ export function handleDapEvent(payload: DapEventPayload): void {
     case 'initialized':
       // Every session — broker or child — is told the window's breakpoints and
       // exception choices, then released. The order is the protocol's own.
-      void sendAllBreakpoints(sessionId).then(() =>
-        request(sessionId, 'configurationDone')
-      )
+      void sendAllBreakpoints(sessionId).then(() => {
+        // Only to an adapter that said it understands it; the protocol says the
+        // client must not send it otherwise.
+        if (sessionCapabilities.get(sessionId)?.supportsConfigurationDoneRequest === true) {
+          void request(sessionId, 'configurationDone')
+        }
+      })
+      return
+    case 'breakpoint':
+      onBreakpointEvent(sessionId, body)
       return
     case 'stopped':
       void onStopped(sessionId, (body as { reason?: string; threadId?: number }) ?? {})
@@ -1158,13 +1579,16 @@ export function handleDapEvent(payload: DapEventPayload): void {
         endedEarly.add(sessionId)
         return
       }
+      sessionCapabilities.delete(sessionId)
+      for (const k of breakpointIds.keys()) if (k.startsWith(`${sessionId}:`)) breakpointIds.delete(k)
       const sessions = s.sessions.filter((id) => id !== sessionId)
       if (sessions.length === 0) {
         stopGeneration++
         useDebugStore.setState({ status: 'idle', adapterName: null, sessions, ...EMPTY_RUN })
         if (restartPending && lastStart) {
           restartPending = false
-          void startWith(lastStart)
+          // The task again too: a restart after an edit wants the edit built.
+          void runTaskThenStart(lastStart, lastTask, [])
         }
       } else if (s.stoppedSessionId === sessionId) {
         stopGeneration++

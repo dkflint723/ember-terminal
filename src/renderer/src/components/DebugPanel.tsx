@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
+  addWatch,
   chooseLaunch,
   debugContinue,
   debugPause,
@@ -10,6 +11,7 @@ import {
   evaluateRepl,
   fetchVariables,
   refreshLaunchOptions,
+  removeWatch,
   selectFrame,
   selectThread,
   setBreakpointMeta,
@@ -48,11 +50,23 @@ export function DebugPanel({ onOpenAt }: Props): React.JSX.Element {
   const launchChoice = useDebugStore((s) => s.launchChoice)
   const output = useDebugStore((s) => s.output)
   const repl = useDebugStore((s) => s.repl)
+  const capabilities = useDebugStore((s) => s.capabilities)
+  const watches = useDebugStore((s) => s.watches)
+  const watchResults = useDebugStore((s) => s.watchResults)
   const treeRoot = useStore(workspaceRoot)
 
   /** Which breakpoint's condition editor is open, as `${path}:${line}`. */
   const [editing, setEditing] = useState<string | null>(null)
   const [replDraft, setReplDraft] = useState('')
+  const [watchDraft, setWatchDraft] = useState('')
+  /*
+   * Only what the adapter will honour. Before any adapter has said, every box
+   * shows — a breakpoint set before F5 is for whichever adapter comes.
+   */
+  const canCondition = capabilities?.conditions ?? true
+  const canLog = capabilities?.logPoints ?? true
+  const canHit = capabilities?.hitConditions ?? true
+  const canEdit = canCondition || canLog || canHit
 
   // What F5 could run changes with the workspace, not with keystrokes.
   useEffect(() => {
@@ -163,6 +177,56 @@ export function DebugPanel({ onOpenAt }: Props): React.JSX.Element {
         </div>
       )}
 
+      <div className="dbg__section dbg__watch">
+        <div className="dbg__head">Watch</div>
+        {watches.map((expression) => {
+          const result = watchResults[expression]
+          return (
+            <div key={expression} className="dbg__watch-row">
+              {stopped && result && result.variablesReference > 0 ? (
+                <VariableBranch
+                  name={expression}
+                  value={result.value}
+                  variablesReference={result.variablesReference}
+                  depth={0}
+                  lazy
+                />
+              ) : (
+                <div className="dbg__var-row dbg__watch-item">
+                  <span className="dbg__var-name">{expression}</span>
+                  <span className={stopped && result?.error ? 'dbg__repl-err' : 'dbg__var-value'}>
+                    {stopped && result ? result.value : '—'}
+                  </span>
+                </div>
+              )}
+              <button
+                className="icon-btn"
+                title="Remove watch"
+                aria-label={`Remove watch ${expression}`}
+                onClick={() => removeWatch(expression)}
+              >
+                ✕
+              </button>
+            </div>
+          )
+        })}
+        <input
+          className="dbg__watch-input"
+          placeholder="Add an expression to watch…"
+          aria-label="Add watch expression"
+          value={watchDraft}
+          spellCheck={false}
+          onChange={(e) => setWatchDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return
+            const expression = watchDraft.trim()
+            if (!expression) return
+            setWatchDraft('')
+            addWatch(expression)
+          }}
+        />
+      </div>
+
       {stopped && scopes.length > 0 && (
         <div className="dbg__section">
           <div className="dbg__head">Variables</div>
@@ -205,7 +269,7 @@ export function DebugPanel({ onOpenAt }: Props): React.JSX.Element {
                   <div className="dbg__bp">
                     <span
                       className={`dbg__bp-dot ${bp.verified ? '' : 'dbg__bp-dot--wish'} ${
-                        bp.logMessage ? 'dbg__bp-dot--log' : bp.condition ? 'dbg__bp-dot--conditional' : ''
+                        bp.logMessage ? 'dbg__bp-dot--log' : bp.condition || bp.hitCondition ? 'dbg__bp-dot--conditional' : ''
                       }`}
                       aria-hidden="true"
                     />
@@ -216,14 +280,16 @@ export function DebugPanel({ onOpenAt }: Props): React.JSX.Element {
                     >
                       {file.path.split(/[\\/]/).pop()}:{bp.line}
                     </button>
-                    <button
-                      className="icon-btn"
-                      title="Condition and log message"
-                      aria-label={`Edit breakpoint at line ${bp.line}`}
-                      onClick={() => setEditing((was) => (was === key ? null : key))}
-                    >
-                      ✎
-                    </button>
+                    {canEdit && (
+                      <button
+                        className="icon-btn"
+                        title="Condition, hit count and log message"
+                        aria-label={`Edit breakpoint at line ${bp.line}`}
+                        onClick={() => setEditing((was) => (was === key ? null : key))}
+                      >
+                        ✎
+                      </button>
+                    )}
                     <button
                       className="icon-btn"
                       title="Remove breakpoint"
@@ -233,40 +299,65 @@ export function DebugPanel({ onOpenAt }: Props): React.JSX.Element {
                       ✕
                     </button>
                   </div>
-                  {editing === key && (
+                  {editing === key && canEdit && (
                     <div className="dbg__bp-meta">
-                      <input
-                        className="dbg__bp-input"
-                        placeholder="Condition — stop only when this is true"
-                        aria-label="Breakpoint condition"
-                        defaultValue={bp.condition ?? ''}
-                        spellCheck={false}
-                        onBlur={(e) =>
-                          setBreakpointMeta(file.path, bp.line, {
-                            condition: e.target.value,
-                            logMessage: bp.logMessage
-                          })
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                        }}
-                      />
-                      <input
-                        className="dbg__bp-input"
-                        placeholder="Log message — print instead of stopping"
-                        aria-label="Logpoint message"
-                        defaultValue={bp.logMessage ?? ''}
-                        spellCheck={false}
-                        onBlur={(e) =>
-                          setBreakpointMeta(file.path, bp.line, {
-                            condition: bp.condition,
-                            logMessage: e.target.value
-                          })
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                        }}
-                      />
+                      {canCondition && (
+                        <input
+                          className="dbg__bp-input"
+                          placeholder="Condition — stop only when this is true"
+                          aria-label="Breakpoint condition"
+                          defaultValue={bp.condition ?? ''}
+                          spellCheck={false}
+                          onBlur={(e) =>
+                            setBreakpointMeta(file.path, bp.line, {
+                              condition: e.target.value,
+                              hitCondition: bp.hitCondition,
+                              logMessage: bp.logMessage
+                            })
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                          }}
+                        />
+                      )}
+                      {canHit && (
+                        <input
+                          className="dbg__bp-input"
+                          placeholder="Hit count — stop on this hit, e.g. 5 or >= 3"
+                          aria-label="Breakpoint hit count"
+                          defaultValue={bp.hitCondition ?? ''}
+                          spellCheck={false}
+                          onBlur={(e) =>
+                            setBreakpointMeta(file.path, bp.line, {
+                              condition: bp.condition,
+                              hitCondition: e.target.value,
+                              logMessage: bp.logMessage
+                            })
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                          }}
+                        />
+                      )}
+                      {canLog && (
+                        <input
+                          className="dbg__bp-input"
+                          placeholder="Log message — print instead of stopping"
+                          aria-label="Logpoint message"
+                          defaultValue={bp.logMessage ?? ''}
+                          spellCheck={false}
+                          onBlur={(e) =>
+                            setBreakpointMeta(file.path, bp.line, {
+                              condition: bp.condition,
+                              hitCondition: bp.hitCondition,
+                              logMessage: e.target.value
+                            })
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                          }}
+                        />
+                      )}
                     </div>
                   )}
                 </div>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { DirEntry } from '@shared/types'
 import { useStore, workspaceRoot } from '../state/store'
 import { decorationFor, decorationsByPath, statusClass } from '../state/git'
+import { dropBreakpoints, moveBreakpoints } from '../state/debug'
 
 interface Props {
   /** Called with a file path when the user activates a row. */
@@ -164,6 +165,8 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
     // Editors showing the old path have to travel with it, or their next save goes
     // to a file that no longer exists.
     if (original) await notePathRenamed(original, target)
+    // So do its breakpoints.
+    if (original) moveBreakpoints(original, target)
     setError(null)
     await refresh(dir)
     // A new file is almost always about to be edited.
@@ -180,6 +183,8 @@ export function FileTree({ onOpen }: Props): React.JSX.Element {
     }
     // An open tab is now the only copy of what was in there.
     notePathDeleted(target)
+    // Breakpoints in it have nothing left to stop in.
+    dropBreakpoints(target)
     setError(null)
     await refresh(parentOf(target))
   }

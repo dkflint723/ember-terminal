@@ -6067,6 +6067,31 @@ label.field__check {
   padding: 1px 2px;
 }
 
+/* A watch: its value (or tree) taking the row, its remove button at the end. */
+.dbg__watch-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.dbg__watch-row > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.dbg__watch-item {
+  cursor: default;
+}
+
+.dbg__watch-item .dbg__repl-err {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
 .dbg__bp-dot {
   flex: 0 0 auto;
   width: 8px;
@@ -6181,7 +6206,8 @@ label.field__check {
   color: var(--fail);
 }
 
-.dbg__console-input {
+.dbg__console-input,
+.dbg__watch-input {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -6192,7 +6218,8 @@ label.field__check {
   font-size: 11.5px;
 }
 
-.dbg__console-input:focus {
+.dbg__console-input:focus,
+.dbg__watch-input:focus {
   border-color: color-mix(in srgb, var(--info) 60%, transparent);
 }
 

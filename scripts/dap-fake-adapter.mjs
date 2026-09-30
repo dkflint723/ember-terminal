@@ -88,6 +88,9 @@ const onRequest = (req) => {
     case 'initialize':
       respond(req, {
         supportsConfigurationDoneRequest: true,
+        // Conditions, which verify-dap sends; not hit counts or logpoints, which it
+        // does not — so the panel is seen to offer only what an adapter said.
+        supportsConditionalBreakpoints: true,
         exceptionBreakpointFilters: [
           { filter: 'uncaught', label: 'Uncaught exceptions', default: false }
         ]

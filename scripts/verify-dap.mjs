@@ -240,8 +240,16 @@ await waitForState('Not debugging')
 check('and continuing runs the program out', (await state()).includes('Not debugging'), await state())
 
 // --- a condition travels to the adapter ------------------------------------------
-await page.locator('.dbg__bp .icon-btn[title="Condition and log message"]').first().click()
+await page.locator('.dbg__bp .icon-btn[aria-label^="Edit breakpoint"]').first().click()
 await sleep(300)
+/*
+ * Only the boxes this adapter said it honours (DA-04). The fake does conditions and
+ * nothing else; every box showed for every adapter, and a hit count or a log message
+ * typed into one an adapter ignores stopped on every hit.
+ */
+const boxes = await page.evaluate(() => [...document.querySelectorAll('.dbg__bp-input')].map((i) => i.getAttribute('aria-label')))
+check('the breakpoint offers the condition its adapter honours', boxes.includes('Breakpoint condition'), JSON.stringify(boxes))
+check('and not a hit count or a log message it does not', !boxes.includes('Breakpoint hit count') && !boxes.includes('Logpoint message'), JSON.stringify(boxes))
 await page.locator('.dbg__bp-input').first().fill('x > 1')
 await page.keyboard.press('Enter')
 await sleep(600)

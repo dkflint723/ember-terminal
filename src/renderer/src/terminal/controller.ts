@@ -1650,12 +1650,15 @@ export class TerminalController {
    * `label`, when given, is what the block is called instead of what was typed —
    * for a line typed on the user's behalf that is not theirs to read, search or run
    * again. Such a block is not written to history.
+   *
+   * Returns the block it opened, for a caller that waits on its end — or null when
+   * none was: nothing to run, a question declined, or a shell with no integration.
    */
-  runCommand(command: string, opts?: { label?: string }): void {
+  runCommand(command: string, opts?: { label?: string }): string | null {
     const trimmed = command.trim()
     if (trimmed.length === 0) {
       this.send('\r')
-      return
+      return null
     }
 
     /*
@@ -1669,7 +1672,7 @@ export class TerminalController {
      * instruction — and for an ordinary one-line command both are no change at all.
      */
     const clean = cleanPaste(trimmed, false)
-    if (needsAsking(clean) && !window.confirm(runQuestion(clean))) return
+    if (needsAsking(clean) && !window.confirm(runQuestion(clean))) return null
 
     // Remembered whether or not a block opens here: the shell's own report of the line
     // can open one later, and has to be told it is labelled.
@@ -1685,9 +1688,10 @@ export class TerminalController {
       this.unstarted = null
       // The block opens the strip, which may resize the pty; see sendWhenSized.
       void this.sendWhenSized(`${clean.text}\r`)
-      return
+      return this.currentBlockId
     }
     this.send(`${clean.text}\r`)
+    return null
   }
 
   /**

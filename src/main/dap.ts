@@ -279,6 +279,8 @@ export class DapSession {
    */
   private capabilitiesSent = false
   private parkedInitialized: unknown = undefined
+  /** What the adapter said it can do, in its answer to initialize. */
+  capabilities: Record<string, unknown> = {}
 
   private onMessage(msg: Record<string, unknown>): void {
     if (msg.type === 'response') {
@@ -288,6 +290,7 @@ export class DapSession {
       this.pending.delete(msg.request_seq as number)
       if (pending.command === 'initialize' && msg.success === true && !this.capabilitiesSent) {
         this.capabilitiesSent = true
+        this.capabilities = (msg.body ?? {}) as Record<string, unknown>
         this.events.onEvent(this.id, 'capabilities-known', msg.body ?? {})
         if (this.parkedInitialized !== undefined) {
           const body = this.parkedInitialized
@@ -356,20 +359,8 @@ export class DapSession {
        * one the program never got as far as reading goes when the session does.
        */
       const { env, ...rest } = (msg.arguments ?? {}) as Record<string, unknown>
-      let envFile: string | undefined
-      if (env && typeof env === 'object' && Object.keys(env).length > 0) {
-        envFile = join(tmpdir(), `ember-debuggee-${randomUUID()}.json`)
-        try {
-          // As strings, the way the adapter would have set them: true, not True.
-          const values = Object.fromEntries(
-            Object.entries(env as Record<string, unknown>).map(([k, v]) => [k, v === null || v === undefined ? null : String(v)])
-          )
-          writeFileSync(envFile, JSON.stringify(values), { encoding: 'utf8', mode: 0o600 })
-          this.envFiles.push(envFile)
-        } catch {
-          envFile = undefined
-        }
-      }
+      const envFile = writeEnvFile(env)
+      if (envFile) this.envFiles.push(envFile)
       this.events.onEvent(this.id, 'run-in-terminal', { requestSeq: msg.seq, ...rest, envFile })
       return
     }
@@ -455,6 +446,25 @@ export class DapSession {
       // Already gone.
     }
     this.events.onEnd(this.id)
+  }
+}
+
+/**
+ * An environment for a child PowerShell to read and delete (shared/debuggee.ts),
+ * or undefined when there is none to give or it could not be written. Values as
+ * strings, the way the adapter would have set them: true, not True; null unsets.
+ */
+export function writeEnvFile(env: unknown): string | undefined {
+  if (!env || typeof env !== 'object' || Object.keys(env).length === 0) return undefined
+  const file = join(tmpdir(), `ember-debuggee-${randomUUID()}.json`)
+  try {
+    const values = Object.fromEntries(
+      Object.entries(env as Record<string, unknown>).map(([k, v]) => [k, v === null || v === undefined ? null : String(v)])
+    )
+    writeFileSync(file, JSON.stringify(values), { encoding: 'utf8', mode: 0o600 })
+    return file
+  } catch {
+    return undefined
   }
 }
 
@@ -562,9 +572,26 @@ export class DapService {
     // Ask politely first; end() runs regardless when the adapter goes quiet.
     // A launched debuggee dies with its session; an attached one is somebody
     // else's process, and stopping means letting go of it, not killing it.
-    void session.request('disconnect', {
-      terminateDebuggee: session.requestKind === 'launch'
-    })
+    const disconnect = (): void =>
+      void session.request('disconnect', {
+        terminateDebuggee: session.requestKind === 'launch'
+      })
+    /*
+     * `terminate` first where the adapter has it: the program is asked to end, and
+     * gets to run its own clean-up — a server closing its port, a test run writing
+     * its results — where disconnect's terminateDebuggee kills it outright. Stop
+     * only ever disconnected. The disconnect still follows for a session that has
+     * not ended a second later — an adapter or a program that ignores the ask.
+     */
+    if (session.requestKind === 'launch' && session.capabilities.supportsTerminateRequest === true) {
+      void session.request('terminate', {})
+      setTimeout(() => {
+        if (!session.hasEnded) disconnect()
+      }, 1000)
+      setTimeout(() => session.end(), 2200)
+      return
+    }
+    disconnect()
     setTimeout(() => session.end(), 1200)
   }
 

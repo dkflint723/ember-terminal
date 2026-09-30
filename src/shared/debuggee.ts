@@ -45,6 +45,11 @@ const literal = (v: string): string => powerShellLiteral(v.replace(/[\r\n]/g, ' 
 export function debuggeeScript(req: DebuggeeRequest): string | null {
   const args = req.args.map(String)
   if (args.length === 0) return null
+  return childScript(req, `& ${args.map(literal).join(' ')}`)
+}
+
+/** Environment, directory, then `run` — PowerShell source — and its exit code back. */
+function childScript(req: { cwd?: string; envFile?: string; env?: Record<string, string | null> }, run: string): string {
   const parts: string[] = []
   if (req.envFile) {
     const file = literal(req.envFile)
@@ -71,7 +76,7 @@ export function debuggeeScript(req: DebuggeeRequest): string | null {
   }
   // -LiteralPath: a plain path is a wildcard pattern to Set-Location.
   if (req.cwd) parts.push(`Set-Location -LiteralPath ${literal(String(req.cwd))}`)
-  parts.push(`& ${args.map(literal).join(' ')}`)
+  parts.push(run)
   /*
    * The program's exit code, and a failure when there was none to give: a program
    * that could not be found leaves $LASTEXITCODE unset, and `exit $LASTEXITCODE`
@@ -100,6 +105,21 @@ export function debuggeeLine(req: DebuggeeRequest): string | null {
   const script = debuggeeScript(req)
   if (script === null) return null
   return `& (Get-Process -Id $PID).Path -NoProfile -EncodedCommand ${encodePowerShell(script)}`
+}
+
+/**
+ * The line for a launch configuration's preLaunchTask: the task's own command, run
+ * the same way — in a child, in the task's folder, with the task's environment from
+ * a file — so a build that changes directory or sets a variable leaves the pane's
+ * shell as it was, and its exit code is the block's.
+ */
+export function taskLine(req: { script: string; cwd?: string; envFile?: string }): string {
+  return `& (Get-Process -Id $PID).Path -NoProfile -EncodedCommand ${encodePowerShell(childScript(req, req.script))}`
+}
+
+/** The task's block: named for the task, a comment, and not kept in history. */
+export function taskLabel(label: string): string {
+  return `# preLaunchTask: ${label.replace(/[\r\n]/g, ' ')}`
 }
 
 /**

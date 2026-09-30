@@ -257,7 +257,8 @@ import { SnippetStore } from './snippets.js'
 import { Notifier, focusWindow } from './notify.js'
 import { AiService } from './ai.js'
 import { ClaudeCliService } from './claude-cli.js'
-import { DapService, detectAdapters } from './dap.js'
+import { DapService, detectAdapters, writeEnvFile } from './dap.js'
+import { resolveEnvVariables } from '../shared/launch-vars.js'
 import { formatWithPrettier, hasPrettier } from './prettier.js'
 import {
   DEFAULT_SETTINGS,
@@ -1976,8 +1977,19 @@ function registerIpc(): void {
   ipcMain.handle('dap:start', (e, req: DebugStartRequest) => {
     const adapter = adapters().find((a) => a.id === req?.adapterId)
     if (!adapter) return { ok: false, error: `No debug adapter for '${req?.adapterId}'.` }
-    return dap.start(req, adapter, windowIdOf(e.sender) ?? 1)
+    // `${env:NAME}` is resolved here, which holds the environment; the window
+    // resolved every other variable and left these (shared/launch-vars.ts).
+    const launch = resolveEnvVariables(req.launch, process.env) as Record<string, unknown>
+    return dap.start({ ...req, launch }, adapter, windowIdOf(e.sender) ?? 1)
   })
+  /*
+   * A preLaunchTask's environment, put where its child PowerShell reads and deletes
+   * it — the same way as a debuggee's, and for the same reason: the typed line is
+   * kept by history, and a task's env is where a token goes too.
+   */
+  ipcMain.handle('dap:envFile', (_e, env: unknown) =>
+    writeEnvFile(env && typeof env === 'object' ? resolveEnvVariables(env, process.env) : undefined) ?? null
+  )
   ipcMain.handle('dap:request', (_e, sessionId: string, command: string, args?: unknown) =>
     dap.request(sessionId, command, args)
   )

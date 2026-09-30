@@ -94,9 +94,9 @@ jobs:
       - run: npm ci
       - uses: ./.github/actions/electron-binary
       # The Node debugger Ember ships, pinned and hash-checked — only when a run asks
-      # for verify-jsdebug: no per-push suite needs it, and a download is one more
-      # thing that can fail.
-      - if: contains(inputs.only, 'jsdebug')
+      # for verify-jsdebug or verify-debug-launch: no per-push suite needs it, and a
+      # download is one more thing that can fail.
+      - if: contains(inputs.only, 'jsdebug') || contains(inputs.only, 'debug-launch')
         run: node scripts/fetch-js-debug.mjs
       - run: npx electron-vite build
       # The runner is an administrator with UAC off, so everything below would be an

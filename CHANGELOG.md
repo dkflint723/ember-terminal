@@ -5,6 +5,65 @@ newest entry sits on top.
 
 ## Unreleased
 
+### F5 does what a launch.json asks of it
+
+- **Five variables were filled in, and the rest reached the program as text.**
+  `${env:…}`, `${userHome}`, `${relativeFile}` and the others went through
+  unchanged, so a configuration written for VS Code ran with a program path of
+  `${userHome}/…` and failed saying only that the file was not there. Every variable
+  VS Code defines is now filled in — `${env:…}` in Ember's main process, which holds
+  the environment — and a configuration's `windows` block is laid over it, as VS
+  Code does on Windows. `${command:…}`, which runs a VS Code extension's command, and
+  `${input:…}`, which asks a question Ember has no way to put, are refused with a
+  notice naming them, and the debugger does not start.
+- **`preLaunchTask` was ignored, so a project that builds first launched its last
+  build.** It now runs first: an npm script (`npm: build`), a TypeScript build
+  (`tsc: build - tsconfig.json`), or a `shell` or `process` task from
+  `.vscode/tasks.json`, with its own folder and environment. It runs in a PowerShell
+  pane at its prompt, in a child of that shell — the same way the debugged program
+  does — as a block named `# preLaunchTask: build`, with its output there to read.
+  The launch goes ahead only if it succeeds; a failed build is said to have, with its
+  exit code. A task Ember cannot run faithfully — one in the background, which never
+  finishes, one that depends on others, or a type from a VS Code extension — is
+  refused with the reason. Restart runs the task again. Shift+F5 while it runs stops
+  the launch and leaves the task to finish in its terminal.
+- **A configuration Ember cannot run is listed, and says why.** One whose type no
+  adapter answers for, a `node-terminal` one and a compound were left out of the F5
+  list without a word; they are there now, marked, and choosing one says what to do
+  instead. `chrome` and `msedge` configurations reach js-debug, which debugs browsers
+  too. `postDebugTask` and `serverReadyAction` are named in the Debug view's output as
+  not acted on.
+- **The Debug view follows the adapter.** The condition and log-message boxes showed
+  for every adapter, and one that ignores them stopped on every hit of a breakpoint
+  you believed was conditional; each box now shows only where the adapter said it
+  honours it. Breakpoints can have a hit count (`5`, `>= 3`, `% 2`). A **Watch** panel
+  evaluates expressions in the frame you are looking at at every stop, expands
+  objects, and keeps its list with the session. Stop asks the program to end with
+  `terminate` where the adapter has it, so it gets to run its own clean-up, before
+  disconnecting; `configurationDone` is sent only to an adapter that said it takes it.
+- **Breakpoints keep up.** An adapter that verifies a breakpoint late — js-debug does,
+  for a file not loaded yet — left a hollow dot on a breakpoint that worked; its
+  later word is now taken. A file or folder renamed in the explorer takes its
+  breakpoints with it, and one deleted takes them away, and the adapter is told both.
+  And whatever goes wrong while starting, the debugger comes back to idle and says
+  what: a throw on the way used to leave it reading "Starting…" until a reload.
+- **Not done:** compound launches, `postDebugTask`, and tasks with `dependsOn`;
+  function and data breakpoints, setting a variable's value, and a settings page for
+  taught adapters. That Stop now terminates first is not checked separately — the
+  js-debug suite's Shift+F5 still requires the program and its child to end.
+- **How it is checked:** a new suite, `verify-debug-launch`, against the js-debug
+  Ember ships: a configuration's arguments name `${env:…}`, `${userHome}` and
+  `${fileBasenameNoExtension}` and the program must print them filled in; one with an
+  `${input:…}` must be refused by name; a configuration whose `preLaunchTask` builds a
+  file must run a program that reads it, in a block named for the task, and one whose
+  task exits 3 must say so and start nothing; a breakpoint with a hit count of 3 in a
+  loop must stop with the watch on `i` reading 2; a breakpoint in a module loaded late
+  must be shown verified when it stops there; and a breakpoint must follow its file's
+  rename. On the build before this, every one of those fails. `verify-dap` now requires
+  the fake adapter's breakpoint to offer the condition it honours and not a hit count
+  or a log message. *launch variables* (20 cases) and *launch tasks* (28 cases, with
+  the task line run in each PowerShell there is) join the unit tables.
+
 ### Debugging a Node program leaves your shell as it was
 
 - **F5 changed the shell it ran the program in, and Ctrl+C made it stick.** When the
