@@ -5,6 +5,34 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Moving between commands from the keyboard
+
+- **A block could only be reached by Tab through every block before it.** Blocks make
+  terminal output into separate things — a command, how it ended, what it printed —
+  which is exactly what a screen reader can move between and a plain terminal's
+  scrollback cannot offer. But a block was an unnamed group, and reaching the tenth
+  one meant tabbing through nine blocks' worth of buttons.
+- **Now each block is a landmark region**, named for its command and how it ended
+  ("npm test — failed"), so a screen reader's landmark list shows the session as a
+  list of commands. **Alt+↑** and **Alt+↓** move to the previous and next command —
+  from the composer, the first press goes to the last one — **Alt+Shift+↑** to the
+  last that failed, and **Alt+Shift+R** reads the output of the command in focus.
+  Reaching either end, or having no earlier failure, is said rather than silent.
+- **They keep out of the way.** None is a PSReadLine key. In the code editor Alt+↑
+  still moves a line, and in a full-screen program the arrows are the program's.
+  All four can be rebound in Settings → Keyboard.
+- **By hand, with NVDA:** run three commands, one of them failing; press NVDA+F7 and
+  choose Landmarks — each command is listed with how it ended. From the composer,
+  Alt+↑ reads the last command's name; Alt+↑ again, the one before; Alt+Shift+↑ the
+  failure; Alt+Shift+R its output; Alt+↓ back down. Pressing past the first command
+  says "This is the first command."
+- **How it is checked:** a new suite, `verify-block-nav`, runs three commands, one
+  failing, and requires each to be a region named with its outcome; Alt+↑ twice from
+  the composer, Alt+↓, and Alt+Shift+↑ to land where they should; Alt+Shift+R to read
+  the failure's output into the live region; running out to be said; and Alt+↑ in
+  the code editor still to move the line. On the build before this, every one fails
+  but the last, which holds on both. `verify-a11y` and `verify-keys` still pass.
+
 ### Commands typed for you say what they risk
 
 - **Nothing said which commands could not be taken back.** Commands are typed into

@@ -44,6 +44,7 @@ const ORDER = [
   'verify-jsdebug',
   'verify-debug-launch',
   'verify-ipc-scope',
+  'verify-block-nav',
   'verify-windows',
   'verify-admin',
   'verify-chrome',

@@ -136,7 +136,9 @@ export const BlockView = memo(function BlockView({
       // Read by the ruler, which measures where each block sits rather than being
       // told — the list is the thing that knows its own layout.
       data-block-id={block.id}
-      role="group"
+      // A landmark a screen reader can list and jump to, named for its command and how
+      // it ended (audit R30). Alt+Up and Alt+Down move between them: block-nav.ts.
+      role="region"
       aria-label={`${block.command || 'interactive command'} — ${statusLabel}`}
     >
       {/* A div with a click handler is invisible to the keyboard: it cannot be

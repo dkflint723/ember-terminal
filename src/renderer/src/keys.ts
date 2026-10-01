@@ -1,4 +1,5 @@
 import type { useStore } from './state/store'
+import { blockNavApplies, moveBetweenBlocks, readFocusedBlock } from './terminal/block-nav'
 
 /**
  * Every chord the window answers, as data instead of a ladder of if-statements.
@@ -151,6 +152,46 @@ export const COMMANDS: Command[] = [
     run: ({ s }) => {
       if (s.mode !== 'ide') return false
       void import('./state/debug').then((m) => m.debugStepOut())
+    }
+  },
+  /*
+   * Between blocks, from the keyboard (audit R30; terminal/block-nav.ts). Declined in
+   * the code editor, where Alt+Up moves a line, and in a full-screen program.
+   */
+  {
+    id: 'blocks.previous',
+    label: 'Blocks: previous command',
+    chord: 'Alt+ArrowUp',
+    run: ({ askTarget }) => {
+      if (!blockNavApplies()) return false
+      return moveBetweenBlocks(askTarget(), -1)
+    }
+  },
+  {
+    id: 'blocks.next',
+    label: 'Blocks: next command',
+    chord: 'Alt+ArrowDown',
+    run: ({ askTarget }) => {
+      if (!blockNavApplies()) return false
+      return moveBetweenBlocks(askTarget(), 1)
+    }
+  },
+  {
+    id: 'blocks.lastFailure',
+    label: 'Blocks: last failed command',
+    chord: 'Alt+Shift+ArrowUp',
+    run: ({ askTarget }) => {
+      if (!blockNavApplies()) return false
+      return moveBetweenBlocks(askTarget(), -1, true)
+    }
+  },
+  {
+    id: 'blocks.readOutput',
+    label: 'Blocks: read the output of the command in focus',
+    chord: 'Alt+Shift+R',
+    run: () => {
+      if (!blockNavApplies()) return false
+      return readFocusedBlock()
     }
   },
   {

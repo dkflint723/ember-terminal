@@ -561,6 +561,9 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
       // And which pane this is, so a pane's own live terminal can be held against
       // it rather than counted among every other pane's.
       data-pane={pane.id}
+      // Raw while a full-screen program has the terminal: block navigation's chords
+      // are that program's keys then (terminal/block-nav.ts).
+      data-mode={raw ? 'raw' : 'blocks'}
     >
       {/*
         What a reader who cannot see the blocks is told about them.
