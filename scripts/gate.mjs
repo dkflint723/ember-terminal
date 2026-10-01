@@ -83,6 +83,7 @@ const ORDER = [
   'verify-shell',
   'verify-plain',
   'verify-bash',
+  'verify-prompt-redraw',
   'verify-live',
   'verify-lines',
   'verify-scripts',

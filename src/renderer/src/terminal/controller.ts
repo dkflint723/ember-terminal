@@ -215,6 +215,13 @@ export class TerminalController {
   /** Whether the shell has put up a prompt and not yet been sent a line for it. */
   private atPrompt = false
   /**
+   * Whether the shell is between commands: from a command's end marker, through
+   * the prompt it is still drawing, until the next line is sent. Wider than
+   * atPrompt, which only knows of a prompt once its end marker has been parsed —
+   * and the resize that matters is made before that. See sendWhenSized.
+   */
+  private betweenCommands = false
+  /**
    * When the pty was resized under a waiting prompt, until the shell redraws for
    * it. Null when no redraw is owed. See sendWhenSized.
    */
@@ -1474,18 +1481,40 @@ export class TerminalController {
   /** Called from the pane's pty data subscription. */
   write(data: string): void {
     // Whatever conpty says first after a resize is its repaint for the new size.
+    const repainted = this.answeredResize
     this.answeredResize = true
+    /*
+     * A command over: what the shell does next, up to its prompt, is between
+     * commands — unless the chunk goes on to start another. Read from the last
+     * marker in the chunk, not from which kinds are in it: a quick command's
+     * output start, end and next prompt routinely share one chunk (`C … D A`),
+     * and a C read after the rest cleared what its own D had just set (QA).
+     */
+    const lastC = data.lastIndexOf('\x1b]133;C')
+    const lastEnd = Math.max(data.lastIndexOf('\x1b]133;D'), data.lastIndexOf('\x1b]133;A'), data.lastIndexOf('\x1b]133;B'))
+    if (lastEnd > lastC) this.betweenCommands = true
     // The end of a prompt, the shell's own or its redraw of one after a resize.
     if (data.includes('\x1b]133;B')) {
       this.atPrompt = true
-      this.redrawOwed = null
-      if (this.onRedraw) {
-        const wake = this.onRedraw
-        this.onRedraw = null
-        wake()
+      /*
+       * Only a prompt drawn after conpty answered the resize is the redraw. One the
+       * shell drew before the resize reached it can still be on its way, in a chunk
+       * ahead of the repaint, and it says nothing about the redraw still to come.
+       */
+      if (this.redrawOwed === null || repainted) {
+        this.redrawOwed = null
+        if (this.onRedraw) {
+          const wake = this.onRedraw
+          this.onRedraw = null
+          wake()
+        }
       }
     }
-    if (data.includes('\x1b]133;C')) this.atPrompt = false
+    // Only a C after the chunk's last prompt or end marker starts a command now.
+    if (lastC > lastEnd) {
+      this.atPrompt = false
+      this.betweenCommands = false
+    }
     if (this.onPtyData) {
       const wake = this.onPtyData
       this.onPtyData = null
@@ -1618,14 +1647,16 @@ export class TerminalController {
        * then the shell's redraw of its prompt, whenever it gets to it.
        *
        * Bash's readline redraws for SIGWINCH on its own schedule, and a line that
-       * lands in the middle of that redraw loses characters. Presize makes this
-       * rare, since its resize normally reaches bash between the end marker and
-       * the next prompt, before readline is reading at all. But it is decided in a
-       * render, and a render that comes late puts it under the prompt instead: on
-       * the runner, typing the next command as soon as the last had finished, one
-       * run in forty-eight sent `type` as `ype`. So a line sent while that
-       * redraw is owed waits for it, which is a fresh prompt-end marker, or for
-       * REDRAW_WAIT_MS since the resize for a shell that does not redraw at all.
+       * lands in the middle of that redraw loses characters: on the runner, typing
+       * the next command as soon as the last had finished, one run in forty-eight
+       * sent `type` as `ype`. Presize's resize was thought safe because it reaches
+       * bash between the end marker and the next prompt — but readline still
+       * redraws for it once it starts, and the redraw was only waited for when the
+       * resize came after the prompt had been seen, which in Git Bash it never
+       * does (the trace: 45 of 45). So a resize anywhere between commands owes the
+       * redraw, and a line sent while it is owed waits for it — a prompt-end marker
+       * after conpty's repaint — or for REDRAW_WAIT_MS since the resize, for a shell
+       * that does not redraw at all, or a redraw whose marker conpty swallowed.
        */
       const owed = this.redrawOwed
       const left = owed === null ? 0 : owed + REDRAW_WAIT_MS - Date.now()
@@ -1644,6 +1675,7 @@ export class TerminalController {
     } finally {
       this.held = null
       this.atPrompt = false
+      this.betweenCommands = false
       this.redrawOwed = null
       noteTyped(this.paneId, line)
       window.ember.write(this.paneId, line)
@@ -1823,7 +1855,15 @@ export class TerminalController {
        * this call left `Read-Host` unmasked and the typed secret in the DOM.
        */
       if (this.ptySize?.cols !== cols || this.ptySize?.rows !== rows) this.answeredResize = false
-      if (this.atPrompt && (this.ptySize?.cols !== cols || this.ptySize?.rows !== rows)) {
+      /*
+       * Owed for a resize made at any point between commands, not only once the
+       * prompt has been seen. Presize resizes the moment a command's end marker is
+       * parsed, while bash is still running its prompt hook — and in Git Bash the
+       * prompt's own end marker arrives in a later chunk, so atPrompt was false for
+       * every one of 45 sends measured, and the redraw was never waited for. That is
+       * the nightly's `type` run as `ype`.
+       */
+      if ((this.atPrompt || this.betweenCommands) && (this.ptySize?.cols !== cols || this.ptySize?.rows !== rows)) {
         this.redrawOwed = Date.now()
       }
       this.ptySize = { cols, rows }

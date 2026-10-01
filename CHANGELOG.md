@@ -5,6 +5,35 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A command typed as the last one ends reaches bash whole
+
+- **Git Bash could lose the start of a command typed the moment the last one
+  finished.** The nightly gate failed on "bash: ype: command not found" — `type -t …`
+  sent straight after `false`. When a command ends, the pane fits the shell to the
+  next command's strip, and bash's readline answers a resize by redrawing its
+  prompt; a line that lands inside that redraw loses characters. A guard for exactly
+  this waited for the redraw, but only when the resize came after the prompt had
+  been seen — and in Git Bash the resize goes out before the prompt's marker
+  arrives, every time it was measured (45 of 45), so the guard never once waited.
+  Sometimes conpty's repaint swallows that marker altogether.
+- **Now a resize made anywhere between commands owes the redraw**, from a command's
+  end until the next line is sent, and a line sent meanwhile waits for a prompt drawn
+  after the resize was answered — or 400 ms, for a shell that redraws nothing. A
+  person typing never notices; a line sent faster than anyone types may wait a
+  fraction of a second.
+- **Corrected before landing, after a QA pass.** A quick command's output start, end
+  and next prompt routinely arrive in one chunk, and the start was read after the
+  rest — so the chunk counted as a command starting, and the guard again did nothing.
+  The last marker in a chunk now decides. The scripted shell writes them in one piece
+  so the suite always meets that shape; the first version of this fix fails it.
+- **How it is checked:** a new suite, `verify-prompt-redraw`, runs a scripted shell
+  that speaks Ember's markers, draws each prompt a moment after the command ends as
+  bash does, and drops whatever arrives while it redraws for a resize. Six commands,
+  each sent the instant the last one's block ends, must each reach it whole. On the
+  build before this, lines arrive mid-redraw and are lost (every run); with it, all
+  six arrive (3 of 3). Real bash loses the same race about one run in forty-eight,
+  which is why the nightly saw it and a local run did not.
+
 ### SSH sessions say where they are, and come back when their connection drops
 
 - **No SSH host from `~/.ssh/config` could be opened.** Each was given `ssh` as its
