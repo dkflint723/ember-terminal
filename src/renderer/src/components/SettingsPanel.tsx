@@ -916,6 +916,33 @@ export function SettingsPanel(): React.JSX.Element | null {
                 </div>
               </div>
 
+              {/* A project's own environment in its sessions: state/project-env.ts. */}
+              <div className="field">
+                <label className="field__check">
+                  <input
+                    type="checkbox"
+                    checked={draft.projectEnvironments ?? true}
+                    onChange={(e) => field('projectEnvironments', e.target.checked)}
+                  />
+                  <span>Offer to activate a project’s environment in new terminals</span>
+                </label>
+                <div className="field__note">
+                  A trusted folder with a <code>.venv</code>, a <code>.env</code>, or a <code>.nvmrc</code> or{' '}
+                  <code>.tool-versions</code> (with fnm or mise installed) is offered once; the answer is
+                  remembered for that folder. A .env’s values are read by the shell, never typed, and
+                  never sent to a model.
+                  {Object.keys(draft.projectEnvChoices ?? {}).length > 0 && (
+                    <>
+                      {' '}
+                      <button className="btn" onClick={() => field('projectEnvChoices', {})}>
+                        Forget the answers for {Object.keys(draft.projectEnvChoices ?? {}).length} folder
+                        {Object.keys(draft.projectEnvChoices ?? {}).length === 1 ? '' : 's'}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
               {/* A window summoned from anywhere: main's toggleDropdown. */}
               <div className="field">
                 <label htmlFor="settings-dropdown">Drop-down window shortcut</label>

@@ -1049,6 +1049,13 @@ export interface Settings {
    * default. Never registered by the administrator's window.
    */
   dropdownShortcut: string
+  /** Offer to activate a project's .venv, .env, .nvmrc or .tool-versions in a new session. */
+  projectEnvironments: boolean
+  /**
+   * What was answered, per folder (by its key) and per kind: activated from then on
+   * without asking, or never offered again.
+   */
+  projectEnvChoices: Record<string, Record<string, 'yes' | 'no'>>
   /**
    * The Windows 11 material drawn behind the window.
    *
@@ -1193,6 +1200,8 @@ export const DEFAULT_SETTINGS: Settings = {
   blockDensity: 'normal',
   commandRiskLabels: 'all',
   dropdownShortcut: '',
+  projectEnvironments: true,
+  projectEnvChoices: {},
   windowBackdrop: 'mica',
   windowOpacity: 1,
   frostedPanels: true,
@@ -1246,6 +1255,8 @@ export interface EmberApi {
   newWindow(): void
   /** Bring down the drop-down window, or send it away. */
   toggleDropdown(): void
+  /** Which environment managers are installed: fnm for .nvmrc, mise for .tool-versions. */
+  envTools(): Promise<{ fnm: boolean; mise: boolean }>
   /** Open a second Ember running as administrator, through a UAC prompt. */
   newAdminWindow(): void
   /** Whether THIS window is the elevated one. Fixed for the window's life. */

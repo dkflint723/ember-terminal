@@ -1,4 +1,4 @@
-import { containsInlineSecret, redactSecrets } from '@shared/secrets'
+import { containsInlineSecret, envNamesOnly, redactSecrets } from '@shared/secrets'
 
 /**
  * A block, as something you can paste somewhere else.
@@ -101,9 +101,14 @@ export function markdownFrom(block: ShareableBlock, output: string): string {
    * saying that is more use than fencing an empty box. The final frame of vim is
    * meaningless anyway once it has put the screen back.
    */
+  /*
+   * And a command that printed a dotenv file shares its names, not its values: the
+   * values a .env holds are the ones redaction cannot recognise (audit R32).
+   */
+  const printedDotEnv = /(^|[\s/\\'"])\.env(\.[\w.-]+)?\b/i.test(block.command)
   const body = block.interactive
     ? '# (interactive — nothing captured)'
-    : redactSecrets(output).replace(/\s+$/, '')
+    : (printedDotEnv ? envNamesOnly(output) : redactSecrets(output)).replace(/\s+$/, '')
 
   const fence = fenceFor(`${command}\n${body}`)
   const lines = [`${fence}console`, `$ ${command}`]

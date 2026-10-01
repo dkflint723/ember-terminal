@@ -19,7 +19,7 @@
 
 // The `.ts` extension on purpose: the unit tests run this file through Node's own
 // type stripping, which resolves a specifier as written and has no `.js` to find.
-import { redactSecrets } from './secrets.ts'
+import { envNamesOnly, isDotEnv, redactSecrets } from './secrets.ts'
 
 /** Only the parts of a chat request that shape the system prompt. */
 export interface ChatContext {
@@ -73,9 +73,13 @@ export function chatSystem(ctx: ChatContext): string {
    * never had.
    */
   if (ctx.activeFile) {
-    sections.push(
-      `The user is editing ${ctx.activeFile.path}:\n${redactSecrets(ctx.activeFile.text)}`
-    )
+    /*
+     * A .env is sent as its names alone (audit R32). Redaction catches the
+     * credentials that announce themselves; a .env holds the ones that do not — a
+     * database password, an internal URL — and nothing in one is for a model.
+     */
+    const text = isDotEnv(ctx.activeFile.path) ? envNamesOnly(ctx.activeFile.text) : redactSecrets(ctx.activeFile.text)
+    sections.push(`The user is editing ${ctx.activeFile.path}:\n${text}`)
   }
   for (const block of ctx.attached ?? []) {
     if (block.trim().length > 0) {

@@ -116,6 +116,19 @@ check(
   'the text is not in the prompt'
 )
 
+// --- but a .env goes as its names alone (audit R32) -----------------------------
+const withEnv = chatSystem({
+  shell: 'pwsh',
+  cwd: 'D:\\work',
+  activeFile: {
+    path: 'D:\\work\\.env.local',
+    text: '# local settings\nDATABASE_URL=postgres://app:hunter2-plain@db/app\nexport FEATURE_X=on\nnot a pair\n'
+  }
+})
+check('a .env reaches the model by its names', withEnv.includes('DATABASE_URL=<withheld>') && withEnv.includes('export FEATURE_X=<withheld>'), withEnv.slice(-200))
+check('and none of its values — not even ones redaction would miss', !withEnv.includes('hunter2-plain') && !withEnv.includes('=on'), withEnv.slice(-200))
+check('its comments kept, anything else withheld', withEnv.includes('# local settings') && withEnv.includes('<withheld>\n') && !withEnv.includes('not a pair'), withEnv.slice(-200))
+
 /*
  * And the instructions are not buried. The context is the longest part by far — a
  * screenful of build output — so it goes last; put first, it would push the part

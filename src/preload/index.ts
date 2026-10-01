@@ -52,6 +52,7 @@ const api: EmberApi = {
   sessionClear: () => ipcRenderer.send('session:clear'),
   newWindow: () => ipcRenderer.send('window:new'),
   toggleDropdown: () => ipcRenderer.send('window:dropdown'),
+  envTools: () => ipcRenderer.invoke('env:tools'),
   listDebugAdapters: () => ipcRenderer.invoke('dap:adapters'),
   formatWithPrettier: (filePath: string, content: string, root?: string | null) =>
     ipcRenderer.invoke('format:prettier', filePath, content, root),

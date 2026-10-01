@@ -5,6 +5,38 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A project's environment, offered once and kept
+
+- **Every session in a project had to be pointed at its environment by hand.** A
+  Python project's `.venv`, a `.env` of settings, a Node version in `.nvmrc`, tools in
+  `.tool-versions`: each new terminal started without them.
+- **Now a session that starts in a trusted project folder is offered what the folder
+  has** — "This folder has .venv and .env. Activate them in this terminal, and in new
+  ones here?" — and the answer is kept for that folder: *Activate* activates them in
+  every session that starts there from then on, without asking; *Not for this folder*
+  is never asked again. A kind of file the folder gains later is asked about on its
+  own. `.nvmrc` is offered when fnm is installed and `.tool-versions` when mise is;
+  nothing is offered for a file nothing here can act on.
+- **Only in a trusted folder**, since activating one runs the project's code, and
+  through the same rule as every command typed on your behalf: at the shell's prompt,
+  or not at all. The line typed names the file and never holds what is in it — a
+  `.env`'s values are read by the shell from the file, so they reach neither the pane,
+  history, nor PowerShell's history file.
+- **A `.env` is not sent to a model.** An open `.env` file reaches Claude as its names
+  alone, every value `<withheld>` — redaction catches the credentials that announce
+  themselves, and a `.env` holds the ones that do not. A block whose command printed a
+  `.env` shares the same way.
+- **Settings → Offer to activate a project's environment** turns it off, and forgets
+  the folders' answers.
+- **How it is checked:** a new suite, `verify-project-env`, opens a trusted folder
+  holding a `.venv` and a `.env` with a quoted value and an `export` line: the offer
+  must appear; *Activate* must give the shell both, quotes and `export` taken off; no
+  command shown or kept in history may hold the value; sharing a block that printed
+  the `.env` must give names and no values; and the next session there must be
+  activated without being asked. *chat context* (in the unit tables) requires an open
+  `.env.local` to reach the model as names alone, comments kept, and no value — not
+  even one redaction would miss.
+
 ### A drop-down terminal on a shortcut of your choosing
 
 - **Settings → Drop-down window shortcut.** Choose a key — `Control+`` ` is the

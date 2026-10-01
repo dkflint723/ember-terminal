@@ -22,7 +22,7 @@ import {
   renameSync,
   writeFileSync
 } from 'node:fs'
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 
 /*
  * Who this app is, declared before any window exists.
@@ -1946,6 +1946,20 @@ function registerIpc(): void {
   })
   // The drop-down, from the palette as well as its shortcut.
   ipcMain.on('window:dropdown', () => toggleDropdown())
+  /*
+   * Which environment managers are installed, for offering a project's .nvmrc or
+   * .tool-versions (state/project-env.ts): only one that can act on the file is worth
+   * offering. Asked of where.exe once per launch.
+   */
+  let envTools: Promise<{ fnm: boolean; mise: boolean }> | null = null
+  ipcMain.handle('env:tools', () => {
+    const found = (name: string): Promise<boolean> =>
+      new Promise((resolve) => {
+        execFile('where.exe', [name], { windowsHide: true, timeout: 5_000 }, (err) => resolve(!err))
+      })
+    envTools ??= Promise.all([found('fnm'), found('mise')]).then(([fnm, mise]) => ({ fnm, mise }))
+    return envTools
+  })
 
   /*
    * A window that runs as administrator, raised by UAC.

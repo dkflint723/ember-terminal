@@ -46,6 +46,7 @@ const ORDER = [
   'verify-ipc-scope',
   'verify-block-nav',
   'verify-dropdown',
+  'verify-project-env',
   'verify-windows',
   'verify-admin',
   'verify-chrome',

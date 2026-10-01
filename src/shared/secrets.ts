@@ -178,6 +178,25 @@ export function containsKeyShape(text: string): boolean {
 }
 
 /** Anything `redactSecrets` would change — the question a round trip has to ask. */
+/** A dotenv file by its name: `.env`, `.env.local`, `.env.production`. */
+export function isDotEnv(path: string): boolean {
+  return /^\.env(\.[\w.-]+)?$/i.test(path.split(/[\\/]/).pop() ?? '')
+}
+
+/**
+ * A dotenv file's text with every value withheld: the names stay, so what a program
+ * expects can still be talked about, and nothing it is set to leaves (audit R32).
+ */
+export function envNamesOnly(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .map((line) => {
+      const m = /^(\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_.-]*\s*=)/.exec(line)
+      return m ? `${m[1]}<withheld>` : line.trim().startsWith('#') || line.trim() === '' ? line : '<withheld>'
+    })
+    .join('\n')
+}
+
 export function hasSecret(text: string): boolean {
   return containsKeyShape(text) || LABELLED.some((re) => re.test(text))
 }

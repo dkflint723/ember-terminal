@@ -154,6 +154,13 @@ function checkField(key: keyof Settings, value: unknown, issues: Issue[]): unkno
     return value
   }
 
+  if (key === 'projectEnvChoices') {
+    const ok =
+      isRecord(value) &&
+      Object.values(value).every((kinds) => isRecord(kinds) && Object.values(kinds).every((v) => v === 'yes' || v === 'no'))
+    return ok ? value : wrong(`projectEnvChoices should map folders to yes or no, and was ${show(value)}`)
+  }
+
   if (key === 'windowBounds') {
     if (value === null) return null
     const ok =

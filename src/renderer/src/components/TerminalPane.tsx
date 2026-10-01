@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useChord, useStore, type Block, type TerminalPaneState } from '../state/store'
+import { useChord, useStore, workspaceRoot, type Block, type TerminalPaneState } from '../state/store'
+import { considerProjectEnv } from '../state/project-env'
 import { useLearned } from '../composer/learned'
 import { getController } from '../terminal/controller'
 import { sendOrExplain, typeIntoTerminal, whyNot } from '../terminal/typing'
@@ -305,6 +306,13 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
      */
     if (!raw) controller.presize((pct / 100) * paneHeight)
   }, [running, pane.blocks.length, raw, controller, pane.integration])
+
+  // A session that has started in a project with an environment of its own is offered
+  // it, or given it if that was the folder's answer before: state/project-env.ts.
+  const projectRoot = useStore(workspaceRoot)
+  useEffect(() => {
+    if (pane.integration === 'ready' && pane.cwd && projectRoot) void considerProjectEnv(pane.id)
+  }, [pane.integration, pane.cwd, projectRoot, pane.id])
 
   /**
    * The blocks that should say which directory they ran in.
