@@ -71,11 +71,11 @@ export function needsAsking(clean: CleanPaste): boolean {
  * what they meant to copy, and because the attack this guards against works by the
  * first line being innocent.
  */
-export function pasteQuestion(clean: CleanPaste): string {
+export function pasteQuestion(clean: CleanPaste, riskNote = ''): string {
   return (
     `This paste is ${clean.lines} lines and will start running as soon as it arrives — ` +
     `the shell here is not holding pasted text until Enter.\n\nIt begins:\n\n  ${firstLine(clean)}` +
-    `${removedNote(clean)}\n\nPaste it anyway?`
+    `${removedNote(clean)}${riskNote ? `\n\n${riskNote}` : ''}\n\nPaste it anyway?`
   )
 }
 
@@ -87,10 +87,10 @@ export function pasteQuestion(clean: CleanPaste): string {
  * screen, and the person is pressing Enter on it — so the question is about what
  * it is about to do rather than about where it came from.
  */
-export function runQuestion(clean: CleanPaste): string {
+export function runQuestion(clean: CleanPaste, riskNote = ''): string {
   return (
     `This will run ${clean.lines} lines, one after another.\n\nIt begins:\n\n  ${firstLine(clean)}` +
-    `${removedNote(clean)}\n\nRun them?`
+    `${removedNote(clean)}${riskNote ? `\n\n${riskNote}` : ''}\n\nRun them?`
   )
 }
 

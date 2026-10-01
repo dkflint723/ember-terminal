@@ -5,6 +5,42 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Commands typed for you say what they risk
+
+- **Nothing said which commands could not be taken back.** Commands are typed into
+  your shell on your behalf — Claude's Run, a block's Run again, a paste — and the
+  only warning anywhere was the one a model chose to put on its own proposal.
+- **Now Ember labels them itself**, from a local rule set, PowerShell first and bash
+  second, in four kinds: what *cannot be undone* (deleting files, emptying the
+  Recycle Bin, erasing a disk, `git reset --hard`, a force push, `DROP TABLE`, a
+  shutdown), what *runs code from the internet* (`irm … | iex`, `curl … | sh`,
+  `npx`, `winget install`), what *asks for administrator rights* (`-Verb RunAs`,
+  `sudo`, `Set-ExecutionPolicy`, Defender exclusions, the firewall), and what
+  *rewrites git history* (`rebase`, `--amend`, a force push). Each label says why. A
+  label only warns: it is never a permission, some ordinary commands get one, and a
+  command written to dodge the rules will not.
+- **What cannot be undone takes a second press.** The first turns Run into *Run
+  anyway* and says so. In the administrator's window, anything labelled does. Run
+  again, which has no card to label, asks first, naming the risk; and a paste or a
+  multi-line command that already asks now says what it holds.
+- **A preview, where one is sure to change nothing.** For a PowerShell command that
+  ends in a cmdlet honouring `-WhatIf` — `Remove-Item`, `Stop-Service`,
+  `Set-ExecutionPolicy` and the rest — with only readers before it and no script
+  block, subexpression, redirection or second statement anywhere, the card offers
+  *Preview with -WhatIf*, which shows what would happen and does none of it. Nothing
+  else is offered one, and no shell but PowerShell is.
+- **Settings → Command risk labels**: every kind (the default), only what cannot be
+  undone, or none. With none, nothing takes a second press.
+- **How it is checked:** *command risk* (in the unit tables) classifies 208 commands
+  against their expected kinds — the labelled and, as many, the ordinary ones that
+  must not be — and runs a `-WhatIf` preview in each PowerShell there is, requiring
+  the file it would have removed to be there afterwards. `verify-agent` proposes
+  `Remove-Item` on a file: the card must say it cannot be undone and why, the first
+  press must run nothing and arm the button, the preview must leave the file and say
+  "What if", the second press must remove it, and Run again on it must ask, naming
+  the risk, and run nothing when declined. On the build before this, each of those
+  fails.
+
 ### Updates are signed by a key GitHub never holds
 
 - **Whoever controlled the GitHub account controlled every update.** Ember checked

@@ -1038,6 +1038,12 @@ export interface Settings {
    */
   blockDensity: BlockDensity
   /**
+   * Which risks a command typed on your behalf is labelled with (shared/risk.ts):
+   * every kind, only what cannot be undone, or none. Labels warn; they never stop
+   * anything, and the second click for what cannot be undone stays with the labels.
+   */
+  commandRiskLabels: import('./risk').RiskSensitivity
+  /**
    * The Windows 11 material drawn behind the window.
    *
    * Mica by default. The window's own ground is tinted rather than painted when a
@@ -1179,6 +1185,7 @@ export const DEFAULT_SETTINGS: Settings = {
   keybindings: {},
   uiZoom: 1,
   blockDensity: 'normal',
+  commandRiskLabels: 'all',
   windowBackdrop: 'mica',
   windowOpacity: 1,
   frostedPanels: true,

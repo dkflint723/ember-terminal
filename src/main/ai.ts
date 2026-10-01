@@ -374,6 +374,11 @@ export class AiService {
     if (last.includes('run-echo')) {
       reply = 'Run this:\n\n```run\necho panel-ran-this\n```'
     }
+    // Any command, proposed: a suite's way of putting a risky one in front of the card.
+    const runCmd = /run-cmd:(.+)$/s.exec(last)
+    if (runCmd) {
+      reply = 'Run this:\n\n```run\n' + runCmd[1].trim() + '\n```'
+    }
     if (last.includes('markdown-me')) {
       reply = [
         '# A heading',

@@ -6,6 +6,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import type { TerminalPalette } from '@shared/theme'
 import { looksLikeSecretPrompt, stripAnsi } from '@shared/secrets'
 import { cleanPaste, needsAsking, pasteQuestion, runQuestion } from '@shared/paste'
+import { classifyCommand, riskSentence, visibleRisks, type Risk } from '@shared/risk'
 import { looksLocalDir, parseEmberMarker } from '@shared/integration'
 import { renderBufferAsHtml, textFromHtml } from './serialize'
 import { useStore, type CommandBlock, type TerminalPaneState } from '../state/store'
@@ -1223,7 +1224,7 @@ export class TerminalController {
   private pasteText(raw: string): void {
     const clean = cleanPaste(raw, this.term.modes.bracketedPasteMode)
     if (clean.text.length === 0) return
-    if (needsAsking(clean) && !window.confirm(pasteQuestion(clean))) return
+    if (needsAsking(clean) && !window.confirm(pasteQuestion(clean, riskSentence(this.risksOf(clean.text))))) return
     this.term.paste(clean.text)
   }
 
@@ -1654,6 +1655,11 @@ export class TerminalController {
    * Returns the block it opened, for a caller that waits on its end — or null when
    * none was: nothing to run, a question declined, or a shell with no integration.
    */
+  /** What a block of text risks, at the sensitivity the settings ask for (shared/risk.ts). */
+  private risksOf(text: string): Risk[] {
+    return visibleRisks(classifyCommand(text), this.store().settings.commandRiskLabels ?? 'all')
+  }
+
   runCommand(command: string, opts?: { label?: string }): string | null {
     const trimmed = command.trim()
     if (trimmed.length === 0) {
@@ -1672,7 +1678,7 @@ export class TerminalController {
      * instruction — and for an ordinary one-line command both are no change at all.
      */
     const clean = cleanPaste(trimmed, false)
-    if (needsAsking(clean) && !window.confirm(runQuestion(clean))) return null
+    if (needsAsking(clean) && !window.confirm(runQuestion(clean, riskSentence(this.risksOf(clean.text))))) return null
 
     // Remembered whether or not a block opens here: the shell's own report of the line
     // can open one later, and has to be told it is labelled.

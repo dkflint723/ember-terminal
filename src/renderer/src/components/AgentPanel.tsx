@@ -3,6 +3,7 @@ import { activeDocument, terminalPaneIdFor, useStore } from '../state/store'
 import type { AgentTurn, AiChatEvent } from '@shared/types'
 import { openLocalProposal } from '../state/ide'
 import { resolveProposalPath } from '@shared/proposal-path'
+import { RiskNote, useCommandRisk } from './RiskNote'
 import { monacoIfLoaded } from '../editor/loaded'
 import {
   programOf,
@@ -465,6 +466,16 @@ function RunCard({ command }: { command: string }): React.JSX.Element {
     return s.profiles.find((p) => p.id === pane?.profileId)?.name ?? null
   })
   const ready = useReadiness(paneId)
+  const speaksPowerShell = useStore((s) => {
+    const pane = paneId ? s.terminalPane(paneId) : null
+    return s.profiles.find((p) => p.id === pane?.profileId)?.integration === 'powershell'
+  })
+  const risk = useCommandRisk(command)
+  // Every way of running it waits for the second press when the first only armed it.
+  const go = (run: () => void): void => {
+    if (risk.second && !risk.armed) risk.arm()
+    else run()
+  }
 
   return (
     <div className="agent__card">
@@ -475,14 +486,20 @@ function RunCard({ command }: { command: string }): React.JSX.Element {
         {ready.ok ? `Runs in ${shell ?? 'the terminal'}${cwd ? ` · ${cwd}` : ''}` : `Not now: ${whyNot(ready)}.`}
       </div>
       <pre className="agent__code">{command}</pre>
+      <RiskNote risks={risk.risks} armed={risk.armed} />
       <div className="agent__card-actions">
         {ready.ok && (
-          <button className="btn" onClick={() => void sendOrExplain(paneId, command)}>
-            Run
+          <button className="btn" onClick={() => go(() => void sendOrExplain(paneId, command))}>
+            {risk.armed ? 'Run anyway' : 'Run'}
+          </button>
+        )}
+        {ready.ok && speaksPowerShell && risk.preview && (
+          <button className="btn" title={risk.preview} onClick={() => void sendOrExplain(paneId, risk.preview!)}>
+            Preview with -WhatIf
           </button>
         )}
         {!ready.ok && paneId && ready.reason !== 'gone' && ready.reason !== 'starting' && ready.reason !== 'plain' && (
-          <button className="btn" onClick={() => runInNewTerminal(paneId, command)}>
+          <button className="btn" onClick={() => go(() => runInNewTerminal(paneId, command))}>
             Run in a new terminal
           </button>
         )}
@@ -490,13 +507,13 @@ function RunCard({ command }: { command: string }): React.JSX.Element {
           <button
             className="btn"
             title="Type it into the running program, as if you had"
-            onClick={() => void typeIntoTerminal(paneId, command, { anyway: true })}
+            onClick={() => go(() => void typeIntoTerminal(paneId, command, { anyway: true }))}
           >
             Send to {programOf(ready.program)}
           </button>
         )}
         {!ready.ok && paneId && ready.reason === 'plain' && (
-          <button className="btn" onClick={() => void typeIntoTerminal(paneId, command, { anyway: true })}>
+          <button className="btn" onClick={() => go(() => void typeIntoTerminal(paneId, command, { anyway: true }))}>
             Run anyway
           </button>
         )}

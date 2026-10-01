@@ -916,6 +916,26 @@ export function SettingsPanel(): React.JSX.Element | null {
                 </div>
               </div>
 
+              {/* How loudly a command typed on your behalf is labelled: shared/risk.ts. */}
+              <div className="field">
+                <label htmlFor="settings-risk">Command risk labels</label>
+                <select
+                  id="settings-risk"
+                  value={draft.commandRiskLabels ?? 'all'}
+                  onChange={(e) => field('commandRiskLabels', e.target.value as Settings['commandRiskLabels'])}
+                >
+                  <option value="all">Every kind</option>
+                  <option value="irreversible">Only what cannot be undone</option>
+                  <option value="off">None</option>
+                </select>
+                <div className="field__note">
+                  Commands Claude proposes, Run again, and pastes are labelled when they delete for
+                  good, run code from the internet, ask for administrator rights or rewrite git
+                  history. Labels only warn. With labels on, what cannot be undone takes a second
+                  click — and in the administrator’s window, anything labelled does.
+                </div>
+              </div>
+
               {/* The look: four switches, each previewed as it changes and put back by
                   Cancel, because none of them can be judged by reading about it. */}
               <div className="field">

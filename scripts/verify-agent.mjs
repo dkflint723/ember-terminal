@@ -216,6 +216,53 @@ const ran = await page.evaluate(() =>
 )
 check('Run puts the command through the session', ran)
 
+/*
+ * --- a command that cannot be undone is labelled, and takes a second press ---------
+ *
+ * Nothing said which proposals deleted for good, ran code from the internet or asked
+ * for administrator rights (audit R29). The first press arms Run; a -WhatIf preview
+ * shows what would happen and does nothing; the second press runs it.
+ */
+const victim = path.join(work, 'victim.txt')
+fs.writeFileSync(victim, 'still here\n', 'utf8')
+await ask(`run-cmd:Remove-Item '${victim}'`)
+await waitAnswered('Run this')
+const card = page.locator('.agent__card').last()
+const labels = await card.locator('.risk__label').allTextContents()
+check('the card says it cannot be undone, and why', labels.some((l) => /cannot be undone/.test(l) && /deletes files/.test(l)), JSON.stringify(labels))
+await card.locator('.btn', { hasText: /^Run$/ }).click()
+await sleep(2000)
+check('the first press runs nothing', fs.existsSync(victim))
+check('and arms Run, saying so', (await card.locator('.btn', { hasText: 'Run anyway' }).count()) === 1 && (await card.locator('.risk__armed').count()) === 1)
+const previewButton = card.locator('.btn', { hasText: 'Preview with -WhatIf' })
+check('a -WhatIf preview is offered', (await previewButton.count()) === 1)
+if (await previewButton.count()) {
+  await previewButton.click()
+  await sleep(3500)
+  check('and previewing changes nothing', fs.existsSync(victim) && fs.readFileSync(victim, 'utf8') === 'still here\n')
+  const said = await page.evaluate(() => [...document.querySelectorAll('.block__body')].some((b) => /What if/i.test(b.textContent ?? '')))
+  check('while saying what it would have done', said)
+}
+// Only where the first press armed it: a build without labels ran it already.
+if (await card.locator('.btn', { hasText: 'Run anyway' }).count()) await card.locator('.btn', { hasText: 'Run anyway' }).click()
+await sleep(3000)
+check('the second press runs it', !fs.existsSync(victim))
+
+// Run again has no card to label, so it asks — and declining runs nothing.
+fs.writeFileSync(victim, 'back again\n', 'utf8')
+let asked = ''
+page.once('dialog', (d) => {
+  asked = d.message()
+  void d.dismiss()
+})
+const removalBlock = page.locator('.block:not(.block--agent)', { hasText: 'Remove-Item' }).last()
+// Pressed through its own handler: the button is shown on hover, and the pane here
+// sits beside the Claude panel, where a hover does not reliably reach it.
+if (await removalBlock.count()) await removalBlock.locator('button[title="Run again"]').dispatchEvent('click')
+await sleep(2500)
+check('Run again on it asks first, saying what it risks', /cannot be undone/.test(asked) && /deletes files/.test(asked), JSON.stringify(asked.slice(0, 160)))
+check('and declining runs nothing', fs.existsSync(victim))
+
 // --- prose renders as prose, and links stay in hand ----------------------------
 await ask('markdown-me')
 await waitAnswered('second item')

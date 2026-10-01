@@ -1899,6 +1899,37 @@ button {
   flex: 1 1 auto;
 }
 
+/* What a command risks: one label per kind, on the card that would run it (shared/risk.ts). */
+.risk {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin: 4px 0;
+  font-size: 11.5px;
+}
+
+.risk__label {
+  padding: 1px 6px;
+  border: 1px solid var(--fail-border);
+  border-radius: 3px;
+  background: var(--fail-bg);
+  color: var(--fail);
+}
+
+.risk__why {
+  color: var(--fg-dim);
+}
+
+.risk__armed {
+  color: var(--fail);
+  font-weight: 600;
+}
+
+.proposal__primary--armed {
+  border-color: var(--fail-border);
+  color: var(--fail);
+}
+
 /* Where a proposed file would be written, under the diff's bar; marked when that matters. */
 .diff__where {
   display: flex;

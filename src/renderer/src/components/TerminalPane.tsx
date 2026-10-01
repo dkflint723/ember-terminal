@@ -8,6 +8,7 @@ import { BlockView } from './BlockView'
 import { InputEditor } from './InputEditor'
 import { OverviewRuler, useBlockGeometry } from './OverviewRuler'
 import { FindBar } from './FindBar'
+import { riskQuestion } from './RiskNote'
 
 interface Props {
   pane: TerminalPaneState
@@ -132,6 +133,8 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
   const palette = useStore((s) => (s.glass ? s.theme.glass.terminal : s.theme.terminal))
   const mode = useStore((s) => s.mode)
   const profileName = useStore((s) => s.profiles.find((p) => p.id === pane.profileId)?.name)
+  // Whether this shell speaks PowerShell: a -WhatIf preview is offered only there.
+  const speaksPowerShell = useStore((s) => s.profiles.find((p) => p.id === pane.profileId)?.integration === 'powershell')
   const firstRunDone = useStore((s) => s.settings.firstRunDone)
   const { knows } = useLearned()
   /*
@@ -723,6 +726,8 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
                       proposal: b.proposal ? { ...b.proposal, state: 'dismissed' } : null
                     })
                   }
+                  // A preview runs and changes nothing, so the proposal stays open.
+                  onPreview={speaksPowerShell ? (command) => void rerun(command) : undefined}
                 />
               ) : (
                 <BlockView
@@ -730,7 +735,12 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
                   where={saysWhere.has(b.id) ? b.cwd : null}
                   stuck={b.id === geometry.stuckId}
                   onToggle={() => toggleBlock(pane.id, b.id)}
-                  onRerun={rerun}
+                  onRerun={(command) => {
+                    // No card to label here, so what it risks is asked about.
+                    const question = riskQuestion(command)
+                    if (question && !window.confirm(question)) return false
+                    return rerun(command)
+                  }}
                 />
               )}
             </Fragment>

@@ -32,6 +32,7 @@ const RANGES: Partial<Record<keyof Settings, [number, number]>> = {
 
 const ONE_OF: Partial<Record<keyof Settings, readonly string[]>> = {
   blockDensity: ['compact', 'normal', 'comfortable'],
+  commandRiskLabels: ['all', 'irreversible', 'off'],
   windowBackdrop: ['none', 'mica', 'acrylic', 'tabbed'],
   ghostProvider: ['local', 'openai', 'claude']
 }

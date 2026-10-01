@@ -1,4 +1,5 @@
 import { memo } from 'react'
+import { RiskNote, useCommandRisk } from './RiskNote'
 import type { AttachedBlock, ConversationBlock } from '../state/store'
 
 interface Props {
@@ -6,6 +7,8 @@ interface Props {
   onToggle: () => void
   /** Run the proposed command for real, as a command block of its own. */
   onRun: (command: string) => void
+  /** Run its -WhatIf preview, where the shell is PowerShell; absent elsewhere. */
+  onPreview?: (command: string) => void
   onDismiss: () => void
   stuck?: boolean
 }
@@ -76,9 +79,11 @@ export const AgentBlock = memo(function AgentBlock({
   onToggle,
   onRun,
   onDismiss,
+  onPreview,
   stuck
 }: Props) {
   const proposal = block.proposal
+  const risk = useCommandRisk(proposal?.command ?? '')
   const attached = attachmentsOf(block)
 
   return (
@@ -160,16 +165,30 @@ export const AgentBlock = memo(function AgentBlock({
              */
             <div className="proposal">
               <div className="proposal__body">{proposal.command}</div>
+              {proposal.state === 'open' && <RiskNote risks={risk.risks} armed={risk.armed} />}
               {proposal.note && <div className="proposal__note">{proposal.note}</div>}
               <div className="proposal__actions">
                 {proposal.state === 'open' ? (
                   <>
                     <button
-                      className="proposal__primary"
-                      onClick={() => onRun(proposal.command)}
+                      className={`proposal__primary ${risk.armed ? 'proposal__primary--armed' : ''}`}
+                      onClick={() => {
+                        // What cannot be undone is pressed twice: the first says so.
+                        if (risk.second && !risk.armed) risk.arm()
+                        else onRun(proposal.command)
+                      }}
                     >
-                      Run
+                      {risk.armed ? 'Run anyway' : 'Run'}
                     </button>
+                    {onPreview && risk.preview && (
+                      <button
+                        className="proposal__secondary"
+                        title={risk.preview}
+                        onClick={() => onPreview(risk.preview!)}
+                      >
+                        Preview with -WhatIf
+                      </button>
+                    )}
                     <button className="proposal__secondary" onClick={onDismiss}>
                       Dismiss
                     </button>
