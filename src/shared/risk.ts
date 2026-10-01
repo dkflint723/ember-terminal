@@ -195,9 +195,6 @@ function segmentRisks(segment: string): Risk[] {
     case 'gh':
       if (has(rest, /^\s*(repo|release)\s+delete\b/i)) add('irreversible', 'deletes a repository or release on GitHub')
       break
-    case 'wsl':
-      if (has(rest, /\s--unregister\b/i)) add('irreversible', 'deletes a Linux distribution and everything in it')
-      break
     case 'vssadmin':
       if (has(rest, /^\s*delete\s+shadows\b/i)) add('irreversible', 'deletes the shadow copies Windows restores from')
       break
@@ -226,9 +223,59 @@ function segmentRisks(segment: string): Risk[] {
     case 'msiexec':
       if (has(rest, /https?:\/\//i)) add('network-executes', 'runs an installer straight from the internet')
       break
-    case 'start-process':
-      if (has(rest, /\s-verb\s+['"]?runas\b/i)) add('elevation', 'starts a program as administrator')
+    /*
+     * A command handed to another shell, to a remote one, or to Invoke-Expression as
+     * a string is that command, and is judged as itself: `powershell -c "Remove-Item
+     * x"` deletes, and so does `cmd /c rd /s /q build` and `ssh host "rm -rf /var"`.
+     */
+    case 'powershell':
+    case 'pwsh': {
+      const m = /(?:^|\s)-(?:c|command)\s+([\s\S]+)$/i.exec(rest)
+      const inner = m ? m[1] : rest.replace(/^(\s*-\S+)*/, '')
+      if (/(?:^|\s)-(?:e|ec|enc|encodedcommand)\s/i.test(` ${rest}`)) {
+        add('network-executes', 'runs an encoded command, which cannot be read before it runs')
+      } else if (inner.trim()) out.push(...innerRisks(inner))
       break
+    }
+    case 'cmd': {
+      const m = /(?:^|\s)\/[ck]\s+([\s\S]+)$/i.exec(rest)
+      if (m) out.push(...innerRisks(m[1]))
+      break
+    }
+    case 'bash':
+    case 'sh':
+    case 'zsh':
+    case 'dash':
+    case 'ksh': {
+      const m = /(?:^|\s)-[a-z]*c\s+([\s\S]+)$/.exec(rest)
+      if (m) out.push(...innerRisks(m[1]))
+      break
+    }
+    case 'wsl': {
+      if (has(rest, /\s--unregister\b/i)) add('irreversible', 'deletes a Linux distribution and everything in it')
+      const m = /(?:^|\s)(?:-e|--exec|--)\s+([\s\S]+)$/i.exec(rest)
+      const inner = m ? m[1] : /^\s*-/.test(rest) ? '' : rest
+      if (inner.trim()) out.push(...innerRisks(inner))
+      break
+    }
+    case 'ssh': {
+      // Past the options (and their values) and the host, to what runs there.
+      const words = rest.trim().split(/\s+/)
+      let i = 0
+      while (i < words.length && words[i].startsWith('-')) i += /^-[bcDEeFIiJLlmOoPpQRSWw]$/.test(words[i]) ? 2 : 1
+      const inner = words.slice(i + 1).join(' ')
+      if (inner.trim()) out.push(...innerRisks(inner))
+      break
+    }
+    case 'invoke-expression':
+      if (/^\s*["']/.test(rest)) out.push(...innerRisks(rest))
+      break
+    case 'start-process': {
+      if (has(rest, /\s-verb\s+['"]?runas\b/i)) add('elevation', 'starts a program as administrator')
+      const list = /\s-(?:argumentlist|args)\s+([\s\S]+)$/i.exec(` ${rest}`)
+      if (list && /^\s*['"]?(powershell|pwsh|cmd)(\.exe)?\b/i.test(rest)) out.push(...innerRisks(list[1]))
+      break
+    }
     case 'sudo':
     case 'gsudo':
     case 'doas': {
@@ -270,6 +317,19 @@ function segmentRisks(segment: string): Risk[] {
   return out
 }
 
+/** A command passed as text to something that runs it: its quotes off, judged as a line. */
+let innerDepth = 0
+function innerRisks(text: string): Risk[] {
+  if (innerDepth > 4) return []
+  const unquoted = text.trim().replace(/^(['"])([\s\S]*)\1$/, '$2')
+  innerDepth += 1
+  try {
+    return classifyCommand(unquoted)
+  } finally {
+    innerDepth -= 1
+  }
+}
+
 /** git's own: which subcommands, with which flags, lose work or rewrite what was shared. */
 function gitRisks(rest: string): Risk[] {
   const out: Risk[] = []
@@ -278,7 +338,8 @@ function gitRisks(rest: string): Risk[] {
   let i = 0
   while (i < words.length && words[i].startsWith('-')) i += words[i] === '-C' || words[i] === '-c' ? 2 : 1
   const sub = (words[i] ?? '').toLowerCase()
-  const args = ` ${words.slice(i + 1).join(' ')} `
+  // Quotes off: `git push origin "+main"` forces as surely as without them.
+  const args = ` ${words.slice(i + 1).join(' ').replace(/["']/g, '')} `
   const flag = (re: RegExp): boolean => re.test(args)
   switch (sub) {
     case 'clean':
@@ -364,6 +425,10 @@ export function classifyCommand(command: string): Risk[] {
   const found: Risk[] = []
   for (const segment of segmentsOf(command)) found.push(...segmentRisks(segment))
   for (const rule of WHOLE) if (rule.test.test(command)) found.push(rule.risk)
+  // What runs inside a double-quoted string: `$(…)`, and bash's backticks.
+  for (const quoted of command.match(/"[^"]*"/g) ?? []) {
+    for (const m of quoted.matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)) found.push(...innerRisks(m[1] ?? m[2] ?? ''))
+  }
   const order = Object.keys(RISK_TITLES) as RiskClass[]
   return order.flatMap((cls) => {
     const first = found.find((r) => r.class === cls)
@@ -447,6 +512,10 @@ export function whatIfPreview(command: string): string | null {
   const last = verbOf(lastPart).verb
   if (!SHOULD_PROCESS.has(last)) return null
   if (!parts.slice(0, -1).every((p) => READERS.test(firstWord(p).toLowerCase()) || READERS.test(verbOf(p).verb))) return null
-  const named = `${properName(last)}${lastPart.slice(firstWord(lastPart).length)}`
-  return [...parts.slice(0, -1), named].join(' | ') + ' -WhatIf'
+  // No argument may end ready to take the next word: `-Exclude:` would take -WhatIf as
+  // its value, and a trailing comma would make it one more path.
+  if (parts.some((p) => p.split(/\s+/).some((token) => /[:,]$/.test(token) && !/^[A-Za-z]:$/.test(token)))) return null
+  // -WhatIf straight after the cmdlet's name, where it can only be the cmdlet's.
+  const named = `${properName(last)} -WhatIf${lastPart.slice(firstWord(lastPart).length)}`
+  return [...parts.slice(0, -1), named].join(' | ')
 }

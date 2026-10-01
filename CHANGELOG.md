@@ -50,14 +50,24 @@ newest entry sits on top.
   be taken rather than silently not working. The administrator's window never answers
   it, so a key pressed in any program cannot bring up an elevated shell. The
   drop-down's session is not restored at the next launch as an ordinary window: it is
-  something summoned, and comes back when it is summoned.
+  something summoned, and comes back when it is summoned. A key with no Control, Alt or
+  Shift is refused — a bare `F` would take that key from every program — except a
+  function key on its own, and one Electron cannot read is said to be, with why.
+- **Corrected before landing, after a QA pass:** with the drop-down about, closing the
+  main window — which is how Windows is quit — left Ember running, invisible, and
+  dropped that window's tabs from the next launch; the last ordinary window's close is
+  now the app closing, and the drop-down goes with it. A minimised drop-down, which has
+  no taskbar entry, is restored by the shortcut; a hidden one is shown before it asks
+  about a command still running in it; and the administrator's window does not offer
+  the toggle it cannot use.
 - **How it is checked:** a new suite, `verify-dropdown`. A global shortcut is a key
   pressed in another program, which a suite cannot press, so it drives the palette's
   toggle — the same function — and reads the shortcut's registration from main:
   choosing a key registers it and clearing it unregisters it; the toggle brings down an
   always-on-top window across the top of the screen's work area and less than all of
   it; the toggle sends it away; brought back, its shell still shows what it ran; and
-  there is one, not two. On the build before this, it never comes down.
+  there is one, not two; and closing the main window with it about quits Ember. On the
+  build before this, it never comes down. *settings check* holds the shortcut rule.
 
 ### Moving between commands from the keyboard
 
@@ -72,9 +82,15 @@ newest entry sits on top.
   from the composer, the first press goes to the last one — **Alt+Shift+↑** to the
   last that failed, and **Alt+Shift+R** reads the output of the command in focus.
   Reaching either end, or having no earlier failure, is said rather than silent.
-- **They keep out of the way.** None is a PSReadLine key. In the code editor Alt+↑
-  still moves a line, and in a full-screen program the arrows are the program's.
-  All four can be rebound in Settings → Keyboard.
+- **They keep out of the way.** None is a PSReadLine key. They act from a terminal —
+  its composer or its blocks — and nowhere else: in Settings Alt+↓ still opens a list,
+  and the Claude panel, the palette and the file tree keep their own arrows. In the code
+  editor Alt+↑ still moves a line, and in a full-screen program the arrows are the
+  program's. All four can be rebound in Settings → Keyboard. (Corrected before
+  landing, after a QA pass: they first acted wherever focus was; the live region was
+  made with its first sentence, which a screen reader can miss, and is now made as the
+  window starts; and reading a collapsed command said it printed nothing, where it now
+  says it is collapsed.)
 - **By hand, with NVDA:** run three commands, one of them failing; press NVDA+F7 and
   choose Landmarks — each command is listed with how it ended. From the composer,
   Alt+↑ reads the last command's name; Alt+↑ again, the one before; Alt+Shift+↑ the
@@ -127,8 +143,16 @@ newest entry sits on top.
   named with a version — `npx tsc` runs the project's own — and know `docker rm -f`,
   `find -delete`, `xargs rm`, `git checkout -f`, `aws s3 rm`, `gh repo delete`,
   `wsl --unregister`, `vssadmin delete shadows` and a script block built from a
-  download. The model's own "hard to undo" now takes the second press too.
-- **How it is checked:** *command risk* (in the unit tables) classifies 240 commands
+  download. The model's own "hard to undo" now takes the second press too. A second
+  pass found the preview could still delete when the line ended in an argument left
+  open — `-Exclude:` took `-WhatIf` as its value, and a trailing comma made it a second
+  path — so `-WhatIf` now goes straight after the cmdlet's name and such a line has no
+  preview; and that a command handed to another shell was not judged at all. Now
+  `powershell -c "…"`, `cmd /c …`, `bash -c '…'`, `wsl …`, `ssh host "…"`,
+  `Invoke-Expression "…"`, `Start-Process powershell -ArgumentList "…"` and a `$(…)`
+  inside a double-quoted string are each judged as what they run, and
+  `-EncodedCommand`, which cannot be read before it runs, is labelled for that.
+- **How it is checked:** *command risk* (in the unit tables) classifies 262 commands
   against their expected kinds — the labelled and, as many, the ordinary ones that
   must not be — and runs a `-WhatIf` preview in each PowerShell there is, requiring
   the file it would have removed to be there afterwards. `verify-agent` proposes

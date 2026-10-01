@@ -243,7 +243,7 @@ import { diskSpelling, FileService, fileArgs, isStamp, longPath, pathArgs, realF
 import { isEncodingName } from '../shared/encoding.js'
 import { hasSecret } from '../shared/secrets.js'
 import { isTrustedPath } from '../shared/trust.js'
-import { checkSettings, NOT_PORTABLE, portable } from '../shared/settings-check.js'
+import { checkSettings, NOT_PORTABLE, portable, shortcutProblem } from '../shared/settings-check.js'
 import { unsupportedShellOf } from '../shared/quote.js'
 import { LspService } from './lsp.js'
 import { GitService } from './git.js'
@@ -1111,10 +1111,12 @@ function toggleDropdown(): void {
     dropdownId = createWindow({ dropdown: true, bounds: dropdownBounds() })
     return
   }
-  if (win.isVisible() && win.isFocused()) {
+  if (win.isVisible() && win.isFocused() && !win.isMinimized()) {
     win.hide()
     return
   }
+  // Minimised, it has no taskbar entry to come back from, and show() does not restore it.
+  if (win.isMinimized()) win.restore()
   // To wherever the pointer is now: a second monitor is a different strip.
   placeExactly(win, dropdownBounds())
   win.setAlwaysOnTop(true, 'floating')
@@ -1129,6 +1131,8 @@ function registerDropdownShortcut(accelerator: string): boolean {
   if (dropdownShortcut) globalShortcut.unregister(dropdownShortcut)
   dropdownShortcut = ''
   if (!accelerator) return true
+  // Settings refuse an unreadable one or one with no modifier; this is the last word.
+  if (shortcutProblem(accelerator) !== null) return false
   let taken = false
   try {
     taken = !globalShortcut.register(accelerator, toggleDropdown)
@@ -1425,6 +1429,9 @@ function createWindow(seed: WindowSeed = {}): number {
      */
     const question = new AbortController()
     closeQuestions.set(id, question)
+    // A hidden drop-down is shown before it asks: a question owned by a window nobody
+    // can see is one nobody answers, and the quit waits on it.
+    if (!win.isVisible()) win.show()
     void dialog
       .showMessageBox(win, {
         type: 'warning',
@@ -1521,9 +1528,21 @@ function createWindow(seed: WindowSeed = {}): number {
      * come back; the last window's close — and every close on the way out of a
      * quit — is the app closing, and stays kept.
      */
-    if (!quitting && windows.size > 0) session.dropWindow(id)
+    /*
+     * The drop-down is not one of the windows that keep Ember open: hidden most of
+     * the time and out of the taskbar, it would have kept Ember running, invisible,
+     * after the last real window closed — and taken that window's session with it as
+     * though it were only one of several. So the last ordinary window's close is
+     * the app closing, the drop-down goes with it, and it never becomes the main one.
+     */
+    const ordinary = [...windows.entries()].filter(([wid, w]) => wid !== dropdownId && !w.isDestroyed())
+    if (!quitting && ordinary.length > 0) session.dropWindow(id)
     if (mainWindow === win) {
-      mainWindow = windows.values().next().value ?? null
+      mainWindow = ordinary[0]?.[1] ?? null
+    }
+    if (id !== dropdownId && ordinary.length === 0 && dropdownId !== null) {
+      const dropdown = windows.get(dropdownId)
+      if (dropdown && !dropdown.isDestroyed()) dropdown.close()
     }
   })
 
@@ -2601,9 +2620,12 @@ function registerIpc(): void {
    */
   ipcMain.handle('settings:get', () => forRenderer(settings.get()))
   ipcMain.handle('settings:set', (e, patch: Partial<Settings>) => {
+    // A shortcut that cannot be one is said to be, with why, before the check takes it out.
+    const shortcutWhy = typeof patch.dropdownShortcut === 'string' ? shortcutProblem(patch.dropdownShortcut) : null
+    if (shortcutWhy) sendToAll('ui:notice', { text: `${patch.dropdownShortcut} ${shortcutWhy}.`, tone: 'error' })
     const res = settings.set(patch)
     // The drop-down's shortcut, re-registered as it changes; said when it is taken.
-    if (patch.dropdownShortcut !== undefined && !registerDropdownShortcut(res.settings.dropdownShortcut ?? '')) {
+    if (!shortcutWhy && patch.dropdownShortcut !== undefined && !registerDropdownShortcut(res.settings.dropdownShortcut ?? '')) {
       sendToAll('ui:notice', {
         text: `${res.settings.dropdownShortcut} is already taken by another program, so it does not bring up the drop-down window.`,
         tone: 'error'

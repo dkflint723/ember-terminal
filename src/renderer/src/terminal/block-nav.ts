@@ -27,9 +27,14 @@ function headings(pane: HTMLElement): HTMLElement[] {
 /** Whether these chords are ours here, or belong to what has the keyboard. */
 export function blockNavApplies(): boolean {
   const active = document.activeElement
+  // Only from a terminal — its composer or its blocks — or from nowhere in particular.
+  // Elsewhere the keys are someone else's: Alt+Down opens a list in Settings, and the
+  // Claude panel, the palette and the file tree have arrows of their own.
+  const inPane = active?.closest('.pane[data-pane]')
+  if (!inPane && active && active !== document.body) return false
   if (active?.closest('.monaco-editor')) return false
   // A full-screen program owns the whole terminal, arrows and all.
-  if (active?.closest('.pane[data-mode="raw"]')) return false
+  if (inPane?.matches('[data-mode="raw"]')) return false
   return true
 }
 
@@ -66,6 +71,11 @@ export function readFocusedBlock(): boolean {
     announce('Move to a command first, with Alt+Up.')
     return true
   }
+  // A collapsed block has no output on the page to read, which is not the same as none.
+  if (block.querySelector('.block__head[aria-expanded="false"]')) {
+    announce('This command is collapsed. Press Enter to open it, then Alt+Shift+R.')
+    return true
+  }
   const body = block.querySelector('.block__body, .block__answer')
   const text = (body?.textContent ?? '').replace(/\s+\n/g, '\n').trim()
   // Long enough to be useful, short enough to stop: the rest is there to arrow through.
@@ -82,15 +92,27 @@ let flip = false
  * same sentence twice is still a change, and is said twice.
  */
 export function announce(text: string): void {
-  if (!region) {
-    region = document.createElement('div')
-    region.className = 'sr-only'
-    region.setAttribute('role', 'status')
-    region.setAttribute('aria-live', 'polite')
-    region.setAttribute('aria-atomic', 'true')
-    region.dataset.blockNav = 'announcer'
-    document.body.appendChild(region)
-  }
+  const live = ensureRegion()
+  if (!live) return
   flip = !flip
-  region.textContent = flip ? text : `${text} `
+  live.textContent = flip ? text : `${text} `
+}
+
+function ensureRegion(): HTMLElement | null {
+  if (region || typeof document === 'undefined' || !document.body) return region
+  region = document.createElement('div')
+  region.className = 'sr-only'
+  region.setAttribute('role', 'status')
+  region.setAttribute('aria-live', 'polite')
+  region.setAttribute('aria-atomic', 'true')
+  region.dataset.blockNav = 'announcer'
+  document.body.appendChild(region)
+  return region
+}
+
+// Made as the window starts, not with the first sentence: a region added in the same
+// moment as its text is one a screen reader often never reads.
+if (typeof document !== 'undefined') {
+  if (document.body) ensureRegion()
+  else document.addEventListener('DOMContentLoaded', () => ensureRegion(), { once: true })
 }

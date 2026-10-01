@@ -37,7 +37,7 @@ const TABLE = [
   ['Get-ChildItem *.log | Remove-Item', [I]],
   ['gci -Recurse -Filter *.bak | rm -Force', [I]],
   ['& rm -r .\\cache', [I]],
-  ['"C:\\Windows\\System32\\cmd.exe" /c del x', []],
+  ['"C:\\Windows\\System32\\cmd.exe" /c del x', [I]],
   ['Clear-Content .\\log.txt', [I]],
   ['clc app.log', [I]],
   ['Clear-RecycleBin -Force', [I]],
@@ -100,6 +100,32 @@ const TABLE = [
   ['git grep "drop table"', []],
   ['git commit -m "drop table migration"', []],
   ['echo "a | rm b"', []],
+  // Handed to another shell, a remote one, or Invoke-Expression: judged as itself.
+  ['powershell -c "Remove-Item x -Recurse"', [I]],
+  ['pwsh -Command "rm -r -fo build"', [I]],
+  ["pwsh -NoProfile -c 'Remove-Item x'", [I]],
+  ['pwsh -NoProfile -File build.ps1', []],
+  ['powershell -EncodedCommand SQBFAFgA', [N]],
+  ['cmd /c "del /s /q build"', [I]],
+  ['cmd /c rd /s /q build', [I]],
+  ['cmd /c echo hi', []],
+  ["bash -c 'rm -rf build'", [I]],
+  ['sh -c "git reset --hard"', [I]],
+  ['bash -c "cd x && rm -rf y"', [I]],
+  ['bash script.sh', []],
+  ['wsl rm -rf ~/x', [I]],
+  ['wsl -e rm -rf /tmp/x', [I]],
+  ['wsl -l', []],
+  ['ssh host "rm -rf /var/www"', [I]],
+  ['ssh -p 2222 host rm -rf /x', [I]],
+  ['ssh host uptime', []],
+  ['sudo sh -c "rm -rf /x"', [I, E]],
+  ['Start-Process powershell -ArgumentList "Remove-Item x"', [I]],
+  ['Invoke-Expression "Remove-Item x"', [I]],
+  ["iex 'rm -r x'", [I]],
+  ['echo "$(rm -rf x)"', [I]],
+  ['echo "`rm -rf x`"', [I]],
+  ['git push origin "+main"', [I, H]],
   ['docker ps', []],
   ['docker run --rm -it alpine sh', []],
   ['docker build -t app .', []],
@@ -298,9 +324,9 @@ check('and nothing, for nothing', riskSentence([]) === '')
 
 // --- -WhatIf, only where it cannot run anything for real ------------------------------------------------
 const preview = (c) => whatIfPreview(c)
-check('a lone cmdlet that honours it is previewed', preview('Remove-Item .\\build -Recurse') === 'Remove-Item .\\build -Recurse -WhatIf', String(preview('Remove-Item .\\build -Recurse')))
-check('an alias by the cmdlet’s full name, which cmd and bash cannot run', preview('rm .\\x.txt') === 'Remove-Item .\\x.txt -WhatIf', String(preview('rm .\\x.txt')))
-check('with an environment variable', preview('Remove-Item $env:TEMP\\x') === 'Remove-Item $env:TEMP\\x -WhatIf', String(preview('Remove-Item $env:TEMP\\x')))
+check('a lone cmdlet that honours it is previewed', preview('Remove-Item .\\build -Recurse') === 'Remove-Item -WhatIf .\\build -Recurse', String(preview('Remove-Item .\\build -Recurse')))
+check('an alias by the cmdlet’s full name, which cmd and bash cannot run', preview('rm .\\x.txt') === 'Remove-Item -WhatIf .\\x.txt', String(preview('rm .\\x.txt')))
+check('with an environment variable', preview('Remove-Item $env:TEMP\\x') === 'Remove-Item -WhatIf $env:TEMP\\x', String(preview('Remove-Item $env:TEMP\\x')))
 check('after readers in a pipeline', preview('Get-ChildItem *.tmp | Remove-Item') === 'Get-ChildItem *.tmp | Remove-Item -WhatIf')
 for (const unsafe of [
   'Remove-Item x; Remove-Item y',
@@ -326,7 +352,11 @@ for (const unsafe of [
   'Remove-Item a\rRemove-Item b',
   'Remove-Item "a|b"',
   "Remove-Item 'unbalanced",
-  'Remove-Item x -wh'
+  'Remove-Item x -wh',
+  // QA's second round: an argument left ready to take -WhatIf as its value.
+  "Get-ChildItem 'd' -Filter v.txt | Remove-Item -Exclude:",
+  "Remove-Item 'd/v.txt',",
+  'Remove-Item –Exclude: x'
 ]) {
   check(`no preview for ${JSON.stringify(unsafe)}`, preview(unsafe) === null, String(preview(unsafe)))
 }

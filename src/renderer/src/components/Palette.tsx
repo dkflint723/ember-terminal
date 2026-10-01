@@ -335,11 +335,16 @@ function commands(): Command[] {
 
   return [
     ...editorCommands,
-    {
-      id: 'window.dropdown',
-      label: 'Toggle drop-down window',
-      run: () => window.ember.toggleDropdown()
-    },
+    // Not offered in the administrator's window, which never brings one down.
+    ...(window.ember.isAdmin
+      ? []
+      : [
+          {
+            id: 'window.dropdown',
+            label: 'Toggle drop-down window',
+            run: () => window.ember.toggleDropdown()
+          }
+        ]),
     {
       id: 'proposal.revertLast',
       label: 'Revert last accepted change',

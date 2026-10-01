@@ -113,7 +113,18 @@ await page.evaluate(() => window.ember.setSettings({ dropdownShortcut: '' }))
 await sleep(500)
 check('clearing the shortcut unregisters it', !(await registered()))
 
-const unclosed = await closeApp(app)
+/*
+ * --- closing the main window still quits ------------------------------------------------
+ *
+ * The drop-down, hidden and out of the taskbar, kept Ember running invisibly after
+ * the last real window closed, and that window's tabs were dropped from the next
+ * launch as though it were one of several. Closing it now closes Ember.
+ */
+const exited = new Promise((resolve) => app.process().once('exit', () => resolve(true)))
+await page.evaluate(() => window.close())
+const gone = await Promise.race([exited, sleep(20_000).then(() => false)])
+check('closing the main window with the drop-down about quits Ember', gone)
+const unclosed = gone ? null : await closeApp(app)
 if (unclosed) failures.push(unclosed)
 profile.cleanup()
 for (const f of failures) console.log(`  - ${f}`)

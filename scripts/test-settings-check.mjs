@@ -6,7 +6,7 @@
 // read through: lenient for the first two — clamp, fall back, keep what can be
 // used, and say so — and strict for an import, which refuses on anything that is
 // the wrong kind of thing.
-import { checkSettings, portable, NOT_PORTABLE } from '../src/shared/settings-check.ts'
+import { checkSettings, portable, NOT_PORTABLE, shortcutProblem } from '../src/shared/settings-check.ts'
 import { DEFAULT_SETTINGS } from '../src/shared/types.ts'
 
 let failures = 0
@@ -146,6 +146,15 @@ check(
   )
   check('every key held back is a real setting', NOT_PORTABLE.every((k) => k in DEFAULT_SETTINGS))
 }
+
+// --- the drop-down's shortcut: one with no modifier takes a key from every program --------
+for (const ok of ['', 'Control+`', 'Alt+Space', 'CommandOrControl+Shift+T', 'F12', 'Ctrl+Alt+F12']) {
+  check(`${JSON.stringify(ok)} is a shortcut the drop-down may have`, shortcutProblem(ok) === null, String(shortcutProblem(ok)))
+}
+for (const bad of ['F', '`', 'Space', 'Control+', 'Hyper+K', 'Control+Banana', 'Ctrl+Alt']) {
+  check(`${JSON.stringify(bad)} is refused`, shortcutProblem(bad) !== null)
+}
+check('a bare key is refused for taking it from every program', /every program/.test(shortcutProblem('F') ?? ''))
 
 console.log(`settings check: ${cases} cases`, failures === 0 ? 'PASS' : 'FAIL')
 process.exit(failures === 0 ? 0 : 1)

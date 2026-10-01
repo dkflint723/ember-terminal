@@ -107,6 +107,27 @@ const show = (v: unknown): string => {
   return text.length > 40 ? `${text.slice(0, 40)}…` : text
 }
 
+const MODIFIERS = new Set(['control', 'ctrl', 'commandorcontrol', 'cmdorctrl', 'command', 'cmd', 'alt', 'option', 'altgr', 'shift', 'super', 'meta'])
+const NAMED_KEYS = /^(f([1-9]|1[0-9]|2[0-4])|space|tab|backspace|delete|insert|return|enter|up|down|left|right|home|end|pageup|pagedown|escape|esc|plus|printscreen|num[0-9]|numadd|numsub|nummult|numdiv|numdec)$/i
+
+/**
+ * Why a global shortcut cannot be the drop-down's, or null when it can. One with no
+ * modifier would take that key from every program on the machine — a bare `F` would
+ * stop anyone typing an F anywhere — so a modifier is required, except for a function
+ * key on its own. Empty is no shortcut, which is fine.
+ */
+export function shortcutProblem(accelerator: string): string | null {
+  if (accelerator === '') return null
+  const parts = accelerator.split('+').map((p) => p.trim())
+  const key = parts.pop() ?? ''
+  if (!key || parts.some((p) => !MODIFIERS.has(p.toLowerCase()))) return 'is not a shortcut Electron can read'
+  if (!(key.length === 1 || NAMED_KEYS.test(key))) return 'is not a shortcut Electron can read'
+  if (parts.length === 0 && !/^f([1-9]|1[0-9]|2[0-4])$/i.test(key)) {
+    return 'needs Control, Alt or Shift with it, or it would take that key from every program'
+  }
+  return null
+}
+
 /** One field, read for what it should be. */
 function checkField(key: keyof Settings, value: unknown, issues: Issue[]): unknown {
   const fallback = DEFAULT_SETTINGS[key]
@@ -152,6 +173,11 @@ function checkField(key: keyof Settings, value: unknown, issues: Issue[]): unkno
       return wrong(`keybindings should map commands to chords, and was ${show(value)}`)
     }
     return value
+  }
+
+  if (key === 'dropdownShortcut') {
+    const why = isString(value) ? shortcutProblem(value) : 'should be text'
+    return why === null ? value : wrong(`dropdownShortcut ${why}, and was ${show(value)}`)
   }
 
   if (key === 'projectEnvChoices') {
