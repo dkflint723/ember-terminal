@@ -32,6 +32,14 @@ check('a command is read', cmd?.kind === 'command' && cmd.text === 'git status',
 const cwd = parse(`P;Cwd=C:\\projects\\ember;${N}`)
 check('a directory is read', cwd?.kind === 'cwd' && cwd.path === 'C:\\projects\\ember', JSON.stringify(cwd))
 
+// --- a directory on another machine: its own kind, so it is never followed ----------------
+cases += 4
+const remote = parse(`P;RemoteCwd=/home/deploy/app;${N}`)
+check('a remote directory is read as remote', remote?.kind === 'remoteCwd' && remote.path === '/home/deploy/app', JSON.stringify(remote))
+check('and never as a local one', parse(`P;RemoteCwd=C:\\Users;${N}`)?.kind === 'remoteCwd')
+check('a remote directory with no nonce is refused', parse('P;RemoteCwd=/etc') === null)
+check('an empty remote directory is refused', parse(`P;RemoteCwd=;${N}`) === null)
+
 // --- and the same thing said by anything else ----------------------------------------------
 cases += 8
 check('no nonce at all is refused', parse('Ready') === null)

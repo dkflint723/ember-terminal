@@ -76,6 +76,13 @@ __ember_prompt_start() {
   if [[ "$first" != "1" ]]; then
     __ember_mark "D;${exit_code}"
   fi
+  # On another machine (typed in over ssh: see remote-integration.ts) the directory is
+  # that machine's, shown and never followed — even a Windows host's C:\ path names a
+  # folder on that host, not on the one running Ember.
+  if [ -n "${__ember_remote:-}" ]; then
+    __ember_mark "P;RemoteCwd=$(__ember_esc "$PWD")"
+    return
+  fi
   local win
   win="$(__ember_cwd)"
   if [ -n "$win" ]; then

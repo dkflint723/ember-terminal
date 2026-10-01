@@ -1062,6 +1062,12 @@ export interface Settings {
    */
   projectEnvChoices: Record<string, Record<string, 'yes' | 'no'>>
   /**
+   * Per ssh host, whether Ember may type its bash integration into the remote shell
+   * after login, so commands there become blocks: 'on' each time, 'off' never asked
+   * again. A host not listed is asked the first time. See shared/remote-integration.ts.
+   */
+  remoteIntegration: Record<string, 'on' | 'off'>
+  /**
    * The Windows 11 material drawn behind the window.
    *
    * Mica by default. The window's own ground is tinted rather than painted when a
@@ -1207,6 +1213,7 @@ export const DEFAULT_SETTINGS: Settings = {
   dropdownShortcut: '',
   projectEnvironments: true,
   projectEnvChoices: {},
+  remoteIntegration: {},
   windowBackdrop: 'mica',
   windowOpacity: 1,
   frostedPanels: true,
@@ -1535,6 +1542,10 @@ export interface EmberApi {
   clipboardRead(): Promise<string>
   onData(cb: (e: PtyDataEvent) => void): () => void
   onExit(cb: (e: PtyExitEvent) => void): () => void
+  /** An ssh session's host wants an answer, integration loaded, or the shell is not bash. */
+  onSshIntegration(cb: (e: { paneId: string; host: string; state: 'ask' | 'loaded' | 'unsupported' | 'slow' }) => void): () => void
+  /** Yes or no to typing integration into this ssh session's host; kept for the host. */
+  sshAnswer(paneId: string, yes: boolean): void
   listProfiles(): Promise<ShellProfile[]>
   /** Ask for a new version now; resolves to a sentence describing what happened. */
   checkForUpdates(): Promise<string>

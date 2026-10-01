@@ -204,6 +204,7 @@ export function StatusBar(): React.JSX.Element | null {
       {remoteHost && (
         <span className="statusbar__item statusbar__path" data-status="remote" title={`This session is on ${remoteHost}, over SSH`}>
           remote · {remoteHost}
+          {terminal?.remoteCwd ? ` · ${terminal.remoteCwd}` : ''}
         </span>
       )}
       {cwd && (

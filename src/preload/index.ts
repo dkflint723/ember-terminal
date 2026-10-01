@@ -240,6 +240,15 @@ const api: EmberApi = {
     return () => ipcRenderer.removeListener('pty:exit', listener)
   },
 
+  /** An ssh session's host wants an answer, or integration loaded, or the shell is not bash. */
+  onSshIntegration: (cb: (e: { paneId: string; host: string; state: 'ask' | 'loaded' | 'unsupported' | 'slow' }) => void) => {
+    const listener = (_: unknown, e: { paneId: string; host: string; state: 'ask' | 'loaded' | 'unsupported' | 'slow' }): void => cb(e)
+    ipcRenderer.on('ssh:integration', listener)
+    return () => ipcRenderer.removeListener('ssh:integration', listener)
+  },
+  /** Yes or no to typing integration into this ssh session's host, kept for the host. */
+  sshAnswer: (paneId: string, yes: boolean) => ipcRenderer.send('ssh:answer', paneId, yes),
+
   listProfiles: (): Promise<ShellProfile[]> => ipcRenderer.invoke('profiles:list'),
   checkForUpdates: (): Promise<string> => ipcRenderer.invoke('updates:check'),
   aiChat: (req: AiChatRequest): void => ipcRenderer.send('ai:chat', req),

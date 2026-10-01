@@ -49,6 +49,7 @@ const ORDER = [
   'verify-project-env',
   'verify-worktrees',
   'verify-ssh-remote',
+  'verify-ssh-integration',
   'verify-windows',
   'verify-admin',
   'verify-chrome',

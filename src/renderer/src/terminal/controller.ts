@@ -775,7 +775,12 @@ export class TerminalController {
           void this.finishBlock(marker.exitCode)
           return
         case 'cwd':
+          // A shell on another machine names a folder there, whatever shape it has.
+          if (this.isRemote()) return
           void this.adoptCwd(marker.path)
+          return
+        case 'remoteCwd':
+          if (this.isRemote()) this.store().patchPane(this.paneId, { remoteCwd: marker.path })
           return
         case 'command':
           this.adoptCommand(marker.text)
@@ -789,12 +794,18 @@ export class TerminalController {
       return
     }
     if (data.startsWith('P;Cwd=')) {
-      void this.adoptCwd(unescapeOsc(data.slice('P;Cwd='.length)))
+      if (!this.isRemote()) void this.adoptCwd(unescapeOsc(data.slice('P;Cwd='.length)))
       return
     }
     if (data.startsWith('E;')) {
       this.adoptCommand(unescapeOsc(data.slice(2)).trim())
     }
+  }
+
+  /** Whether this pane's shell is on another machine (an ssh session). */
+  private isRemote(): boolean {
+    const pane = this.store().terminalPane(this.paneId)
+    return !!remoteHostOf(this.store().profiles.find((p) => p.id === pane?.profileId))
   }
 
   /**
@@ -2028,6 +2039,30 @@ export function allControllers(): TerminalController[] {
 
 /** Fan pty output out to the right controller. */
 window.ember.onData(({ paneId, data }) => registry.get(paneId)?.write(data))
+
+/*
+ * Blocks for an ssh host (audit R31, phase 2): asked once per host, at its first
+ * prompt; main does the typing, and only for a host answered yes. See
+ * main/remote-shell.ts and shared/remote-integration.ts.
+ */
+window.ember.onSshIntegration(({ paneId, host, state }) => {
+  const s = useStore.getState()
+  if (!s.panes[paneId]) return
+  if (state === 'ask') {
+    s.setNotice(
+      `Show blocks for commands on ${host}? Ember would type its shell integration — a short bash script, nothing installed — into ${host}'s shell at its first prompt, each time you connect, as any user. Only before you type anything.`,
+      'info',
+      [
+        { label: `Yes, for ${host}`, run: () => window.ember.sshAnswer(paneId, true) },
+        { label: `Not for ${host}`, run: () => window.ember.sshAnswer(paneId, false) }
+      ]
+    )
+  } else if (state === 'unsupported') {
+    s.setNotice(`${host}'s shell did not answer as bash, so its commands cannot be blocks. Not tried on ${host} again; forgetting ${host} in Settings asks again.`, 'info')
+  } else if (state === 'slow') {
+    s.setNotice(`${host} did not answer in time, so this session has no blocks. It is tried again next time you connect.`, 'info')
+  }
+})
 
 window.ember.onExit(({ paneId, exitCode }) => {
   const store = useStore.getState()

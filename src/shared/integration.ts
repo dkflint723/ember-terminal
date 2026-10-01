@@ -24,6 +24,8 @@
 export type EmberMarker =
   | { kind: 'ready' }
   | { kind: 'cwd'; path: string }
+  /** A directory on another machine: shown, never followed. See remote-integration.ts. */
+  | { kind: 'remoteCwd'; path: string }
   | { kind: 'command'; text: string }
   | { kind: 'output' }
   | { kind: 'finished'; exitCode: number }
@@ -77,6 +79,10 @@ export function parseEmberMarker(data: string, nonce: string): EmberMarker | nul
   }
   if (kind === 'P') {
     const field = body.slice(1).join(';')
+    if (field.startsWith('RemoteCwd=')) {
+      const path = unescapeField(field.slice('RemoteCwd='.length))
+      return path.length === 0 || path.length > 4096 ? null : { kind: 'remoteCwd', path }
+    }
     if (!field.startsWith('Cwd=')) return null
     const path = unescapeField(field.slice('Cwd='.length))
     return path.length === 0 ? null : { kind: 'cwd', path }

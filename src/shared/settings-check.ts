@@ -192,6 +192,11 @@ function checkField(key: keyof Settings, value: unknown, issues: Issue[]): unkno
     return ok ? value : wrong(`projectEnvChoices should map folders to yes or no, and was ${show(value)}`)
   }
 
+  if (key === 'remoteIntegration') {
+    const ok = isRecord(value) && Object.entries(value).every(([host, v]) => host.length > 0 && host.length <= 255 && (v === 'on' || v === 'off'))
+    return ok ? value : wrong(`remoteIntegration should map ssh hosts to on or off, and was ${show(value)}`)
+  }
+
   if (key === 'windowBounds') {
     if (value === null) return null
     const ok =
@@ -263,6 +268,9 @@ export const NOT_PORTABLE: readonly (keyof Settings)[] = [
   'pendingUpdateVersion',
   'firstRunDone',
   'trustedFolders',
+  // A yes to typing into a host is this machine's: `prod` here need not be `prod`
+  // anywhere else, and an imported file must not switch a host on unasked.
+  'remoteIntegration',
   'migrations'
 ]
 

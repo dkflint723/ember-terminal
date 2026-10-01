@@ -103,7 +103,7 @@ export function SessionList(): React.JSX.Element {
     if (pane?.kind !== 'terminal') return { branch: false, text: '' }
     // A session on another machine says which, before anything about this one.
     const host = remoteHostOf(profiles.find((p) => p.id === pane.profileId))
-    if (host) return { branch: false, text: `remote · ${host}` }
+    if (host) return { branch: false, text: `remote · ${host}${pane.remoteCwd ? `:${pane.remoteCwd}` : ''}` }
     const inWorkspace = workspaceGit
       ? isInside(workspaceGit.root, pane.cwd) || samePath(workspaceGit.root, pane.cwd)
       : false

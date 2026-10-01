@@ -36,6 +36,7 @@ check('but not ~. inside a line', !endsWithEscape('\recho ~.') && !endsWithEscap
 check('a connection that held starts the count in all again too', nextReconnect(0, 6 * 3600_000, { typed: true, total: RECONNECT_LIMIT })?.total === 1)
 check('~. sent with its Enter from the composer is closed on purpose', endsWithEscape('\r~.\r'))
 check('the terminal answering for itself is not typing', ['\x1b[I', '\x1b[O', '\x1b[?1;2c', '\x1b[>0;276;0c', '\x1b[0n', '\x1b[12;40R', '\x1b[<0;10;5M', '\x1b]11;rgb:0000/0000/0000\x1b\\', '\x1bP1$r0m\x1b\\'].every(isTerminalReply))
+check('and Alt with ] P _ ^ is a key, not the start of a reply', !['\x1b]', '\x1bP', '\x1b_', '\x1b^', '\x1b]x', '\x1bPq'].some(isTerminalReply))
 check('but keys are, arrows and Escape included', !['a', '\r', '\x1b', '\x1b[A', '\x1bOB', '\x1b[3~', '\x1bb', '~.'].some(isTerminalReply))
 check('-P takes a value', host('ssh', ['-P', 'tag', 'web1']) === 'web1')
 

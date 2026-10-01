@@ -230,6 +230,7 @@ if (isAdminWindow) {
   app.setPath('userData', mine)
 }
 import { PtyManager } from './pty.js'
+import { choiceFor, RemoteIntegration } from './remote-shell.js'
 import { createLog } from './log.js'
 import { diagnosticsReport, type Environment } from './diagnostics.js'
 import { arch, release } from 'node:os'
@@ -1788,7 +1789,14 @@ function registerIpc(): void {
     return taken
   })
   ipcMain.on('pty:write', (e, paneId: string, data: string) => {
-    if (ownsPane(e, paneId, 'pty:write')) ptys.write(paneId, data)
+    if (!ownsPane(e, paneId, 'pty:write')) return
+    // Seen by the ssh watch first: once a person has typed, nothing is typed for them.
+    ptys.noteInput(paneId, data)
+    ptys.write(paneId, data)
+  })
+  // The person's answer about typing integration into this ssh session's host.
+  ipcMain.on('ssh:answer', (e, paneId: string, yes: boolean) => {
+    if (ownsPane(e, paneId, 'ssh:answer')) ptys.answerRemote(paneId, yes === true)
   })
   ipcMain.on('pty:resize', (e, paneId: string, cols: number, rows: number) => {
     if (ownsPane(e, paneId, 'pty:resize')) ptys.resize(paneId, cols, rows)
@@ -2652,6 +2660,19 @@ function registerIpc(): void {
     // A shortcut that cannot be one is said to be, with why, before the check takes it out.
     const shortcutWhy = typeof patch.dropdownShortcut === 'string' ? shortcutProblem(patch.dropdownShortcut) : null
     if (shortcutWhy) sendToAll('ui:notice', { text: `${patch.dropdownShortcut} ${shortcutWhy}.`, tone: 'error' })
+    /*
+     * A host's yes comes only from the question asked in its own session. Through
+     * here — the Settings dialog saving its whole draft, or anything else in a window
+     * — a host can be forgotten or turned off, never turned on.
+     */
+    if (patch.remoteIntegration && typeof patch.remoteIntegration === 'object') {
+      const held = settings.get().remoteIntegration ?? {}
+      const kept: Record<string, 'on' | 'off'> = {}
+      for (const [host, value] of Object.entries(patch.remoteIntegration)) {
+        if (value === 'off' || (value === 'on' && choiceFor(held, host) === 'on')) kept[host] = value
+      }
+      patch = { ...patch, remoteIntegration: kept }
+    }
     const res = settings.set(patch)
     // The drop-down's shortcut, re-registered as it changes; said when it is taken.
     if (!shortcutWhy && patch.dropdownShortcut !== undefined && !registerDropdownShortcut(res.settings.dropdownShortcut ?? '')) {
@@ -3047,6 +3068,19 @@ process.on('unhandledRejection', (reason) => {
         paneOwners.delete(paneId)
       },
       () => ide.env()
+    )
+    // Integration typed into ssh sessions, for the hosts the person said yes to.
+    ptys.setRemote(
+      new RemoteIntegration({
+        write: (paneId, data) => ptys.write(paneId, data),
+        choice: (host) => choiceFor(settings.get().remoteIntegration, host),
+        setChoice: (host, choice) => {
+          const res = settings.set({ remoteIntegration: { ...(settings.get().remoteIntegration ?? {}), [host]: choice } })
+          sendToAll('settings:changed', forRenderer(res.settings))
+        },
+        notify: (event) => sendToPaneOwner(event.paneId, 'ssh:integration', event),
+        script: () => ptys.integrationScript('integration.bash')
+      })
     )
     dap = new DapService((ownerWindowId, sessionId, event, body) =>
       sendToWindow(ownerWindowId, 'dap:event', { sessionId, event, body })

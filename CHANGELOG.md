@@ -5,6 +5,82 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Blocks for commands on an SSH host, for the hosts you say yes to
+
+- **An SSH session was a plain terminal.** Ember's blocks come from a script it puts
+  into the shell it starts, and the shell in an SSH session is on a machine Ember has
+  no business writing to — so no blocks, no exit codes, no command risk labels there.
+- **Now the first time a session to a host reaches a shell prompt, Ember asks**:
+  "Show blocks for commands on web1? Ember would type its shell integration — a short
+  bash script, nothing installed — into web1's shell after you log in, each time you
+  connect." The answer is kept for that host: *Yes* loads it in every session there
+  from then on, *Not for web1* is never asked again. Nothing is typed into a host
+  before it has been answered yes, and Settings lists the hosts answered and forgets
+  any of them.
+- **What is typed, and when.** One moment per connection: the first time the session
+  sits quietly at what looks like a prompt — never a password, passphrase or host-key
+  question — and only if nothing has been typed into it since it started. A yes given
+  while the pane is still at that untouched first prompt acts on it; a yes given after
+  the person has typed, or after the screen has moved on, is kept for the next
+  connection and types nothing now. One yes covers every user on that host. A short
+  line is typed and seen, after a Ctrl-U that clears the line should it somehow not be
+  empty: it turns echo off, says with
+  this session's nonce that it is listening, reads the script as lines of base64,
+  turns echo back on and runs it — so the session does not fill with the script, and
+  the script's lines are never echoed. It then takes that line back out of the remote
+  shell's history. The nonce is a shell variable there, not exported to anything run.
+  A shell that is not bash comes back to its prompt without saying it is listening; it
+  is said so, and that host is not tried again. A host that is only slow to answer is
+  said to be, and tried again next connection. Reconnecting loads it again.
+- **The yes is this machine's, and the question's alone.** A host is switched on only
+  by answering its question in its own session: Settings can forget a host or turn it
+  off, and main refuses anything that would turn one on from anywhere else. The
+  answers are not carried in a settings export — `prod` here need not be `prod`
+  anywhere else.
+- **Corrected before landing, after a QA pass.** The first version acted at any quiet
+  prompt for as long as a pane had been asked, and on the answer whatever the pane was
+  doing by then: a late yes typed the script into a Python REPL, a yes in one pane
+  loaded it into another that had since gone on with `ssh db`, and a person's
+  half-typed `rm -rf build #` would have been finished by the line's Enter and run. A
+  host named `constructor` or `__proto__` read as a yes without being asked. And a
+  load that took over eight seconds turned the host off for good. Each of those is now
+  a case in *remote shell* (unit tables), which the first version fails 14 of. A
+  second pass closed three smaller gaps: Alt+] and Alt+Shift+P were taken for the
+  terminal's own replies rather than typing; keys pressed while the script was being
+  read were read into it and run — now only what decodes to this session's script,
+  its nonce first, is run; and a line eaten by a banner's "press Enter" before the
+  shell read it could mark a bash host as not bash.
+- **The remote directory is shown, never followed.** The session card and status bar
+  read *remote · web1 · /srv/app*; the pane's folder on this machine is never changed
+  by anything the remote shell reports — even a Windows host's `C:\` path names a
+  folder on that host.
+- **Known, and not Ember's:** Git for Windows ships its own `ssh.exe` in `usr\bin`,
+  and where that directory is on PATH ahead of Windows' it is the one a bare `ssh`
+  finds. Under a Windows console it loses the first key typed after the terminal is
+  resized — the session's first command after a resize can arrive without its first
+  letter, however long after the resize it is typed. Measured with no Ember in the
+  path: 7 lines of 12 into a plain bash through Git's ssh, 0 of 12 through Windows'
+  own `C:\Windows\System32\OpenSSH\ssh.exe`, which is what a default install finds.
+- **How it is checked:** a new suite, `verify-ssh-integration`, against a real sshd —
+  started inside WSL as this user on a localhost port with its own keys, and removed
+  afterwards (`scripts/ssh-test-server.mjs`) — and Windows' own `ssh.exe`. The first
+  prompt must ask, with nothing loaded before the answer; after yes, commands there
+  must be blocks with their output and exit codes, signed with the session's nonce; the
+  remote directory must show as remote with no local folder claimed; the typed line
+  must not be in the remote history and the nonce not in its environment; the screen
+  must not hold the script; the next session to the host must load without asking;
+  and a host whose session runs python rather than bash must be said not to be bash,
+  set to off, and left a plain terminal. *remote integration* (in the unit tables) runs
+  the typed line and the script through a real interactive bash and requires the
+  functions, the unexported nonce, the history removed (and fails with that step taken
+  out), and nothing from dash; and judges 15 screens prompt or not. Without an SSH
+  server the suite says so and passes, unless `EMBER_REQUIRE_SSHD` is set.
+- **Not done:** CI has no SSH server for it — GitHub's Windows runner has no WSL
+  distro — so the suite runs where one exists (a developer's machine with
+  openssh-server in WSL) and says plainly that it had nothing to run against
+  everywhere else. On the build before this, it fails at its first check: nothing
+  asks.
+
 ### A command typed as the last one ends reaches bash whole
 
 - **Git Bash could lose the start of a command typed the moment the last one

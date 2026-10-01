@@ -86,6 +86,8 @@ for (const [label, raw, key] of [
   ['a boolean as a word', { restoreSession: 'yes' }, 'restoreSession'],
   ['a chord that is a number', { keybindings: { 'palette.commands': 1 } }, 'keybindings'],
   ['a key that is a number', { anthropicApiKey: 5 }, 'anthropicApiKey'],
+  ['an ssh host answered with a word nobody offers', { remoteIntegration: { web1: 'yes' } }, 'remoteIntegration'],
+  ['ssh hosts as a list', { remoteIntegration: ['web1'] }, 'remoteIntegration'],
   ['half a rectangle', { windowBounds: { x: 1 } }, 'windowBounds'],
   ['a theme that is not a name', { themeId: ['tidewater'] }, 'themeId']
 ]) {

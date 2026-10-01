@@ -2,6 +2,8 @@ import { spawn as ptySpawn, type IPty } from '@lydell/node-pty'
 import { randomBytes } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { unsupportedShellOf } from '../shared/quote.js'
+import { remoteHostOf } from '../shared/ssh-remote.js'
+import type { RemoteIntegration } from './remote-shell.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { app } from 'electron'
@@ -62,6 +64,31 @@ const STARTING_BOUND_MS = 5_500
 
 export class PtyManager {
   private sessions = new Map<string, Session>()
+  /** Watches ssh sessions for the moment to type integration in: main/remote-shell.ts. */
+  private remote: RemoteIntegration | null = null
+
+  setRemote(remote: RemoteIntegration): void {
+    this.remote = remote
+  }
+
+  /** What the window sent, for the ssh watch: see RemoteIntegration.input. */
+  noteInput(paneId: string, data: string): void {
+    this.remote?.input(paneId, data)
+  }
+
+  /** The person's answer for an ssh session's host: see RemoteIntegration.answer. */
+  answerRemote(paneId: string, yes: boolean): void {
+    this.remote?.answer(paneId, yes)
+  }
+
+  /** An integration script's text, for typing into a shell on another machine. */
+  integrationScript(name: string): string | null {
+    try {
+      return readFileSync(this.resourcePath('shell-integration', name), 'utf8').replace(/\r\n/g, '\n')
+    } catch {
+      return null
+    }
+  }
 
   constructor(
     private onData: DataSink,
@@ -195,8 +222,12 @@ export class PtyManager {
         session.pausedCount += 1
         pty.pause()
       }
+      // Only this session's output: a shell replaced under the same pane is not watched.
+      if (this.sessions.get(req.paneId) === session) this.remote?.data(req.paneId, d)
       this.onData(req.paneId, d)
     })
+    const remoteHost = remoteHostOf(profile)
+    if (remoteHost) this.remote?.started(req.paneId, remoteHost, nonce)
     pty.onExit(({ exitCode }) => {
       this.unheard.delete(pty)
       /*
@@ -209,6 +240,7 @@ export class PtyManager {
        * not about the new shell.
        */
       if (this.sessions.get(req.paneId) !== session) return
+      this.remote?.closed(req.paneId)
       this.sessions.delete(req.paneId)
       this.onExit(req.paneId, exitCode)
     })
@@ -483,6 +515,7 @@ export class PtyManager {
   kill(paneId: string): void {
     const s = this.sessions.get(paneId)
     if (!s) return
+    this.remote?.closed(paneId)
     this.sessions.delete(paneId)
     // Still in `unheard` until its exit arrives: see endEveryShell.
     try {

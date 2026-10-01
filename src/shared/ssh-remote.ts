@@ -76,7 +76,9 @@ export const endsWithEscape = (typed: string): boolean => /(^|[\r\n])~\.[\r\n]?$
 /**
  * Whether data bound for the shell is the terminal answering for itself — a focus
  * report, a reply to a query, a mouse report — rather than a person typing. By their
- * exact shapes, since an arrow key starts with ESC [ as well, and is typing.
+ * exact shapes, since an arrow key starts with ESC [ as well, and is typing. A string
+ * reply (OSC, DCS, APC, PM) only with its terminator: Alt+] is ESC ] alone, and
+ * Alt+Shift+P is ESC P, and those are keys (QA).
  */
 export const isTerminalReply = (data: string): boolean =>
-  /^\x1b(\[[IO]|\[[?>=]?[\d;]*[cn]|\[\d+;\d+R|\[M[\s\S]{3}|\[<[\d;]+[Mm]|\][\s\S]*|P[\s\S]*|_[\s\S]*|\^[\s\S]*)$/.test(data)
+  /^\x1b(\[[IO]|\[[?>=]?[\d;]*[cn]|\[\d+;\d+R|\[M[\s\S]{3}|\[<[\d;]+[Mm]|\][\s\S]+(?:\x07|\x1b\\)|[P_^][\s\S]+\x1b\\)$/.test(data)

@@ -171,6 +171,11 @@ export interface TerminalPaneState extends BasePane {
    */
   reconnect?: { at: number; attempt: number; total?: number } | null
   /**
+   * Where an ssh session's shell is, on its own machine, once integration there says
+   * so. Shown, never followed: `cwd` stays the folder on this machine.
+   */
+  remoteCwd?: string
+  /**
    * Blocks taken off the screen by Clear, kept so that Undo can put them back.
    *
    * Clear used to delete them from the history database as well, which is a

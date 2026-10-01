@@ -943,6 +943,37 @@ export function SettingsPanel(): React.JSX.Element | null {
                 </div>
               </div>
 
+              {/* Blocks over ssh: the hosts answered, main/remote-shell.ts. */}
+              {Object.keys(draft.remoteIntegration ?? {}).length > 0 && (
+                <div className="field">
+                  <span className="field__label">Blocks for commands on SSH hosts</span>
+                  <div className="field__note">
+                    {Object.entries(draft.remoteIntegration ?? {}).map(([host, choice]) => (
+                      <span key={host} className="remote-host">
+                        <code>{host}</code> {choice === 'on' ? 'on' : 'off'}{' '}
+                        <button
+                          className="btn"
+                          aria-label={`Forget the answer for ${host}`}
+                          onClick={() => {
+                            const next = { ...(draft.remoteIntegration ?? {}) }
+                            delete next[host]
+                            field('remoteIntegration', next)
+                          }}
+                        >
+                          Forget
+                        </button>{' '}
+                      </span>
+                    ))}
+                    <div>
+                      For a host answered yes, Ember types its bash integration into the shell there at its
+                      first prompt, each time you connect and only before you type; nothing is installed. A
+                      host is turned on only by answering its question in a session; here it can be
+                      forgotten, and a forgotten host is asked again.
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* A window summoned from anywhere: main's toggleDropdown. */}
               <div className="field">
                 <label htmlFor="settings-dropdown">Drop-down window shortcut</label>
