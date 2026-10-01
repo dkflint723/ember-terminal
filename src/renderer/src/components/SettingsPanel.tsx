@@ -929,10 +929,11 @@ export function SettingsPanel(): React.JSX.Element | null {
                   <option value="off">None</option>
                 </select>
                 <div className="field__note">
-                  Commands Claude proposes, Run again, and pastes are labelled when they delete for
+                  Commands Claude proposes are labelled, and Run again asks first, when they delete for
                   good, run code from the internet, ask for administrator rights or rewrite git
                   history. Labels only warn. With labels on, what cannot be undone takes a second
-                  click — and in the administrator’s window, anything labelled does.
+                  click — and in the administrator’s window, anything labelled does. A paste that is
+                  already asked about, because it runs several lines at once, says what it holds.
                 </div>
               </div>
 

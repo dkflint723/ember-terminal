@@ -59,7 +59,22 @@ newest entry sits on top.
   else is offered one, and no shell but PowerShell is.
 - **Settings → Command risk labels**: every kind (the default), only what cannot be
   undone, or none. With none, nothing takes a second press.
-- **How it is checked:** *command risk* (in the unit tables) classifies 208 commands
+- **Corrected before landing, after a QA pass.** The preview was a list of what to
+  refuse, and four ordinary-looking lines got past it and deleted for real in both
+  PowerShells: a trailing `# comment`, which swallowed the `-WhatIf`; plain
+  parentheses and a method call on a variable, which run while being read as an
+  argument; and a script that merely shares a cmdlet's name. It is now an allowlist —
+  a pipeline of bare cmdlet names whose arguments are plain words, paths, quoted
+  strings and `$env:` variables — and the cmdlet is written out by its full name and
+  sent only to a shell at its prompt, never "anyway" into a program, so `cmd`, where
+  `del x -WhatIf` deletes `x`, cannot receive it. The labels now look inside
+  `ForEach-Object { … }` and parentheses, leave quoted text alone (a commit message
+  saying `drop table` is a message), take `npx` as fetching only when it is told to or
+  named with a version — `npx tsc` runs the project's own — and know `docker rm -f`,
+  `find -delete`, `xargs rm`, `git checkout -f`, `aws s3 rm`, `gh repo delete`,
+  `wsl --unregister`, `vssadmin delete shadows` and a script block built from a
+  download. The model's own "hard to undo" now takes the second press too.
+- **How it is checked:** *command risk* (in the unit tables) classifies 240 commands
   against their expected kinds — the labelled and, as many, the ordinary ones that
   must not be — and runs a `-WhatIf` preview in each PowerShell there is, requiring
   the file it would have removed to be there afterwards. `verify-agent` proposes

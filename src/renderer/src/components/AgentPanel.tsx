@@ -494,7 +494,8 @@ function RunCard({ command }: { command: string }): React.JSX.Element {
           </button>
         )}
         {ready.ok && speaksPowerShell && risk.preview && (
-          <button className="btn" title={risk.preview} onClick={() => void sendOrExplain(paneId, risk.preview!)}>
+          // Only to the shell at its prompt: no "anyway" into a program, which may be cmd.
+          <button className="btn" title={risk.preview} onClick={() => void (paneId && typeIntoTerminal(paneId, risk.preview!))}>
             Preview with -WhatIf
           </button>
         )}

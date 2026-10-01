@@ -174,7 +174,8 @@ export const AgentBlock = memo(function AgentBlock({
                       className={`proposal__primary ${risk.armed ? 'proposal__primary--armed' : ''}`}
                       onClick={() => {
                         // What cannot be undone is pressed twice: the first says so.
-                        if (risk.second && !risk.armed) risk.arm()
+                        // The model's own "hard to undo" counts as well as Ember's.
+                        if ((risk.second || proposal.destructive) && !risk.armed) risk.arm()
                         else onRun(proposal.command)
                       }}
                     >

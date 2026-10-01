@@ -2,7 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { useChord, useStore, type Block, type TerminalPaneState } from '../state/store'
 import { useLearned } from '../composer/learned'
 import { getController } from '../terminal/controller'
-import { sendOrExplain } from '../terminal/typing'
+import { sendOrExplain, typeIntoTerminal, whyNot } from '../terminal/typing'
 import { AgentBlock } from './AgentBlock'
 import { BlockView } from './BlockView'
 import { InputEditor } from './InputEditor'
@@ -730,7 +730,16 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
                     })
                   }
                   // A preview runs and changes nothing, so the proposal stays open.
-                  onPreview={speaksPowerShell ? (command) => void rerun(command) : undefined}
+                  onPreview={
+                    speaksPowerShell
+                      ? (command) => {
+                          // Only to the shell at its prompt — never "anyway" into a
+                          // program, which may be cmd, where -WhatIf means nothing.
+                          const sent = typeIntoTerminal(pane.id, command)
+                          if (!sent.ok) useStore.getState().setNotice(`The preview was not run: ${whyNot(sent)}.`, 'info')
+                        }
+                      : undefined
+                  }
                 />
               ) : (
                 <BlockView

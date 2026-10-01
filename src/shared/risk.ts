@@ -56,9 +56,45 @@ function verbOf(segment: string): { verb: string; rest: string } {
   return { verb: ALIASES[bare] ?? bare, rest: m[4] ?? '' }
 }
 
-/** A command line's segments — what runs one after another or side by side. */
+/**
+ * A command line's segments — what runs one after another or side by side, and what
+ * runs inside a script block or parentheses: `ForEach-Object { Remove-Item $_ }`
+ * deletes as surely as `Remove-Item` does. Quoted text is not split, so a commit
+ * message holding `; rm -rf` is a message.
+ */
 function segmentsOf(command: string): string[] {
-  return command.split(/\r?\n|;|&&|\|\||\|/).map((s) => s.trim()).filter((s) => s.length > 0)
+  const out: string[] = []
+  let current = ''
+  let quote: string | null = null
+  const text = command.replace(/\r\n?/g, '\n')
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i]
+    if (quote) {
+      current += c
+      if (c === quote) quote = null
+      continue
+    }
+    if (c === '"' || c === "'") {
+      quote = c
+      current += c
+      continue
+    }
+    const two = text.slice(i, i + 2)
+    if (two === '&&' || two === '||') {
+      out.push(current)
+      current = ''
+      i += 1
+      continue
+    }
+    if ('\n;|{}()'.includes(c)) {
+      out.push(current)
+      current = ''
+      continue
+    }
+    current += c
+  }
+  out.push(current)
+  return out.map((s) => s.trim().replace(/^[$@]$/, '')).filter((s) => s.length > 0)
 }
 
 const has = (rest: string, flag: RegExp): boolean => flag.test(` ${rest} `)
@@ -118,18 +154,62 @@ function segmentRisks(segment: string): Risk[] {
       break
     case 'docker':
     case 'podman':
-      if (has(rest, /^\s*(system|volume|image|container|builder|network)\s+prune\b/i) || has(rest, /^\s*volume\s+rm\b/i) || has(rest, /^\s*rm\s.*\s-f\b/i)) {
+      if (
+        has(rest, /^\s*(system|volume|image|container|builder|network)\s+prune\b/i) ||
+        has(rest, /^\s*volume\s+rm\b/i) ||
+        has(rest, /^\s*rm\b.*\s(-f|--force)\b/i) ||
+        has(rest, /^\s*rmi\b/i) ||
+        has(rest, /^\s*compose\b.*\sdown\b.*\s(-v|--volumes)\b/i)
+      ) {
         add('irreversible', 'deletes containers, images or volumes')
       }
       break
     case 'npm':
       if (has(rest, /^\s*unpublish\b/i)) add('irreversible', 'removes a published package')
-      if (has(rest, /^\s*exec\b/i)) add('network-executes', 'fetches a package and runs it')
+      // Only when it fetches without asking: npm asks before it downloads otherwise.
+      if (has(rest, /^\s*exec\b/i) && has(rest, /\s(-y|--yes)\b/i)) add('network-executes', 'fetches a package and runs it')
       break
     case 'npx':
+      // `npx tsc` runs the project's own; it fetches without asking only when told
+      // to, or when named with a version.
+      if (has(rest, /\s(-y|--yes|-p|--package)\b/i) || /^\s*(@?[\w.-]+\/)?[\w.-]+@[\w.^~-]+/.test(rest)) {
+        add('network-executes', 'fetches a package and runs it')
+      }
+      break
     case 'bunx':
     case 'uvx':
       add('network-executes', 'fetches a package and runs it')
+      break
+    case 'find':
+      if (has(rest, /\s-delete\b/) || has(rest, /\s-exec(dir)?\s+rm\b/)) add('irreversible', 'deletes the files it finds')
+      break
+    case 'xargs': {
+      // What it runs, judged as itself.
+      const inner = rest.replace(/^(\s*-\S+(\s+\S+)?)*/, '')
+      out.push(...segmentRisks(inner))
+      break
+    }
+    case 'aws':
+      if (has(rest, /^\s*s3\s+(rm|rb)\b/i)) add('irreversible', 'deletes objects or buckets')
+      break
+    case 'gh':
+      if (has(rest, /^\s*(repo|release)\s+delete\b/i)) add('irreversible', 'deletes a repository or release on GitHub')
+      break
+    case 'wsl':
+      if (has(rest, /\s--unregister\b/i)) add('irreversible', 'deletes a Linux distribution and everything in it')
+      break
+    case 'vssadmin':
+      if (has(rest, /^\s*delete\s+shadows\b/i)) add('irreversible', 'deletes the shadow copies Windows restores from')
+      break
+    case 'cipher':
+      if (has(rest, /\s\/w\b/i)) add('irreversible', 'overwrites free space, so deleted files cannot be recovered')
+      break
+    case 'sqlcmd':
+    case 'psql':
+    case 'mysql':
+    case 'sqlite3':
+    case 'invoke-sqlcmd':
+      if (/\b(drop\s+(table|database|schema)|truncate\s+table)\b/i.test(rest)) add('irreversible', 'drops database tables or their rows')
       break
     case 'pnpm':
     case 'yarn':
@@ -211,7 +291,10 @@ function gitRisks(rest: string): Risk[] {
       }
       break
     case 'checkout':
-      if (flag(/\s--\s|\s\.\s/)) out.push({ class: 'irreversible', why: 'throws away changes to files' })
+      if (flag(/\s--\s|\s\.\s|\s(-f|--force)\b/)) out.push({ class: 'irreversible', why: 'throws away changes to files' })
+      break
+    case 'switch':
+      if (flag(/\s(-f|--force|--discard-changes)\b/)) out.push({ class: 'irreversible', why: 'throws away changes to files' })
       break
     case 'restore':
       if (!flag(/\s--staged\b|\s-S\b/) || flag(/\s--worktree\b|\s-W\b/)) out.push({ class: 'irreversible', why: 'throws away changes to files' })
@@ -268,8 +351,8 @@ const WHOLE: { test: RegExp; risk: Risk }[] = [
     risk: { class: 'network-executes', why: 'downloads a script and runs it' }
   },
   {
-    test: /\b(drop\s+(table|database|schema)|truncate\s+table)\b/i,
-    risk: { class: 'irreversible', why: 'drops database tables or their rows' }
+    test: /\[scriptblock\]::create\s*\(.*\b(iwr|irm|invoke-webrequest|invoke-restmethod|downloadstring|curl|wget)\b/i,
+    risk: { class: 'network-executes', why: 'downloads a script and runs it' }
   }
 ]
 
@@ -319,22 +402,51 @@ const SHOULD_PROCESS = new Set([
 ])
 
 /** Cmdlets that only read, and so may stand before the one being previewed. */
-const READERS = /^(get-[a-z]+|select-object|sort-object|where-object|measure-object|test-path|resolve-path|split-path|join-path)$/
+const READERS = /^(get-[a-z]+|select-object|sort-object|where-object|measure-object|test-path|resolve-path|split-path|join-path|gci|gi|ls|dir)$/
+
+/** A cmdlet's name as PowerShell writes it: Remove-Item, not remove-item. */
+const properName = (verb: string): string => verb.replace(/(^|-)([a-z])/g, (_m, dash: string, c: string) => dash + c.toUpperCase())
 
 /**
- * The same command with -WhatIf, when that is certain to change nothing: a single
- * pipeline of PowerShell readers ending in one cmdlet that honours -WhatIf, with no
- * script blocks, subexpressions, redirection or second statement anywhere in it —
- * any of which would run for real while the last cmdlet only pretended. Null for
- * everything else, which is offered no preview rather than a misleading one.
+ * The same command with -WhatIf, when that is certain to change nothing — an
+ * allowlist, not a list of what to refuse (QA found four ordinary-looking lines that
+ * slipped past one). Allowed: a pipeline of PowerShell readers ending in one cmdlet
+ * that honours -WhatIf, each stage starting with a bare cmdlet name — no path, no
+ * extension, so no script that merely shares a cmdlet's name — and arguments made of
+ * plain words, paths, quoted strings without a `|` in them, and `$env:NAME`. Nothing
+ * that runs code while being read as an argument: no parentheses or brackets, no
+ * variable but an environment one, no comment, no script block, no line break, no
+ * redirection, no second statement.
+ *
+ * The cmdlet is written out by its full name, so the line cannot mean anything to cmd
+ * or bash — `del x -WhatIf` in cmd deletes x — and -WhatIf goes at the very end,
+ * where only that cmdlet can take it. Null for anything else: no preview rather than
+ * a misleading one.
  */
 export function whatIfPreview(command: string): string | null {
   const text = command.trim()
-  if (!text || /[;\n`{}]|&&|\|\||\$\(|@\(|>|<|&\s|^&/.test(text)) return null
-  if (/\s-(whatif|confirm)\b/i.test(text) || /\b(iex|invoke-expression|invoke-command|icm)\b/i.test(text)) return null
+  if (!text || /[\r\n;`{}()[\]#@<>&]/.test(text)) return null
+  if (/\s-(whatif|confirm|wh|wi|wha|whati|conf|confi|confir|cf)\b/i.test(text)) return null
+  // A `$` only as `$env:NAME`.
+  if (text.replace(/\$env:[A-Za-z_][A-Za-z0-9_]*/g, '').includes('$')) return null
+  // Quotes balanced, and no `|` inside one, which would split the pipeline wrongly.
+  let quote: string | null = null
+  for (const c of text) {
+    if (quote) {
+      if (c === quote) quote = null
+      else if (c === '|') return null
+    } else if (c === '"' || c === "'") {
+      quote = c
+    }
+  }
+  if (quote) return null
   const parts = text.split('|').map((s) => s.trim())
-  const last = verbOf(parts[parts.length - 1]).verb
+  const firstWord = (part: string): string => /^\S+/.exec(part)?.[0] ?? ''
+  if (!parts.every((p) => /^[A-Za-z][A-Za-z-]*$/.test(firstWord(p)))) return null
+  const lastPart = parts[parts.length - 1]
+  const last = verbOf(lastPart).verb
   if (!SHOULD_PROCESS.has(last)) return null
-  if (!parts.slice(0, -1).every((p) => READERS.test(verbOf(p).verb))) return null
-  return `${text} -WhatIf`
+  if (!parts.slice(0, -1).every((p) => READERS.test(firstWord(p).toLowerCase()) || READERS.test(verbOf(p).verb))) return null
+  const named = `${properName(last)}${lastPart.slice(firstWord(lastPart).length)}`
+  return [...parts.slice(0, -1), named].join(' | ') + ' -WhatIf'
 }
