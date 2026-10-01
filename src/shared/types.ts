@@ -1400,6 +1400,12 @@ export interface EmberApi {
   gitPush(root: string, hasUpstream: boolean): Promise<GitSimpleResult>
   gitPull(root: string): Promise<GitSimpleResult>
   gitBranches(root: string): Promise<string[]>
+  /** The repository's worktrees, the main one first. */
+  gitWorktrees(root: string): Promise<{ path: string; branch: string | null; main: boolean; locked: boolean }[]>
+  /** A new branch in a new worktree beside the repository; trusted when the repository is. */
+  gitWorktreeAdd(root: string, branch: string): Promise<{ ok: true; path: string } | { ok: false; error: string }>
+  /** Remove a worktree, refused when it has anything removing it would lose. */
+  gitWorktreeRemove(root: string, path: string, opts?: { dryRun?: boolean }): Promise<GitSimpleResult>
   /** The committed text of a file, or null when there is nothing to diff against. */
   gitHeadText(filePath: string): Promise<string | null>
   gitCheckout(root: string, name: string, create: boolean): Promise<GitSimpleResult>

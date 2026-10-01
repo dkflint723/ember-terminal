@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { GitStashes } from './GitStashes'
+import { GitWorktrees } from './GitWorktrees'
 import { GitHistory } from './GitHistory'
 import type { GitFileChange } from '@shared/types'
 import { useStore, workspaceRoot } from '../state/store'
@@ -580,6 +581,7 @@ export function SourceControl(): React.JSX.Element {
 
         {/* The two halves of git this panel could not reach: what is put aside,
             and what happened before now. */}
+        <GitWorktrees root={root} busy={busy} act={act} />
         <GitStashes root={root} busy={busy} act={act} />
         <GitHistory root={root} />
       </div>

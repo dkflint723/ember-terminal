@@ -47,6 +47,7 @@ const ORDER = [
   'verify-block-nav',
   'verify-dropdown',
   'verify-project-env',
+  'verify-worktrees',
   'verify-windows',
   'verify-admin',
   'verify-chrome',

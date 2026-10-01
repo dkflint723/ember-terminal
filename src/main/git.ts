@@ -1,4 +1,5 @@
 import { execFile, execFileSync, type ChildProcess } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { decodeText as decodeBytes } from '../shared/encoding.js'
 import { samePath } from '../shared/paths.js'
 import type {
@@ -724,6 +725,84 @@ export class GitService {
 
   async createBranch(root: string, name: string): Promise<GitSimpleResult> {
     return this.simple(root, ['checkout', '-b', name], { timeout: null, cancelKey: root })
+  }
+
+  /*
+   * Worktrees: a second checkout of the same repository, on another branch, beside
+   * the first — parallel work, each with its own shells and its own agent, without a
+   * second clone (audit R33). Listed, added beside the repository, and removed only
+   * when they hold nothing that would be lost.
+   */
+
+  /** Every worktree of the repository, the main one first. */
+  async worktrees(root: string): Promise<{ path: string; branch: string | null; main: boolean; locked: boolean }[]> {
+    try {
+      const { stdout } = await this.git(root, ['worktree', 'list', '--porcelain'])
+      const out: { path: string; branch: string | null; main: boolean; locked: boolean }[] = []
+      for (const record of (stdout as string).split(/\r?\n\r?\n/)) {
+        const lines = record.split(/\r?\n/)
+        const path = lines.find((l) => l.startsWith('worktree '))?.slice(9)
+        if (!path) continue
+        const branch = lines.find((l) => l.startsWith('branch '))?.slice(7).replace(/^refs\/heads\//, '') ?? null
+        out.push({ path: path.replace(/\//g, '\\'), branch, main: out.length === 0, locked: lines.some((l) => l.startsWith('locked')) })
+      }
+      return out
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * A new branch in a new worktree beside the repository: `..\repo-branch`. The name is
+   * checked as git would check it, and the folder must not be there already.
+   */
+  async addWorktree(root: string, branch: string): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
+    const name = branch.trim()
+    if (!name || !/^[A-Za-z0-9._/-]+$/.test(name) || name.startsWith('-') || name.includes('..') || name.endsWith('.lock') || name.endsWith('/')) {
+      return { ok: false, error: `“${name}” is not a branch name git accepts.` }
+    }
+    const top = await this.toplevel(root)
+    if (!top) return { ok: false, error: 'This folder is not in a git repository.' }
+    const base = top.replace(/[\\/]+$/, '')
+    const folder = `${base.slice(0, Math.max(base.lastIndexOf('\\'), base.lastIndexOf('/')))}\\${base.split(/[\\/]/).pop()}-${name.replace(/[/\\]/g, '-')}`
+    if (existsSync(folder)) return { ok: false, error: `${folder} is already there.` }
+    const made = await this.simple(top, ['worktree', 'add', '-b', name, '--', folder], { timeout: null, cancelKey: top })
+    return made.ok ? { ok: true, path: folder } : made
+  }
+
+  /**
+   * Remove a worktree — asked first in the window, and refused here when it has
+   * changes or files git does not track, which removing would lose. Never the main one.
+   */
+  async removeWorktree(root: string, path: string, opts: { dryRun?: boolean } = {}): Promise<GitSimpleResult> {
+    const all = await this.worktrees(root)
+    const target = all.find((w) => w.path.toLowerCase() === path.replace(/\//g, '\\').toLowerCase())
+    if (!target) return { ok: false, error: 'That is not one of this repository’s worktrees.' }
+    if (target.main) return { ok: false, error: 'The main worktree is the repository itself, and is not removed from here.' }
+    if (target.locked) return { ok: false, error: 'That worktree is locked.' }
+    try {
+      const { stdout } = await this.git(target.path, ['status', '--porcelain', '--untracked-files=all'])
+      if ((stdout as string).trim()) {
+        return { ok: false, error: 'That worktree has changes or untracked files, which removing it would lose. Commit or stash them first.' }
+      }
+    } catch (err) {
+      return { ok: false, error: `Its status could not be read: ${err instanceof Error ? err.message : String(err)}` }
+    }
+    // Asked first whether it could be: the window closes the sessions in it only then.
+    if (opts.dryRun) return { ok: true }
+    // Run from the main worktree: git standing in the folder it removes cannot remove it.
+    const main = all.find((w) => w.main)?.path ?? root
+    return this.simple(main, ['worktree', 'remove', '--', target.path], { timeout: null, cancelKey: root })
+  }
+
+  /** The repository's top folder, or null outside one. */
+  private async toplevel(root: string): Promise<string | null> {
+    try {
+      const { stdout } = await this.git(root, ['rev-parse', '--show-toplevel'])
+      return (stdout as string).trim().replace(/\//g, '\\') || null
+    } catch {
+      return null
+    }
   }
 
   /**

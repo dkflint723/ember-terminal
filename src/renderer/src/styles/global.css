@@ -1899,6 +1899,24 @@ button {
   flex: 1 1 auto;
 }
 
+/* A new worktree's branch, typed under the list of them. */
+.worktree__form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.worktree__new {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
+}
+
 /* What a command risks: one label per kind, on the card that would run it (shared/risk.ts). */
 .risk {
   display: flex;

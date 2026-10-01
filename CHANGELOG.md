@@ -5,6 +5,30 @@ newest entry sits on top.
 
 ## Unreleased
 
+### Worktrees, as sessions beside each other
+
+- **Parallel work on another branch meant a second clone**, or stashing and
+  switching the one checkout back and forth — and with an agent working in one
+  branch, switching under it is not an option.
+- **Source Control → Worktrees** lists the repository's worktrees. Type a new branch
+  name and *Make*: a worktree for it is made beside the repository, as
+  `repo-branch`, and opened as a session of its own — its own shells, its own agent,
+  its own project — trusted when the repository it came from is. Each listed worktree
+  opens as a session with one press, or goes to its session if one is open. *Git:
+  New session on a new worktree* in the palette goes straight to the name.
+- **Removing one asks first, and is refused while it holds anything removing it would
+  lose** — changes, or files git does not track — saying to commit or stash them. The
+  branch stays. Sessions open in it are closed as part of removing it, which the
+  question says: Windows will not delete a folder a shell is standing in, and nor will
+  git standing in it, so removal runs from the main worktree. The main worktree is
+  never removed from here.
+- **How it is checked:** a new suite, `verify-worktrees`, on a real repository: the
+  list starts with the repository; a name git would refuse is refused by name; *Make*
+  makes the folder beside the repository on the new branch, opens a session whose
+  shell starts in it, and trusts it; removing asks, naming the session it will close,
+  and is refused while an untracked file is there; and with nothing to lose it is
+  removed, its branch kept. On the build before this there is no list to use.
+
 ### A project's environment, offered once and kept
 
 - **Every session in a project had to be pointed at its environment by hand.** A

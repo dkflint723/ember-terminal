@@ -421,6 +421,15 @@ function commands(): Command[] {
       hint: undefined, run: () => s.showSidebarView('explorer') },
     { id: 'view.search', label: 'View: Search', hint: hintFor('view.search'), run: () => s.showSidebarView('search') },
     { id: 'view.scm', label: 'View: Source Control', hint: hintFor('view.scm'), run: () => s.showSidebarView('scm') },
+    {
+      id: 'git.newWorktree',
+      label: 'Git: New session on a new worktree',
+      run: () => {
+        s.showSidebarView('scm')
+        // The section's own field, focused once the panel is there.
+        window.setTimeout(() => window.dispatchEvent(new Event('ember:new-worktree')), 120)
+      }
+    },
     { id: 'view.github', label: 'View: GitHub', hint: hintFor('view.github'), run: () => s.showSidebarView('github') },
     // Ctrl+O worked but was reachable only by knowing about it. A command that
     // exists and cannot be found is close to one that does not exist.

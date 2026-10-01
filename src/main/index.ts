@@ -2482,6 +2482,25 @@ function registerIpc(): void {
   ipcMain.handle('git:checkout', (_e, root: string, name: string, create: boolean) =>
     create ? git.createBranch(root, name) : git.checkout(root, name)
   )
+  ipcMain.handle('git:worktrees', (_e, root: string) => git.worktrees(root))
+  /*
+   * A worktree made from a folder the user trusts is that same code on another
+   * branch, and is trusted with it — or every session opened on it would be
+   * restricted, which is not what making one was for.
+   */
+  ipcMain.handle('git:worktreeAdd', async (e, root: string, branch: string) => {
+    within(e, 'git:worktreeAdd', root, 'write')
+    const made = await git.addWorktree(root, branch)
+    const current = settings.get()
+    if (made.ok && (isTrustedPath(root, current.trustedFolders) || isTrustedPath(realFolder(root), current.trustedFolders))) {
+      settings.noteTrust(made.path, true)
+    }
+    return made
+  })
+  ipcMain.handle('git:worktreeRemove', (e, root: string, path: string, opts?: { dryRun?: boolean }) => {
+    within(e, 'git:worktreeRemove', path, 'write')
+    return git.removeWorktree(root, path, { dryRun: opts?.dryRun === true })
+  })
   ipcMain.handle('file:write', (e, filePath: string, content: string, opts?: FileWriteOptions) => {
     within(e, 'file:write', filePath, 'write')
     return files.write(filePath, content, {
