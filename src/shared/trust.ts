@@ -121,3 +121,17 @@ export function withoutTrust(trustedFolders: readonly string[], folder: string):
   if (!folder) return [...trustedFolders]
   return trustedFolders.filter((root) => !isInside(folder, root) && !isInside(root, folder))
 }
+
+/**
+ * Forget the trust written down for a folder that is gone, and for anything under
+ * it — never a folder above it.
+ *
+ * A removed worktree is not a revocation: the person withdrew nothing. Its entry
+ * goes so a different folder made at the same place later is not trusted by
+ * accident, but a parent it was trusted through is still trusted for everything
+ * else in it. `withoutTrust` here took `D:\work` away with `D:\work\repo-feat`.
+ */
+export function withoutTrustUnder(trustedFolders: readonly string[], folder: string): string[] {
+  if (!folder) return [...trustedFolders]
+  return trustedFolders.filter((root) => !isInside(folder, root))
+}

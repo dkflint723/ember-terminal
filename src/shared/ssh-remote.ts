@@ -7,7 +7,7 @@
  */
 
 /** ssh's options that take a value, so the host is not mistaken for one of them. */
-const TAKES_VALUE = new Set(['-b', '-c', '-D', '-E', '-e', '-F', '-I', '-i', '-J', '-L', '-l', '-m', '-O', '-o', '-p', '-Q', '-R', '-S', '-W', '-w', '-B'])
+const TAKES_VALUE = new Set(['-b', '-c', '-D', '-E', '-e', '-F', '-I', '-i', '-J', '-L', '-l', '-m', '-O', '-o', '-P', '-p', '-Q', '-R', '-S', '-W', '-w', '-B'])
 
 /**
  * The host an ssh profile connects to — from the profile's own word when it has one,
@@ -37,12 +37,33 @@ export const SSH_CONNECTION_LOST = 255
 /** Seconds before each try at reconnecting, then it stops trying. */
 export const RECONNECT_BACKOFF = [1, 2, 4, 8, 16, 30]
 
+/** Tries in all, held or not, before it stops and leaves the pane to its Restart. */
+export const RECONNECT_LIMIT = 20
+
 /**
  * When to try again, or null to stop: the next wait in the backoff, starting over when
- * the last connection held long enough to have been a connection at all.
+ * the last connection held — long enough, and with something typed into it.
+ *
+ * Time alone was not enough (QA): ssh also exits 255 for a password prompt left
+ * unanswered until the server gives up (two minutes by default), or a server that
+ * accepts and then cuts the connection, and each of those "held" for longer than the
+ * cutoff, so it asked for the password again forever. Nobody typing means nobody is
+ * there to have had a session, so the count goes on; and whatever happens, it stops
+ * after RECONNECT_LIMIT tries.
  */
-export function nextReconnect(attempt: number, heldForMs: number): { attempt: number; waitS: number } | null {
-  const fresh = heldForMs > 15_000 ? 0 : attempt
+export function nextReconnect(
+  attempt: number,
+  heldForMs: number,
+  seen: { typed: boolean; total: number } = { typed: true, total: 0 }
+): { attempt: number; waitS: number; total: number } | null {
+  if (seen.total >= RECONNECT_LIMIT) return null
+  const fresh = heldForMs > 15_000 && seen.typed ? 0 : attempt
   if (fresh >= RECONNECT_BACKOFF.length) return null
-  return { attempt: fresh + 1, waitS: RECONNECT_BACKOFF[fresh] }
+  return { attempt: fresh + 1, waitS: RECONNECT_BACKOFF[fresh], total: seen.total + 1 }
 }
+
+/**
+ * Whether what was last typed ends in ssh's own escape for closing the connection —
+ * `~.` at the start of a line — which exits 255 like a lost connection, but on purpose.
+ */
+export const endsWithEscape = (typed: string): boolean => /(^|[\r\n])~\.$/.test(typed)

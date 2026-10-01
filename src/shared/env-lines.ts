@@ -20,9 +20,21 @@ export const gitBashPath = (p: string): string => p.replace(/\\/g, '/').replace(
  * what is in them (PROMPT_COMMAND, PS1's expansions, BASH_ENV), where a program is
  * found (PATH, PATHEXT, COMSPEC, PSModulePath), how a line is split (IFS), or what
  * Ember's own integration reads (EMBER_*). Skipped, line by line, in both shells.
+ *
+ * And, after QA, what changes the shell or its tools without being a project
+ * setting: TMOUT ends an idle bash; PSExecutionPolicyPreference and
+ * __PSLockdownPolicy loosen every PowerShell started from it; the git, ssh and
+ * editor hooks run a program of the file's choosing the next time git or a pager
+ * is used. NODE_OPTIONS and the like stay settable — projects set them for real —
+ * and what a tool does with them is the tool's.
  */
-const RESERVED_SH = 'PROMPT_COMMAND|PS[0-4]|BASH_ENV|ENV|SHELLOPTS|BASHOPTS|IFS|CDPATH|HISTFILE|PATH|PATHEXT|COMSPEC|PSModulePath|BASH_*|EMBER_*'
-const RESERVED_PS = '^(PROMPT_COMMAND|PS[0-4]|BASH_ENV|ENV|SHELLOPTS|BASHOPTS|IFS|CDPATH|HISTFILE|PATH|PATHEXT|COMSPEC|PSModulePath|BASH_.*|EMBER_.*)$'
+const RESERVED_NAMES = [
+  'PROMPT_COMMAND', 'PS[0-4]', 'BASH_ENV', 'ENV', 'SHELLOPTS', 'BASHOPTS', 'IFS', 'CDPATH', 'HISTFILE', 'TMOUT',
+  'PATH', 'PATHEXT', 'COMSPEC', 'PSModulePath', 'PSExecutionPolicyPreference', '__PSLockdownPolicy',
+  'GIT_SSH', 'GIT_SSH_COMMAND', 'GIT_ASKPASS', 'SSH_ASKPASS', 'GIT_EDITOR', 'GIT_PAGER', 'GIT_EXTERNAL_DIFF', 'EDITOR', 'VISUAL', 'PAGER'
+]
+const RESERVED_SH = [...RESERVED_NAMES, 'BASH_*', 'EMBER_*'].join('|')
+const RESERVED_PS = `^(${[...RESERVED_NAMES, 'BASH_.*', 'EMBER_.*'].join('|')})$`
 
 /** Load a dotenv file into this shell, reading it rather than running it. */
 export function dotenvLine(shell: ActivatingShell, root: string): string {

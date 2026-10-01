@@ -788,8 +788,16 @@ export class GitService {
      */
     let ignored: string[] = []
     try {
-      const { stdout } = await this.git(target.path, ['status', '--porcelain', '--ignored', '--untracked-files=all'])
-      const lines = (stdout as string).split(/\r?\n/).filter(Boolean)
+      /*
+       * Folder by folder, not file by file: with --untracked-files=all a node_modules
+       * came back as every file in it — hundreds of thousands of lines, past the
+       * buffer, and the removal refused as unreadable. An untracked folder still shows,
+       * so refusing on one still works. -z, so a name with a space or an accent is
+       * shown as it is rather than quoted and escaped. `normal` said outright, so a
+       * status.showUntrackedFiles=no in someone's config cannot hide untracked work.
+       */
+      const { stdout } = await this.git(target.path, ['status', '--porcelain', '--ignored', '--untracked-files=normal', '-z'])
+      const lines = (stdout as string).split('\0').filter(Boolean)
       if (lines.some((l) => !l.startsWith('!! '))) {
         return { ok: false, error: 'That worktree has changes or untracked files, which removing it would lose. Commit or stash them first.' }
       }

@@ -37,12 +37,16 @@ const lines = [
   'PROMPT_COMMAND=echo pwned > PWNED3',
   'PS1=$(echo pwned > PWNED4)> ',
   'PATH=C:\\evil',
-  'EMBER_NONCE=forged'
+  'EMBER_NONCE=forged',
+  // Or that change the shell or its tools (QA): an idle bash ended, a looser policy, git's ssh.
+  'TMOUT=1',
+  'PSExecutionPolicyPreference=Bypass',
+  'GIT_SSH_COMMAND=forged'
 ]
 fs.writeFileSync(path.join(root, '.env'), '\ufeff' + lines.join('\r\n') + '\r\n', 'utf8')
 const want = { APP_NAME: 'My App', GREETING: 'hello world', QUOTED: 'single q', RUN1: '$(echo pwned > PWNED1)', RUN2: '`echo pwned > PWNED2`', B: 'spaced', E: 'exported', EQ: 'a=b', TRAIL: 'keep' }
 const names = Object.keys(want)
-const reserved = ['PROMPT_COMMAND', 'PS1', 'EMBER_NONCE']
+const reserved = ['PROMPT_COMMAND', 'PS1', 'EMBER_NONCE', 'TMOUT', 'PSExecutionPolicyPreference', 'GIT_SSH_COMMAND']
 
 const shells = []
 const gitBash = ['C:\\Program Files\\Git\\bin\\bash.exe', 'C:\\Program Files\\Git\\usr\\bin\\bash.exe'].find((p) => fs.existsSync(p))
@@ -61,7 +65,7 @@ for (const shell of shells) {
   if (run.error) continue
   const got = Object.fromEntries((run.stdout ?? '').split(/\r?\n/).filter((l) => l.includes('=')).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]))
   for (const n of names) check(`${shell.name}: ${n} is ${JSON.stringify(want[n])}`, got[n] === want[n], `${JSON.stringify(got[n])} ${run.stderr ? `(${run.stderr.trim().slice(0, 120)})` : ''}`)
-  check(`${shell.name}: names that would run something are not set from it`, !(got.PROMPT_COMMAND ?? '').includes('pwned') && !(got.PS1 ?? '').includes('pwned') && got.EMBER_NONCE !== 'forged', JSON.stringify({ p: got.PROMPT_COMMAND, s: got.PS1, e: got.EMBER_NONCE }))
+  check(`${shell.name}: names that would run something are not set from it`, !(got.PROMPT_COMMAND ?? '').includes('pwned') && !(got.PS1 ?? '').includes('pwned') && got.EMBER_NONCE !== 'forged' && got.TMOUT !== '1' && got.PSExecutionPolicyPreference !== 'Bypass' && got.GIT_SSH_COMMAND !== 'forged', JSON.stringify(Object.fromEntries(reserved.map((n) => [n, got[n]]))))
   check(`${shell.name}: nothing in the file ran`, !['PWNED1', 'PWNED2', 'PWNED3', 'PWNED4'].some((f) => fs.existsSync(path.join(root, f))))
 }
 check('at least one shell was there to run it', shells.length > 0)

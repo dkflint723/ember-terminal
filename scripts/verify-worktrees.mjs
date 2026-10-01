@@ -113,6 +113,12 @@ fs.rmSync(path.join(sibling, 'unsaved-work.txt'))
 // A file git ignores goes with the folder, so the question names it.
 fs.appendFileSync(path.join(repo, '.git', 'info', 'exclude'), '\n*.log\n')
 fs.writeFileSync(path.join(sibling, 'build.log'), 'ignored\n')
+// The folder both sit in, trusted too: removing the worktree must not take it away.
+const parent = path.dirname(sibling)
+await page.evaluate(async (p) => {
+  const s = await window.ember.getSettings()
+  await window.ember.setSettings({ trustedFolders: [...s.trustedFolders, p] })
+}, parent)
 await page.locator('[aria-label="Remove the worktree feat-x"]').click()
 await waitFor(() => !fs.existsSync(sibling), 15_000)
 const question = asked[0] ?? ''
@@ -120,6 +126,9 @@ check('it asks first, saying its session will be closed', /Remove the worktree/.
 check('and naming the ignored files deleted with it', /git ignores/.test(question) && question.includes('build.log'), question)
 check('with nothing to lose, it is removed — its session closed so the folder can go', !fs.existsSync(sibling), await panelSays())
 check('and the branch stays', git('branch', '--list', 'feat-x').includes('feat-x'))
+const left = await page.evaluate(async () => (await window.ember.getSettings()).trustedFolders)
+const key = (f) => f.toLowerCase().replace(/[\\/]+$/, '')
+check('its own trust is forgotten, the folder it sits in still trusted', !left.some((f) => key(f) === key(sibling)) && left.some((f) => key(f) === key(parent)), JSON.stringify(left))
 
 const unclosed = await closeApp(app)
 if (unclosed) failures.push(unclosed)

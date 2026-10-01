@@ -19,8 +19,18 @@ newest entry sits on top.
   connection was lost (its status 255, as against the remote shell's own `exit`), the
   pane says so and starts ssh again after a wait that grows — 1, 2, 4, 8, 16, 30
   seconds — counting down, with *Now* and *Stop*; after six tries it stops and leaves
-  Restart. A connection that held for a while starts the count again. Passwords and
-  host keys stay OpenSSH's business: this only runs ssh again, as Restart would.
+  Restart. A connection that held for a while, and was typed into, starts the count
+  again; twenty tries in all is the end of it either way. Passwords and host keys
+  stay OpenSSH's business: this only runs ssh again, as Restart would.
+- **Corrected before landing, after a QA pass.** ssh also ends with 255 when a
+  password prompt is left until the server gives up — two minutes by default — and
+  that counted as a connection that held, so it asked for the password again
+  forever. A connection nobody typed into now never counts as having held. `~.`,
+  ssh's own way of closing a connection, ends with 255 as well, and is no longer
+  retried. `ssh -P tag host` names the host, not the tag. A project's environment is
+  never offered to a session on another machine. A remote shell that ends with
+  `exit 255` of its own accord is still taken for a lost connection; ssh gives no
+  way to tell them apart.
 - **Not done:** blocks for commands on the remote machine (the audit's second phase:
   an opt-in, per-host integration snippet sent after login) — a remote session is
   still a plain terminal, and says so. And there is no SSH server in CI: the
@@ -30,9 +40,10 @@ newest entry sits on top.
   pointed at a port nothing listens on: the pane, the status bar and the card must
   say remote and name the host; the lost connection must be said with a countdown;
   it must be tried again on its own, *Now* must try at once, and *Stop* must stop and
-  leave Restart. *ssh remote* (13 cases, in the unit tables) holds the host read from
-  an ssh command line — past options and their values, `user@host`, a jump host — and
-  the backoff. On the build before this, the profile cannot even start. Twice while
+  leave Restart. *ssh remote* (19 cases, in the unit tables) holds the host read from
+  an ssh command line — past options and their values, `user@host`, a jump host — the
+  backoff, a connection nobody typed into not counting as held, the limit of twenty,
+  and `~.` told from a lost connection. On the build before this, the profile cannot even start. Twice while
   this was tested, under heavy load, a window holding a live SSH session took long
   to quit; it could not be made to happen again, and every stage of the quit was
   seen to finish in a tenth of a second.
@@ -62,16 +73,23 @@ newest entry sits on top.
   than a second one. A terminal or file from the worktree open in another session is
   not closed for you: removal is refused, saying so. If git lets the worktree go but
   Windows keeps part of the folder, that is said, with the rest a press from the
-  Recycle Bin, instead of a quiet half-removal. A removed worktree's folder is no
-  longer trusted, so a later folder of the same name is not; and a worktree made from
-  another worktree takes its trust from the repository itself.
+  Recycle Bin, instead of a quiet half-removal. What was trusted at a removed
+  worktree's folder is forgotten, so a later folder of the same name is not trusted —
+  and only that: a folder above it, through which it was trusted along with
+  everything else there, stays trusted. A worktree made from another worktree takes
+  its trust from the repository itself. Ignored folders are named as folders —
+  `node_modules/`, not every file in it, which in a real project ran past what git's
+  answer could hold and refused the removal — and a `status.showUntrackedFiles=no`
+  in someone's git config cannot hide untracked work from the check.
 - **How it is checked:** a new suite, `verify-worktrees`, on a real repository: the
   list starts with the repository; a name git would refuse is refused by name; *Make*
   makes the folder beside the repository on the new branch, opens a session whose
   shell starts in it, and trusts it; removing is refused, before anything is asked,
   while an untracked file is there; then it asks, naming the session it will close and
   an ignored `build.log`, and with nothing else to lose it is removed, its branch
-  kept. On the build before this there is no list to use.
+  kept, its own trust forgotten and the folder it sits in still trusted. *workspace
+  trust* (in the unit tables) holds the same: forgetting `D:\work\repo-feat` keeps
+  `D:\work`. On the build before this there is no list to use.
 
 ### A project's environment, offered once and kept
 
@@ -108,7 +126,11 @@ newest entry sits on top.
   first is saved can still replace it, and other sessions already open in the folder
   are activated from their next start, not at once. Names that make a shell run
   something or find programs elsewhere — `PROMPT_COMMAND`, `PS1`, `BASH_ENV`, `PATH`,
-  `PATHEXT`, `IFS`, `EMBER_*` and their kind — are not set from a `.env` at all.
+  `PATHEXT`, `IFS`, `EMBER_*` and their kind — are not set from a `.env` at all, nor
+  are `TMOUT`, the PowerShell execution-policy override, or git's and the editor's
+  program hooks (`GIT_SSH_COMMAND`, `GIT_PAGER`, `EDITOR` and the rest). Nothing in
+  the file runs as it is read; what a tool later does with a setting it is given, such
+  as `NODE_OPTIONS`, is that tool's.
 - **How it is checked:** a new suite, `verify-project-env`, opens a trusted folder
   holding a `.venv` and a `.env` with a quoted value and an `export` line: the offer
   must appear; *Activate* must give the shell both, quotes and `export` taken off; no
@@ -116,11 +138,11 @@ newest entry sits on top.
   the `.env` must give names and no values; and the next session there must be
   activated without being asked. *env lines* runs both loaders in Git Bash and each
   PowerShell against a hostile `.env` — spaces, both quotes, `export`, `=` in a value, a
-  `$(…)` and a backtick, a BOM and CRLF, and `PROMPT_COMMAND`, `PS1` and
-  `EMBER_NONCE` lines — requiring every value as written, those three unset, and
-  nothing run. *chat context* (in the unit tables) requires an open
-  `.env.local` to reach the model as names alone, comments kept, and no value — not
-  even one redaction would miss.
+  `$(…)` and a backtick, a BOM and CRLF, and `PROMPT_COMMAND`, `PS1`, `EMBER_NONCE`,
+  `TMOUT`, `PSExecutionPolicyPreference` and `GIT_SSH_COMMAND` lines — requiring
+  every value as written, those six unset, and nothing run. *chat context* (in the
+  unit tables) requires an open `.env.local` to reach the model as names alone,
+  comments kept, and no value — not even one redaction would miss.
 
 ### A drop-down terminal on a shortcut of your choosing
 

@@ -1,4 +1,5 @@
 import { pathKey } from '@shared/paths'
+import { remoteHostOf } from '@shared/ssh-remote'
 import { dotenvLine, NODE_LINE, TOOLS_LINE, venvLine, type ActivatingShell } from '@shared/env-lines'
 import { typeIntoTerminal } from '../terminal/typing'
 import { learnRealName, mayRunAt } from './trust'
@@ -71,8 +72,11 @@ export async function considerProjectEnv(paneId: string): Promise<void> {
   considered.add(paneId)
   if (s.settings.projectEnvironments === false) return
   if (pathKey(pane.cwd).replace(/\/$/, '') !== pathKey(root).replace(/\/$/, '')) return
-  const integration = s.profiles.find((p) => p.id === pane.profileId)?.integration
+  const profile = s.profiles.find((p) => p.id === pane.profileId)
+  const integration = profile?.integration
   if (integration !== 'powershell' && integration !== 'bash') return
+  // A shell on another machine: this folder's files are not where it is.
+  if (remoteHostOf(profile)) return
   // Its real name asked for first: a folder trusted by that name is trusted by this one.
   await learnRealName(root)
   if (!mayRunAt(root).trusted) return

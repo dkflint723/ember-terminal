@@ -11,7 +11,7 @@ import { looksLocalDir, parseEmberMarker } from '@shared/integration'
 import { renderBufferAsHtml, textFromHtml } from './serialize'
 import { useStore, type CommandBlock, type TerminalPaneState } from '../state/store'
 import { DEFAULT_THEME, toXtermTheme } from './theme'
-import { nextReconnect, remoteHostOf, SSH_CONNECTION_LOST } from '@shared/ssh-remote'
+import { endsWithEscape, nextReconnect, remoteHostOf, SSH_CONNECTION_LOST } from '@shared/ssh-remote'
 
 /**
  * The block with this id, but only if it is a command.
@@ -1541,6 +1541,7 @@ export class TerminalController {
 
   /** Everything bound for the shell goes through here, so nothing overtakes a waiting line. */
   private writePty(data: string): void {
+    noteTyped(this.paneId, data)
     if (this.held) this.held.push(data)
     else window.ember.write(this.paneId, data)
   }
@@ -1644,6 +1645,7 @@ export class TerminalController {
       this.held = null
       this.atPrompt = false
       this.redrawOwed = null
+      noteTyped(this.paneId, line)
       window.ember.write(this.paneId, line)
       for (const data of held) window.ember.write(this.paneId, data)
     }
@@ -2015,14 +2017,22 @@ window.ember.onExit(({ paneId, exitCode }) => {
  * server rebooting — as against the remote shell's own exit, which is the status of
  * whatever `exit` said. On 255 the pane says it is reconnecting and starts ssh again
  * after a wait that grows (1, 2, 4… 30 seconds) and stops after six tries; a
- * connection that held for a while starts the count again. Credentials and host keys
+ * connection that held for a while, and was typed into, starts the count again, and
+ * twenty tries in all is the end of it. `~.` typed to close it is not retried. Credentials and host keys
  * stay with OpenSSH: this only runs ssh again, as pressing Restart would.
  */
 const spawnedAt = new Map<string, number>()
 const reconnectTimers = new Map<string, number>()
+/** The tail of what was typed into each connection since it began, or absent if nothing. */
+const typedTail = new Map<string, string>()
 
 export function noteSpawned(paneId: string): void {
   spawnedAt.set(paneId, Date.now())
+  typedTail.delete(paneId)
+}
+
+function noteTyped(paneId: string, data: string): void {
+  if (data) typedTail.set(paneId, ((typedTail.get(paneId) ?? '\r') + data).slice(-8))
 }
 
 function scheduleReconnect(paneId: string, exitCode: number | null): void {
@@ -2035,12 +2045,21 @@ function scheduleReconnect(paneId: string, exitCode: number | null): void {
     if (pane.reconnect) s.patchPane(paneId, { reconnect: null })
     return
   }
-  const next = nextReconnect(pane.reconnect?.attempt ?? 0, Date.now() - (spawnedAt.get(paneId) ?? 0))
+  // `~.` is ssh closing the connection because it was asked to: not lost, and not retried.
+  const typed = typedTail.get(paneId)
+  if (typed !== undefined && endsWithEscape(typed)) {
+    if (pane.reconnect) s.patchPane(paneId, { reconnect: null })
+    return
+  }
+  const next = nextReconnect(pane.reconnect?.attempt ?? 0, Date.now() - (spawnedAt.get(paneId) ?? 0), {
+    typed: typed !== undefined,
+    total: pane.reconnect?.total ?? 0
+  })
   if (!next) {
     s.patchPane(paneId, { reconnect: null })
     return
   }
-  s.patchPane(paneId, { reconnect: { at: Date.now() + next.waitS * 1000, attempt: next.attempt } })
+  s.patchPane(paneId, { reconnect: { at: Date.now() + next.waitS * 1000, attempt: next.attempt, total: next.total } })
   window.clearTimeout(reconnectTimers.get(paneId))
   reconnectTimers.set(paneId, window.setTimeout(() => reconnectNow(paneId), next.waitS * 1000))
 }

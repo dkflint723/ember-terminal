@@ -2503,8 +2503,12 @@ function registerIpc(): void {
   ipcMain.handle('git:worktreeRemove', async (e, root: string, path: string, opts?: { dryRun?: boolean }) => {
     within(e, 'git:worktreeRemove', root, 'write')
     const res = await git.removeWorktree(root, path, { dryRun: opts?.dryRun === true })
-    // Its trust goes with it: a different folder made at the same place later is not this one.
-    if (res.ok && !opts?.dryRun) settings.noteTrust(path, false)
+    /*
+     * What was trusted at it goes with it, so a different folder made at the same place
+     * later is not trusted by accident — and only that: a parent it was trusted through
+     * stays trusted. Also when git let it go but part of the folder was left behind.
+     */
+    if (!opts?.dryRun && (res.ok || res.leftBehind)) settings.forgetTrust(path)
     return res
   })
   ipcMain.handle('file:write', (e, filePath: string, content: string, opts?: FileWriteOptions) => {

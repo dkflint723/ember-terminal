@@ -14,7 +14,8 @@ import {
   mayRunFolderCode,
   mayRunIn,
   withTrust,
-  withoutTrust
+  withoutTrust,
+  withoutTrustUnder
 } from '../src/shared/trust.ts'
 
 let failures = 0
@@ -88,6 +89,18 @@ check(
   JSON.stringify(withoutTrust(['C:\\a'], 'C:\\a\\b'))
 )
 check('revoking something untrusted leaves the rest alone', withoutTrust(['C:\\a'], 'C:\\z').length === 1)
+
+// --- forgetting a removed worktree ------------------------------------------------------
+// Not a revocation: its own entry and those under it go, a parent it was trusted
+// through stays (QA: removing D:\work\repo-feat took D:\work with it).
+cases += 3
+check(
+  'forgetting a removed folder keeps the parent it was trusted through',
+  JSON.stringify(withoutTrustUnder(['D:\\work', 'E:\\other'], 'D:\\work\\repo-feat')) === JSON.stringify(['D:\\work', 'E:\\other']),
+  JSON.stringify(withoutTrustUnder(['D:\\work', 'E:\\other'], 'D:\\work\\repo-feat'))
+)
+check('and drops its own entry, whatever its spelling', withoutTrustUnder(['d:\\WORK\\repo-feat', 'E:\\other'], 'D:\\work\\repo-feat').length === 1)
+check('and what was under it', withoutTrustUnder(['D:\\w\\r\\sub'], 'D:\\w\\r').length === 0)
 
 /* --- the way back ---------------------------------------------------------------
  *

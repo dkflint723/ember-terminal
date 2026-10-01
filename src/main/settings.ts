@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import { DEFAULT_SETTINGS, type Settings } from '../shared/types.js'
 import { checkSettings } from '../shared/settings-check.js'
 import { migrateStored } from '../shared/settings-migrate.js'
-import { withTrust, withoutTrust } from '../shared/trust.js'
+import { withTrust, withoutTrust, withoutTrustUnder } from '../shared/trust.js'
 import { realFolder } from './files.js'
 
 /**
@@ -256,6 +256,19 @@ export class SettingsStore {
     // Nothing changed — a folder already trusted, or a revocation of one that
     // never was. Writing anyway would push a settings:changed at every window.
     if (next.length === held.length && next.every((f, i) => f === held[i])) return this.get()
+    return this.set({ trustedFolders: next }).settings
+  }
+
+  /**
+   * Forget what was trusted at a folder that is gone (a removed worktree), and under
+   * it — but not a folder above it, through which it may have been trusted along
+   * with everything else there. By both spellings, as noteTrust does.
+   */
+  forgetTrust(folder: string): Settings {
+    if (!folder.trim()) return this.get()
+    const held = this.get().trustedFolders
+    const next = withoutTrustUnder(withoutTrustUnder(held, realFolder(folder)), folder)
+    if (next.length === held.length) return this.get()
     return this.set({ trustedFolders: next }).settings
   }
 

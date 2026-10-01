@@ -169,7 +169,7 @@ export interface TerminalPaneState extends BasePane {
    * An ssh session whose connection was lost, coming back on its own: when the next
    * try is, and which try it is. Null while connected, or once stopped or given up.
    */
-  reconnect?: { at: number; attempt: number } | null
+  reconnect?: { at: number; attempt: number; total?: number } | null
   /**
    * Blocks taken off the screen by Clear, kept so that Undo can put them back.
    *
