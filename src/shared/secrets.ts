@@ -177,15 +177,14 @@ export function containsKeyShape(text: string): boolean {
   return KEY_SHAPES.some((re) => re.test(text))
 }
 
-/** Anything `redactSecrets` would change — the question a round trip has to ask. */
-/** A dotenv file by its name: `.env`, `.env.local`, `.env.production`. */
+/** A dotenv file by its name: `.env`, `.env.local`, `app.env`, and direnv's `.envrc`. */
 export function isDotEnv(path: string): boolean {
-  return /^\.env(\.[\w.-]+)?$/i.test(path.split(/[\\/]/).pop() ?? '')
+  return /^(\.env(\.[\w.-]+)?|[\w.-]+\.env|\.envrc)$/i.test(path.split(/[\\/]/).pop() ?? '')
 }
 
 /** Whether a command names a dotenv file, and so may have printed one. */
 export function namesDotEnv(command: string): boolean {
-  return /(^|[\s/\\'"=])\.env(\.[\w.-]+)?(?=$|[\s'"|;)])/i.test(command)
+  return /(^|[\s/\\'"=])(\.env(\.[\w.-]+)?|[\w.-]+\.env|\.envrc)(?=$|[\s'"|;)])/i.test(command)
 }
 
 /**
@@ -197,11 +196,15 @@ export function envNamesOnly(text: string): string {
     .split(/\r?\n/)
     .map((line) => {
       const m = /^(\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_.-]*\s*=)/.exec(line)
-      return m ? `${m[1]}<withheld>` : line.trim().startsWith('#') || line.trim() === '' ? line : '<withheld>'
+      if (m) return `${m[1]}<withheld>`
+      // A comment is kept, but not a value in it: a commented-out password is a password.
+      if (line.trim().startsWith('#')) return line.replace(/^(\s*#\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_.-]*\s*=).*$/, '$1<withheld>')
+      return line.trim() === '' ? line : '<withheld>'
     })
     .join('\n')
 }
 
+/** Anything `redactSecrets` would change — the question a round trip has to ask. */
 export function hasSecret(text: string): boolean {
   return containsKeyShape(text) || LABELLED.some((re) => re.test(text))
 }

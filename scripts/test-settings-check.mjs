@@ -151,7 +151,7 @@ check(
 for (const ok of ['', 'Control+`', 'Alt+Space', 'CommandOrControl+Shift+T', 'F12', 'Ctrl+Alt+F12']) {
   check(`${JSON.stringify(ok)} is a shortcut the drop-down may have`, shortcutProblem(ok) === null, String(shortcutProblem(ok)))
 }
-for (const bad of ['F', '`', 'Space', 'Control+', 'Hyper+K', 'Control+Banana', 'Ctrl+Alt']) {
+for (const bad of ['F', '`', 'Space', 'Control+', 'Hyper+K', 'Control+Banana', 'Ctrl+Alt', 'Shift+A', 'Shift+1', 'AltGr+Q']) {
   check(`${JSON.stringify(bad)} is refused`, shortcutProblem(bad) !== null)
 }
 check('a bare key is refused for taking it from every program', /every program/.test(shortcutProblem('F') ?? ''))

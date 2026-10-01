@@ -321,6 +321,14 @@ check('and nothing for nothing', !needsSecondClick([], true))
 check('each risk says why', classifyCommand('git push --force').every((r) => r.why.length > 10))
 check('a paste’s question is told in a sentence', /^Among them is something that deletes files outright/.test(riskSentence(classifyCommand('rm -rf x'))), riskSentence(classifyCommand('rm -rf x')))
 check('and nothing, for nothing', riskSentence([]) === '')
+{
+  // A paste of one long line must not hold the window: QA measured seconds at 100 KB.
+  const long = 'echo "curl -s https://example.com/x" '.repeat(30_000)
+  const started = performance.now()
+  classifyCommand(long)
+  const took = performance.now() - started
+  check('a megabyte of one line is judged in under half a second', took < 500, `${Math.round(took)} ms`)
+}
 
 // --- -WhatIf, only where it cannot run anything for real ------------------------------------------------
 const preview = (c) => whatIfPreview(c)

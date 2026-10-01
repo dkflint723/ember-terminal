@@ -53,12 +53,25 @@ newest entry sits on top.
   attached to a question.
 - **Settings → Offer to activate a project's environment** turns it off, and forgets
   the folders' answers.
+- **Corrected before landing, after a QA pass.** The first Git Bash loader sourced the
+  `.env`, which runs it: `APP_NAME=My App` ran `App`, and a `$(…)` in a value ran what
+  it held. Both shells now read the file as data — each `NAME=value` line set as
+  written, quotes off, a byte-order mark and CRLF endings allowed for — and nothing
+  in it runs. A commented-out value is withheld as well as a live one (a commented-out
+  password is a password), `app.env` and `.envrc` count as dotenv files, and a block
+  that printed one and is attached to a question goes as names. Trust is judged once
+  the folder's real name is known. A second answer given in another pane before the
+  first is saved can still replace it, and other sessions already open in the folder
+  are activated from their next start, not at once.
 - **How it is checked:** a new suite, `verify-project-env`, opens a trusted folder
   holding a `.venv` and a `.env` with a quoted value and an `export` line: the offer
   must appear; *Activate* must give the shell both, quotes and `export` taken off; no
   command shown or kept in history may hold the value; sharing a block that printed
   the `.env` must give names and no values; and the next session there must be
-  activated without being asked. *chat context* (in the unit tables) requires an open
+  activated without being asked. *env lines* runs both loaders in Git Bash and each
+  PowerShell against a hostile `.env` — spaces, both quotes, `export`, `=` in a value, a
+  `$(…)` and a backtick, a BOM and CRLF — requiring every value as written and nothing
+  run. *chat context* (in the unit tables) requires an open
   `.env.local` to reach the model as names alone, comments kept, and no value — not
   even one redaction would miss.
 

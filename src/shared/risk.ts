@@ -421,7 +421,14 @@ const WHOLE: { test: RegExp; risk: Risk }[] = [
  * Every risk a command carries, one per class, the first reason for each kept.
  * In the order of RISK_TITLES, so labels always come out the same way.
  */
-export function classifyCommand(command: string): Risk[] {
+export function classifyCommand(full: string): Risk[] {
+  /*
+   * The first 32 KB: these rules run on the window's own thread for every proposal
+   * and multi-line paste, and one long line naming curl over and over took seconds
+   * (QA measured 2.2 s at 100 KB). A command is not that long; a paste of minified
+   * text is, and what it would run starts at its top.
+   */
+  const command = full.length > 32_768 ? full.slice(0, 32_768) : full
   const found: Risk[] = []
   for (const segment of segmentsOf(command)) found.push(...segmentRisks(segment))
   for (const rule of WHOLE) if (rule.test.test(command)) found.push(rule.risk)

@@ -212,7 +212,13 @@ for (const yes of ['cat .env', 'Get-Content .env', 'type .env.local', 'gc ./.env
   cases += 1
   check(`${yes} names a .env`, namesDotEnv(yes))
 }
-for (const no of ['cat env.txt', 'echo .environment', 'ls', 'python -m venv .venv', 'cat .envrc']) {
+for (const also of ['cat app.env', 'cat .envrc', 'Get-Content prod.env']) {
+  cases += 1
+  check(`${also} names a dotenv file too`, namesDotEnv(also))
+}
+cases += 1
+check('a commented-out value is withheld too', envNamesOnly('# DATABASE_URL=postgres://u:pw@db/x') === '# DATABASE_URL=<withheld>', envNamesOnly('# DATABASE_URL=postgres://u:pw@db/x'))
+for (const no of ['cat env.txt', 'echo .environment', 'ls', 'python -m venv .venv', 'cat environment.yml']) {
   cases += 1
   check(`${no} names no .env`, !namesDotEnv(no))
 }

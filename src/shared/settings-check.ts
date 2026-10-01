@@ -122,9 +122,14 @@ export function shortcutProblem(accelerator: string): string | null {
   const key = parts.pop() ?? ''
   if (!key || parts.some((p) => !MODIFIERS.has(p.toLowerCase()))) return 'is not a shortcut Electron can read'
   if (!(key.length === 1 || NAMED_KEYS.test(key))) return 'is not a shortcut Electron can read'
-  if (parts.length === 0 && !/^f([1-9]|1[0-9]|2[0-4])$/i.test(key)) {
+  const fKey = /^f([1-9]|1[0-9]|2[0-4])$/i.test(key)
+  if (parts.length === 0 && !fKey) {
     return 'needs Control, Alt or Shift with it, or it would take that key from every program'
   }
+  // Shift or AltGr with a character is only another character — Shift+A is a capital A,
+  // AltGr+Q an @ on a German keyboard — and would be taken from everything typed.
+  const typing = parts.every((p) => /^(shift|altgr)$/i.test(p))
+  if (key.length === 1 && typing) return 'needs Control or Alt with it, or it would take what that key types from every program'
   return null
 }
 

@@ -1,7 +1,7 @@
 import { pathKey } from '@shared/paths'
-import { powerShellLiteral, bashLiteral } from '@shared/quote'
+import { dotenvLine, NODE_LINE, TOOLS_LINE, venvLine, type ActivatingShell } from '@shared/env-lines'
 import { typeIntoTerminal } from '../terminal/typing'
-import { mayRunAt } from './trust'
+import { learnRealName, mayRunAt } from './trust'
 import { useStore, workspaceRoot } from './store'
 
 /**
@@ -33,43 +33,23 @@ export interface EnvFound {
 const NAMES: Record<EnvKind, string> = { venv: '.venv', node: '.nvmrc', tools: '.tool-versions', dotenv: '.env' }
 
 const join = (root: string, ...parts: string[]): string => [root.replace(/[\\/]+$/, ''), ...parts].join('\\')
-const posix = (p: string): string => p.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_m, d: string) => `/${d.toLowerCase()}`)
 
-/** What this folder has that this shell can activate. */
-export async function detectProjectEnv(root: string, shell: 'powershell' | 'bash'): Promise<EnvFound[]> {
+/** What this folder has that this shell can activate; the lines are shared/env-lines.ts. */
+export async function detectProjectEnv(root: string, shell: ActivatingShell): Promise<EnvFound[]> {
   const exists = (...parts: string[]): Promise<boolean> => window.ember.pathExists(join(root, ...parts))
-  const [venvPs, venvSh, nvmrc, toolVersions, dotenv, tools] = await Promise.all([
-    exists('.venv', 'Scripts', 'Activate.ps1'),
-    exists('.venv', 'Scripts', 'activate'),
+  const [venv, nvmrc, toolVersions, dotenv, tools] = await Promise.all([
+    shell === 'powershell' ? exists('.venv', 'Scripts', 'Activate.ps1') : exists('.venv', 'Scripts', 'activate'),
     exists('.nvmrc'),
     exists('.tool-versions'),
     exists('.env'),
     window.ember.envTools()
   ])
   const found: EnvFound[] = []
-  if (shell === 'powershell') {
-    if (venvPs) found.push({ kind: 'venv', name: NAMES.venv, line: `& ${powerShellLiteral(join(root, '.venv', 'Scripts', 'Activate.ps1'))}` })
-    if (nvmrc && tools.fnm) found.push({ kind: 'node', name: NAMES.node, line: 'fnm env --shell powershell | Out-String | Invoke-Expression; fnm use --install-if-missing' })
-    if (toolVersions && tools.mise) found.push({ kind: 'tools', name: NAMES.tools, line: 'mise activate pwsh | Out-String | Invoke-Expression' })
-    if (dotenv) {
-      found.push({
-        kind: 'dotenv',
-        name: NAMES.dotenv,
-        // Read by the shell from the file: the values never pass through what is typed.
-        line:
-          `Get-Content -LiteralPath ${powerShellLiteral(join(root, '.env'))} | ForEach-Object { ` +
-          `if ($_ -match '^\\s*(?:export\\s+)?([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*(.*?)\\s*$') { ` +
-          // The name kept first: the -match that takes off quotes replaces $Matches.
-          `$n = $Matches[1]; $v = $Matches[2]; if ($v -match '^([''"])(.*)\\1$') { $v = $Matches[2] }; ` +
-          `Set-Item -LiteralPath ('Env:' + $n) -Value $v } }`
-      })
-    }
-  } else {
-    if (venvSh) found.push({ kind: 'venv', name: NAMES.venv, line: `source ${bashLiteral(posix(join(root, '.venv', 'Scripts', 'activate')))}` })
-    if (nvmrc && tools.fnm) found.push({ kind: 'node', name: NAMES.node, line: 'eval "$(fnm env --shell bash)" && fnm use --install-if-missing' })
-    if (toolVersions && tools.mise) found.push({ kind: 'tools', name: NAMES.tools, line: 'eval "$(mise activate bash)"' })
-    if (dotenv) found.push({ kind: 'dotenv', name: NAMES.dotenv, line: `set -a; . ${bashLiteral(posix(join(root, '.env')))}; set +a` })
-  }
+  if (venv) found.push({ kind: 'venv', name: NAMES.venv, line: venvLine(shell, root) })
+  if (nvmrc && tools.fnm) found.push({ kind: 'node', name: NAMES.node, line: NODE_LINE[shell] })
+  if (toolVersions && tools.mise) found.push({ kind: 'tools', name: NAMES.tools, line: TOOLS_LINE[shell] })
+  // Read by the shell from the file, as data: the values never pass through what is typed.
+  if (dotenv) found.push({ kind: 'dotenv', name: NAMES.dotenv, line: dotenvLine(shell, root) })
   return found
 }
 
@@ -93,6 +73,8 @@ export async function considerProjectEnv(paneId: string): Promise<void> {
   if (pathKey(pane.cwd).replace(/\/$/, '') !== pathKey(root).replace(/\/$/, '')) return
   const integration = s.profiles.find((p) => p.id === pane.profileId)?.integration
   if (integration !== 'powershell' && integration !== 'bash') return
+  // Its real name asked for first: a folder trusted by that name is trusted by this one.
+  await learnRealName(root)
   if (!mayRunAt(root).trusted) return
 
   const found = await detectProjectEnv(root, integration)
