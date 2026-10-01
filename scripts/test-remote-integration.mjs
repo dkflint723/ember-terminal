@@ -38,7 +38,9 @@ check('ended by a lone dot', lines.at(-1) === '.')
 check('the load marker is signed', loadMarker(N) === `\x1b]633;Load;${N}\x07`)
 
 // --- run for real, in bash, as the remote shell would -------------------------------------------
-const gitBash = ['C:\\Program Files\\Git\\bin\\bash.exe', 'C:\\Program Files\\Git\\usr\\bin\\bash.exe'].find((p) => fs.existsSync(p))
+// Git Bash here; elsewhere (the CI's Linux job) the system's bash, which is what a
+// remote host runs anyway.
+const gitBash = ['C:\\Program Files\\Git\\bin\\bash.exe', 'C:\\Program Files\\Git\\usr\\bin\\bash.exe', '/bin/bash', '/usr/bin/bash'].find((p) => fs.existsSync(p))
 if (gitBash) {
   // An interactive bash with history on, reading the visible line and then the payload
   // from stdin — the order a person's terminal delivers them in. `stty` has no
@@ -70,13 +72,14 @@ if (gitBash) {
   check('nor is the script, once keys were mixed into it', !(typedInto.stdout ?? '').includes('FN=__ember_prompt_command'), JSON.stringify((typedInto.stdout ?? '').slice(-200)))
 
   // A shell that is not bash: the line is a no-op, the marker never comes.
-  const sh = ['C:\\Program Files\\Git\\usr\\bin\\dash.exe', 'C:\\Program Files\\Git\\usr\\bin\\sh.exe'].find((p) => fs.existsSync(p))
-  if (sh && sh.endsWith('dash.exe')) {
+  // dash only: Git's sh.exe is bash under another name.
+  const sh = ['C:\\Program Files\\Git\\usr\\bin\\dash.exe', '/bin/dash', '/usr/bin/dash'].find((p) => fs.existsSync(p))
+  if (sh) {
     const other = spawnSync(sh, ['-i'], { input: `${line.slice(0, -1)}\necho after\n`, encoding: 'utf8' })
     check('in a shell that is not bash, nothing is loaded and nothing listens', !(other.stdout ?? '').includes('633;Load') && (other.stdout ?? '').includes('after'), JSON.stringify(other.stdout))
   }
 } else {
-  check('Git Bash is there to run it', false, 'not installed')
+  check('a bash is there to run it', false, 'none found')
 }
 
 // --- when to type: a prompt, and nothing else ----------------------------------------------------
