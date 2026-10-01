@@ -3,7 +3,59 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
-## Unreleased
+## 0.5.0 — 2026-10-01
+
+The release that finishes the audit's roadmap: every one of its forty-eight items is
+in Ember now. Twenty entries follow; this is what they add up to.
+
+**Updates are signed.** Each release's feed is signed on the maintainer's machine
+with a key GitHub never holds, and Ember checks that signature before it downloads.
+This is the first signed release, so the releases before it — none of them signed —
+can still update to it: a missing or wrong signature is logged, not refused, this
+time only.
+
+**Commands that cannot be undone say so.** A command typed for you — by Run, Run
+again, the agent, a script or history — is labelled with what it would do that
+cannot be taken back, and takes a second press. A PowerShell deletion can be
+previewed with `-WhatIf` first.
+
+**SSH sessions are sessions.** Hosts from `~/.ssh/config` start again — none could
+before. A session says it is remote and on which host, comes back on its own when
+its connection drops, and, for a host you say yes to, shows its commands as blocks,
+with the remote folder shown and never taken for a local one.
+
+**New ways to work.** Git worktrees open as sessions beside each other. A trusted
+project offers its `.venv`, `.env`, Node version or tools once and remembers the
+answer, reading a `.env` as data and never sending its values to a model. A
+drop-down terminal comes down on a global shortcut of your choosing. Blocks are
+landmarks you can move between from the keyboard, with the last failure a keypress
+away and a block's output read aloud.
+
+**The editor and debugger reach further.** F5 does what `launch.json` asks of it,
+pre-launch task included; debugging a Node program leaves your shell as it was.
+References and rename reach files that are not open, refactorings a language server
+carries out itself happen, a server can be restarted or asked back, and a save no
+longer waits on one that never answers.
+
+**The agent is held tighter.** Asking Claude without an API key runs the CLI with no
+tools; accepting a proposed file writes exactly what its diff showed, or refuses;
+a window can reach only its own shells.
+
+**And a lost keystroke is found.** A command typed the moment the last one ended
+could reach Git Bash without its first letter.
+
+**Known limitations.**
+- Update signatures are checked but not yet required. Before they are, three things
+  are to be closed: two environment variables a suite uses can turn the check off in
+  the installed app; a refused install waits out its two minutes before saying so;
+  and overlapping checks are caught rather than kept apart.
+- Blocks over SSH need bash on the host, and are tested against a real SSH server on
+  a developer's machine only — CI has none. Git for Windows' own `ssh.exe`, when it
+  is found ahead of Windows', loses the first key typed after a resize; that is
+  Git's, and Windows' own `ssh.exe` does not.
+- Resizing the window while a command runs can still disturb that command's block.
+- A found line can drift out of view when the command after it finishes.
+- How the window backdrop looks has been seen on one Windows 11 desktop.
 
 ### Blocks for commands on an SSH host, for the hosts you say yes to
 
@@ -384,7 +436,7 @@ newest entry sits on top.
   file the same account wrote. Taking over the account was enough to ship any
   installer to everyone with update checks on.
 - **Now each release's feed is signed on the maintainer's machine**, with a key kept
-  there and nowhere else: `node scripts/sign-release.mjs v0.4.4` fetches the draft's
+  there and nowhere else: `node scripts/sign-release.mjs v0.5.0` fetches the draft's
   `latest.yml` and the installer it names, refuses if the two disagree, signs the
   feed's version and each file's name, SHA-512 and size, and attaches
   `latest.yml.sig`. The script refuses a key other than the one Ember is built with.
