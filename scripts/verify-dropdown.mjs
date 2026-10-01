@@ -52,10 +52,26 @@ const waitFor = async (test, ms) => {
   }
   return test()
 }
-const registered = () => app.evaluate(({ globalShortcut }, s) => globalShortcut.isRegistered(s), SHORTCUT)
+/*
+ * Asked of main again when the question itself was lost. While main is making a
+ * window, the DevTools protocol can drop an evaluation ("Resulting promise was
+ * garbage collected", seen once in CI); what is asked here is synchronous, so asking
+ * again is the same question, not a second chance for the app.
+ */
+const askMain = async (fn, arg) => {
+  for (let tries = 0; ; tries += 1) {
+    try {
+      return await app.evaluate(fn, arg)
+    } catch (err) {
+      if (tries >= 2 || !/garbage collected|Execution context was destroyed/.test(String(err))) throw err
+      await sleep(250)
+    }
+  }
+}
+const registered = () => askMain(({ globalShortcut }, s) => globalShortcut.isRegistered(s), SHORTCUT)
 /** What main says of the drop-down: the always-on-top window, if there is one. */
 const dropdown = () =>
-  app.evaluate(({ BrowserWindow, screen }) => {
+  askMain(({ BrowserWindow, screen }) => {
     const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && w.isAlwaysOnTop())
     if (!win) return null
     const area = screen.getDisplayMatching(win.getBounds()).workArea
@@ -105,7 +121,7 @@ if (down) {
   check('and brings it back', (await dropdown())?.visible === true)
   const kept = await strip.evaluate(() => (document.body.textContent ?? '').includes('warm-kept'))
   check('with its shell as it left it', kept)
-  check('one drop-down, not two', (await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && w.isAlwaysOnTop()).length)) === 1)
+  check('one drop-down, not two', (await askMain(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && w.isAlwaysOnTop()).length)) === 1)
 }
 
 // --- clearing the shortcut lets it go ----------------------------------------------------------------

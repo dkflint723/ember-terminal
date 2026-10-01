@@ -151,10 +151,10 @@ export function GitWorktrees({ root, busy, act }: Props): React.JSX.Element | nu
       {open && (
         <>
           {list.map((w) => (
-            <div key={w.path} className="scm__row worktree__row">
-              <span className="stash__text" title={w.path}>
-                <span className="stash__subject">{w.branch ?? '(detached)'}</span>
-                <span className="stash__when">{w.main ? 'this repository' : w.path.split(/[\\/]/).pop()}</span>
+            <div key={w.path} className="worktree__row">
+              <span className="worktree__text" title={w.path}>
+                <span className="worktree__branch">{w.branch ?? '(detached)'}</span>
+                <span className="worktree__where">{w.main ? 'this repository' : w.path.split(/[\\/]/).pop()}</span>
               </span>
               <span className="scm__actions">
                 <button className="icon-btn" title={`Open ${w.path} as a session`} aria-label={`Open ${w.branch ?? w.path} as a session`} onClick={() => openAsSession(w.path)}>
@@ -175,7 +175,7 @@ export function GitWorktrees({ root, busy, act }: Props): React.JSX.Element | nu
             </div>
           ))}
           <form
-            className="scm__row worktree__form"
+            className="worktree__form"
             onSubmit={(e) => {
               e.preventDefault()
               void make()

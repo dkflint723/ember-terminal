@@ -1916,6 +1916,7 @@ button {
   display: flex;
   gap: 6px;
   align-items: center;
+  padding: 0 8px 0 12px;
 }
 
 .worktree__new {
@@ -4294,14 +4295,16 @@ button.scm__branch {
   font-size: 11px;
 }
 
-.scm__row {
+.scm__row,
+.worktree__row {
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 0 8px 0 12px;
 }
 
-.scm__row:hover {
+.scm__row:hover,
+.worktree__row:hover {
   background: var(--bg-hover);
 }
 
@@ -4313,7 +4316,9 @@ button.scm__branch {
 }
 
 .scm__row:hover .scm__actions,
-.scm__row:focus-within .scm__actions {
+.scm__row:focus-within .scm__actions,
+.worktree__row:hover .scm__actions,
+.worktree__row:focus-within .scm__actions {
   opacity: 1;
 }
 
@@ -6546,7 +6551,8 @@ label.field__check {
   align-items: center;
 }
 
-.stash__text {
+.stash__text,
+.worktree__text {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
@@ -6554,13 +6560,15 @@ label.field__check {
   gap: 8px;
 }
 
-.stash__subject {
+.stash__subject,
+.worktree__branch {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .stash__when,
+.worktree__where,
 .log__when {
   flex: 0 0 auto;
   color: var(--fg-faint);
