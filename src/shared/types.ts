@@ -1044,6 +1044,12 @@ export interface Settings {
    */
   commandRiskLabels: import('./risk').RiskSensitivity
   /**
+   * The global shortcut that brings the drop-down window down and sends it away, in
+   * Electron's accelerator form (`Control+`` `, `Alt+Space`); empty for none, the
+   * default. Never registered by the administrator's window.
+   */
+  dropdownShortcut: string
+  /**
    * The Windows 11 material drawn behind the window.
    *
    * Mica by default. The window's own ground is tinted rather than painted when a
@@ -1186,6 +1192,7 @@ export const DEFAULT_SETTINGS: Settings = {
   uiZoom: 1,
   blockDensity: 'normal',
   commandRiskLabels: 'all',
+  dropdownShortcut: '',
   windowBackdrop: 'mica',
   windowOpacity: 1,
   frostedPanels: true,
@@ -1237,6 +1244,8 @@ export interface EmberApi {
   sessionSave(snapshot: SessionSnapshot): Promise<{ ok: boolean; error?: string }>
   /** Open another Ember window, with its own fresh session. */
   newWindow(): void
+  /** Bring down the drop-down window, or send it away. */
+  toggleDropdown(): void
   /** Open a second Ember running as administrator, through a UAC prompt. */
   newAdminWindow(): void
   /** Whether THIS window is the elevated one. Fixed for the window's life. */

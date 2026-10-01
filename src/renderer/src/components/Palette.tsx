@@ -336,6 +336,11 @@ function commands(): Command[] {
   return [
     ...editorCommands,
     {
+      id: 'window.dropdown',
+      label: 'Toggle drop-down window',
+      run: () => window.ember.toggleDropdown()
+    },
+    {
       id: 'proposal.revertLast',
       label: 'Revert last accepted change',
       run: () => void import('../state/ide').then((m) => m.revertLastAccepted())

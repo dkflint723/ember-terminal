@@ -5,6 +5,7 @@ import {
   crashReporter,
   dialog,
   ipcMain,
+  globalShortcut,
   Menu,
   net,
   Notification,
@@ -1045,6 +1046,8 @@ function openingBounds(): { x?: number; y?: number; width: number; height: numbe
 
 /** What a new window is born holding: a restored session, a moved one, or nothing. */
 interface WindowSeed {
+  /** The drop-down window: see toggleDropdown. */
+  dropdown?: boolean
   snapshot?: SessionSnapshot | null
   transfer?: TabTransfer | null
   bounds?: { x: number; y: number; width: number; height: number } | null
@@ -1082,6 +1085,62 @@ function placeExactly(
     width: want.width + (want.width - got.width),
     height: want.height + (want.height - got.height)
   })
+}
+
+/*
+ * A drop-down window on a global shortcut (audit R34).
+ *
+ * Summoned from anywhere, over everything, on the monitor the pointer is on — a
+ * borderless strip across the top of its work area — and sent away by the same
+ * shortcut. Hidden, not closed, so its shells stay as they were. Off until a shortcut
+ * is chosen in Settings; never in the administrator's window, so a key pressed in
+ * any program cannot bring up an elevated shell.
+ */
+let dropdownId: number | null = null
+let dropdownShortcut = ''
+
+function dropdownBounds(): { x: number; y: number; width: number; height: number } {
+  const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
+  return { x: area.x, y: area.y, width: area.width, height: Math.max(360, Math.round(area.height * 0.45)) }
+}
+
+function toggleDropdown(): void {
+  if (isAdminWindow) return
+  const win = dropdownId !== null ? windows.get(dropdownId) : undefined
+  if (!win || win.isDestroyed()) {
+    dropdownId = createWindow({ dropdown: true, bounds: dropdownBounds() })
+    return
+  }
+  if (win.isVisible() && win.isFocused()) {
+    win.hide()
+    return
+  }
+  // To wherever the pointer is now: a second monitor is a different strip.
+  placeExactly(win, dropdownBounds())
+  win.setAlwaysOnTop(true, 'floating')
+  win.show()
+  win.focus()
+}
+
+/** The shortcut from settings, registered; false when another program holds it. */
+function registerDropdownShortcut(accelerator: string): boolean {
+  if (isAdminWindow) return true
+  if (accelerator === dropdownShortcut) return true
+  if (dropdownShortcut) globalShortcut.unregister(dropdownShortcut)
+  dropdownShortcut = ''
+  if (!accelerator) return true
+  let taken = false
+  try {
+    taken = !globalShortcut.register(accelerator, toggleDropdown)
+  } catch {
+    taken = true
+  }
+  if (taken) {
+    logLine('dropdown', `the shortcut ${accelerator} could not be registered`)
+    return false
+  }
+  dropdownShortcut = accelerator
+  return true
 }
 
 function createWindow(seed: WindowSeed = {}): number {
@@ -1131,6 +1190,8 @@ function createWindow(seed: WindowSeed = {}): number {
   const chosen = settings.get()
   const win = new BrowserWindow({
     ...opening,
+    // The drop-down floats over everything and stays out of the taskbar and Alt+Tab.
+    ...(seed.dropdown ? { alwaysOnTop: true, skipTaskbar: true } : {}),
     minWidth: 520,
     minHeight: 360,
     show: false,
@@ -1425,6 +1486,7 @@ function createWindow(seed: WindowSeed = {}): number {
   win.on('unmaximize', emitState)
 
   win.on('closed', () => {
+    if (id === dropdownId) dropdownId = null
     /*
      * This window's shells die with it — and only this window's. The map is
      * walked rather than asked, because a pane whose owner is gone must never
@@ -1858,6 +1920,9 @@ function registerIpc(): void {
     const id = windowIdOf(e.sender)
     const win = windowFromEvent(e)
     if (id === null || !win) return { ok: false, error: 'No window.' }
+    // The drop-down is summoned, not restored: brought back as an ordinary window
+    // at the next launch, it would be a second window nobody opened.
+    if (id === dropdownId) return { ok: true }
     /*
      * A window with nothing in it has nothing to restore. This is also what
      * closes the race a move opens: the source window's farewell save — fired
@@ -1879,6 +1944,8 @@ function registerIpc(): void {
   ipcMain.on('window:new', () => {
     createWindow()
   })
+  // The drop-down, from the palette as well as its shortcut.
+  ipcMain.on('window:dropdown', () => toggleDropdown())
 
   /*
    * A window that runs as administrator, raised by UAC.
@@ -2521,6 +2588,13 @@ function registerIpc(): void {
   ipcMain.handle('settings:get', () => forRenderer(settings.get()))
   ipcMain.handle('settings:set', (e, patch: Partial<Settings>) => {
     const res = settings.set(patch)
+    // The drop-down's shortcut, re-registered as it changes; said when it is taken.
+    if (patch.dropdownShortcut !== undefined && !registerDropdownShortcut(res.settings.dropdownShortcut ?? '')) {
+      sendToAll('ui:notice', {
+        text: `${res.settings.dropdownShortcut} is already taken by another program, so it does not bring up the drop-down window.`,
+        tone: 'error'
+      })
+    }
     /*
      * Every window hears about it — the sender included, so a save made from
      * anywhere (the dialog, a script, a suite) lands in every store the same
@@ -2923,6 +2997,9 @@ process.on('unhandledRejection', (reason) => {
      */
     const stored = session.load()
     createWindow({ snapshot: stored[0]?.snapshot ?? null })
+    // The drop-down's shortcut, if one is chosen; a taken one is logged, and said
+    // when it is next chosen in Settings.
+    registerDropdownShortcut(settings.get().dropdownShortcut ?? '')
     if (settings.get().restoreSession) {
       for (const entry of stored.slice(1)) {
         createWindow({
@@ -2977,6 +3054,7 @@ process.on('unhandledRejection', (reason) => {
    */
   let shellsEnded = false
   app.on('will-quit', (e) => {
+    globalShortcut.unregisterAll()
     /*
      * The shells first, and their exits heard, while JavaScript can still hear
      * them — see endEveryShell. Once, and then the quit goes on from here.

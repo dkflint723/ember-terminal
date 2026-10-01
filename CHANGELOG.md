@@ -5,6 +5,28 @@ newest entry sits on top.
 
 ## Unreleased
 
+### A drop-down terminal on a shortcut of your choosing
+
+- **Settings → Drop-down window shortcut.** Choose a key — `Control+`` ` is the
+  usual one — and pressing it in any program brings a terminal down over the top of
+  the screen the pointer is on: a borderless strip across the top 45%, above every
+  other window, out of the taskbar and Alt+Tab. The same key sends it away. It is
+  hidden rather than closed, so its shells go on running and it comes back as it was;
+  it opens on whichever monitor the pointer is on each time. *Toggle drop-down window*
+  in the palette does the same from inside Ember.
+- **Off until a key is chosen**, and a key another program already holds is said to
+  be taken rather than silently not working. The administrator's window never answers
+  it, so a key pressed in any program cannot bring up an elevated shell. The
+  drop-down's session is not restored at the next launch as an ordinary window: it is
+  something summoned, and comes back when it is summoned.
+- **How it is checked:** a new suite, `verify-dropdown`. A global shortcut is a key
+  pressed in another program, which a suite cannot press, so it drives the palette's
+  toggle — the same function — and reads the shortcut's registration from main:
+  choosing a key registers it and clearing it unregisters it; the toggle brings down an
+  always-on-top window across the top of the screen's work area and less than all of
+  it; the toggle sends it away; brought back, its shell still shows what it ran; and
+  there is one, not two. On the build before this, it never comes down.
+
 ### Moving between commands from the keyboard
 
 - **A block could only be reached by Tab through every block before it.** Blocks make

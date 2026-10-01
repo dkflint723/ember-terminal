@@ -916,6 +916,25 @@ export function SettingsPanel(): React.JSX.Element | null {
                 </div>
               </div>
 
+              {/* A window summoned from anywhere: main's toggleDropdown. */}
+              <div className="field">
+                <label htmlFor="settings-dropdown">Drop-down window shortcut</label>
+                <input
+                  id="settings-dropdown"
+                  type="text"
+                  spellCheck={false}
+                  placeholder="None — for example Control+`"
+                  value={draft.dropdownShortcut ?? ''}
+                  onChange={(e) => field('dropdownShortcut', e.target.value.trim())}
+                />
+                <div className="field__note">
+                  Pressed in any program, brings a terminal down over the top of the screen the
+                  pointer is on, and sends it away again. Its shells keep running while it is hidden.
+                  Written the way Electron names keys: Control, Alt, Shift, then the key. Off when
+                  empty. The administrator’s window never answers it.
+                </div>
+              </div>
+
               {/* How loudly a command typed on your behalf is labelled: shared/risk.ts. */}
               <div className="field">
                 <label htmlFor="settings-risk">Command risk labels</label>
