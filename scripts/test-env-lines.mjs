@@ -61,7 +61,7 @@ for (const shell of shells) {
   for (const f of ['PWNED1', 'PWNED2', 'PWNED3', 'PWNED4']) fs.rmSync(path.join(root, f), { force: true })
   const script = `${dotenvLine(shell.kind, root)}; ${shell.show}`
   const args = shell.kind === 'bash' ? ['-c', script] : ['-NoProfile', '-Command', script]
-  const run = spawnSync(shell.exe, args, { cwd: root, encoding: 'utf8', env: { ...process.env, ...Object.fromEntries(names.map((n) => [n, ''])) } })
+  const run = spawnSync(shell.exe, args, { cwd: root, encoding: 'utf8', env: { ...process.env, ...Object.fromEntries([...names, ...reserved].map((n) => [n, '']))  } })
   if (run.error) continue
   const got = Object.fromEntries((run.stdout ?? '').split(/\r?\n/).filter((l) => l.includes('=')).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]))
   for (const n of names) check(`${shell.name}: ${n} is ${JSON.stringify(want[n])}`, got[n] === want[n], `${JSON.stringify(got[n])} ${run.stderr ? `(${run.stderr.trim().slice(0, 120)})` : ''}`)

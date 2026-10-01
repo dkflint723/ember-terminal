@@ -20,14 +20,15 @@ newest entry sits on top.
   pane says so and starts ssh again after a wait that grows — 1, 2, 4, 8, 16, 30
   seconds — counting down, with *Now* and *Stop*; after six tries it stops and leaves
   Restart. A connection that held for a while, and was typed into, starts the count
-  again; twenty tries in all is the end of it either way. Passwords and host keys
+  again; short of one that held, twenty tries in a row is the end of it. Passwords and host keys
   stay OpenSSH's business: this only runs ssh again, as Restart would.
 - **Corrected before landing, after a QA pass.** ssh also ends with 255 when a
   password prompt is left until the server gives up — two minutes by default — and
   that counted as a connection that held, so it asked for the password again
-  forever. A connection nobody typed into now never counts as having held. `~.`,
-  ssh's own way of closing a connection, ends with 255 as well, and is no longer
-  retried. `ssh -P tag host` names the host, not the tag. A project's environment is
+  forever. A connection nobody typed into now never counts as having held, and the
+  terminal's own answers — focus reports, replies to a remote program's queries —
+  are not typing. `~.`, ssh's own way of closing a connection, ends with 255 as well,
+  and is no longer retried, whether typed in the terminal or sent from the composer. `ssh -P tag host` names the host, not the tag. A project's environment is
   never offered to a session on another machine. A remote shell that ends with
   `exit 255` of its own accord is still taken for a lost connection; ssh gives no
   way to tell them apart.
@@ -40,10 +41,12 @@ newest entry sits on top.
   pointed at a port nothing listens on: the pane, the status bar and the card must
   say remote and name the host; the lost connection must be said with a countdown;
   it must be tried again on its own, *Now* must try at once, and *Stop* must stop and
-  leave Restart. *ssh remote* (19 cases, in the unit tables) holds the host read from
+  leave Restart. *ssh remote* (23 cases, in the unit tables) holds the host read from
   an ssh command line — past options and their values, `user@host`, a jump host — the
-  backoff, a connection nobody typed into not counting as held, the limit of twenty,
-  and `~.` told from a lost connection. On the build before this, the profile cannot even start. Twice while
+  backoff, a connection nobody typed into not counting as held, the limit of twenty
+  and a held connection starting it again, the terminal's answers told from keys,
+  and `~.` told from a lost connection. On the build before this, the profile cannot
+  even start. Twice while
   this was tested, under heavy load, a window holding a live SSH session took long
   to quit; it could not be made to happen again, and every stage of the quit was
   seen to finish in a tenth of a second.

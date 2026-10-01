@@ -11,7 +11,7 @@ import { looksLocalDir, parseEmberMarker } from '@shared/integration'
 import { renderBufferAsHtml, textFromHtml } from './serialize'
 import { useStore, type CommandBlock, type TerminalPaneState } from '../state/store'
 import { DEFAULT_THEME, toXtermTheme } from './theme'
-import { endsWithEscape, nextReconnect, remoteHostOf, SSH_CONNECTION_LOST } from '@shared/ssh-remote'
+import { endsWithEscape, isTerminalReply, nextReconnect, remoteHostOf, SSH_CONNECTION_LOST } from '@shared/ssh-remote'
 
 /**
  * The block with this id, but only if it is a command.
@@ -2031,8 +2031,9 @@ export function noteSpawned(paneId: string): void {
   typedTail.delete(paneId)
 }
 
+/** What a person sent, not the terminal answering a query or reporting focus. */
 function noteTyped(paneId: string, data: string): void {
-  if (data) typedTail.set(paneId, ((typedTail.get(paneId) ?? '\r') + data).slice(-8))
+  if (data && !isTerminalReply(data)) typedTail.set(paneId, ((typedTail.get(paneId) ?? '\r') + data).slice(-8))
 }
 
 function scheduleReconnect(paneId: string, exitCode: number | null): void {

@@ -1,5 +1,5 @@
 // Which machine a session is on, and when to try reconnecting. Run: node scripts/test-ssh-remote.mjs
-import { endsWithEscape, nextReconnect, RECONNECT_BACKOFF, RECONNECT_LIMIT, remoteHostOf } from '../src/shared/ssh-remote.ts'
+import { endsWithEscape, isTerminalReply, nextReconnect, RECONNECT_BACKOFF, RECONNECT_LIMIT, remoteHostOf } from '../src/shared/ssh-remote.ts'
 
 let failures = 0
 let cases = 0
@@ -28,10 +28,15 @@ check('and gives up after the last', nextReconnect(RECONNECT_BACKOFF.length, 2_0
 check('a connection that held starts the count again', JSON.stringify(nextReconnect(5, 60_000)) === JSON.stringify({ attempt: 1, waitS: 1, total: 1 }))
 // QA: a password prompt nobody answered "held" for two minutes, and was asked again forever.
 check('one nobody typed into did not hold, however long', nextReconnect(RECONNECT_BACKOFF.length, 130_000, { typed: false, total: 6 }) === null)
-check('and twenty tries in all is the end, held or not', nextReconnect(0, 60_000, { typed: true, total: RECONNECT_LIMIT }) === null)
-check('the count in all goes up', nextReconnect(0, 60_000, { typed: true, total: 7 })?.total === 8)
+check('and twenty short tries in a row is the end', nextReconnect(0, 2_000, { typed: true, total: RECONNECT_LIMIT }) === null)
+check('the count in all goes up', nextReconnect(0, 2_000, { typed: true, total: 7 })?.total === 8)
 check('~. at the start of a line is ssh closed on purpose', endsWithEscape('\r~.') && endsWithEscape('ls\r~.'))
 check('but not ~. inside a line', !endsWithEscape('\recho ~.') && !endsWithEscape('\r~'))
+// QA: the twenty was a lifetime's, so a session that drops every night stopped coming back.
+check('a connection that held starts the count in all again too', nextReconnect(0, 6 * 3600_000, { typed: true, total: RECONNECT_LIMIT })?.total === 1)
+check('~. sent with its Enter from the composer is closed on purpose', endsWithEscape('\r~.\r'))
+check('the terminal answering for itself is not typing', ['\x1b[I', '\x1b[O', '\x1b[?1;2c', '\x1b[>0;276;0c', '\x1b[0n', '\x1b[12;40R', '\x1b[<0;10;5M', '\x1b]11;rgb:0000/0000/0000\x1b\\', '\x1bP1$r0m\x1b\\'].every(isTerminalReply))
+check('but keys are, arrows and Escape included', !['a', '\r', '\x1b', '\x1b[A', '\x1bOB', '\x1b[3~', '\x1bb', '~.'].some(isTerminalReply))
 check('-P takes a value', host('ssh', ['-P', 'tag', 'web1']) === 'web1')
 
 console.log(`ssh remote: ${cases} cases ${failures === 0 ? 'PASS' : `FAIL (${failures})`}`)

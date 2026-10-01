@@ -48,22 +48,35 @@ export const RECONNECT_LIMIT = 20
  * unanswered until the server gives up (two minutes by default), or a server that
  * accepts and then cuts the connection, and each of those "held" for longer than the
  * cutoff, so it asked for the password again forever. Nobody typing means nobody is
- * there to have had a session, so the count goes on; and whatever happens, it stops
- * after RECONNECT_LIMIT tries.
+ * there to have had a session, so the count goes on; and short of a session that
+ * held, it stops after RECONNECT_LIMIT tries in a row. One that held starts both
+ * counts again: a laptop that sleeps every night is not on its twenty-first failure
+ * three weeks in.
  */
 export function nextReconnect(
   attempt: number,
   heldForMs: number,
   seen: { typed: boolean; total: number } = { typed: true, total: 0 }
 ): { attempt: number; waitS: number; total: number } | null {
-  if (seen.total >= RECONNECT_LIMIT) return null
-  const fresh = heldForMs > 15_000 && seen.typed ? 0 : attempt
+  const held = heldForMs > 15_000 && seen.typed
+  const total = held ? 0 : seen.total
+  if (total >= RECONNECT_LIMIT) return null
+  const fresh = held ? 0 : attempt
   if (fresh >= RECONNECT_BACKOFF.length) return null
-  return { attempt: fresh + 1, waitS: RECONNECT_BACKOFF[fresh], total: seen.total + 1 }
+  return { attempt: fresh + 1, waitS: RECONNECT_BACKOFF[fresh], total: total + 1 }
 }
 
 /**
  * Whether what was last typed ends in ssh's own escape for closing the connection —
  * `~.` at the start of a line — which exits 255 like a lost connection, but on purpose.
+ * The composer sends a line with its Enter, so `~.` followed by one counts too.
  */
-export const endsWithEscape = (typed: string): boolean => /(^|[\r\n])~\.$/.test(typed)
+export const endsWithEscape = (typed: string): boolean => /(^|[\r\n])~\.[\r\n]?$/.test(typed)
+
+/**
+ * Whether data bound for the shell is the terminal answering for itself — a focus
+ * report, a reply to a query, a mouse report — rather than a person typing. By their
+ * exact shapes, since an arrow key starts with ESC [ as well, and is typing.
+ */
+export const isTerminalReply = (data: string): boolean =>
+  /^\x1b(\[[IO]|\[[?>=]?[\d;]*[cn]|\[\d+;\d+R|\[M[\s\S]{3}|\[<[\d;]+[Mm]|\][\s\S]*|P[\s\S]*|_[\s\S]*|\^[\s\S]*)$/.test(data)
