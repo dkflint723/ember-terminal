@@ -100,19 +100,24 @@ check('and which is trusted, as the repository it came from is', trusted.some((f
 if (!(await page.locator('.worktree__new').isVisible().catch(() => false))) await page.click('.activity__item[data-view="scm"]')
 await page.waitForSelector('[aria-label="Remove the worktree feat-x"]', { timeout: 15_000 })
 fs.writeFileSync(path.join(sibling, 'unsaved-work.txt'), 'not committed\n')
-let asked = ''
-page.once('dialog', (d) => {
-  asked = d.message()
+// Every question is answered and kept; the first removal must not ask at all.
+const asked = []
+page.on('dialog', (d) => {
+  asked.push(d.message())
   void d.accept()
 })
 await page.locator('[aria-label="Remove the worktree feat-x"]').click()
 await waitFor(async () => /changes or untracked files/.test(await panelSays()), 10_000)
-check('removing asks first, saying its session will be closed', /Remove the worktree/.test(asked) && /session here will be closed/.test(asked), asked)
-check('and is refused while it holds untracked work', fs.existsSync(path.join(sibling, 'unsaved-work.txt')) && /changes or untracked files/.test(await panelSays()), await panelSays())
+check('removing is refused while it holds untracked work, before anything is asked', fs.existsSync(path.join(sibling, 'unsaved-work.txt')) && /changes or untracked files/.test(await panelSays()) && asked.length === 0, `${await panelSays()} | asked: ${asked.join(' / ')}`)
 fs.rmSync(path.join(sibling, 'unsaved-work.txt'))
-page.once('dialog', (d) => void d.accept())
+// A file git ignores goes with the folder, so the question names it.
+fs.appendFileSync(path.join(repo, '.git', 'info', 'exclude'), '\n*.log\n')
+fs.writeFileSync(path.join(sibling, 'build.log'), 'ignored\n')
 await page.locator('[aria-label="Remove the worktree feat-x"]').click()
 await waitFor(() => !fs.existsSync(sibling), 15_000)
+const question = asked[0] ?? ''
+check('it asks first, saying its session will be closed', /Remove the worktree/.test(question) && /session here will be closed/.test(question), question)
+check('and naming the ignored files deleted with it', /git ignores/.test(question) && question.includes('build.log'), question)
 check('with nothing to lose, it is removed — its session closed so the folder can go', !fs.existsSync(sibling), await panelSays())
 check('and the branch stays', git('branch', '--list', 'feat-x').includes('feat-x'))
 

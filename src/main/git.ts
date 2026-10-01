@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { decodeText as decodeBytes } from '../shared/encoding.js'
 import { samePath } from '../shared/paths.js'
 import type {
+  WorktreeRemoval,
   GitBlameLine,
   GitCommitResult,
   GitDiffResult,
@@ -774,25 +775,45 @@ export class GitService {
    * Remove a worktree — asked first in the window, and refused here when it has
    * changes or files git does not track, which removing would lose. Never the main one.
    */
-  async removeWorktree(root: string, path: string, opts: { dryRun?: boolean } = {}): Promise<GitSimpleResult> {
+  async removeWorktree(root: string, path: string, opts: { dryRun?: boolean } = {}): Promise<WorktreeRemoval> {
     const all = await this.worktrees(root)
     const target = all.find((w) => w.path.toLowerCase() === path.replace(/\//g, '\\').toLowerCase())
     if (!target) return { ok: false, error: 'That is not one of this repository’s worktrees.' }
     if (target.main) return { ok: false, error: 'The main worktree is the repository itself, and is not removed from here.' }
     if (target.locked) return { ok: false, error: 'That worktree is locked.' }
+    /*
+     * Ignored files too: `git worktree remove` deletes them without a word, and a
+     * worktree's .env, .venv, node_modules or local database often exist nowhere
+     * else. They do not stop the removal; they are named in the question first.
+     */
+    let ignored: string[] = []
     try {
-      const { stdout } = await this.git(target.path, ['status', '--porcelain', '--untracked-files=all'])
-      if ((stdout as string).trim()) {
+      const { stdout } = await this.git(target.path, ['status', '--porcelain', '--ignored', '--untracked-files=all'])
+      const lines = (stdout as string).split(/\r?\n/).filter(Boolean)
+      if (lines.some((l) => !l.startsWith('!! '))) {
         return { ok: false, error: 'That worktree has changes or untracked files, which removing it would lose. Commit or stash them first.' }
       }
+      ignored = lines.map((l) => l.slice(3))
     } catch (err) {
       return { ok: false, error: `Its status could not be read: ${err instanceof Error ? err.message : String(err)}` }
     }
     // Asked first whether it could be: the window closes the sessions in it only then.
-    if (opts.dryRun) return { ok: true }
+    if (opts.dryRun) return { ok: true, ignored }
     // Run from the main worktree: git standing in the folder it removes cannot remove it.
     const main = all.find((w) => w.main)?.path ?? root
-    return this.simple(main, ['worktree', 'remove', '--', target.path], { timeout: null, cancelKey: root })
+    const removed = await this.simple(main, ['worktree', 'remove', '--', target.path], { timeout: null, cancelKey: root })
+    /*
+     * On Windows a file held open elsewhere stops the delete part-way — after git has
+     * already let the worktree go — and leaves a folder of stragglers that is no
+     * longer a repository. Said plainly, with where it is.
+     */
+    if (!removed.ok && existsSync(target.path)) {
+      const listed = await this.worktrees(main)
+      if (!listed.some((w) => w.path.toLowerCase() === target.path.toLowerCase())) {
+        return { ok: false, error: `The worktree was let go, but some files in ${target.path} could not be deleted — a program still has them open. That folder is left behind.`, leftBehind: target.path }
+      }
+    }
+    return removed
   }
 
   /** The repository's top folder, or null outside one. */

@@ -54,12 +54,24 @@ newest entry sits on top.
   question says: Windows will not delete a folder a shell is standing in, and nor will
   git standing in it, so removal runs from the main worktree. The main worktree is
   never removed from here.
+- **Corrected before landing, after a QA pass.** Removing deleted files git ignores —
+  a `.env`, a build — without a word: git counts them as nothing to lose. They are
+  now named in the question. The question came before the check, so it was asked and
+  then refused; git is now asked first, without removing anything. Unsaved files and
+  running commands in the sessions it closes are named in the same question rather
+  than a second one. A terminal or file from the worktree open in another session is
+  not closed for you: removal is refused, saying so. If git lets the worktree go but
+  Windows keeps part of the folder, that is said, with the rest a press from the
+  Recycle Bin, instead of a quiet half-removal. A removed worktree's folder is no
+  longer trusted, so a later folder of the same name is not; and a worktree made from
+  another worktree takes its trust from the repository itself.
 - **How it is checked:** a new suite, `verify-worktrees`, on a real repository: the
   list starts with the repository; a name git would refuse is refused by name; *Make*
   makes the folder beside the repository on the new branch, opens a session whose
-  shell starts in it, and trusts it; removing asks, naming the session it will close,
-  and is refused while an untracked file is there; and with nothing to lose it is
-  removed, its branch kept. On the build before this there is no list to use.
+  shell starts in it, and trusts it; removing is refused, before anything is asked,
+  while an untracked file is there; then it asks, naming the session it will close and
+  an ignored `build.log`, and with nothing else to lose it is removed, its branch
+  kept. On the build before this there is no list to use.
 
 ### A project's environment, offered once and kept
 
@@ -94,7 +106,9 @@ newest entry sits on top.
   that printed one and is attached to a question goes as names. Trust is judged once
   the folder's real name is known. A second answer given in another pane before the
   first is saved can still replace it, and other sessions already open in the folder
-  are activated from their next start, not at once.
+  are activated from their next start, not at once. Names that make a shell run
+  something or find programs elsewhere — `PROMPT_COMMAND`, `PS1`, `BASH_ENV`, `PATH`,
+  `PATHEXT`, `IFS`, `EMBER_*` and their kind — are not set from a `.env` at all.
 - **How it is checked:** a new suite, `verify-project-env`, opens a trusted folder
   holding a `.venv` and a `.env` with a quoted value and an `export` line: the offer
   must appear; *Activate* must give the shell both, quotes and `export` taken off; no
@@ -102,8 +116,9 @@ newest entry sits on top.
   the `.env` must give names and no values; and the next session there must be
   activated without being asked. *env lines* runs both loaders in Git Bash and each
   PowerShell against a hostile `.env` — spaces, both quotes, `export`, `=` in a value, a
-  `$(…)` and a backtick, a BOM and CRLF — requiring every value as written and nothing
-  run. *chat context* (in the unit tables) requires an open
+  `$(…)` and a backtick, a BOM and CRLF, and `PROMPT_COMMAND`, `PS1` and
+  `EMBER_NONCE` lines — requiring every value as written, those three unset, and
+  nothing run. *chat context* (in the unit tables) requires an open
   `.env.local` to reach the model as names alone, comments kept, and no value — not
   even one redaction would miss.
 

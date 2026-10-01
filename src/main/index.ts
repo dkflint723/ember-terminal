@@ -2491,15 +2491,21 @@ function registerIpc(): void {
   ipcMain.handle('git:worktreeAdd', async (e, root: string, branch: string) => {
     within(e, 'git:worktreeAdd', root, 'write')
     const made = await git.addWorktree(root, branch)
+    // Judged on the repository itself — its main worktree — not on a trusted subfolder
+    // of it, which would trust more than was trusted.
+    const repository = made.ok ? (await git.worktrees(made.path)).find((w) => w.main)?.path : undefined
     const current = settings.get()
-    if (made.ok && (isTrustedPath(root, current.trustedFolders) || isTrustedPath(realFolder(root), current.trustedFolders))) {
+    if (made.ok && repository && (isTrustedPath(repository, current.trustedFolders) || isTrustedPath(realFolder(repository), current.trustedFolders))) {
       settings.noteTrust(made.path, true)
     }
     return made
   })
-  ipcMain.handle('git:worktreeRemove', (e, root: string, path: string, opts?: { dryRun?: boolean }) => {
-    within(e, 'git:worktreeRemove', path, 'write')
-    return git.removeWorktree(root, path, { dryRun: opts?.dryRun === true })
+  ipcMain.handle('git:worktreeRemove', async (e, root: string, path: string, opts?: { dryRun?: boolean }) => {
+    within(e, 'git:worktreeRemove', root, 'write')
+    const res = await git.removeWorktree(root, path, { dryRun: opts?.dryRun === true })
+    // Its trust goes with it: a different folder made at the same place later is not this one.
+    if (res.ok && !opts?.dryRun) settings.noteTrust(path, false)
+    return res
   })
   ipcMain.handle('file:write', (e, filePath: string, content: string, opts?: FileWriteOptions) => {
     within(e, 'file:write', filePath, 'write')

@@ -26,7 +26,7 @@ const dir = workDir('ember-projectenv-')
 fs.mkdirSync(path.join(dir, '.venv', 'Scripts'), { recursive: true })
 fs.writeFileSync(path.join(dir, '.venv', 'Scripts', 'Activate.ps1'), "$env:EMBER_VENV_ON = 'yes'\n", 'utf8')
 const SECRET = 'dot-secret-' + '41'
-fs.writeFileSync(path.join(dir, '.env'), `# for the app\nEMBER_DOTENV_VAL="${SECRET}"\nexport EMBER_OTHER=two\n`, 'utf8')
+fs.writeFileSync(path.join(dir, '.env'), `# for the app\nPROJ_DOTENV_VAL="${SECRET}"\nexport PROJ_OTHER=two\n`, 'utf8')
 // Trusted before the first session, as a folder opened on purpose is.
 for (const d of seedDirs(profile.dir)) {
   fs.writeFileSync(path.join(d, 'settings.json'), JSON.stringify({ trustedFolders: [dir], restoreSession: true }), 'utf8')
@@ -69,7 +69,7 @@ const ask = async (page, command, marker) => {
   await waitFor(async () => (await page.locator('.block--done', { hasText: marker }).count()) > before, 15_000)
   return page.locator('.block--done', { hasText: marker }).last().locator('.block__body').textContent()
 }
-const probe = 'Write-Output "V[$env:EMBER_VENV_ON]D[$env:EMBER_DOTENV_VAL]O[$env:EMBER_OTHER]"'
+const probe = 'Write-Output "V[$env:EMBER_VENV_ON]D[$env:PROJ_DOTENV_VAL]O[$env:PROJ_OTHER]"'
 
 // --- the first session: offered, and activated -------------------------------------------
 let { app, page } = await launch()
@@ -88,12 +88,12 @@ const inHistory = await page.evaluate(async (s) => ((await window.ember.searchHi
 check('nor does any command history keeps', !inHistory.some((c) => c.includes(SECRET)), JSON.stringify(inHistory))
 
 // --- a block that printed it shares names, not values ------------------------------------------
-await ask(page, 'Get-Content .env', 'EMBER_DOTENV_VAL')
-const shown = page.locator('.block--done', { hasText: 'EMBER_DOTENV_VAL' }).last()
+await ask(page, 'Get-Content .env', 'PROJ_DOTENV_VAL')
+const shown = page.locator('.block--done', { hasText: 'PROJ_DOTENV_VAL' }).last()
 await shown.locator('button[title^="Copy as Markdown"]').dispatchEvent('click')
 await sleep(600)
 const shared = await app.evaluate(({ clipboard }) => clipboard.readText())
-check('a block that printed the .env shares its names', shared.includes('EMBER_DOTENV_VAL=<withheld>'), shared.slice(0, 200))
+check('a block that printed the .env shares its names', shared.includes('PROJ_DOTENV_VAL=<withheld>'), shared.slice(0, 200))
 check('and none of its values', !shared.includes(SECRET) && !shared.includes('=two'), shared.slice(0, 200))
 
 // --- the next session: activated without asking ------------------------------------------------

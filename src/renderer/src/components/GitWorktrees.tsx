@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { GitSimpleResult } from '@shared/types'
 import { pathKey } from '@shared/paths'
-import { terminalPaneIdFor, useStore } from '../state/store'
+import { paneIdsOf, runningCommandsIn, terminalPaneIdFor, useStore } from '../state/store'
 
 interface Props {
   root: string | null
@@ -83,16 +83,60 @@ export function GitWorktrees({ root, busy, act }: Props): React.JSX.Element | nu
      * question, so closing them is part of what is agreed to.
      */
     const s = useStore.getState()
-    const inside = s.tabs.filter((t) => t.workspace && (pathKey(t.workspace) === pathKey(w.path) || pathKey(t.workspace).startsWith(`${pathKey(w.path)}/`)))
-    const sessions = inside.length > 0 ? ` Its ${inside.length === 1 ? 'session' : `${inside.length} sessions`} here will be closed.` : ''
-    if (!window.confirm(`Remove the worktree at ${w.path}${w.branch ? ` (${w.branch})` : ''}? Its folder is deleted; the branch stays.${sessions}`)) return
-    // Checked before anything is closed: a worktree with work in it is refused anyway.
-    const changed = await act(() => window.ember.gitWorktreeRemove(root, w.path, { dryRun: true }))
-    if (!changed) return
+    const within = (p: string | null | undefined): boolean => !!p && (pathKey(p) === pathKey(w.path) || pathKey(p).startsWith(`${pathKey(w.path)}/`))
+    const inside = s.tabs.filter((t) => within(t.workspace))
+    const insidePanes = inside.flatMap((t) => paneIdsOf(t))
+
+    /*
+     * Anything else standing in it is not closed for you: a terminal in another
+     * session that has gone into the folder, or a file from it open elsewhere, would
+     * keep Windows from deleting it — and git, having let the worktree go, would
+     * leave a folder of stragglers behind. Said, and nothing is done.
+     */
+    const elsewhere = s.tabs
+      .filter((t) => !inside.includes(t))
+      .flatMap((t) => paneIdsOf(t).map((id) => s.panes[id]))
+      .filter((p) => (p?.kind === 'terminal' && within(p.cwd)) || (p?.kind === 'editor' && p.documents.some((d) => within(d.filePath))))
+    if (elsewhere.length > 0) {
+      s.setNotice(`Something in another session is in ${w.path} — a terminal standing in it, or a file from it open. Close or move it first, then remove the worktree.`, 'error')
+      return
+    }
+
+    // Asked of git first, without removing anything: refused if it has work in it,
+    // and what it ignores, named, since that goes with the folder.
+    const check = await window.ember.gitWorktreeRemove(root, w.path, { dryRun: true })
+    if (!check.ok) {
+      await act(async () => check)
+      return
+    }
+    const ignored = check.ignored ?? []
+    const lines = [`Remove the worktree at ${w.path}${w.branch ? ` (${w.branch})` : ''}? Its folder is deleted; the branch stays.`]
+    if (ignored.length > 0) {
+      lines.push(`It also holds files git ignores, which are deleted with it: ${ignored.slice(0, 6).join(', ')}${ignored.length > 6 ? `, and ${ignored.length - 6} more` : ''}.`)
+    }
+    const unsaved = s.dirtyDocumentsIn(insidePanes)
+    const running = runningCommandsIn(insidePanes, s.panes)
+    if (inside.length > 0) lines.push(`Its ${inside.length === 1 ? 'session' : `${inside.length} sessions`} here will be closed.`)
+    if (unsaved.length > 0) lines.push(`${unsaved.slice(0, 4).join(', ')} ${unsaved.length === 1 ? 'has' : 'have'} unsaved changes, which will be lost.`)
+    if (running.length > 0) lines.push(`${running.length === 1 ? '1 command is' : `${running.length} commands are`} still running there (${running.slice(0, 3).join(', ')}), and will be ended.`)
+    if (!window.confirm(lines.join('\n\n'))) return
+
     for (const tab of inside) useStore.getState().closeTab(tab.id, true)
-    // A moment for the shells to end and let go of the folder.
-    if (inside.length > 0) await new Promise((r) => window.setTimeout(r, 1500))
-    await act(() => window.ember.gitWorktreeRemove(root, w.path))
+    // Until their shells have ended, which is when they let go of the folder.
+    for (const until = Date.now() + 8000; insidePanes.length > 0 && Date.now() < until; ) {
+      const live = await window.ember.ptyFlowStats()
+      if (!insidePanes.some((id) => id in live)) break
+      await new Promise((r) => window.setTimeout(r, 150))
+    }
+    const removed = await window.ember.gitWorktreeRemove(root, w.path)
+    if (!removed.ok && removed.leftBehind) {
+      const left = removed.leftBehind
+      useStore.getState().setNotice(removed.error, 'error', [
+        { label: 'Move what is left to the Recycle Bin', run: () => void window.ember.trashPath(left).then(() => reload()) }
+      ])
+    } else {
+      await act(async () => removed)
+    }
     await reload()
   }
 

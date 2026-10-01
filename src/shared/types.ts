@@ -803,6 +803,9 @@ export interface IdeCall {
 
 export type GitDiffResult = GitDiffOk | { ok: false; error: string }
 export type GitSimpleResult = { ok: true } | { ok: false; error: string }
+
+/** A worktree's removal: what it would take with it, or why not, or what it left. */
+export type WorktreeRemoval = { ok: true; ignored?: string[] } | { ok: false; error: string; leftBehind?: string }
 export type GitCommitResult = { ok: true; summary: string } | { ok: false; error: string }
 
 /** Who last touched one line, and why. */
@@ -1407,7 +1410,7 @@ export interface EmberApi {
   /** A new branch in a new worktree beside the repository; trusted when the repository is. */
   gitWorktreeAdd(root: string, branch: string): Promise<{ ok: true; path: string } | { ok: false; error: string }>
   /** Remove a worktree, refused when it has anything removing it would lose. */
-  gitWorktreeRemove(root: string, path: string, opts?: { dryRun?: boolean }): Promise<GitSimpleResult>
+  gitWorktreeRemove(root: string, path: string, opts?: { dryRun?: boolean }): Promise<WorktreeRemoval>
   /** The committed text of a file, or null when there is nothing to diff against. */
   gitHeadText(filePath: string): Promise<string | null>
   gitCheckout(root: string, name: string, create: boolean): Promise<GitSimpleResult>
