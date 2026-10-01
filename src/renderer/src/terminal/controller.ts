@@ -11,6 +11,7 @@ import { looksLocalDir, parseEmberMarker } from '@shared/integration'
 import { renderBufferAsHtml, textFromHtml } from './serialize'
 import { useStore, type CommandBlock, type TerminalPaneState } from '../state/store'
 import { DEFAULT_THEME, toXtermTheme } from './theme'
+import { nextReconnect, remoteHostOf, SSH_CONNECTION_LOST } from '@shared/ssh-remote'
 
 /**
  * The block with this id, but only if it is a command.
@@ -1236,6 +1237,8 @@ export class TerminalController {
     this.authenticated = false
     // A new shell has to prove itself again; the last one's word does not carry.
     this.store().patchPane(this.paneId, { authenticated: false, unsupported: undefined })
+    // When this connection began, for telling a dropped connection from one that never held.
+    noteSpawned(this.paneId)
     void window.ember
       .spawn({
         paneId: this.paneId,
@@ -2002,4 +2005,58 @@ window.ember.onExit(({ paneId, exitCode }) => {
       durationMs: Date.now() - running.startedAt
     })
   }
+  scheduleReconnect(paneId, exitCode)
 })
+
+/*
+ * An ssh session whose connection was lost comes back on its own (audit R31).
+ *
+ * ssh exits 255 when the connection failed or dropped — a laptop lid, a VPN, a
+ * server rebooting — as against the remote shell's own exit, which is the status of
+ * whatever `exit` said. On 255 the pane says it is reconnecting and starts ssh again
+ * after a wait that grows (1, 2, 4… 30 seconds) and stops after six tries; a
+ * connection that held for a while starts the count again. Credentials and host keys
+ * stay with OpenSSH: this only runs ssh again, as pressing Restart would.
+ */
+const spawnedAt = new Map<string, number>()
+const reconnectTimers = new Map<string, number>()
+
+export function noteSpawned(paneId: string): void {
+  spawnedAt.set(paneId, Date.now())
+}
+
+function scheduleReconnect(paneId: string, exitCode: number | null): void {
+  const s = useStore.getState()
+  const pane = s.terminalPane(paneId)
+  const profile = s.profiles.find((p) => p.id === pane?.profileId)
+  if (!pane || !remoteHostOf(profile)) return
+  // The remote shell ending on its own — `exit` — is an ending, not a lost connection.
+  if (exitCode !== SSH_CONNECTION_LOST) {
+    if (pane.reconnect) s.patchPane(paneId, { reconnect: null })
+    return
+  }
+  const next = nextReconnect(pane.reconnect?.attempt ?? 0, Date.now() - (spawnedAt.get(paneId) ?? 0))
+  if (!next) {
+    s.patchPane(paneId, { reconnect: null })
+    return
+  }
+  s.patchPane(paneId, { reconnect: { at: Date.now() + next.waitS * 1000, attempt: next.attempt } })
+  window.clearTimeout(reconnectTimers.get(paneId))
+  reconnectTimers.set(paneId, window.setTimeout(() => reconnectNow(paneId), next.waitS * 1000))
+}
+
+/** Try again now, rather than at the end of the wait. */
+export function reconnectNow(paneId: string): void {
+  window.clearTimeout(reconnectTimers.get(paneId))
+  reconnectTimers.delete(paneId)
+  const pane = useStore.getState().terminalPane(paneId)
+  if (!pane?.exited || !pane.reconnect) return
+  existingController(paneId)?.restart()
+}
+
+/** Stop trying: the pane stays as it is, with its Restart. */
+export function stopReconnecting(paneId: string): void {
+  window.clearTimeout(reconnectTimers.get(paneId))
+  reconnectTimers.delete(paneId)
+  useStore.getState().patchPane(paneId, { reconnect: null })
+}

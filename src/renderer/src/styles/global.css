@@ -1899,6 +1899,18 @@ button {
   flex: 1 1 auto;
 }
 
+/* A session on another machine says so, before anything about it (shared/ssh-remote.ts). */
+.pane__remote {
+  padding: 0 6px;
+  border: 1px solid var(--info-border);
+  border-radius: 3px;
+  background: var(--info-bg);
+  color: var(--info-fg);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 /* A new worktree's branch, typed under the list of them. */
 .worktree__form {
   display: flex;

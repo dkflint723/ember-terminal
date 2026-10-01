@@ -221,6 +221,7 @@ export function sshProfiles(): ShellProfile[] {
     path: 'ssh',
     args: [host],
     integration: 'none' as const,
-    icon: 'ssh'
+    icon: 'ssh',
+    remote: { host }
   }))
 }

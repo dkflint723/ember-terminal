@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { isInside, pathKey, samePath } from '@shared/paths'
 import { activeDocument, paneIdsOf, useStore, type CommandBlock, type Tab } from '../state/store'
+import { remoteHostOf } from '@shared/ssh-remote'
 
 /**
  * The sessions, as cards in the side slot.
@@ -100,6 +101,9 @@ export function SessionList(): React.JSX.Element {
   const subtitleFor = (tab: Tab): { branch: boolean; text: string } => {
     const pane = panes[tab.activePaneId]
     if (pane?.kind !== 'terminal') return { branch: false, text: '' }
+    // A session on another machine says which, before anything about this one.
+    const host = remoteHostOf(profiles.find((p) => p.id === pane.profileId))
+    if (host) return { branch: false, text: `remote · ${host}` }
     const inWorkspace = workspaceGit
       ? isInside(workspaceGit.root, pane.cwd) || samePath(workspaceGit.root, pane.cwd)
       : false

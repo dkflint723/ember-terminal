@@ -12,6 +12,8 @@ export interface ShellProfile {
   /** Which shell-integration dialect to inject, if any. */
   integration: 'powershell' | 'bash' | 'none'
   icon: string
+  /** Set for a session on another machine: the host, for the badge and the status bar. */
+  remote?: { host: string }
   /**
    * Where a fresh session with this shell starts, when the profile says.
    * Absent for detected shells; carried over from a custom profile's "Start in".

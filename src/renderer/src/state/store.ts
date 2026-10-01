@@ -166,6 +166,11 @@ export interface TerminalPaneState extends BasePane {
   exited: boolean
   exitCode: number | null
   /**
+   * An ssh session whose connection was lost, coming back on its own: when the next
+   * try is, and which try it is. Null while connected, or once stopped or given up.
+   */
+  reconnect?: { at: number; attempt: number } | null
+  /**
    * Blocks taken off the screen by Clear, kept so that Undo can put them back.
    *
    * Clear used to delete them from the history database as well, which is a

@@ -161,7 +161,14 @@ export class PtyManager {
     // Whatever the loading needs in the environment — today only WSLENV, which is
     // how anything at all crosses into a distro.
     if (loading.env) Object.assign(env, loading.env)
-    const pty = ptySpawn(profile.path, loading.args, {
+    /*
+     * A bare program name is looked for with `.exe` on Windows. node-pty's search
+     * finds `ssh.exe` and not `ssh`, failing with "File not found:" and no name — and
+     * `ssh` is what every host read from ~/.ssh/config was given, so none of them
+     * started. Only a bare name: a path, or a name with an extension, is as given.
+     */
+    const file = process.platform === 'win32' && !/[\\/]/.test(profile.path) && !/\.[A-Za-z0-9]+$/.test(profile.path) ? `${profile.path}.exe` : profile.path
+    const pty = ptySpawn(file, loading.args, {
       cols: Math.max(req.cols, 2),
       rows: Math.max(req.rows, 1),
       cwd,

@@ -6,6 +6,7 @@ import { monacoIfLoaded } from '../editor/loaded'
 import { useProblems } from './ProblemsPanel'
 import { useDebugStore } from '../state/debug'
 import { ClaudeStatus } from './ClaudeChip'
+import { remoteHostOf } from '@shared/ssh-remote'
 
 /**
  * Language names as they are written down, for the few Monaco spells differently.
@@ -133,7 +134,12 @@ export function StatusBar(): React.JSX.Element | null {
       : paneIdsOf(tab)
           .map((id) => panes[id])
           .find((p): p is TerminalPaneState => p?.kind === 'terminal')
-  const cwd = terminal?.cwd ?? null
+  /*
+   * On another machine, the folder this session started from on this one is not
+   * where anything typed into it runs: the chip says so instead (audit R31).
+   */
+  const remoteHost = remoteHostOf(profiles.find((p) => p.id === terminal?.profileId))
+  const cwd = remoteHost ? null : (terminal?.cwd ?? null)
 
   /*
    * An editor, and only an editor, adds the file context. A diff pane is
@@ -195,6 +201,11 @@ export function StatusBar(): React.JSX.Element | null {
     // screen reader should hear that without the bar claiming to be a set of
     // controls first.
     <div className="statusbar" role="status" aria-label="Workspace status">
+      {remoteHost && (
+        <span className="statusbar__item statusbar__path" data-status="remote" title={`This session is on ${remoteHost}, over SSH`}>
+          remote · {remoteHost}
+        </span>
+      )}
       {cwd && (
         <button
           className="statusbar__item statusbar__path"

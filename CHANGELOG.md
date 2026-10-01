@@ -5,6 +5,38 @@ newest entry sits on top.
 
 ## Unreleased
 
+### SSH sessions say where they are, and come back when their connection drops
+
+- **No SSH host from `~/.ssh/config` could be opened.** Each was given `ssh` as its
+  program, and the terminal library looks for `ssh.exe`: every one failed to start
+  with "File not found:" and no name. A bare program name is now looked for with
+  `.exe` on Windows, as a person typing it would expect.
+- **An SSH session looked like any other.** The status bar named a folder on this
+  machine — where nothing typed into the session runs — and nothing said the pane
+  was somewhere else. Now the pane, the status bar and the session's card each say
+  *remote* and name the host; the status bar shows no local folder for it.
+- **A dropped connection comes back on its own.** When ssh ends because the
+  connection was lost (its status 255, as against the remote shell's own `exit`), the
+  pane says so and starts ssh again after a wait that grows — 1, 2, 4, 8, 16, 30
+  seconds — counting down, with *Now* and *Stop*; after six tries it stops and leaves
+  Restart. A connection that held for a while starts the count again. Passwords and
+  host keys stay OpenSSH's business: this only runs ssh again, as Restart would.
+- **Not done:** blocks for commands on the remote machine (the audit's second phase:
+  an opt-in, per-host integration snippet sent after login) — a remote session is
+  still a plain terminal, and says so. And there is no SSH server in CI: the
+  reconnect is checked against a refused connection, which ends with the same status
+  a dropped one does.
+- **How it is checked:** a new suite, `verify-ssh-remote`, opens an SSH profile
+  pointed at a port nothing listens on: the pane, the status bar and the card must
+  say remote and name the host; the lost connection must be said with a countdown;
+  it must be tried again on its own, *Now* must try at once, and *Stop* must stop and
+  leave Restart. *ssh remote* (13 cases, in the unit tables) holds the host read from
+  an ssh command line — past options and their values, `user@host`, a jump host — and
+  the backoff. On the build before this, the profile cannot even start. Twice while
+  this was tested, under heavy load, a window holding a live SSH session took long
+  to quit; it could not be made to happen again, and every stage of the quit was
+  seen to finish in a tenth of a second.
+
 ### Worktrees, as sessions beside each other
 
 - **Parallel work on another branch meant a second clone**, or stashing and

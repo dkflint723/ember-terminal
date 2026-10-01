@@ -2,7 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { useChord, useStore, workspaceRoot, type Block, type TerminalPaneState } from '../state/store'
 import { considerProjectEnv } from '../state/project-env'
 import { useLearned } from '../composer/learned'
-import { getController } from '../terminal/controller'
+import { getController, reconnectNow, stopReconnecting } from '../terminal/controller'
 import { sendOrExplain, typeIntoTerminal, whyNot } from '../terminal/typing'
 import { AgentBlock } from './AgentBlock'
 import { BlockView } from './BlockView'
@@ -10,6 +10,7 @@ import { InputEditor } from './InputEditor'
 import { OverviewRuler, useBlockGeometry } from './OverviewRuler'
 import { FindBar } from './FindBar'
 import { riskQuestion } from './RiskNote'
+import { RECONNECT_BACKOFF, remoteHostOf, SSH_CONNECTION_LOST } from '@shared/ssh-remote'
 
 interface Props {
   pane: TerminalPaneState
@@ -134,6 +135,15 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
   const palette = useStore((s) => (s.glass ? s.theme.glass.terminal : s.theme.terminal))
   const mode = useStore((s) => s.mode)
   const profileName = useStore((s) => s.profiles.find((p) => p.id === pane.profileId)?.name)
+  // The machine this session is on, when it is not this one: shared/ssh-remote.ts.
+  const remoteHost = useStore((s) => remoteHostOf(s.profiles.find((p) => p.id === pane.profileId)))
+  // A clock for the reconnect countdown, ticking only while there is one.
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    if (!pane.reconnect) return
+    const t = window.setInterval(() => setNow(Date.now()), 500)
+    return () => window.clearInterval(t)
+  }, [pane.reconnect])
   // Whether this shell speaks PowerShell: a -WhatIf preview is offered only there.
   const speaksPowerShell = useStore((s) => s.profiles.find((p) => p.id === pane.profileId)?.integration === 'powershell')
   const firstRunDone = useStore((s) => s.settings.firstRunDone)
@@ -810,12 +820,35 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
       */}
       {plain && (
         <div className="pane__notice">
-          <span>
-            {pane.unsupported
-              ? `Ember has no shell integration for ${pane.unsupported} yet — plain terminal mode.`
-              : `${profileName ?? 'This shell'} has no shell integration — plain terminal mode.`}
-          </span>
-          {pane.exited && <span>· exited {pane.exitCode ?? ''}</span>}
+          {remoteHost ? (
+            <span>
+              <span className="pane__remote" data-remote-host={remoteHost}>
+                remote
+              </span>{' '}
+              {pane.exited && pane.reconnect
+                ? `The connection to ${remoteHost} was lost. Reconnecting in ${Math.max(0, Math.ceil((pane.reconnect.at - now) / 1000))}s — try ${pane.reconnect.attempt} of ${RECONNECT_BACKOFF.length}.`
+                : pane.exited && pane.exitCode === SSH_CONNECTION_LOST
+                  ? `The connection to ${remoteHost} was lost, and could not be made again.`
+                  : `On ${remoteHost} over SSH — a plain terminal: commands there are not blocks.`}
+            </span>
+          ) : (
+            <span>
+              {pane.unsupported
+                ? `Ember has no shell integration for ${pane.unsupported} yet — plain terminal mode.`
+                : `${profileName ?? 'This shell'} has no shell integration — plain terminal mode.`}
+            </span>
+          )}
+          {pane.exited && pane.reconnect && (
+            <>
+              <button className="btn" data-reconnect="now" onClick={() => reconnectNow(pane.id)}>
+                Now
+              </button>
+              <button className="btn" data-reconnect="stop" onClick={() => stopReconnecting(pane.id)}>
+                Stop
+              </button>
+            </>
+          )}
+          {pane.exited && !pane.reconnect && <span>· exited {pane.exitCode ?? ''}</span>}
           {/*
             A pane like this has no composer, so when its shell exited there was
             nothing on screen to start another one with — the pane simply sat
@@ -825,7 +858,7 @@ export function TerminalPane({ pane, active, onFocus }: Props): React.JSX.Elemen
             same action. The two never appear together: a plain pane is a raw
             pane, and the composer is drawn only when the pane is not raw.
           */}
-          {pane.exited && (
+          {pane.exited && !pane.reconnect && (
             <button
               className="btn"
               data-restart="shell"
