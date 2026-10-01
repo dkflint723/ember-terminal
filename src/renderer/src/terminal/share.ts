@@ -1,4 +1,4 @@
-import { containsInlineSecret, envNamesOnly, redactSecrets } from '@shared/secrets'
+import { containsInlineSecret, envNamesOnly, namesDotEnv, redactSecrets } from '@shared/secrets'
 
 /**
  * A block, as something you can paste somewhere else.
@@ -105,7 +105,7 @@ export function markdownFrom(block: ShareableBlock, output: string): string {
    * And a command that printed a dotenv file shares its names, not its values: the
    * values a .env holds are the ones redaction cannot recognise (audit R32).
    */
-  const printedDotEnv = /(^|[\s/\\'"])\.env(\.[\w.-]+)?\b/i.test(block.command)
+  const printedDotEnv = namesDotEnv(block.command)
   const body = block.interactive
     ? '# (interactive — nothing captured)'
     : (printedDotEnv ? envNamesOnly(output) : redactSecrets(output)).replace(/\s+$/, '')

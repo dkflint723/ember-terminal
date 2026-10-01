@@ -11,7 +11,9 @@ import {
   containsInlineSecret,
   containsKeyShape,
   hasSecret,
+  envNamesOnly,
   inventsRedaction,
+  namesDotEnv,
   redactSecrets
 } from '../src/shared/secrets.ts'
 
@@ -204,6 +206,20 @@ for (const [what, fn] of [
   cases += 1
   check(`${what} on 100,000 letters takes under 300 ms`, took < 300, `${Math.round(took)} ms`)
 }
+
+// --- a .env: named by a command, and kept to its names (audit R32) ---
+for (const yes of ['cat .env', 'Get-Content .env', 'type .env.local', 'gc ./.env', 'more "C:/x/.env"','cat .env | grep X', 'node -r dotenv/config --env-file=.env app.js']) {
+  cases += 1
+  check(`${yes} names a .env`, namesDotEnv(yes))
+}
+for (const no of ['cat env.txt', 'echo .environment', 'ls', 'python -m venv .venv', 'cat .envrc']) {
+  cases += 1
+  check(`${no} names no .env`, !namesDotEnv(no))
+}
+cases += 1
+const dotenv = ['A=1', 'export B = two', '# note', '', 'loose'].join('\n')
+const dotenvKept = ['A=<withheld>', 'export B =<withheld>', '# note', '', '<withheld>'].join('\n')
+check('its values withheld, its names kept', envNamesOnly(dotenv) === dotenvKept, JSON.stringify(envNamesOnly(dotenv)))
 
 console.log(
   failures === 0 ? `secrets: ${cases} cases PASS` : `secrets: ${failures} checks FAILED of ${cases} cases`

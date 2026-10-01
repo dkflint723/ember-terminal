@@ -25,7 +25,8 @@ newest entry sits on top.
 - **A `.env` is not sent to a model.** An open `.env` file reaches Claude as its names
   alone, every value `<withheld>` — redaction catches the credentials that announce
   themselves, and a `.env` holds the ones that do not. A block whose command printed a
-  `.env` shares the same way.
+  `.env` shares the same way, and goes to Claude the same way when it is
+  attached to a question.
 - **Settings → Offer to activate a project's environment** turns it off, and forgets
   the folders' answers.
 - **How it is checked:** a new suite, `verify-project-env`, opens a trusted folder

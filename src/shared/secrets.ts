@@ -183,6 +183,11 @@ export function isDotEnv(path: string): boolean {
   return /^\.env(\.[\w.-]+)?$/i.test(path.split(/[\\/]/).pop() ?? '')
 }
 
+/** Whether a command names a dotenv file, and so may have printed one. */
+export function namesDotEnv(command: string): boolean {
+  return /(^|[\s/\\'"=])\.env(\.[\w.-]+)?(?=$|[\s'"|;)])/i.test(command)
+}
+
 /**
  * A dotenv file's text with every value withheld: the names stay, so what a program
  * expects can still be talked about, and nothing it is set to leaves (audit R32).

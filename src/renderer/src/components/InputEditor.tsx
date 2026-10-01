@@ -13,6 +13,7 @@ import {
 } from '../state/store'
 import { sendToAgent } from './AgentPanel'
 import { refreshGitForCwd } from '../state/git'
+import { envNamesOnly, namesDotEnv } from '@shared/secrets'
 
 /**
  * A line typed in a pane and not sent yet, kept for as long as that pane exists.
@@ -1327,7 +1328,8 @@ function asContext(block: CommandBlock): {
   const { text, elided } = blockOutput(block.output)
   return {
     command: block.command,
-    output: text,
+    // A block that printed a .env goes as its names: nothing in one is for a model.
+    output: namesDotEnv(block.command) ? envNamesOnly(text) : text,
     exitCode: block.exitCode ?? 0,
     cwd: block.cwd,
     elided
