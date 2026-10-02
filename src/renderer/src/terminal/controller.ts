@@ -8,6 +8,7 @@ import { looksLikeSecretPrompt, stripAnsi } from '@shared/secrets'
 import { cleanPaste, needsAsking, pasteQuestion, runQuestion } from '@shared/paste'
 import { classifyCommand, riskSentence, visibleRisks, type Risk } from '@shared/risk'
 import { looksLocalDir, parseEmberMarker } from '@shared/integration'
+import { dropsKeyAfterResize as losesKeyAfterResize } from '@shared/quote'
 import { renderBufferAsHtml, textFromHtml } from './serialize'
 import { useStore, type CommandBlock, type TerminalPaneState } from '../state/store'
 import { DEFAULT_THEME, toXtermTheme } from './theme'
@@ -226,6 +227,8 @@ export class TerminalController {
    * it. Null when no redraw is owed. See sendWhenSized.
    */
   private redrawOwed: number | null = null
+  /** Whether the pty has been resized since the last line was sent. See sendWhenSized. */
+  private resizedSinceLine = false
   /** Wakes a line waiting on that redraw. */
   private onRedraw: (() => void) | null = null
   private sawAltScreen = false
@@ -800,6 +803,12 @@ export class TerminalController {
     if (data.startsWith('E;')) {
       this.adoptCommand(unescapeOsc(data.slice(2)).trim())
     }
+  }
+
+  /** Whether this pane's shell drops the first key after a resize (MSYS, Cygwin). */
+  private dropsKeyAfterResize(): boolean {
+    const pane = this.store().terminalPane(this.paneId)
+    return losesKeyAfterResize(this.store().profiles.find((p) => p.id === pane?.profileId))
   }
 
   /** Whether this pane's shell is on another machine (an ssh session). */
@@ -1689,6 +1698,17 @@ export class TerminalController {
       this.betweenCommands = false
       this.redrawOwed = null
       noteTyped(this.paneId, line)
+      /*
+       * After a resize, a NUL first, for a shell that drops a key. MSYS and Cygwin
+       * programs — Git Bash, Git's own ssh.exe — lose the first key typed after the
+       * console is resized, however long after: `type` ran as `ype` in the nightly,
+       * and a line sent three seconds after a resize was as likely to lose its first
+       * letter as one sent at once. NUL is readline's set-mark, nothing if it arrives;
+       * it is only ever sent here, ahead of a line typed at the prompt, never into a
+       * running program. See dropsKeyAfterResize.
+       */
+      if (this.resizedSinceLine && this.dropsKeyAfterResize()) window.ember.write(this.paneId, '\x00')
+      this.resizedSinceLine = false
       window.ember.write(this.paneId, line)
       for (const data of held) window.ember.write(this.paneId, data)
     }
@@ -1865,7 +1885,10 @@ export class TerminalController {
        * discards it, and only the repaint delivers it a second time. Guarding
        * this call left `Read-Host` unmasked and the typed secret in the DOM.
        */
-      if (this.ptySize?.cols !== cols || this.ptySize?.rows !== rows) this.answeredResize = false
+      if (this.ptySize?.cols !== cols || this.ptySize?.rows !== rows) {
+        this.answeredResize = false
+        this.resizedSinceLine = true
+      }
       /*
        * Owed for a resize made at any point between commands, not only once the
        * prompt has been seen. Presize resizes the moment a command's end marker is

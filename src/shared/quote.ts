@@ -225,6 +225,21 @@ export function unsupportedShellOf(profile: { path: string } | undefined): strin
   return exe === 'zsh' || exe === 'fish' || exe === 'nu' || exe === 'elvish' || exe === 'xonsh' ? exe : null
 }
 
+/**
+ * Whether the program is built on MSYS or Cygwin — Git Bash, Git's own ssh.exe, an
+ * MSYS2 shell — which, under a Windows console, drops the first key typed after the
+ * console is resized, however long after. Measured with no Ember in the path: Git
+ * Bash lost it in 8 of 16 lines sent 600 ms after a resize and 7 of 16 after three
+ * seconds; 0 of 16 with no resize; 0 of 16 with a NUL key sent first.
+ */
+export function dropsKeyAfterResize(profile: { path: string } | undefined): boolean {
+  if (!profile) return false
+  const p = profile.path.replace(/\\/g, '/').toLowerCase()
+  // Git for Windows wherever it is installed: Program Files\Git, Scoop's
+  // apps\git\current (or a version folder), PortableGit.
+  return /\/(git|portablegit)(\/[^/]+)?\/(usr\/)?bin\/[^/]+$/.test(p) || /\/(msys64|msys32|msys2|cygwin64|cygwin)\//.test(p)
+}
+
 export function shellKindOf(profile: { integration: string; path: string } | undefined): ShellKind | null {
   if (!profile) return null
   if (profile.integration === 'powershell') return 'powershell'

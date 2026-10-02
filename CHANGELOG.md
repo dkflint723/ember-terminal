@@ -41,8 +41,9 @@ longer waits on one that never answers.
 tools; accepting a proposed file writes exactly what its diff showed, or refuses;
 a window can reach only its own shells.
 
-**And a lost keystroke is found.** A command typed the moment the last one ended
-could reach Git Bash without its first letter.
+**And a lost keystroke is found.** A command typed after the terminal was resized
+could reach Git Bash without its first letter — Git Bash's own doing, now worked
+around.
 
 **Known limitations.**
 - Update signatures are checked but not yet required. Before they are, three things
@@ -64,6 +65,10 @@ could reach Git Bash without its first letter.
   arrived after 0.4.3, and the release workflow's gate — unlike the nightly's — had
   never fetched the debugger they drive. It does now, the same pinned, hash-checked
   copy. The other 83 suites had passed.
+- **The run that proved it found the next thing:** `verify-prompt-redraw` lost a
+  command on the runner. Chasing it led to the real cause of the lost keystroke
+  (see *A line typed after a resize reaches Git Bash whole*), and the suite, built
+  on a model of bash that did not hold, was retired.
 - **How it is checked:** the release workflow, dispatched with its gate on, ran the
   whole gate and the install over 0.4.3 before 0.5.0 was tagged again.
 
@@ -143,34 +148,38 @@ could reach Git Bash without its first letter.
   everywhere else. On the build before this, it fails at its first check: nothing
   asks.
 
-### A command typed as the last one ends reaches bash whole
+### A line typed after a resize reaches Git Bash whole
 
-- **Git Bash could lose the start of a command typed the moment the last one
-  finished.** The nightly gate failed on "bash: ype: command not found" — `type -t …`
-  sent straight after `false`. When a command ends, the pane fits the shell to the
-  next command's strip, and bash's readline answers a resize by redrawing its
-  prompt; a line that lands inside that redraw loses characters. A guard for exactly
-  this waited for the redraw, but only when the resize came after the prompt had
-  been seen — and in Git Bash the resize goes out before the prompt's marker
-  arrives, every time it was measured (45 of 45), so the guard never once waited.
-  Sometimes conpty's repaint swallows that marker altogether.
-- **Now a resize made anywhere between commands owes the redraw**, from a command's
-  end until the next line is sent, and a line sent meanwhile waits for a prompt drawn
-  after the resize was answered — or 400 ms, for a shell that redraws nothing. A
-  person typing never notices; a line sent faster than anyone types may wait a
-  fraction of a second.
-- **Corrected before landing, after a QA pass.** A quick command's output start, end
-  and next prompt routinely arrive in one chunk, and the start was read after the
-  rest — so the chunk counted as a command starting, and the guard again did nothing.
-  The last marker in a chunk now decides. The scripted shell writes them in one piece
-  so the suite always meets that shape; the first version of this fix fails it.
-- **How it is checked:** a new suite, `verify-prompt-redraw`, runs a scripted shell
-  that speaks Ember's markers, draws each prompt a moment after the command ends as
-  bash does, and drops whatever arrives while it redraws for a resize. Six commands,
-  each sent the instant the last one's block ends, must each reach it whole. On the
-  build before this, lines arrive mid-redraw and are lost (every run); with it, all
-  six arrive (3 of 3). Real bash loses the same race about one run in forty-eight,
-  which is why the nightly saw it and a local run did not.
+- **Git Bash could lose the first letter of a command typed after the terminal was
+  resized.** The nightly gate failed on "bash: ype: command not found" — `type -t …`
+  run straight after `false`, in a pane whose size had just changed for the next
+  command. Git Bash is built on MSYS, and MSYS drops the first key it is sent after
+  its console is resized, however long after. Measured with no Ember in the path:
+  of 16 lines sent 600 ms after a resize, 8 lost their first letter; 7 of 16 three
+  seconds after; none with no resize. Git's own `ssh.exe` is built the same way and
+  does the same. Windows' own `ssh.exe`, PowerShell, cmd and WSL do not.
+- **Now a line typed at the prompt of an MSYS or Cygwin shell, the first since a
+  resize, goes with a NUL key in front of it** — the key the shell drops instead.
+  With it, 0 of 16 lost a letter, at 600 ms and at three seconds alike. NUL is
+  readline's set-mark, which does nothing visible if it does arrive. It is only ever
+  sent ahead of a line typed at the prompt, never into a running program. A key typed
+  straight into a full-screen program in Git Bash just after a resize can still be
+  dropped; that is MSYS's, and is not worked around.
+- **First taken for a race with bash's prompt redraw.** Before the cause was
+  measured, a fix landed for a different one: that a line sent while bash redrew its
+  prompt for a resize lost characters. Its guard stays — a line sent in that moment
+  now waits for the redraw, bounded — but it was not the cause, and the scripted
+  shell its suite was built around modelled a loss real bash does not have: over
+  Windows' own `ssh.exe`, real bash on Linux lost nothing after a resize, 0 of 12.
+  That suite failed the first release run of 0.5.0 on the runner and is gone. Two
+  further changes made on its account before the cause was found — holding back a
+  resize until the prompt was drawn — were measured against real Git Bash by QA,
+  were worse in one case, and never landed.
+- **How it is checked:** `verify-bash` resizes the window, waits 600 ms and runs a
+  command in Git Bash, six times; every command must arrive whole. Without the NUL,
+  each round is a coin toss. *shell quoting* (in the unit tables) holds which
+  programs are MSYS or Cygwin — Git Bash, Git's `ssh.exe`, an MSYS2 shell — and which
+  are not: Windows' `ssh.exe`, PowerShell, cmd, WSL, or a folder merely named `git`.
 
 ### SSH sessions say where they are, and come back when their connection drops
 

@@ -17,7 +17,8 @@ import {
   fillBlanks,
   quoteFor,
   shellKindOf,
-  unsupportedShellOf
+  unsupportedShellOf,
+  dropsKeyAfterResize
 } from '../src/shared/quote.ts'
 import { spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
@@ -256,6 +257,17 @@ check('an unknown shell is not guessed at', shellKindOf({ integration: 'none', p
 // --- and the shells there is no script for, named by their executable --------------
 check('zsh is named as a shell there is no script for', unsupportedShellOf({ path: 'C:\\msys64\\usr\\bin\\zsh.exe' }) === 'zsh')
 check('and fish, wherever it lives', unsupportedShellOf({ path: '/usr/bin/fish' }) === 'fish')
+
+// MSYS and Cygwin programs drop the first key after a console resize; nothing else does.
+check('Git Bash drops a key after a resize', dropsKeyAfterResize({ path: 'C:\\Program Files\\Git\\bin\\bash.exe' }))
+check("and Git's own ssh.exe", dropsKeyAfterResize({ path: 'C:\\Program Files\\Git\\usr\\bin\\ssh.exe' }))
+check('and an MSYS2 shell', dropsKeyAfterResize({ path: 'C:\\msys64\\usr\\bin\\bash.exe' }))
+check('and Git installed by Scoop', dropsKeyAfterResize({ path: 'C:\\Users\\u\\scoop\\apps\\git\\current\\bin\\bash.exe' }) && dropsKeyAfterResize({ path: 'C:\\Users\\u\\scoop\\apps\\git\\2.51.0\\usr\\bin\\bash.exe' }))
+check('and PortableGit', dropsKeyAfterResize({ path: 'D:\\tools\\PortableGit\\bin\\bash.exe' }))
+check("but not Git's mintty launcher", !dropsKeyAfterResize({ path: 'C:\\Program Files\\Git\\git-bash.exe' }))
+check("but not Windows' own ssh.exe", !dropsKeyAfterResize({ path: 'C:\\Windows\\System32\\OpenSSH\\ssh.exe' }))
+check('nor PowerShell, cmd, or WSL', !['pwsh.exe', 'C:\\Windows\\System32\\cmd.exe', 'C:\\Windows\\System32\\wsl.exe'].some((path) => dropsKeyAfterResize({ path })))
+check('nor a folder merely named git', !dropsKeyAfterResize({ path: 'D:\\projects\\git\\tools\\shell.exe' }))
 check('bash is not one of them', unsupportedShellOf({ path: 'C:\\Program Files\\Git\\bin\\bash.exe' }) === null)
 check('nor is a shell nobody has heard of', unsupportedShellOf({ path: 'C:\\tools\\mysh.exe' }) === null)
 

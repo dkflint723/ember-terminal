@@ -211,6 +211,28 @@ if (!profiles.some((p) => p.id === 'git-bash')) {
   skipped.push({ shell: 'Git Bash', why: 'not installed' })
 } else if (await openSession('Git Bash')) {
   await assertBashPane('Git Bash', { expectWindowsCwd: true })
+
+  /*
+   * Git Bash drops the first key typed after its console is resized, however long
+   * after: measured with no Ember in the path, 8 lines of 16 sent 600 ms after a
+   * resize lost their first letter, and 7 of 16 after three seconds. That is the
+   * nightly's `ype`. Ember sends a NUL ahead of the first line after a resize, which
+   * Git Bash drops instead. Six rounds of resize, pause, command: without it each
+   * round is a coin toss, so all six arriving whole is about one chance in sixty.
+   */
+  const torn = []
+  for (let i = 1; i <= 6; i++) {
+    await app.evaluate(({ BrowserWindow }, grow) => {
+      const w = BrowserWindow.getAllWindows()[0]
+      const [width, height] = w.getSize()
+      w.setSize(width, height + (grow ? 60 : -60))
+    }, i % 2 === 0)
+    await sleep(600)
+    await run(`echo whole-${i}`)
+    const b = (await blocks()).at(-1)
+    if (!(b?.body ?? '').startsWith(`whole-${i}`)) torn.push(`${b?.cmd} → ${b?.body}`)
+  }
+  check('Git Bash gets the whole of a line typed after a resize', torn.length === 0, JSON.stringify(torn))
 }
 
 // --- WSL -----------------------------------------------------------------------
