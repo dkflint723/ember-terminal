@@ -50,6 +50,10 @@ jobs:
           cache: npm
       - run: npm ci
       - uses: ./.github/actions/electron-binary
+      # The Node debugger Ember ships, pinned and hash-checked, as the nightly fetches it:
+      # verify-jsdebug and verify-debug-launch drive it, and without it the first release
+      # gate to include them (v0.5.0's) failed both in a second, on "js-debug is not fetched".
+      - run: node scripts/fetch-js-debug.mjs
       - run: npx electron-vite build
       # As the nightly does it: under an ordinary user's token, so the gate a release
       # waits on tests the window people open rather than the administrator's.

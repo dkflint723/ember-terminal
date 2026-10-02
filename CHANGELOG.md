@@ -57,6 +57,16 @@ could reach Git Bash without its first letter.
 - A found line can drift out of view when the command after it finishes.
 - How the window backdrop looks has been seen on one Windows 11 desktop.
 
+### The release gate fetches the Node debugger its suites drive
+
+- **The first release run of 0.5.0 failed two suites in a second each**,
+  `verify-jsdebug` and `verify-debug-launch`, on "js-debug is not fetched". Both
+  arrived after 0.4.3, and the release workflow's gate — unlike the nightly's — had
+  never fetched the debugger they drive. It does now, the same pinned, hash-checked
+  copy. The other 83 suites had passed.
+- **How it is checked:** the release workflow, dispatched with its gate on, ran the
+  whole gate and the install over 0.4.3 before 0.5.0 was tagged again.
+
 ### Blocks for commands on an SSH host, for the hosts you say yes to
 
 - **An SSH session was a plain terminal.** Ember's blocks come from a script it puts
