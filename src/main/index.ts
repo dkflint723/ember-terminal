@@ -263,6 +263,7 @@ import { ClaudeCliService } from './claude-cli.js'
 import { DapService, detectAdapters, dropEnvFile, writeEnvFile } from './dap.js'
 import { PathScope, type Access } from './scope.js'
 import { checkFeedSignature, signatureRequired } from './feed-check.js'
+import { inOrder, singleFlight } from '../shared/single-flight.js'
 import { canonicalFeed, type FeedInfo } from '../shared/feed-signature.js'
 import { AcceptJournal, type AcceptedChange } from './journal.js'
 import { resolveEnvVariables } from '../shared/launch-vars.js'
@@ -409,8 +410,8 @@ function describeUpdateError(err: unknown): string {
  * Every window hears the progress, the finish, and the failure.
  */
 let updaterWatched = false
-/** The verification in progress, which the next one waits behind. */
-let verifying: Promise<void> = Promise.resolve()
+/** Verifications, one at a time: see the update-available handler. */
+const verifyInOrder = inOrder()
 /** Whether a version the updater finds is to be downloaded; see verifiedDownload. */
 let wantDownload = false
 
@@ -496,7 +497,7 @@ function watchUpdater(updater: typeof import('electron-updater').autoUpdater): v
    */
   updater.on('update-available', (info) => {
     if (!wantDownload) return
-    verifying = verifying.then(() => verifiedDownload(updater, info)).catch(() => {})
+    void verifyInOrder(() => verifiedDownload(updater, info))
   })
   /*
    * No silent install behind a quit.
@@ -656,14 +657,10 @@ function reportPendingUpdate(targetId?: number): void {
  * caught only afterwards, by verifiedDownload finding the feed changed under it.
  * Kept apart instead: there is one answer to wait on.
  */
-let checking: ReturnType<typeof import('electron-updater').autoUpdater.checkForUpdates> | null = null
+let updateCheck: ReturnType<typeof singleFlight<Awaited<ReturnType<typeof import('electron-updater').autoUpdater.checkForUpdates>>>> | null = null
 function checkOnce(updater: typeof import('electron-updater').autoUpdater): ReturnType<typeof import('electron-updater').autoUpdater.checkForUpdates> {
-  if (!checking) {
-    checking = updater.checkForUpdates().finally(() => {
-      checking = null
-    })
-  }
-  return checking
+  updateCheck ??= singleFlight(() => updater.checkForUpdates())
+  return updateCheck()
 }
 
 /** Told when a found version is refused for its signature: see verifiedDownload and Install now. */
@@ -2825,7 +2822,7 @@ function registerIpc(): void {
            * Check for updates with update checks off — and its find has been and gone.
            * Let it finish, then ask again, so the wait below has an answer to hear.
            */
-          if (checking) await checking.catch(() => null)
+          if (updateCheck?.inFlight) await updateCheck.inFlight.catch(() => null)
           wantDownload = true
           /*
            * Whatever comes of it ends the wait — not only a download. A version

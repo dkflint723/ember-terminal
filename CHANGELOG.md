@@ -31,11 +31,25 @@ newest entry sits on top.
     time.
 - **How it is checked:** *feed signature* (in the unit tables) requires a stood-in key
   to be ignored against GitHub, a signature to be required by default, and `log` to
-  be honoured only for a feed on localhost; `verify-update`, against the packaged app,
-  now refuses a feed signed over another installer *without* being told to require
-  signatures, has Install now report that refusal within half a minute and never
-  "could not be prepared", and requires two checks pressed at once to verify the feed
-  and fetch the installer once.
+  be honoured only for a feed on localhost, and a signature that could not be fetched
+  to be said as one to try again rather than as tampering; `verify-update`, against
+  the packaged app, now refuses a feed signed over another installer *without* being
+  told to require signatures, and has Install now report that refusal within half a
+  minute and never "could not be prepared" — against 0.5.0's update code, packaged the
+  same way, that update was downloaded and Install now went on to install it. *single
+  flight* (in the unit tables) holds the two rules the checks are kept apart by, with
+  the timing controlled: calls during a check join it, and verdicts are judged one at
+  a time, a failure stopping none after it. A packaged app cannot make two checks
+  overlap on demand — on the runner the second reached the feed after the first had
+  finished — so the rule is tested where it can be.
+
+### verify-jsdebug waits for the stopped line it reads
+
+- **"On the marked line" read `null` in two of three release gates**, with the
+  debugger saying "Paused: breakpoint". The editor marks the stopped line once it has
+  the stack, a moment after the pause is reported, and the check read it at once.
+  It now waits up to ten seconds for the mark, as the child-process check beside it
+  already did. The app was right both times.
 
 ## 0.5.0 — 2026-10-01
 

@@ -226,6 +226,11 @@ await page.keyboard.press('F5')
 await waitFor(async () => (await state()).includes('Paused'), 40_000)
 console.log('after F5 on app.js:', JSON.stringify(await probe()))
 check('F5 stops at the breakpoint in app.js', (await state()).includes('Paused'), await state())
+// The editor marks the stopped line once it has the stack, a moment after the pause is
+// reported: read at once, it was not there yet on a slow runner — "null" in two of
+// three release gates, with the state reading "Paused: breakpoint". Waited for, as the
+// child process's line below already is.
+await waitFor(async () => (await stoppedLine('app.js')) !== null, 10_000)
 check('on the marked line', (await stoppedLine('app.js')) === 2, String(await stoppedLine('app.js')))
 await page.click('.pane.editor .view-lines')
 await page.keyboard.press('F5')
