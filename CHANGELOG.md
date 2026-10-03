@@ -3,6 +3,40 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
+## Unreleased
+
+### An update must be signed to be downloaded
+
+- **0.5.0 checked each update's signature and downloaded it whatever the answer**,
+  because the releases before it were never signed and the first signed one had to
+  reach them. Every build from 0.5.0 on checks, so now an update whose signature is
+  missing, made by another key, or over a different installer is not downloaded, and
+  Settings says why.
+- **Three things were closed first, as 0.5.0's notes said they would be:**
+  - *A suite's stand-ins only stand in for a suite.* `EMBER_UPDATE_PUBKEY` (another
+    key) and `EMBER_UPDATE_SIGNATURE` (only note a bad signature) were honoured in the
+    installed app, so either, left set in someone's environment, weakened real
+    updates. Both now apply only to a feed served on this machine — which is what a
+    suite serves, and never what an update comes from. Against GitHub, the release's
+    key is the only key and a signature is always required.
+  - *A refused install says so at once.* After a relaunch, Install now checks again to
+    find its installer; when that version was refused for its signature, Install now
+    still waited the full two minutes for a download that was never coming, then said
+    only that the update "could not be prepared". It now ends on the refusal, with its
+    reason, and on a check that finds nothing or fails, as soon as it happens.
+  - *Overlapping checks are kept apart, not caught.* The check at launch, Check for
+    updates, and Install now each ran a check of their own; two at once were noticed
+    only before the download, by the feed having changed underneath. Now there is one
+    check at a time — a second joins the one in flight — and one signature judged at a
+    time.
+- **How it is checked:** *feed signature* (in the unit tables) requires a stood-in key
+  to be ignored against GitHub, a signature to be required by default, and `log` to
+  be honoured only for a feed on localhost; `verify-update`, against the packaged app,
+  now refuses a feed signed over another installer *without* being told to require
+  signatures, has Install now report that refusal within half a minute and never
+  "could not be prepared", and requires two checks pressed at once to verify the feed
+  and fetch the installer once.
+
 ## 0.5.0 — 2026-10-01
 
 The release that finishes the audit's roadmap: every one of its forty-eight items is

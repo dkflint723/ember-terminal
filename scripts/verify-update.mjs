@@ -132,6 +132,9 @@ delete env.ELECTRON_RUN_AS_NODE
 let logText = ''
 let refusedStatuses = []
 let refusedServed = []
+let installStatuses = []
+let servedBeforeStrict = 0
+let installAnsweredMs = -1
 
 let statuses = []
 let note = ''
@@ -159,7 +162,13 @@ try {
   await page.evaluate(() => window.ember.setSettings({ autoUpdate: true }))
   await sleep(600)
 
-  note = await page.evaluate(() => window.ember.checkForUpdates())
+  /*
+   * Two checks at once — the launch check and a press of Check for updates, or two
+   * windows — are one check now: the second joins the first. In 0.5.0 each ran, and
+   * the overlap was only caught before the download.
+   */
+  const [first] = await page.evaluate(() => Promise.all([window.ember.checkForUpdates(), window.ember.checkForUpdates()]))
+  note = first
   for (let i = 0; i < 60; i++) {
     await sleep(500)
     statuses = await page.evaluate(() => window.__updateStatuses ?? [])
@@ -224,7 +233,9 @@ try {
   signature = signed({ ...feedInfo, files: [{ ...feedInfo.files[0], sha512: crypto.createHash('sha512').update('other').digest('base64') }] })
   // What this run asks for, apart from the first run's, which the checks below read.
   const servedBefore = served.length
-  const strict = await electron.launch({ executablePath: EXE, args: [profile.arg], cwd: UNPACKED, env: { ...env, EMBER_UPDATE_SIGNATURE: 'required' }, timeout: 60_000 })
+  servedBeforeStrict = servedBefore
+  // Required by default now: no EMBER_UPDATE_SIGNATURE, as an installed app has none.
+  const strict = await electron.launch({ executablePath: EXE, args: [profile.arg], cwd: UNPACKED, env, timeout: 60_000 })
   const strictPage = await strict.firstWindow()
   await strictPage.waitForSelector('.pane', { timeout: 40_000 })
   await sleep(1500)
@@ -239,6 +250,25 @@ try {
     if (refusedStatuses.some((s) => s.stage === 'error' || s.stage === 'ready')) break
   }
   refusedServed = served.slice(servedBefore)
+  /*
+   * And Install now, in a process that has downloaded nothing, which checks again to
+   * find its installer: the refusal is said at once. It used to wait out two minutes
+   * on a download that was never going to come, then say only that the update could
+   * not be prepared.
+   */
+  await strictPage.evaluate(() => {
+    window.__updateStatuses = []
+  })
+  const pressedInstall = Date.now()
+  await strictPage.evaluate(() => window.ember.installUpdateNow())
+  for (let i = 0; i < 80; i++) {
+    await sleep(500)
+    installStatuses = await strictPage.evaluate(() => window.__updateStatuses ?? [])
+    if (installStatuses.some((s) => s.stage === 'error')) {
+      installAnsweredMs = Date.now() - pressedInstall
+      break
+    }
+  }
   await strict.close()
 } finally {
   // Put back what was there, or nothing if nothing was.
@@ -270,6 +300,16 @@ check(
 )
 check('a feed signed over another installer is refused, when signatures are required', refusedStatuses.some((s) => s.stage === 'error' && /was not downloaded/.test(s.text)), JSON.stringify(refusedStatuses))
 check('and its installer is never fetched', !refusedServed.includes(`/${payloadName}`), JSON.stringify(refusedServed))
+check(
+  'Install now says it was refused, and why, within half a minute',
+  installAnsweredMs >= 0 && installAnsweredMs < 30_000 && installStatuses.some((s) => /was not downloaded/.test(s.text)) && !installStatuses.some((s) => /could not be prepared/.test(s.text)),
+  `${installAnsweredMs}ms: ${JSON.stringify(installStatuses)}`
+)
+check(
+  'two checks at once verify and fetch once',
+  (logText.match(/feed signature verified for 99\.9\.9/g) ?? []).length === 1 && served.slice(0, servedBeforeStrict).filter((u) => u === `/${payloadName}`).length === 1,
+  `${(logText.match(/feed signature verified for 99\.9\.9/g) ?? []).length} verifications; ${JSON.stringify(served.slice(0, servedBeforeStrict))}`
+)
 check('nothing reported a failure', !statuses.some((s) => s.stage === 'error'), JSON.stringify(statuses))
 
 check('Settings offers Install now once an update is ready', installButton)

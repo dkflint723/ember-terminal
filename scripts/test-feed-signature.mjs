@@ -11,8 +11,8 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import yaml from 'js-yaml'
-const { canonicalFeed, signatureUrl } = await import('../src/shared/feed-signature.ts')
-const { checkFeedSignature } = await import('../src/main/feed-check.ts')
+const { canonicalFeed, signatureUrl, isLocalFeed } = await import('../src/shared/feed-signature.ts')
+const { checkFeedSignature, signatureRequired } = await import('../src/main/feed-check.ts')
 
 let failures = 0
 let cases = 0
@@ -47,8 +47,9 @@ check('anything else has no place for one', signatureUrl('provider: s3\n', '1') 
 const { publicKey, privateKey } = generateKeyPairSync('ed25519')
 process.env.EMBER_UPDATE_PUBKEY = publicKey.export({ type: 'spki', format: 'pem' })
 const resources = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-feedsig-'))
-fs.writeFileSync(path.join(resources, 'app-update.yml'), 'provider: generic\nurl: http://feed.test/\n')
-const served = (sig) => async (url) => (url === 'http://feed.test/latest.yml.sig' && sig !== null ? { ok: true, status: 200, text: sig } : { ok: false, status: 404, text: '' })
+// A feed a suite serves on this machine: the only kind a test's own key applies to.
+fs.writeFileSync(path.join(resources, 'app-update.yml'), 'provider: generic\nurl: http://127.0.0.1:5000/\n')
+const served = (sig) => async (url) => (url === 'http://127.0.0.1:5000/latest.yml.sig' && sig !== null ? { ok: true, status: 200, text: sig } : { ok: false, status: 404, text: '' })
 const good = sign(null, Buffer.from(canonicalFeed(info)), privateKey).toString('base64')
 
 check('a feed signed by the key is accepted', (await checkFeedSignature(info, served(good), resources)).ok)
@@ -62,6 +63,30 @@ check('nor one signed by another key', !(await checkFeedSignature(info, served(s
 const missing = await checkFeedSignature(info, served(null), resources)
 check('a release with no signature says so', !missing.ok && /no signature is published/.test(missing.reason), JSON.stringify(missing))
 check('and a signature that is not one', !(await checkFeedSignature(info, served('not base64 at all!'), resources)).ok)
+// A network that failed is said as one, not as a release that may be forged (QA).
+const down = await checkFeedSignature(info, async () => ({ ok: false, status: 503, text: '' }), resources)
+check('a server error fetching it is refused as something to try again', !down.ok && down.transient === true, JSON.stringify(down))
+const offline = await checkFeedSignature(info, async () => { throw new Error('ENOTFOUND') }, resources)
+check('and so is no network at all', !offline.ok && offline.transient === true, JSON.stringify(offline))
+check('but a missing signature is not', !missing.ok && !missing.transient)
+
+// --- what a suite may stand in, and where -------------------------------------------------------
+// 0.5.0 honoured EMBER_UPDATE_PUBKEY and EMBER_UPDATE_SIGNATURE in the installed app,
+// so either, left set, weakened real updates. Now only for a feed on this machine.
+check('localhost and its spellings are local', ['http://127.0.0.1:5000/x', 'http://localhost/x', 'https://[::1]:8/x'].every(isLocalFeed))
+check('GitHub, another host, or a file are not', !['https://github.com/o/r/releases/download/v1/latest.yml.sig', 'http://127.0.0.1.evil.test/x', 'http://example.com/x', 'file:///C:/x', 'not a url'].some(isLocalFeed))
+const github = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-feedsig-gh-'))
+fs.writeFileSync(path.join(github, 'app-update.yml'), 'owner: dkflint723\nrepo: ember-terminal\nprovider: github\n')
+const servedGithub = async (url) => (url.endsWith('/latest.yml.sig') ? { ok: true, status: 200, text: good } : { ok: false, status: 404, text: '' })
+check('against GitHub, a stood-in key is ignored: only the release key signs', !(await checkFeedSignature(info, servedGithub, github)).ok)
+delete process.env.EMBER_UPDATE_SIGNATURE
+check('a signature is required by default', signatureRequired(github) && signatureRequired(resources))
+process.env.EMBER_UPDATE_SIGNATURE = 'log'
+check('a suite may ask for it only to be noted, on a feed on this machine', signatureRequired(resources) === false)
+check('but not against GitHub', signatureRequired(github) === true)
+check('nor with no feed configured at all', signatureRequired(path.join(github, 'nowhere')) === true)
+delete process.env.EMBER_UPDATE_SIGNATURE
+fs.rmSync(github, { recursive: true, force: true })
 
 // --- the signing script, on a feed on disk ---------------------------------------------------------
 const keyFile = path.join(resources, 'k.pem')

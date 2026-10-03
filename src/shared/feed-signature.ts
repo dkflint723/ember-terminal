@@ -39,6 +39,20 @@ export function canonicalFeed(info: FeedInfo): string {
  * (resources/app-update.yml): beside `latest.yml` on a generic feed, and among the
  * release's assets on GitHub. Null for anything else.
  */
+/**
+ * Whether a signature is to be fetched from this machine — a feed a suite serves on
+ * localhost — which is the only place a suite's own key and mode may stand in for the
+ * release's. A real update never comes from here: Ember's feed is GitHub's.
+ */
+export function isLocalFeed(url: string): boolean {
+  try {
+    const u = new URL(url)
+    return (u.protocol === 'http:' || u.protocol === 'https:') && ['127.0.0.1', 'localhost', '[::1]'].includes(u.hostname)
+  } catch {
+    return false
+  }
+}
+
 export function signatureUrl(appUpdateYml: string, version: string): string | null {
   const field = (name: string): string | null => {
     const m = new RegExp(`^${name}:\\s*['"]?([^'"\\r\\n]+?)['"]?\\s*$`, 'm').exec(appUpdateYml)

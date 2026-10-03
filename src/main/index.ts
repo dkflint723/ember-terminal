@@ -359,7 +359,7 @@ async function maybeCheckForUpdate(): Promise<void> {
     const autoUpdater = await loadUpdater()
     watchUpdater(autoUpdater)
     wantDownload = true
-    await autoUpdater.checkForUpdates()
+    await checkOnce(autoUpdater)
   } catch (err) {
     reportFault('update check could not run', err)
     sendToAll('updates:status', {
@@ -409,6 +409,8 @@ function describeUpdateError(err: unknown): string {
  * Every window hears the progress, the finish, and the failure.
  */
 let updaterWatched = false
+/** The verification in progress, which the next one waits behind. */
+let verifying: Promise<void> = Promise.resolve()
 /** Whether a version the updater finds is to be downloaded; see verifiedDownload. */
 let wantDownload = false
 
@@ -417,9 +419,9 @@ let wantDownload = false
  * against the release key (audit R24; shared/feed-signature.ts). The updater never
  * downloads on its own any more: it would fetch before anything could be checked.
  *
- * For this release a signature that is missing or wrong is written down and the
- * download goes ahead — the releases before this one were never signed, and the
- * first that is has to reach the builds that cannot check. After that, it refuses.
+ * A signature that is missing or wrong stops the download, and says why. 0.5.0 only
+ * wrote it down and went ahead — the releases before it were never signed, and the
+ * first that was had to reach the builds that could not check. See signatureRequired.
  */
 /** What the signature covers, from what the updater parsed. */
 const feedOf = (info: import('electron-updater').UpdateInfo): FeedInfo => ({
@@ -449,11 +451,16 @@ async function verifiedDownload(updater: typeof import('electron-updater').autoU
     logLine('updater', `feed signature verified for ${info.version}`)
   } else {
     logLine('updater warn', `feed signature for ${info.version} did not verify: ${verdict.reason}`)
-    if (signatureRequired()) {
+    if (signatureRequired(process.resourcesPath)) {
       sendToAll('updates:status', {
-        text: `Version ${info.version} was not downloaded: ${verdict.reason}. It may not have come from Ember's maintainer.`,
+        text:
+          'transient' in verdict && verdict.transient
+            ? `Version ${info.version} was not downloaded: ${verdict.reason}, so it could not be checked. Check for updates again in a while.`
+            : `Version ${info.version} was not downloaded: ${verdict.reason}. It may not have come from Ember's maintainer.`,
         stage: 'error'
       })
+      // And whoever is waiting on this download — Install now — hears it now.
+      for (const heard of refusalHeard) heard(verdict.reason)
       return
     }
   }
@@ -482,8 +489,14 @@ function watchUpdater(updater: typeof import('electron-updater').autoUpdater): v
   // The full installer only: the web installer downloads a package the feed's
   // signature does not cover (see verifiedDownload).
   updater.disableWebInstaller = true
+  /*
+   * One verification at a time, in the order the versions were found: a second
+   * check's find waits for the first's signature to be judged and its download to
+   * start, and is then judged against what the updater holds by then.
+   */
   updater.on('update-available', (info) => {
-    if (wantDownload) void verifiedDownload(updater, info)
+    if (!wantDownload) return
+    verifying = verifying.then(() => verifiedDownload(updater, info)).catch(() => {})
   })
   /*
    * No silent install behind a quit.
@@ -635,6 +648,27 @@ function reportPendingUpdate(targetId?: number): void {
  * development and then failed in the one build users run. Both shapes are
  * accepted here, which is the only place the difference is allowed to matter.
  */
+/**
+ * One update check at a time; a second asked for meanwhile joins the first.
+ *
+ * The background check at launch, Check for updates in Settings, and Install now
+ * after a relaunch each ran a check of their own, and two in flight at once were
+ * caught only afterwards, by verifiedDownload finding the feed changed under it.
+ * Kept apart instead: there is one answer to wait on.
+ */
+let checking: ReturnType<typeof import('electron-updater').autoUpdater.checkForUpdates> | null = null
+function checkOnce(updater: typeof import('electron-updater').autoUpdater): ReturnType<typeof import('electron-updater').autoUpdater.checkForUpdates> {
+  if (!checking) {
+    checking = updater.checkForUpdates().finally(() => {
+      checking = null
+    })
+  }
+  return checking
+}
+
+/** Told when a found version is refused for its signature: see verifiedDownload and Install now. */
+const refusalHeard = new Set<(reason: string) => void>()
+
 async function loadUpdater(): Promise<typeof import('electron-updater').autoUpdater> {
   const mod = (await import('electron-updater')) as {
     autoUpdater?: typeof import('electron-updater').autoUpdater
@@ -659,7 +693,7 @@ async function checkForUpdateNow(): Promise<string> {
     const autoUpdater = await loadUpdater()
     watchUpdater(autoUpdater)
     wantDownload = settings.get().autoUpdate
-    const result = await autoUpdater.checkForUpdates()
+    const result = await checkOnce(autoUpdater)
     const found = result?.updateInfo?.version
     if (!found) return 'The update service had nothing to say.'
     // The updater's own verdict, not a string comparison: it knows about
@@ -676,7 +710,9 @@ async function checkForUpdateNow(): Promise<string> {
      * be true here — the sentence it replaced promised an install that a
      * 404'd download could never deliver, and then never corrected itself.
      */
-    return `Version ${found} found; downloading it now.`
+    // Said before the verdict, so promising a download would be taken back a moment
+    // later whenever the signature does not hold.
+    return `Version ${found} found; checking its signature before it downloads.`
   } catch (err) {
     reportFault('manual update check failed', err)
     return `The check failed: ${describeUpdateError(err)}`
@@ -2784,21 +2820,50 @@ function registerIpc(): void {
          */
         if (!downloadedThisRun) {
           logLine('updater', 'no download this run; asking the updater to find its cache')
+          /*
+           * A check already under way may be one that was never going to download —
+           * Check for updates with update checks off — and its find has been and gone.
+           * Let it finish, then ask again, so the wait below has an answer to hear.
+           */
+          if (checking) await checking.catch(() => null)
           wantDownload = true
-          const ready = new Promise<boolean>((resolve) => {
-            const done = (): void => resolve(true)
-            updater.once('update-downloaded', done)
-            setTimeout(() => {
-              updater.removeListener('update-downloaded', done)
-              resolve(Boolean(downloadedThisRun))
-            }, 120_000)
+          /*
+           * Whatever comes of it ends the wait — not only a download. A version
+           * refused for its signature, or a check that finds nothing or fails, used
+           * to sit out the whole two minutes and then say only that the update
+           * "could not be prepared". The refusal has said why by then; the others
+           * are said here.
+           */
+          type Outcome = 'downloaded' | 'refused' | 'none' | 'failed' | 'timeout'
+          const ready = new Promise<Outcome>((resolve) => {
+            const finish = (outcome: Outcome): void => {
+              updater.removeListener('update-downloaded', downloaded)
+              updater.removeListener('update-not-available', none)
+              updater.removeListener('error', failed)
+              refusalHeard.delete(refused)
+              clearTimeout(timer)
+              resolve(outcome)
+            }
+            const downloaded = (): void => finish('downloaded')
+            const none = (): void => finish('none')
+            const failed = (): void => finish('failed')
+            const refused = (): void => finish('refused')
+            const timer = setTimeout(() => finish(downloadedThisRun ? 'downloaded' : 'timeout'), 120_000)
+            updater.once('update-downloaded', downloaded)
+            updater.once('update-not-available', none)
+            updater.once('error', failed)
+            refusalHeard.add(refused)
           })
-          await updater.checkForUpdates()
-          if (!(await ready)) {
-            sendToAll('updates:status', {
-              text: 'The update could not be prepared. Check for updates again.',
-              stage: 'error'
-            })
+          await checkOnce(updater)
+          const outcome = await ready
+          if (outcome !== 'downloaded') {
+            // A refusal has said why, and an updater error has its own report.
+            if (outcome === 'none' || outcome === 'timeout') {
+              sendToAll('updates:status', {
+                text: outcome === 'none' ? 'There is no update to install.' : 'The update could not be prepared. Check for updates again.',
+                stage: 'error'
+              })
+            }
             return
           }
         }
