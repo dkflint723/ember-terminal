@@ -170,7 +170,21 @@ export function auditProfileDir(dir, { expectFaults = [] } = {}) {
  * why the crash that proved this was in the log all along.
  */
 export async function userDataOf(app) {
-  return await app.evaluate(({ app: electronApp }) => electronApp.getPath('userData'))
+  /*
+   * Asked again when the question itself was lost: while main is busy (a window
+   * opening, a session restoring) the DevTools protocol can drop an evaluation —
+   * "Resulting promise was garbage collected", which failed verify-session in a
+   * release gate after two seconds. The question is synchronous, so asking again is
+   * the same question, not a second chance for the app.
+   */
+  for (let tries = 0; ; tries += 1) {
+    try {
+      return await app.evaluate(({ app: electronApp }) => electronApp.getPath('userData'))
+    } catch (err) {
+      if (tries >= 2 || !/garbage collected|Execution context was destroyed/.test(String(err))) throw err
+      await new Promise((r) => setTimeout(r, 250))
+    }
+  }
 }
 
 /**
