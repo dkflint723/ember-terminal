@@ -88,9 +88,6 @@ function documentsAt(filePath: string): EditorDocument[] {
 }
 
 async function pass(paths: string[] | undefined, thorough: boolean): Promise<void> {
-  const { modelUri, monaco } = await import('../editor/monaco')
-  const { replaceBuffer } = await import('../editor/reload')
-
   // Each open file once, however many panes are showing it.
   const wanted = paths ? new Set(paths.map(pathKey)) : null
   const open = new Map<string, string>()
@@ -104,6 +101,16 @@ async function pass(paths: string[] | undefined, thorough: boolean): Promise<voi
     }
   }
   if (open.size === 0) return
+  /*
+   * The editor is fetched only once there is a file to hold up against the disk.
+   *
+   * These imports came first, so a window with no editor open loaded the whole of
+   * Monaco to find that out: on the first tick, two seconds in, and sooner on the
+   * window gaining focus — which on a slow machine landed before the first prompt,
+   * the one thing the lazy editor was split out not to delay.
+   */
+  const { modelUri, monaco } = await import('../editor/monaco')
+  const { replaceBuffer } = await import('../editor/reload')
   const files = [...open.values()]
   const marks = await window.ember.markFiles(files)
 

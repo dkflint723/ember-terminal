@@ -30,8 +30,6 @@ const app = await electron.launch({
   timeout: 60_000
 })
 const page = await app.firstWindow()
-await watchRunning(app)
-await placeTopRight(app)
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))
 
@@ -47,10 +45,30 @@ const check = (label, ok, detail) => {
  * in either order. The editor announces itself as `window.monaco` when its module
  * is evaluated. (Resource timing was the first idea, and has no entries for the
  * app's own file:// chunks.)
+ *
+ * Watched from the moment there is a window, and that window is given focus while
+ * its first shell is still starting. The check for files changed on disk runs on
+ * focus, and it used to fetch the editor before asking whether any file was open —
+ * so a window focused early had Monaco before its prompt. A hosted runner focuses
+ * the window early by itself, and caught that once in a gate; a desk rarely does,
+ * so here it is done on purpose, every run.
+ *
+ * After the document has loaded: firstWindow resolves on the window, which can
+ * still be holding about:blank, and a watch put there dies with it.
  */
+await page.waitForLoadState('domcontentloaded')
 await page.evaluate(() => {
   const tick = () => {
     const now = performance.now()
+    // On every tick while it is pending, not once: the listener is attached in an
+    // effect that can run a moment after the pane appears, and a check of the disk
+    // already in flight makes the extra ones nothing.
+    if (window.__firstPrompt === undefined && document.querySelector('.pane[data-integration="pending"]')) {
+      if (window.__focusedStarting === undefined && document.visibilityState === 'visible') {
+        window.__focusedStarting = now
+      }
+      window.dispatchEvent(new Event('focus'))
+    }
     if (window.__firstPrompt === undefined &&
         document.querySelector('.pane[data-integration="ready"], .pane[data-integration="absent"]')) {
       window.__firstPrompt = now
@@ -60,17 +78,28 @@ await page.evaluate(() => {
   }
   tick()
 })
+await watchRunning(app)
+await placeTopRight(app)
 await page.waitForSelector('.pane[data-integration="ready"]', { timeout: 40_000 })
 
 // --- the editor is not what the prompt waits for ------------------------------
 const times = async () =>
-  page.evaluate(() => ({ prompt: window.__firstPrompt ?? null, editor: window.__editorAt ?? null }))
+  page.evaluate(() => ({
+    focused: window.__focusedStarting ?? null,
+    prompt: window.__firstPrompt ?? null,
+    editor: window.__editorAt ?? null
+  }))
 let seen = await times()
 const deadline = Date.now() + 20_000
 while (seen.editor === null && Date.now() < deadline) {
   await sleep(500)
   seen = await times()
 }
+check(
+  'the window was given focus while its shell was still starting',
+  seen.focused !== null && (seen.prompt === null || seen.focused < seen.prompt),
+  JSON.stringify(seen)
+)
 check(
   'the editor arrives only after the first prompt',
   seen.prompt !== null && (seen.editor === null || seen.editor >= seen.prompt),

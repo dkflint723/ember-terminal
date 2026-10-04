@@ -51,6 +51,23 @@ newest entry sits on top.
   It now waits up to ten seconds for the mark, as the child-process check beside it
   already did. The app was right both times.
 
+### A window with no editor open no longer loads the editor before its prompt
+
+- **The check for files changed on disk fetched Monaco before it asked whether any
+  file was open.** It runs every two seconds and whenever the window gains focus, so
+  a window that had only ever been a terminal loaded the whole editor two seconds in
+  regardless — and sooner if it was focused while its shell was starting, which put
+  the editor ahead of the first prompt it was split out of the startup bundle not to
+  delay. A release dry run caught that order once, on a runner that focuses the window
+  early by itself. The check now looks for open files first and fetches the editor
+  only when there is one to compare; the preload after the first prompt is unchanged.
+- **How it is checked:** `verify-idle` now watches from the moment there is a window
+  and gives it focus while its first shell is still pending, every run, and reports
+  it if that moment was missed. Against the old check the editor arrived at 674 ms
+  and the prompt at 768 ms; with the fix it follows the prompt in three runs of
+  three. `verify-conflict`, `verify-follow` and `verify-reopen` still see editors
+  follow the disk.
+
 ## 0.5.0 — 2026-10-01
 
 The release that finishes the audit's roadmap: every one of its forty-eight items is
