@@ -3,7 +3,32 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
-## Unreleased
+## 0.5.1 — 2026-10-04
+
+The release that makes update signatures count. Three entries follow; this is what
+they add up to.
+
+**An update must be signed to be downloaded.** 0.5.0 checked each update's signature
+and logged a missing or wrong one, so that releases from before signing could reach
+it. From this release on, such an update is refused before it downloads, and Install
+now says so at once rather than after two minutes. The two settings a test suite
+uses to stand in a key of its own, or to only log, now apply only to a feed on this
+machine — never to one on GitHub. An update check that could not reach the signature
+says to try again later, not that the update may be forged, and checks that overlap
+are kept to one at a time.
+
+**A terminal window starts as light as it was meant to.** The editor was split out
+of startup so the first prompt would not wait for it, but the check for files
+changed on disk loaded it anyway — within two seconds in every window, and before
+the prompt in a window that had focus early. It now loads only when there is an
+open file to check.
+
+**Known limitations.**
+- Blocks over SSH need bash on the host, and are tested against a real SSH server on
+  a developer's machine only — CI has none.
+- Resizing the window while a command runs can still disturb that command's block.
+- A found line can drift out of view when the command after it finishes.
+- How the window backdrop looks has been seen on one Windows 11 desktop.
 
 ### An update must be signed to be downloaded
 
