@@ -217,13 +217,31 @@ async function run(language) {
      * suite competing for the processor — where tsserver answered the hover late
      * and the case reported an empty tooltip. The neighbouring wait below already
      * says this about the servers; the hover was left on a fixed sleep.
+     *
+     * And an answer, not the placeholder. Monaco shows "Loading..." while the
+     * request is out, which is text, so the wait ended the moment the hover opened
+     * — and on a runner where pyright was still starting Python to ask its version
+     * (synchronously: nothing else leaves pyright until that returns), the case
+     * read "Loading..." and failed with a server that was not broken, only busy.
+     *
+     * Or the server's answer in the traffic, whatever it was. yaml with no schema,
+     * and bash without `man`, answer a hover with nothing, and Monaco then hides
+     * the hover with "Loading..." still in it — a wait on the page alone would sit
+     * out the whole minute for them, every run. Once the answer is in, a moment
+     * for it to be drawn. (The placeholder comes after any marker in a hover, so a
+     * hover word must not sit on an error, or the regex would see the marker first.)
      */
-    const hoverBy = Date.now() + 20_000
+    const hoverBy = Date.now() + 60_000
     for (;;) {
-      const shown = await page.evaluate(
-        () => (document.querySelector('.monaco-hover')?.textContent ?? '').trim().length > 0
-      )
+      const shown = await page.evaluate(() => {
+        const text = (document.querySelector('.monaco-hover')?.textContent ?? '').trim()
+        return text.length > 0 && !/^Loading\b/.test(text)
+      })
       if (shown || Date.now() >= hoverBy) break
+      if (answersTo(parseTraffic(readLines(logPath)), 'textDocument/hover').length > 0) {
+        await sleep(800)
+        break
+      }
       await sleep(300)
     }
   }
@@ -255,6 +273,22 @@ async function run(language) {
       !findAnswer(parseTraffic(readLines(logPath)), spec.answersNonEmpty)
     ) {
       await sleep(500)
+    }
+  }
+
+  /*
+   * The squiggles waited for too, for the same reason as the hover: they arrive
+   * when the server's first analysis does, and a server held up starting its
+   * toolchain has not done one yet. A file with no errors expected waits for
+   * nothing.
+   */
+  if (spec.minErrorSquiggles) {
+    const squigglesBy = Date.now() + 60_000
+    while (
+      Date.now() < squigglesBy &&
+      (await page.evaluate(() => document.querySelectorAll('.squiggly-error').length)) < spec.minErrorSquiggles
+    ) {
+      await sleep(300)
     }
   }
 

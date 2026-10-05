@@ -3,6 +3,26 @@
 Notable changes to Ember. Versions follow [semver](https://semver.org); the
 newest entry sits on top.
 
+## Unreleased
+
+### verify-lsp waits for pyright's answer, not its placeholder
+
+- **The Python case failed two release gates with a server that was only busy.**
+  pyright asks Python for its version and search paths with a synchronous call that
+  has no time limit, and while that runs nothing else leaves pyright — not even the
+  replies it has already queued. On a cold runner it was silent for longer than the
+  case looked: six seconds, then a wait for the hover that ended as soon as the
+  hover read "Loading...", which is text. The squiggles were then counted once, with
+  no wait at all. The hover wait now ends on an answer — drawn, or seen in the
+  traffic, since yaml and bash answer some hovers with nothing — and the squiggles
+  are waited for too, each for up to a minute, ending the moment they arrive.
+- **How it is checked:** pyright is suspended for twenty seconds just after its
+  handshake, which is what the slow Python launch does to it. The old case fails
+  with "got Loading..." and `squiggles=0 messages=14` — the runner's failure to the
+  message — and the new one waits it out and passes. Unfrozen, every language
+  passes as before; `powershell` fails here on its process-table check with or
+  without this change, and is skipped on the runner, which has no server for it.
+
 ## 0.5.1 — 2026-10-04
 
 The release that makes update signatures count. Three entries follow; this is what
